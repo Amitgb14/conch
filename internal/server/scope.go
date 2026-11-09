@@ -123,6 +123,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 
 	proto.MethodAgentSkill: scopeHome,
+	// Downloading into the person's library is theirs to do.
+	proto.MethodLibraryFetch: scopeHome,
 	// Which ignored files — secrets among them — are copied into every new
 	// worktree: the person's call, even in the agent's own project.
 	proto.MethodProjectFiles: scopeHome,
@@ -359,8 +361,9 @@ var verbs = map[string]string{
 	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
 	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
-	proto.MethodAgentSync: "sync one agent's setup to the others",
-	proto.MethodReviewSet: "comment on a branch", proto.MethodReviewSend: "send review comments", proto.MethodReviewReply: "reply to review comments in",
+	proto.MethodLibraryFetch: "download a skill into the library",
+	proto.MethodAgentSync:    "sync one agent's setup to the others",
+	proto.MethodReviewSet:    "comment on a branch", proto.MethodReviewSend: "send review comments", proto.MethodReviewReply: "reply to review comments in",
 	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
 }
 

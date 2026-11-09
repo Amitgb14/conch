@@ -404,7 +404,7 @@ var slowMethods = map[string]bool{
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true, proto.MethodFSWrite: true, proto.MethodFSFind: true,
-	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
+	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryFetch: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
@@ -1089,6 +1089,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.agentLibrary(lp)
+
+	case proto.MethodLibraryFetch:
+		fp, perr := decode[proto.LibraryFetchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.libraryFetch(fp)
 
 	case proto.MethodLibraryApply:
 		ap, perr := decode[proto.LibraryApplyParams](msg)

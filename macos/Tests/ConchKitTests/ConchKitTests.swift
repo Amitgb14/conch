@@ -2752,3 +2752,23 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let (_, odd, _) = s.paletteItems(machine: "lab-2", label: "lab box")
     #expect(odd.first { $0.title == "bash" }?.detail == "lab box · lab-2:p3")
 }
+
+// A skill from GitHub: told from a folder as the server tells it, its
+// source kept through a save, and a fetch's answer read.
+@Test func librarySkillFromGitHub() throws {
+    for yes in ["anthropics/skills", "anthropics/skills/skills/pdf", "anthropics/skills/skills/pdf@v1", "https://github.com/anthropics/skills/tree/main/skills/pdf", "github.com/o/r"] {
+        #expect(isGitHubSkill(yes), "\(yes)")
+    }
+    for no in ["~/skills/review", "/opt/x", "./x/y", "justone", "", "https://gitlab.com/o/r", "o/r/../x", "o r/x"] {
+        #expect(!isGitHubSkill(no), "\(no)")
+    }
+    let lib = try Library(servers: [], skills: []).addingSkill(name: "pdf", path: "/h/.config/conch/library/skills/pdf", agents: ["claude"], source: "anthropics/skills/skills/pdf")
+    #expect(lib.skills.first?.source == "anthropics/skills/skills/pdf")
+    // Saved and read back, the source is still there; a folder has none.
+    let back = try JSONDecoder().decode(Library.self, from: JSONEncoder().encode(try lib.addingSkill(name: "mine", path: "~/s/mine", agents: [])))
+    #expect(back.skills.first { $0.name == "pdf" }?.source == "anthropics/skills/skills/pdf")
+    #expect(back.skills.first { $0.name == "mine" }?.source == nil)
+    #expect(!String(decoding: try JSONEncoder().encode(back.skills.first { $0.name == "mine" }!), as: UTF8.self).contains("source"))
+    let several = try JSONDecoder().decode(LibraryFetchResult.self, from: Data(#"{"source":"acme/many","found":["acme/many/skills/pdf","acme/many/skills/xlsx"]}"#.utf8))
+    #expect(several.found?.count == 2 && several.path == nil)
+}

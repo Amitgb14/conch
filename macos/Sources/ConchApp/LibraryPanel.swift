@@ -39,6 +39,18 @@ final class LibraryModel: ObservableObject {
         var `import`: String?
     }
 
+    /// Whether this machine's server can fetch a skill from GitHub.
+    var canFetch: Bool { store.connection(machine)?.hello?.capabilities?.contains("agent.library.fetch.v1") == true }
+
+    /// A skill on GitHub downloaded into this machine's library, by its
+    /// server: that is where its agents read it.
+    func fetch(source: String, name: String) async throws -> LibraryFetchResult {
+        guard let c = conn else { throw LibraryFormError(error) }
+        struct P: Encodable { var source: String; var name: String? }
+        let n = name.trimmingCharacters(in: .whitespaces)
+        return try await c.call("agent.library.fetch", P(source: source.trimmingCharacters(in: .whitespaces), name: n.isEmpty ? nil : n), as: LibraryFetchResult.self)
+    }
+
     func load() {
         result = nil
         error = ""
@@ -181,6 +193,10 @@ struct SkillForm: Identifiable {
     var name = ""
     var path = ""
     var agents: Set<String> = []
+    /// Where on GitHub it comes from: what the GitHub tab fetches, and what
+    /// an edit of a fetched skill keeps.
+    var source = ""
+    var fromGitHub = false
 }
 
 /// The library in Settings → Skills & MCP servers, for the machine picked
@@ -223,12 +239,12 @@ struct LibraryPanel: View {
             let skills = r.library.skills.sorted { $0.name < $1.name }
             ForEach(Array(skills.enumerated()), id: \.element.name) { i, s in
                 row(r, LibraryKind.skill, s.name, s.path, icon: "book", first: i == 0, edit: {
-                    model.skillForm = SkillForm(old: s.name, name: s.name, path: s.path, agents: Set(s.agents))
+                    model.skillForm = SkillForm(old: s.name, name: s.name, path: s.path, agents: Set(s.agents), source: s.source ?? "", fromGitHub: s.source != nil)
                 })
             }
             if skills.isEmpty { empty("No skills of your own yet: a folder holding a SKILL.md, given to the agents you tick.") }
             HStack(spacing: 8) {
-                pill("Add a skill folder…", "plus") { model.skillForm = SkillForm(agents: Set(r.agents)) }
+                pill("Add a skill…", "plus") { model.skillForm = SkillForm(agents: Set(r.agents)) }
                 Menu {
                     ForEach(r.agents, id: \.self) { a in Button(model.agentName(a)) { model.importFrom(a) } }
                 } label: { Text("Take an agent's in").font(.ui(size: 12)) }
@@ -439,31 +455,67 @@ struct SkillFormView: View {
     let local: Bool
     @ObservedObject var model: LibraryModel
     @State private var problem = ""
+    @State private var found: [String] = []
+    @State private var fetching = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         let _ = look
         return VStack(alignment: .leading, spacing: 10) {
             Text(form.old == nil ? "Add a skill" : form.old!).font(.ui(size: 14, weight: .semibold))
-            Text("A folder holding a SKILL.md, wherever you keep it. Each agent gets a link to it, not a copy, so editing the folder changes it for all of them.")
-                .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Form {
-                HStack {
-                    TextField("Folder", text: $form.path, prompt: Text("~/skills/review"))
-                    if local { Button("Choose…") { choose() } }
+            Picker("", selection: $form.fromGitHub) {
+                Text("Folder").tag(false)
+                Text("From GitHub").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 240)
+            if form.fromGitHub {
+                Text("A skill shared on GitHub: owner/repo, owner/repo/path/to/skill, @ref at the end, or the link to its folder. The server on \(model.store.label(model.machine)) downloads it into conch's library there — nothing in it is run — and each agent gets a link to it.")
+                    .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Form {
+                    TextField("GitHub", text: $form.source, prompt: Text("anthropics/skills/skills/pdf"))
+                    TextField("Name", text: $form.name, prompt: Text("its folder's name"))
                 }
-                TextField("Name", text: $form.name, prompt: Text("the folder's name"))
+                if !found.isEmpty {
+                    Text("That repository holds \(found.count) skills; pick one:").font(.ui(size: 12, weight: .medium))
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(found, id: \.self) { f in
+                                Button { form.source = f; found = []; save() } label: {
+                                    Text(f).font(.ui(size: 12, design: .monospaced)).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.link)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 140)
+                }
+                if !model.canFetch {
+                    Text("The server on \(model.store.label(model.machine)) can't fetch from GitHub yet: reload or upgrade it.")
+                        .font(.ui(size: 11.5)).foregroundStyle(Theme.warn)
+                }
+            } else {
+                Text("A folder holding a SKILL.md, wherever you keep it. Each agent gets a link to it, not a copy, so editing the folder changes it for all of them.")
+                    .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Form {
+                    HStack {
+                        TextField("Folder", text: $form.path, prompt: Text("~/skills/review"))
+                        if local { Button("Choose…") { choose() } }
+                    }
+                    TextField("Name", text: $form.name, prompt: Text("the folder's name"))
+                }
             }
             Text("Give it to").font(.ui(size: 12, weight: .medium))
             AgentTicks(agents: agents, on: $form.agents, name: model.agentName)
-            if !problem.isEmpty { Text(problem).font(.ui(size: 11.5)).foregroundStyle(Theme.err) }
+            if !problem.isEmpty { Text(problem).font(.ui(size: 11.5)).foregroundStyle(Theme.err).fixedSize(horizontal: false, vertical: true) }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Save") { save() }.keyboardShortcut(.defaultAction)
+                Button(form.fromGitHub ? (fetching ? "Fetching…" : form.old == nil ? "Fetch and add" : "Fetch again") : "Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(fetching || (form.fromGitHub && (!model.canFetch || form.source.trimmingCharacters(in: .whitespaces).isEmpty)))
             }
         }
-        .padding(18).frame(width: 520)
+        .padding(18).frame(width: 540)
     }
 
     func choose() {
@@ -485,12 +537,39 @@ struct SkillFormView: View {
 
     func save() {
         guard let r = model.result else { return }
+        let ticked = r.agents.filter(form.agents.contains)
+        if form.fromGitHub {
+            guard isGitHubSkill(form.source) else {
+                problem = "That isn't a skill on GitHub: owner/repo, owner/repo/path/to/skill, @ref at the end, or a github.com link."
+                return
+            }
+            fetching = true
+            problem = ""
+            Task {
+                defer { fetching = false }
+                do {
+                    let f = try await model.fetch(source: form.source, name: form.name)
+                    if let several = f.found, !several.isEmpty {
+                        found = several
+                        return
+                    }
+                    guard let name = f.name, let path = f.path else { problem = "Nothing came back"; return }
+                    let lib = try r.library.addingSkill(name: name, path: path, agents: ticked, replacing: form.old, source: f.source)
+                    model.save(lib, flash: "Fetched \(f.source ?? name) into the library")
+                    dismiss()
+                } catch {
+                    problem = "\(error)"
+                }
+            }
+            return
+        }
         do {
-            let lib = try r.library.addingSkill(name: form.name, path: form.path, agents: r.agents.filter(form.agents.contains), replacing: form.old)
+            let lib = try r.library.addingSkill(name: form.name, path: form.path, agents: ticked, replacing: form.old)
             model.save(lib, flash: "Saved \(lib.skills.last?.name ?? form.name)")
             dismiss()
         } catch {
             problem = "\(error)"
         }
     }
+
 }

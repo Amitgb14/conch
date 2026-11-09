@@ -19,6 +19,7 @@ const libraryUsage = `usage: conch agent library [list]
        conch agent library add [-to NAMES] [-env K=${V}]... [-header K=V]... [-sse] NAME (URL | -- COMMAND [ARGS...])
        conch agent library mcp [-to NAMES]
        conch agent library skill [-to NAMES] NAME FOLDER
+       conch agent library skill [-to NAMES] [NAME] owner/repo[/path/to/skill][@ref]   (or a github.com link: downloaded on that machine)
        conch agent library on|off NAME NAMES
        conch agent library rm NAME
        conch agent library import AGENT
@@ -133,14 +134,38 @@ func runLibrary(c *client.Client, w io.Writer, cmd string, args []string) error 
 		fs := flag.NewFlagSet("agent library skill", flag.ContinueOnError)
 		fs.SetOutput(io.Discard)
 		to := fs.String("to", "all", "the agents to give it to, comma separated, or all")
-		if err := fs.Parse(args); err != nil || fs.NArg() != 2 {
+		if err := fs.Parse(args); err != nil || fs.NArg() < 1 || fs.NArg() > 2 {
 			return errors.New(libraryUsage)
+		}
+		// NAME SOURCE, or SOURCE alone when it is on GitHub and its folder
+		// names it. A source on GitHub is downloaded by the machine's own
+		// server, into its library: that is where its agents read it.
+		name, source := "", fs.Arg(0)
+		if fs.NArg() == 2 {
+			name, source = fs.Arg(0), fs.Arg(1)
+		}
+		sk := proto.LibrarySkill{Name: name, Path: source}
+		if _, onGitHub := agentsetup.ParseSkillSource(source); onGitHub {
+			if len(c.MissingCapabilities([]string{proto.CapLibraryFetch})) > 0 {
+				return errors.New("the conch server there can't fetch skills from GitHub; reload it with `conch server reload`, or give a folder")
+			}
+			var f proto.LibraryFetchResult
+			if err := call(c, proto.MethodLibraryFetch, proto.LibraryFetchParams{Source: source, Name: name}, &f); err != nil {
+				return err
+			}
+			if len(f.Found) > 0 {
+				return fmt.Errorf("%s holds %d skills; name one:\n  %s", f.Source, len(f.Found), strings.Join(f.Found, "\n  "))
+			}
+			sk = proto.LibrarySkill{Name: f.Name, Path: f.Path, Source: f.Source}
+			fmt.Printf("fetched %s into %s\n", f.Source, f.Path)
+		} else if fs.NArg() != 2 {
+			return errors.New("usage: conch agent library skill NAME FOLDER — a folder of your own needs a name; a GitHub skill (owner/repo/path) is named by its folder")
 		}
 		res, err := get(proto.AgentLibraryParams{})
 		if err != nil {
 			return err
 		}
-		sk := proto.LibrarySkill{Name: fs.Arg(0), Path: fs.Arg(1), Agents: agentList(*to, res.Agents)}
+		sk.Agents = agentList(*to, res.Agents)
 		lib := res.Library
 		replaced := false
 		for i := range lib.Skills {

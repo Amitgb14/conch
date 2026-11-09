@@ -49,12 +49,45 @@ public struct LibrarySkill: Codable, Equatable, Sendable {
     /// A folder holding a SKILL.md; ~ is the home directory there.
     public var path: String
     public var agents: [String]
+    /// Where on GitHub a fetched skill came from (owner/repo/path@ref), to
+    /// fetch it again; nil for a folder of the person's own. Carried back
+    /// on every save, or saving would forget it.
+    public var source: String?
 
-    public init(name: String, path: String, agents: [String]) {
+    public init(name: String, path: String, agents: [String], source: String? = nil) {
         self.name = name
         self.path = path
         self.agents = agents
+        self.source = source
     }
+}
+
+/// agent.library.fetch: a skill downloaded from GitHub into that machine's
+/// library, or, for a repository holding several, which they are.
+public struct LibraryFetchResult: Decodable, Equatable, Sendable {
+    public var name: String?
+    public var path: String?
+    public var source: String?
+    public var found: [String]?
+}
+
+/// Whether what was typed is a skill on GitHub — owner/repo[/path][@ref] or
+/// a github.com link — rather than a folder on the machine, as the server's
+/// ParseSkillSource reads it.
+public func isGitHubSkill(_ s: String) -> Bool {
+    var t = s.trimmingCharacters(in: .whitespaces)
+    if t.isEmpty || t.hasPrefix("/") || t.hasPrefix("~") || t.hasPrefix(".") { return false }
+    for p in ["https://github.com/", "http://github.com/", "github.com/"] where t.hasPrefix(p) {
+        t = String(t.dropFirst(p.count))
+        break
+    }
+    if t.contains("://") { return false }
+    if let at = t.lastIndex(of: "@") { t = String(t[..<at]) }
+    let parts = t.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+    guard parts.count >= 2 else { return false }
+    let ok = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+    func name(_ x: String) -> Bool { !x.isEmpty && x.unicodeScalars.allSatisfy(ok.contains) }
+    return name(parts[0]) && name(parts[1]) && !parts.dropFirst(2).contains { $0 == ".." || $0 == "." }
 }
 
 public struct Library: Codable, Equatable, Sendable {
@@ -264,14 +297,14 @@ extension Library {
     /// The library with a skill added, or replacing one of that name (or
     /// the one called replacing, when its name changed). A skill with no
     /// name is named after its folder.
-    public func addingSkill(name: String, path: String, agents: [String], replacing old: String? = nil) throws -> Library {
+    public func addingSkill(name: String, path: String, agents: [String], replacing old: String? = nil, source: String? = nil) throws -> Library {
         let path = path.trimmingCharacters(in: .whitespaces)
         var name = name.trimmingCharacters(in: .whitespaces)
         guard !path.isEmpty else { throw LibraryFormError("a skill needs the folder its SKILL.md is in") }
         if name.isEmpty { name = ((path as NSString).standardizingPath as NSString).lastPathComponent }
         var lib = self
         lib.skills.removeAll { $0.name == name || $0.name == old }
-        lib.skills.append(LibrarySkill(name: name, path: path, agents: agents))
+        lib.skills.append(LibrarySkill(name: name, path: path, agents: agents, source: source))
         return lib
     }
 

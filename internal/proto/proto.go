@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -105,6 +105,15 @@ const CapScopeRemote = "scope.remote.v1"
 // CapAgentSkill is agent.skill: conch's own skill installed where each
 // agent reads the person's skills, or taken away again.
 const CapAgentSkill = "agent.skill.v1"
+
+// CapAgentSkillPick is agent.skill taking Skills: some of conch's skills
+// rather than all of them. A server without it installs every one, so a
+// client asks for one skill only of a server that says it can.
+const CapAgentSkillPick = "agent.skill.pick.v1"
+
+// CapLibraryFetch is agent.library.fetch: a skill downloaded from GitHub
+// into the library, on the machine whose agents will read it.
+const CapLibraryFetch = "agent.library.fetch.v1"
 
 // CapWorktreeWatch is announced only by a server that really got its file
 // watches: without it clients poll instead.
@@ -365,6 +374,7 @@ const (
 	MethodAgentSetup     = "agent.setup"
 	MethodAgentSync      = "agent.setup.sync"
 	MethodAgentLibrary   = "agent.library"
+	MethodLibraryFetch   = "agent.library.fetch"
 	MethodLibraryApply   = "agent.library.apply"
 	MethodProjectFiles   = "project.set_files"
 	MethodProjectSetup   = "project.set_setup"
@@ -2121,6 +2131,9 @@ type ActForParams struct {
 // written: the result says what would be.
 type AgentSkillParams struct {
 	Agents []string `json:"agents,omitempty"`
+	// Skills names which of conch's skills (conch, conch-review, …); all
+	// of them when empty (agent.skill.pick.v1).
+	Skills []string `json:"skills,omitempty"`
 	Remove bool     `json:"remove,omitempty"`
 	Apply  bool     `json:"apply,omitempty"`
 }
@@ -2294,6 +2307,27 @@ type LibrarySkill struct {
 	Name   string   `json:"name"`
 	Path   string   `json:"path"` // ~ is the home directory there
 	Agents []string `json:"agents"`
+	// Source is where on GitHub a fetched skill came from, to fetch it
+	// again; empty for a folder of the person's own.
+	Source string `json:"source,omitempty"`
+}
+
+// LibraryFetchParams asks for a skill on GitHub — owner/repo,
+// owner/repo/path/to/skill, @ref at the end, or a github.com link — to be
+// downloaded into the library under Name (its folder's name when empty).
+type LibraryFetchParams struct {
+	Source string `json:"source"`
+	Name   string `json:"name,omitempty"`
+}
+
+// LibraryFetchResult is the skill fetched, ready to be given to agents as a
+// library skill at Path. Found lists the skills a repository holds when
+// Source named none of several; the person picks one.
+type LibraryFetchResult struct {
+	Name   string   `json:"name,omitempty"`
+	Path   string   `json:"path,omitempty"`
+	Source string   `json:"source,omitempty"`
+	Found  []string `json:"found,omitempty"`
 }
 
 // Library is the MCP servers and skills conch keeps for the agents.
