@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -151,7 +152,12 @@ func TestStatusInATerminal(t *testing.T) {
 	}
 	terminalWidth = func() int { return 0 } // a pipe
 	piped, _ := a4Capture(t, "", func() { err = runStatus(nil) })
-	if piped != out {
+	// The server's uptime is counted against the clock and rounded to a
+	// second, so a second passing between these two runs made them differ
+	// and the test fail on a loaded machine. It is the one thing in the
+	// table that is not the table: everything else is compared as it is.
+	uptime := regexp.MustCompile(`up \S+`)
+	if uptime.ReplaceAllString(piped, "up …") != uptime.ReplaceAllString(out, "up …") {
 		t.Fatalf("piped is not the wide table:\n%s\nwant\n%s", piped, out)
 	}
 
