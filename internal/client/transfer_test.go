@@ -26,8 +26,11 @@ func chunked(n int) []byte {
 	return b.Bytes()
 }
 
+// transferCtx stops a copy that hangs. It is not a speed test: twenty
+// chunks as JSON under the race detector took up to 11 s alone, and a
+// whole download is one context, so 20 s failed under the full suite.
 func transferCtx(t *testing.T) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	t.Cleanup(cancel)
 	return ctx
 }
@@ -36,27 +39,47 @@ func transferCtx(t *testing.T) context.Context {
 // first, so a client that sent one at a time would never hear back.
 const heldBatch = 4
 
+// held answers chunks a group at a time: chunks 0–3, 4–7 and so on, each
+// group once every chunk in it has been asked for, newest first. Nothing
+// is answered until four are on the way at once, which is what the tests
+// prove; and the group is by chunk, not by arrival. It was by arrival —
+// every fourth request let the held ones go — and a client sends each
+// chunk from a goroutine of its own, so two could arrive swapped: the
+// oldest was then left among one to three held, the client waited for it
+// with all its calls in flight and sent nothing more, and nothing let it
+// go (20 s, then "context deadline exceeded", about once in fifty runs).
+// The client waits for its oldest chunk with the seven after it asked
+// for, so the oldest's group is always complete.
 type held struct {
-	msgs []proto.Message
-	vals []any
+	total  int // chunks to be held, numbered from 0
+	groups map[int][]heldMsg
 }
 
-func (h *held) add(conn *proto.Conn, msg proto.Message, v any, release bool) {
-	h.msgs, h.vals = append(h.msgs, msg), append(h.vals, v)
-	if !release {
+type heldMsg struct {
+	msg proto.Message
+	val any
+}
+
+func (h *held) add(conn *proto.Conn, msg proto.Message, v any, chunk int) {
+	if h.groups == nil {
+		h.groups = map[int][]heldMsg{}
+	}
+	g := chunk / heldBatch
+	h.groups[g] = append(h.groups[g], heldMsg{msg, v})
+	if len(h.groups[g]) < min(heldBatch, h.total-g*heldBatch) {
 		return
 	}
-	for i := len(h.msgs) - 1; i >= 0; i-- {
-		a3Reply(conn, h.msgs[i], h.vals[i], nil)
+	for i := len(h.groups[g]) - 1; i >= 0; i-- {
+		a3Reply(conn, h.groups[g][i].msg, h.groups[g][i].val, nil)
 	}
-	h.msgs, h.vals = nil, nil
+	delete(h.groups, g)
 }
 
 func TestUploadSeveralChunksAtOnce(t *testing.T) {
 	data := chunked(20)
 	middle := 19 // every chunk but the first and the last
 	got := make([]byte, len(data))
-	var h held
+	h := held{total: 19} // every chunk but the first and the last
 	seen, final := 0, false
 	s := a3NewServer(t, func(conn *proto.Conn, msg proto.Message) {
 		var p proto.FSUploadParams
@@ -79,7 +102,7 @@ func TestUploadSeveralChunksAtOnce(t *testing.T) {
 			a3Reply(conn, msg, proto.FSUploadResult{Upload: "u1", Path: "/there/f"}, nil)
 		default:
 			seen++
-			h.add(conn, msg, proto.FSUploadResult{Upload: "u1"}, len(h.msgs)+1 == heldBatch || seen == middle)
+			h.add(conn, msg, proto.FSUploadResult{Upload: "u1"}, int(p.Offset/proto.UploadChunkSize)-1)
 		}
 	})
 	s.caps = append(s.caps, proto.CapFSTransfer)
@@ -160,9 +183,9 @@ func TestUploadChunkRefused(t *testing.T) {
 // downloadServer serves data as a download, holding reads in batches; the
 // last chunk must be asked for after every other one has been answered.
 func downloadServer(t *testing.T, data []byte, bad func(off int64, c *proto.FSDownloadChunk)) *a3Server {
-	var h held
 	answered := 0
 	middle := (len(data) - 1) / proto.UploadChunkSize // chunks before the last
+	h := held{total: middle}
 	s := a3NewServer(t, func(conn *proto.Conn, msg proto.Message) {
 		if msg.Method == proto.MethodFSDownload {
 			a3Reply(conn, msg, proto.FSDownload{ID: "d1", Name: "big.bin", Size: int64(len(data))}, nil)
@@ -184,7 +207,7 @@ func downloadServer(t *testing.T, data []byte, bad func(off int64, c *proto.FSDo
 			return
 		}
 		answered++
-		h.add(conn, msg, c, len(h.msgs)+1 == heldBatch || answered == middle)
+		h.add(conn, msg, c, int(p.Offset/proto.UploadChunkSize))
 	})
 	s.caps = append(s.caps, proto.CapFSTransfer)
 	return s

@@ -83,13 +83,19 @@ func TestMonitorRealPS(t *testing.T) {
 	if _, err := exec.LookPath("ps"); err != nil {
 		t.Skip("no ps")
 	}
-	s := takeSample()
-	if s.err != nil {
-		t.Fatal(s.err)
+	// What is checked is ps's format, not its speed: under the whole race
+	// suite ps has taken longer than the monitor's own sampling interval,
+	// and was killed by it (signal: killed). So it is given time here.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := runPS(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	me, ok := s.procs[os.Getpid()]
+	procs := parsePS(out)
+	me, ok := procs[os.Getpid()]
 	if !ok || me.rss <= 0 || me.ppid != os.Getppid() {
-		t.Fatalf("this process: %+v (found %v) among %d", me, ok, len(s.procs))
+		t.Fatalf("this process: %+v (found %v) among %d", me, ok, len(procs))
 	}
 }
 
