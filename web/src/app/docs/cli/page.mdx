@@ -243,6 +243,10 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
+| `conch sandbox adapt [-agent A] [-name N] [-json] URL…` | teach conch a [provider it doesn't know](/docs/sandboxes#a-provider-conch-doesnt-know): it downloads the API docs, an agent (Claude by default) writes a provider file from them in a pane of its own, and conch checks the file and your key. Nothing is saved; on a terminal it asks. `-json` says each step as a line, for Conch.app |
+| `conch sandbox adapt -revise TEXT NAME` | send TEXT to the agent that wrote NAME's draft, and check the draft again |
+| `conch sandbox provider check [-offline] [-json] NAME\|FILE` | what is wrong with a provider file, and (without `-offline`) whether the provider's list answers your key; exits 1 when the file is wrong |
+| `conch sandbox provider show\|save\|rm NAME` | print a provider file; make a draft a provider; forget one (refused while a machine here is one of its sandboxes, which are never touched) |
 | `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
 | `conch sandbox -provider daytona\|boat\|devin …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |

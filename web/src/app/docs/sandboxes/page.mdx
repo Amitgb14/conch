@@ -19,12 +19,13 @@ In the tree they sit together under **Sandboxes**, one group per provider, so a 
 
 Each one opens like any machine — its projects, agents and terminals underneath — and `m` on its row starts, stops or deletes it. Selecting **Sandboxes**, or one provider, shows what is in it with each sandbox's state. The group appears once there is a sandbox; the same label under two providers is two different sandboxes, and each keeps its own row.
 
-Three providers are supported:
+Four providers are supported:
 
 | Provider | What it is | How conch gets in |
 | --- | --- | --- |
 | [Daytona](https://www.daytona.io) | sandboxes with an ssh gateway, sized in vCPUs, memory and disk | a fresh ssh token per connection, through Daytona's gateway |
 | [boat.dev](https://boat.dev) | whole Ubuntu machines in named sizes, with an sshd of their own | your own public key, authorized in the sandbox |
+| [Tensorlake](https://docs.tensorlake.ai/sandboxes/quickstart) | microVMs sized in vCPUs, memory and disk (10–100 GiB), suspended and resumed with their memory | your own public key, registered once with your Tensorlake account, through its ssh gateway `sandbox.tensorlake.ai` |
 | [Devin Cloud](https://docs.devin.ai/cli/cloud) | the VM of a Devin Cloud session, with Devin in it; sized by Devin, placed on a platform or an outpost pool | `devin ssh`, the devin CLI's own approved connection |
 
 Everything on this page works with all of them unless it says otherwise. Where they differ — sizes, prices, snapshots, what stopping keeps — it says so. Devin Cloud does least of it: no preview links, snapshots or billed cost, since its API has none to give.
@@ -37,7 +38,17 @@ Create an API key in the provider's dashboard and put it in your environment:
 export DAYTONA_API_KEY=dtn_…     # Daytona
 export BOAT_API_KEY=boat_…       # boat.dev
 export DEVIN_API_KEY=cog_…       # Devin Cloud: a service user's key
+export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 ```
+
+Tensorlake's gateway lets in the ssh keys registered with your account, and registering one takes your own login rather than an API key, so conch cannot do it for you. Do it once, with [Tensorlake's CLI](https://docs.tensorlake.ai/sandboxes/remote-dev):
+
+```sh
+tl login
+tl sbx ssh keys add --name laptop ~/.ssh/id_ed25519.pub
+```
+
+conch offers the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` it finds (else a key of its own, in conch's directory: register that one). Every sandbox conch makes there is named `conch-…`, since only a named sandbox can be suspended and resumed, and that is how `conch sandbox -provider tensorlake ls` tells conch's apart from yours. Stop suspends it, keeping its disk and memory; start resumes it. Tensorlake takes no variables when a sandbox is made — only secrets it already holds — so a sandbox with `env` set is refused, with that reason; and the snapshot setting is the image a sandbox starts from.
 
 Devin Cloud also needs the [devin CLI](https://docs.devin.ai/cli/cloud), installed (`conch agent install devin`) and signed in (`devin auth login`): its API makes the session, but only the CLI's login can open the way into its VM. conch makes the session in the organization `$DEVIN_ORG_ID` names, or else the one Devin says the key's sessions run in.
 
@@ -47,9 +58,31 @@ By default conch reads the key from the environment every time and never writes 
 
 If you would rather not keep it in your shell at all, Settings → **Sandboxes** → the provider → **API key** takes the key itself. It is then written to `config.toml` (0600) as it is: anything running as you can read it, and it travels with a backup or a synced dotfile, so it is the convenient choice rather than the careful one. A key kept there wins over the variable, the settings show only its last few characters, and emptying the field gives the variable back.
 
+## A provider conch doesn't know
+
+conch can be taught a provider it has no code for, from that provider's API docs. **Settings → Sandboxes → Add provider…** in Conch.app, `M` → **New sandbox…** → **+ Add a provider conch doesn't know…** in the TUI, or:
+
+```sh
+conch sandbox adapt https://api.example.dev/sandboxes          # Claude writes it
+conch sandbox adapt -agent codex -name acme https://docs.acme.dev/openapi.json
+```
+
+conch downloads the docs — the address you give, or, when that is the API itself answering *401*, the usual places beside it (`llms.txt`, `openapi.json`/`.yaml` on the docs host) — and starts the agent in a pane of its own, in a folder holding those docs and the format of a **provider file**. The agent writes the file: which call makes a sandbox, looks at one, lists them, starts, stops and deletes one; which of the provider's states mean started, stopped and the rest; and how ssh gets in — a gateway with a key registered with your account, an sshd conch hands its key to through the API, or a credential handed out per connection. It checks its own work with `conch sandbox provider check -offline`. You can watch it, and answer it if it asks.
+
+conch then shows what it will do with the file, a line per call, checks it — every call there, every state mapped, the ssh way in — and asks the provider for its list with your key, which makes nothing. Nothing is a provider until you save it (**Save provider**, or `conch sandbox provider save NAME`); until then it is a draft in `~/.config/conch/providers/drafts/`. Something wrong with it can be sent back to the same agent (**Ask Claude to change…**, or `conch sandbox adapt -revise "…" NAME`).
+
+Saved, it is `~/.config/conch/providers/NAME.toml`, and it is a provider like the others: in **New sandbox…**, `conch sandbox -provider NAME …`, Stop, Start, Delete and the idle stop, marked **adapted** wherever providers are listed. It is a description, not code: conch reads it with one provider of its own, so a wrong file fails a check or a call — and says which call — rather than doing something else. Edit it by hand if you like; `conch sandbox provider check NAME` says whether it still holds. `conch sandbox provider rm NAME` forgets it, and refuses while a machine here is one of its sandboxes.
+
+Some things it cannot do:
+
+- **A provider with no ssh** cannot be adapted. conch runs everything in a sandbox over ssh; one that offers only its own way to run commands (E2B's, for one) is refused with that reason, and nothing is saved.
+- **The key is yours and conch's.** It is never put in the agent's prompt or folder, and the variables API keys are usually kept in are emptied in the agent's pane — but the agent runs as you, so do not adapt a provider with an agent you would not trust in your shell.
+- **The agent reads what the docs say**, and a docs page can say anything. Read the lines conch shows before saving: they are every request it will make, with your key, to that address.
+- Snapshots, preview links and what a sandbox has cost are left out: an adapted provider makes, starts, stops, deletes and reaches sandboxes, and the built-in ones do the rest.
+
 ## In the TUI
 
-Press `M`, choose **New sandbox…** and then the provider — Daytona (`d`), boat.dev (`b`) or Devin Cloud (`e`), and whatever conch grows later sits beside it under the first letter of its name nobody else has; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default` or `large` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. Devin Cloud's dialog asks for a **Platform** where the snapshot goes and no size at all, and says before anything is made that Devin works, and bills, in the session. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two — and says what it is doing while it does it, in the status bar with a spinner: *asking boat.dev for a sandbox…*, *waiting for hull to answer…*, *copying conch to hull (16 MB)…*. A provider says a sandbox is started before its sshd is (Daytona says so within a second), so conch waits for it to answer, and tries again when a connection drops — copying 16 MB is the longest thing it asks of one — rather than throwing the sandbox away at the first refusal. That line stays until the job is done, unlike a message that fades. If setting up fails, the sandbox is deleted rather than left to cost — it says that too — and the reason is shown.
+Press `M`, choose **New sandbox…** and then the provider — Daytona (`d`), boat.dev (`b`), Devin Cloud (`e`) or Tensorlake (`t`), or one you [adapted](#a-provider-conch-doesnt-know), and whatever conch grows later sits beside it under the first letter of its name nobody else has; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default` or `large` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. Devin Cloud's dialog asks for a **Platform** where the snapshot goes and no size at all, and says before anything is made that Devin works, and bills, in the session. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two — and says what it is doing while it does it, in the status bar with a spinner: *asking boat.dev for a sandbox…*, *waiting for hull to answer…*, *copying conch to hull (16 MB)…*. A provider says a sandbox is started before its sshd is (Daytona says so within a second), so conch waits for it to answer, and tries again when a connection drops — copying 16 MB is the longest thing it asks of one — rather than throwing the sandbox away at the first refusal. That line stays until the job is done, unlike a message that fades. If setting up fails, the sandbox is deleted rather than left to cost — it says that too — and the reason is shown.
 
 `m` on a sandbox's row adds:
 

@@ -144,7 +144,7 @@ func (m *Model) canMoveProject(mid, projectID string) bool {
 // refused.
 func moveProviders() []string {
 	var out []string
-	for _, name := range sandbox.Providers {
+	for _, name := range sandbox.Names() {
 		if p, err := openSandboxProvider(name); err == nil && p != nil && p.Check() == nil {
 			out = append(out, name)
 		}

@@ -16,6 +16,7 @@ struct NewSandboxSheet: View {
     @State private var providers: [SandboxProviderInfo]?
     @State private var form = NewSandboxForm(provider: "")
     @State private var problem = ""
+    @State private var adding = false
 
     var chosen: SandboxProviderInfo? { providers?.first { $0.name == form.provider } }
 
@@ -38,6 +39,7 @@ struct NewSandboxSheet: View {
             }
             HStack {
                 Button("Sandbox settings…") { dismiss(); store.openSettings("sandbox") }.buttonStyle(.link)
+                Button("Add a provider…") { adding = true }.buttonStyle(.link)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Create") { create() }.keyboardShortcut(.defaultAction).disabled(chosen?.ready != true)
@@ -45,6 +47,7 @@ struct NewSandboxSheet: View {
         }
         .padding(20).frame(width: 480)
         .task { await load() }
+        .sheet(isPresented: $adding) { AddProviderSheet(store: store) { Task { await load() } } }
     }
 
     private func providerRow(_ p: SandboxProviderInfo) -> some View {
@@ -58,7 +61,15 @@ struct NewSandboxSheet: View {
                 Image(systemName: on ? "largecircle.fill.circle" : "circle")
                     .foregroundStyle(p.ready ? (on ? Theme.accent : Theme.muted) : Theme.muted.opacity(0.5))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(p.label).font(.ui(size: 13, weight: .medium)).foregroundStyle(p.ready ? Theme.text : Theme.muted)
+                    HStack(spacing: 6) {
+                        Text(p.label).font(.ui(size: 13, weight: .medium)).foregroundStyle(p.ready ? Theme.text : Theme.muted)
+                        if p.adapted == true {
+                            Text("adapted").font(.ui(size: 10)).foregroundStyle(Theme.warn)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .overlay(Capsule().stroke(Theme.warn.opacity(0.5)))
+                                .help("Described by a file conch adapted from its API docs, not built into conch")
+                        }
+                    }
                     if !p.ready, let why = p.why {
                         Text("Needs its API key: " + why).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                     }

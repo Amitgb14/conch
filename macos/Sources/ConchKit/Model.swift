@@ -155,7 +155,7 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
     public var sandboxProvider: String? {
         guard let t = target, let colon = t.firstIndex(of: ":") else { return nil }
         let p = String(t[..<colon]), id = t[t.index(after: colon)...]
-        guard ["daytona", "boat", "devin"].contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
+        guard ["daytona", "boat", "devin", "tensorlake"].contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
         return p
     }
 

@@ -2473,6 +2473,13 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Brings a pane on this Mac to the front: the agent adapting a
+    /// provider, from the sheet that started it.
+    func showLocalPane(_ id: String) {
+        layout.open(key("local", id))
+        focusTerminal()
+    }
+
     /// New Sandbox…, the sheet that makes one (NewSandboxSheet).
     @Published var newSandboxOpen = false
 
