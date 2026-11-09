@@ -640,6 +640,17 @@ func (pm *projectManager) maybeFetchPRs(p *project) {
 	}
 }
 
+// movedSinceMerge says whether branch has commits since head, the commit
+// its pull request merged. A merge whose head is not known, or a branch
+// that is gone here, has not moved: it is as done as it was.
+func movedSinceMerge(ctx context.Context, root, branch, head string) bool {
+	if head == "" {
+		return false
+	}
+	now, err := gitx.BranchHead(ctx, root, branch)
+	return err == nil && now != "" && now != head
+}
+
 func (pm *projectManager) fetchPRs(p *project) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
@@ -666,14 +677,14 @@ func (pm *projectManager) fetchPRs(p *project) {
 			}
 		}
 	}
-	var merged []string
+	merged := map[string]string{} // branch → the commit that was merged
 	if err != nil {
 		p.prs = nil
 	} else {
 		p.noteMerges(list)
 		for branch, pr := range p.prs {
 			if pr.State == "MERGED" {
-				merged = append(merged, branch)
+				merged[branch] = pr.Head
 			}
 		}
 	}
@@ -694,8 +705,16 @@ func (pm *projectManager) fetchPRs(p *project) {
 	}
 	// A branch merged on GitHub, by conch or anybody else, is done with:
 	// its finished reviewer goes (reviewers.go).
+	// Only while the branch is still what was merged, though: one that
+	// has moved on since is work again, and its reviewer has a report to
+	// hand over. A branch whose pull request was merged and which an agent
+	// went on committing to had each new reviewer closed seconds after it
+	// finished, before anybody read it.
 	if pm.s.projectRegistered(p) {
-		for _, branch := range merged {
+		for branch, head := range merged {
+			if movedSinceMerge(ctx, p.root, branch, head) {
+				continue
+			}
 			pm.s.closeDoneReviewers(p.id, branch, "")
 		}
 	}
