@@ -15,6 +15,7 @@ func a8Server(t *testing.T, sock, dir string) *server.Server {
 	t.Helper()
 	srv := server.New(sock, dir)
 	go srv.Run()
+	t.Cleanup(srv.StopAndWait)
 	for i := 0; i < 100; i++ {
 		if c, err := client.Dial(sock, "test"); err == nil {
 			c.Close()

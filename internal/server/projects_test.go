@@ -39,7 +39,7 @@ func startServer(t *testing.T) (*client.Client, string) {
 	sock := filepath.Join(dir, "s.sock")
 	srv := server.New(sock, dir)
 	go srv.Run()
-	t.Cleanup(func() { srv.Stop(); time.Sleep(100 * time.Millisecond); os.RemoveAll(dir) })
+	t.Cleanup(func() { srv.StopAndWait(); os.RemoveAll(dir) })
 	var c *client.Client
 	for i := 0; i < 100; i++ {
 		if c, err = client.Dial(sock, "test"); err == nil {
