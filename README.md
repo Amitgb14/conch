@@ -30,11 +30,6 @@ confirm, so it is not the tool for unattended swarms.
 [The longer version](https://amitgb14.github.io/conch/docs/#is-conch-for-you),
 losses included.
 
-![Adding a project in conch: choosing a folder under ~/workspace, then the new project in the tree, expanded to its branch and its files](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/add_project.gif)
-
-Adding a project: pick a folder, and its branches, agents and terminals are
-there to open.
-
 ![conch showing a project: branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-project.png)
 
 A project expanded into branches, agents and terminals, with a tab per agent
@@ -93,6 +88,26 @@ pane, a branch or a file. It is in **beta**:
 from [`macos/`](macos).
 
 ![Conch.app: the tree of machines, projects, branches and agents down the left, a waiting agent's question with its answers above it, and an agent at work in a Ghostty pane](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop.png)
+
+An agent in a Ghostty pane, the tree beside it, and what needs you at the
+top left: the question a waiting agent asked, with its answers to click.
+
+![Conch.app showing a branch's changes: the uncommitted files and commits, a unified diff with a review thread answered by the agent, and the commit box, checks and review beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-changes.png)
+
+A branch's changes in a tab of their own: stage a hunk, write the commit
+message, watch the pull request's checks, and leave the agent a note on a
+line — it answers in the thread.
+
+![Conch.app showing a project's files: the tree of folders on the left and a TypeScript file open beside it, with Save in the corner](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-files.png)
+
+The project's files in a tab too: the tree on the left, the file open with
+its syntax coloured, and ⌘S to save — checked against what the agents may
+have written in the meantime.
+
+![Conch.app showing the dev server's page in a tab: a ledger app served from 127.0.0.1:4321](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-browser.png)
+
+And the dev server's own page in a tab beside them, so what the agent just
+changed is a glance away rather than another window.
 
 [What the window holds](https://amitgb14.github.io/conch/docs/mac-app), key
 by key.

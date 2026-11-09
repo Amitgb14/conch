@@ -123,3 +123,28 @@ func makeRecipes(t *testing.T) map[string]string {
 	}
 	return recipes
 }
+
+// readmeAsset is a picture the README shows, served from the repository
+// (assets/README.md: that URL names a branch, so the name in here and the
+// file have to agree, and a file may never be renamed).
+var readmeAsset = regexp.MustCompile(`https://raw\.githubusercontent\.com/Amitgb14/conch/master/assets/([^)"'\s]+)`)
+
+// TestReadmeMediaIsThere: every picture the README points at is a file in
+// assets/. A README link is drawn by GitHub from the branch, not from the
+// checkout, so a name that is wrong here is a broken image on the front
+// page and nothing in the build says so.
+func TestReadmeMediaIsThere(t *testing.T) {
+	body, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := readmeAsset.FindAllStringSubmatch(string(body), -1)
+	if len(names) == 0 {
+		t.Fatal("no assets link found — the regexp or the README moved")
+	}
+	for _, m := range names {
+		if _, err := os.Stat("../../assets/" + m[1]); err != nil {
+			t.Errorf("README shows assets/%s: %v", m[1], err)
+		}
+	}
+}
