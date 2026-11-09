@@ -34,13 +34,21 @@ func TestFrameCursor(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	p.SendKeys([]string{"ctrl+c"})
 	// Typed before the shell is back at its prompt, a line is lost to the
 	// interrupt (seen under load): wait for the fresh prompt under the ^C.
-	deadline = time.Now().Add(5 * time.Second)
-	for !promptAfterInterrupt(p.PlainLines()) {
+	// And the interrupt is sent again until that prompt comes: the cursor
+	// is hidden by printf, before sleep is the terminal's foreground job,
+	// and a ^C landing in between reaches only the shell, which ignores
+	// it, while sleep runs its 30 s (seen under load, every few runs). A
+	// ^C at a prompt only draws a fresh one.
+	deadline = time.Now().Add(10 * time.Second)
+	for next := time.Now(); !promptAfterInterrupt(p.PlainLines()); {
 		if time.Now().After(deadline) {
 			t.Fatalf("no prompt after ctrl+c; lines %q", p.PlainLines())
+		}
+		if time.Now().After(next) {
+			p.SendKeys([]string{"ctrl+c"})
+			next = time.Now().Add(500 * time.Millisecond)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
