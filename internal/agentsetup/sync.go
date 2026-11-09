@@ -1,6 +1,8 @@
 package agentsetup
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -315,7 +317,7 @@ func Sync(dir, from string, to []string, apply bool) (SyncResult, error) {
 		}
 	}
 	e := CurrentEnv()
-	return sync(root, filepath.Join(root, undoDir), from, to, apply, func(name string) (agentFiles, bool) {
+	return sync(root, checkoutRecordDir(root), from, to, apply, func(name string) (agentFiles, bool) {
 		a, ok := writable[name]
 		if name == "devin" {
 			a = withoutDevinCompat(e, root, a)
@@ -360,7 +362,7 @@ func SyncUser(e Env, from string, to []string, apply bool) (SyncResult, error) {
 
 // userRecordDir is where a user-scope sync's record is kept: conch's own
 // folder, since a home directory has no root to put a .conch in.
-var userRecordDir = func() string { return filepath.Join(config.Dir(), "agent-sync") }
+var userRecordDir = syncRecordRoot
 
 // sync is the whole of it, for either scope: root is what the paths are
 // shown against, recordDir where the record goes, and files says where
@@ -1122,8 +1124,25 @@ func writeFile(path, kind string, content []byte) func(*undoLog) error {
 	}
 }
 
-// undoDir is where a sync records what it changed, inside the checkout.
-const undoDir = ".conch/agent-sync"
+// legacyUndoDir is where a sync's record was kept by builds before
+// records moved out of the checkout. A record there is read, never acted
+// on: a cloned repository can carry one, and undoing it would write, remove
+// and run whatever it lists.
+const legacyUndoDir = ".conch/agent-sync"
+
+// checkoutRecordDir is where the records of a checkout's syncs are kept:
+// in conch's own folder, keyed by the checkout, so nothing inside the
+// checkout can say what undoing does.
+func checkoutRecordDir(root string) string {
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	sum := sha256.Sum256([]byte(root))
+	return filepath.Join(syncRecordRoot(), "checkouts", hex.EncodeToString(sum[:8]))
+}
+
+// syncRecordRoot is the folder every sync record is kept under.
+func syncRecordRoot() string { return filepath.Join(config.Dir(), "agent-sync") }
 
 // undoLog is one sync's record: what each path held before, so it can be
 // put back. A path that did not exist is recorded as one to remove.
@@ -1227,7 +1246,9 @@ func SyncUndos(dir string) []string {
 	if root == "" {
 		root = dir
 	}
-	return undosIn(filepath.Join(root, undoDir))
+	// Those kept by conch first; any a checkout holds from an older build
+	// after, so undoing the last sync is one conch recorded.
+	return append(undosIn(checkoutRecordDir(root)), undosIn(filepath.Join(root, legacyUndoDir))...)
 }
 
 // undosIn lists the records in a folder, newest first.
@@ -1261,7 +1282,57 @@ func UndoSync(dir, stamp string) (SyncResult, error) {
 	if root == "" {
 		root = dir
 	}
-	return undoFrom(CurrentEnv(), filepath.Join(root, undoDir), root, stamp, root)
+	if !stampOK(stamp) {
+		return SyncResult{Dir: root}, fmt.Errorf("no record of sync %s in %s", stamp, root)
+	}
+	recordDir := checkoutRecordDir(root)
+	if stamp == "" {
+		if list := SyncUndos(root); len(list) > 0 {
+			stamp = list[0]
+		}
+	}
+	if stamp != "" && !isFile(filepath.Join(recordDir, stamp+".json")) {
+		if legacy := filepath.Join(root, legacyUndoDir); isFile(filepath.Join(legacy, stamp+".json")) {
+			return legacyUndo(legacy, root, stamp)
+		}
+	}
+	return undoFrom(CurrentEnv(), recordDir, root, stamp, root)
+}
+
+// stampOK says a stamp names a record and nothing else: it is joined to
+// the folder records are kept in, so "../" in one would reach a record
+// anywhere — one a checkout carries, say — and undo whatever it said.
+func stampOK(stamp string) bool {
+	return stamp == "" || (filepath.IsLocal(stamp) && filepath.Base(stamp) == stamp)
+}
+
+// legacyUndo answers for a record kept inside the checkout, by a build
+// before records moved out of it. It cannot be told from one a repository
+// was cloned with, so nothing in it is done: it says what the record names,
+// for git to put back, and leaves the record where it is.
+func legacyUndo(recordDir, root, stamp string) (SyncResult, error) {
+	b, err := os.ReadFile(filepath.Join(recordDir, stamp+".json"))
+	if err != nil {
+		return SyncResult{Dir: root}, fmt.Errorf("no record of sync %s in %s", stamp, root)
+	}
+	var u undoLog
+	if err := json.Unmarshal(b, &u); err != nil {
+		return SyncResult{Dir: root}, fmt.Errorf("the record of sync %s cannot be read: %v", stamp, err)
+	}
+	res := SyncResult{Dir: root, From: u.From, Undo: stamp}
+	for i := len(u.Files) - 1; i >= 0; i-- {
+		f := u.Files[i]
+		kind := f.Kind
+		if kind == "" {
+			kind = "file"
+		}
+		res.Changes = append(res.Changes, SyncChange{Kind: kind, Name: filepath.Base(f.Path), Path: f.Path,
+			Action: ActionSkip, Detail: "left as it is"})
+	}
+	rel, _ := filepath.Rel(root, filepath.Join(recordDir, stamp+".json"))
+	res.Notes = append(res.Notes, "this record is inside the checkout ("+rel+"), where a cloned repository can put one, "+
+		"so conch does not act on it; git status and git checkout put those files back, and the record can then be deleted")
+	return res, nil
 }
 
 // undoFrom puts back the sync named by stamp ("" is the last), whose
@@ -1275,6 +1346,9 @@ func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 		}
 		stamp = list[0]
 	}
+	if !stampOK(stamp) {
+		return SyncResult{Dir: root}, fmt.Errorf("no record of sync %s in %s", stamp, where)
+	}
 	path := filepath.Join(recordDir, stamp+".json")
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -1284,7 +1358,8 @@ func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 	if err := json.Unmarshal(b, &u); err != nil {
 		return SyncResult{Dir: root}, fmt.Errorf("the record of sync %s cannot be read: %v", stamp, err)
 	}
-	if u.Root != "" {
+	checkout := root != ""
+	if u.Root != "" && !checkout {
 		root = u.Root // where it was written, not where we are now
 	}
 	res := SyncResult{Dir: root, From: u.From, Undo: stamp}
@@ -1301,7 +1376,15 @@ func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 			target = filepath.Join(root, f.Path)
 		}
 		var err error
+		if checkout {
+			// A checkout's sync writes its agents' files and nothing else,
+			// so its undo takes back no more than that, and only inside it.
+			target, err = checkoutTarget(root, f)
+		}
 		switch {
+		case err != nil:
+			c.Action, c.Detail = ActionSkip, "left as it is: "+err.Error()
+			err = nil
 		case len(f.Command) > 0:
 			c.Path, c.Detail = "", "with "+f.Command[0]+" "+strings.Join(f.Command[1:min(3, len(f.Command))], " ")
 			err = runAgent(e, f.Command[0], f.Command[1:]...)
@@ -1325,12 +1408,12 @@ func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 		}
 		if err != nil {
 			c.Error = err.Error()
-		} else if c.Action != ActionSame {
+		} else if c.Action != ActionSame && c.Action != ActionSkip {
 			c.Done = true
 		}
 		res.Changes = append(res.Changes, c)
 	}
-	if u.Library {
+	if u.Library && !checkout {
 		if err := writeJSONFile(writtenPath(), u.Written); err != nil {
 			res.Notes = append(res.Notes, "what conch owns could not be put back: "+err.Error())
 		}
@@ -1338,9 +1421,67 @@ func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 	if err := os.Remove(path); err != nil {
 		res.Notes = append(res.Notes, "the record itself could not be removed: "+err.Error())
 	} else {
-		removeEmptyDirs(root, filepath.Dir(path)) // and .conch, if that is all it held
+		removeEmptyDirs(syncRecordRoot(), filepath.Dir(path)) // the checkout's folder, once empty
 	}
 	return res, nil
+}
+
+// checkoutTarget is where an entry of a checkout's record points, when it
+// is something a sync of a checkout writes — an agent's instructions, its
+// servers' file, a skill's link — and is still inside the checkout once
+// links are followed. A record is conch's own, but the checkout is not: a
+// folder in it may have become a link out of it since.
+func checkoutTarget(root string, f undoEntry) (string, error) {
+	if len(f.Command) > 0 || f.Link != "" {
+		return "", errors.New("a sync of a checkout does not do that")
+	}
+	if !filepath.IsLocal(f.Path) || !syncWrites(filepath.Clean(f.Path)) {
+		return "", errors.New("not a file a sync of the checkout writes")
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(root, f.Path)
+	// The nearest folder that is there, followed through any link: a
+	// folder that is not there holds no link to follow.
+	d := filepath.Dir(target)
+	for {
+		if real, err := filepath.EvalSymlinks(d); err == nil {
+			if real != realRoot && !strings.HasPrefix(real, realRoot+string(filepath.Separator)) {
+				return "", errors.New("it is no longer inside the checkout")
+			}
+			break
+		}
+		if d == root || filepath.Dir(d) == d {
+			return "", errors.New("it is no longer inside the checkout")
+		}
+		d = filepath.Dir(d)
+	}
+	// Writing follows a link, so a file put back must not be one.
+	if !f.Absent {
+		if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("it is a link now")
+		}
+	}
+	return target, nil
+}
+
+// syncWrites says whether rel, relative to a checkout, is a path a sync
+// of a checkout writes for some agent.
+func syncWrites(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	for _, a := range writable {
+		if rel == a.instructions || rel == a.mcp {
+			return true
+		}
+		for _, s := range a.skills {
+			if strings.TrimSuffix(rel, "/"+filepath.Base(rel)) == s {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // removeEmptyDirs takes away the folders a sync made, as far up as they

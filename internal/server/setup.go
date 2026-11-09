@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,13 +100,6 @@ func (s *Server) agentSync(sp proto.AgentSyncParams) (proto.AgentSyncResult, *pr
 	for _, c := range res.Changes {
 		out.Changes = append(out.Changes, proto.SyncChange{Agent: c.Agent, Kind: c.Kind, Name: c.Name,
 			Path: c.Path, Action: c.Action, Detail: c.Detail, Done: c.Done, Error: c.Error})
-	}
-	if out.Undo != "" && !sp.User {
-		// The record of what to put back lives in the checkout, so keep
-		// .conch out of git as the handoff documents do.
-		if err := excludeFromGit(res.Dir, ".conch/"); err != nil {
-			log.Printf("agent sync: keeping .conch out of git in %s: %v", res.Dir, err)
-		}
 	}
 	if sp.User {
 		out.Undos = agentsetup.UserSyncUndos()

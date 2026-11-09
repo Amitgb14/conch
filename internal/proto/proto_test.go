@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -529,5 +530,36 @@ func TestAgentSkillWire(t *testing.T) {
 	}
 	if !found || CapAgentSkill != "agent.skill.v1" || MethodAgentSkill != "agent.skill" {
 		t.Fatal("wire names")
+	}
+}
+
+// A server may leave an optional capability out on a machine that cannot
+// give it, so the list it is held to as "this build" leaves those out —
+// and only those.
+func TestBuildCapabilitiesLeaveOutTheOptional(t *testing.T) {
+	build := BuildCapabilities()
+	for _, c := range OptionalCapabilities {
+		if !slices.Contains(Capabilities, c) {
+			t.Errorf("optional %q is not a capability at all", c)
+		}
+		if slices.Contains(build, c) {
+			t.Errorf("optional %q is held against the build", c)
+		}
+	}
+	if !slices.Contains(OptionalCapabilities, CapWorktreeWatch) {
+		t.Error("worktree.watch.v1 depends on the machine, not the build")
+	}
+	if len(build) != len(Capabilities)-len(OptionalCapabilities) {
+		t.Fatalf("%d build capabilities, want %d", len(build), len(Capabilities)-len(OptionalCapabilities))
+	}
+	for _, c := range []string{"pane.v1", "server.reload.v1"} {
+		if !slices.Contains(build, c) {
+			t.Errorf("%q left out of the build's capabilities", c)
+		}
+	}
+	// A copy: editing it must not change the announced list.
+	build[0] = "edited"
+	if Capabilities[0] == "edited" {
+		t.Fatal("BuildCapabilities shares the announced list")
 	}
 }

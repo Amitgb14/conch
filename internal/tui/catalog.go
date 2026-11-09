@@ -49,6 +49,7 @@ func (m *Model) syncCatalog() tea.Cmd {
 // added and connected, removed or disabled ones closed, renamed ones
 // relabelled, and a changed target reconnects.
 func (m *Model) applyCatalog(saved []remote.Machine) tea.Cmd {
+	m.catalog = saved
 	want := map[string]remote.Machine{}
 	for _, sm := range saved {
 		if sm.Enabled && sm.ID != localMachine {

@@ -2,23 +2,43 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
+	"github.com/Amitgb14/conch/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // paneRef is how conch's commands name a pane: its ID here, and
 // machine:ID on another machine — `conch read busybox:p3` — by the
-// machine's label, or its ID when the label has a space or a colon in it
-// and would not survive being typed.
+// machine's label when the commands would find this machine by it, or its
+// ID: a label with a space or a colon would not survive being typed, and
+// one another machine answers to too (two logins to one host are both
+// "devbox") would reach whichever the catalog lists first
+// (remote.RefName).
 func (m Model) paneRef(mid, pane string) string {
 	if mid == "" || mid == localMachine {
 		return pane
 	}
-	if l := m.machineLabel(mid); l != "" && !strings.ContainsAny(l, " \t:") {
-		return l + ":" + pane
+	return remote.RefName(m.knownMachines(), mid) + ":" + pane
+}
+
+// knownMachines is every machine the commands could take a name to mean:
+// those in the tree, by the labels shown, and the rest of machines.json as
+// last read — disabled ones are still looked up by name.
+func (m Model) knownMachines() []remote.Machine {
+	out := make([]remote.Machine, 0, len(m.machines)+len(m.catalog))
+	seen := map[string]bool{}
+	for _, mach := range m.machines {
+		if mach.id != localMachine {
+			out = append(out, remote.Machine{ID: mach.id, Label: mach.label})
+			seen[mach.id] = true
+		}
 	}
-	return mid + ":" + pane
+	for _, sm := range m.catalog {
+		if !seen[sm.ID] {
+			out = append(out, sm)
+		}
+	}
+	return out
 }
 
 // copyPaneRef puts a pane's ID on the clipboard and says which it was.

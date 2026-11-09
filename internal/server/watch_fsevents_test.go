@@ -152,3 +152,60 @@ func TestFSEventsCloseEndsItsPumps(t *testing.T) {
 		t.Fatalf("close took %v", took)
 	}
 }
+
+// TestFSEventsWatchAfterCloseStartsNothing: a project refresh can still be
+// walking a worktree when the server stops. A stream it started after close
+// had emptied the map was never stopped — a CoreFoundation thread left
+// running, which is what keeps a reload from exec'ing — and its pump was
+// added to the WaitGroup close was already waiting on, which the race
+// detector caught in TestReviewOnThePhone's shutdown.
+func TestFSEventsWatchAfterCloseStartsNothing(t *testing.T) {
+	be, err := newBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := be.(*fseventsBackend)
+	b.close()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	if err := b.watch(dir, nil); err != nil {
+		t.Fatalf("watch after close: %v", err)
+	}
+	b.mu.Lock()
+	n := len(b.streams)
+	b.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("watch after close left %d stream(s) running", n)
+	}
+}
+
+// TestFSEventsWatchRacesClose: watching and closing at once, as a refresh
+// and a shutdown do, under -race.
+func TestFSEventsWatchRacesClose(t *testing.T) {
+	be, err := newBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := be.(*fseventsBackend)
+	dirs := make([]string, 4)
+	for i := range dirs {
+		dirs[i], _ = filepath.EvalSymlinks(t.TempDir())
+	}
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		close(started)
+		for _, d := range dirs {
+			_ = b.watch(d, nil)
+		}
+	}()
+	<-started
+	b.close()
+	<-done
+	b.mu.Lock()
+	n := len(b.streams)
+	b.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d stream(s) still running after close", n)
+	}
+}

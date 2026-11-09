@@ -168,9 +168,15 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
     /// The enabled machines in a machines.json; none for a file that is
     /// missing or will not read.
     public static func load(machinesJSON data: Data?) -> [MachineEntry] {
+        all(machinesJSON: data).filter { $0.enabled != false }
+    }
+
+    /// Every machine in a machines.json, disabled ones too: what conch's
+    /// commands look a machine's name up in.
+    public static func all(machinesJSON data: Data?) -> [MachineEntry] {
         struct File: Decodable { var machines: [MachineEntry]? }
         guard let data, let f = try? JSONDecoder().decode(File.self, from: data) else { return [] }
-        return (f.machines ?? []).filter { $0.enabled != false && $0.id != "local" && !$0.id.isEmpty }
+        return (f.machines ?? []).filter { $0.id != "local" && !$0.id.isEmpty }
     }
 }
 
@@ -723,7 +729,9 @@ extension Snapshot {
     /// What one machine gives the palette: agents waiting for you, the other
     /// panes, then the projects and their task branches. label names the
     /// machine in each item's detail, for a window showing more than one.
-    public func paletteItems(machine: String = "local", label: String? = nil, in ws: Workspace? = nil)
+    /// among is every machine in machines.json, for paneRef.
+    public func paletteItems(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
+                             among: [MachineEntry] = [])
         -> (waiting: [PaletteItem], panes: [PaletteItem], places: [PaletteItem]) {
         var waiting: [PaletteItem] = [], others: [PaletteItem] = [], places: [PaletteItem] = []
         let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
@@ -731,7 +739,7 @@ extension Snapshot {
             // Its ID last, as the commands take it: typing p12 finds it. On
             // another machine that is busybox:p12, which names the machine
             // already.
-            let ref = paneRef(machine: machine, label: label, pane: p.id)
+            let ref = paneRef(machine: machine, label: label, pane: p.id, among: among)
             let shownLabel = label.map { ref.hasPrefix($0 + ":") ? "" : $0 }
             let detail = [p.projectID.flatMap { names[$0] }, p.branch, shownLabel, ref]
                 .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")

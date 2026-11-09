@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	conchclient "github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -446,6 +447,12 @@ func TestCapabilityFollowsTheWatcher(t *testing.T) {
 	// The shared list is not the one that was edited.
 	if !slices.Contains(proto.Capabilities, proto.CapWorktreeWatch) {
 		t.Fatal("the package's capability list was modified")
+	}
+	// And a client does not take it for an older build: it was shown as
+	// one for ever, with a reload that could not help.
+	c := &conchclient.Client{Server: proto.HelloResult{Capabilities: caps}}
+	if old := c.OlderBuild(); len(old) != 0 {
+		t.Fatalf("a server without watches reads as older, lacking %v", old)
 	}
 }
 

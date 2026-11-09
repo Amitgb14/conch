@@ -512,7 +512,7 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	for _, mm := range []remote.Machine{
 		{Label: "sdx01", Target: "daytona:sb-aaa"},
 		{Label: "sdx02", Target: "daytona:sb-bbb"},
-		{Label: "sdx01", Target: "e2b:sb-ccc"}, // the same label under another provider
+		{Label: "sdx01", Target: "e2b:sb-ccc"}, // the same label under another provider: given its ID (remote.SaveMachine)
 		{Label: "gpu", Target: "dev@gpu"},
 	} {
 		if _, err := remote.SaveMachine(mm); err != nil {
@@ -542,7 +542,7 @@ func TestSandboxTreeGrouping(t *testing.T) {
 		}
 	}
 	m.rebuild()
-	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n1 sandboxes/e2b\n2 sdx01\n"
+	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n1 sandboxes/e2b\n2 sdx01-2\n"
 	if got := shape(); got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)
 	}

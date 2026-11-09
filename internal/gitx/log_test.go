@@ -125,7 +125,8 @@ func TestLogSubjectWithSeparators(t *testing.T) {
 	if err != nil || len(commits) != 4 {
 		t.Fatalf("%v: %d commits %+v", err, len(commits), commits)
 	}
-	if commits[1].Subject != "three \x1e with RS" || commits[2].Subject != "two \x1f with US" {
+	// The separators themselves are drawn as dots: they are controls.
+	if commits[1].Subject != "three · with RS" || commits[2].Subject != "two · with US" {
 		t.Errorf("subjects %q / %q", commits[1].Subject, commits[2].Subject)
 	}
 	for i := 0; i < 3; i++ {

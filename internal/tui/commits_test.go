@@ -442,3 +442,47 @@ func TestCommitsClickLastLoadsMore(t *testing.T) {
 		t.Fatalf("sel %d, limit %d → %d: clicking the last row read nothing more", v.sel, before, v.limit)
 	}
 }
+
+// A commit's subject, author and refs are whatever somebody committed, and
+// an older server sends them as git keeps them: drawn raw, an OSC 52 in a
+// cloned repository's subject would write the clipboard, a C1 OSC retitle
+// the window. Nothing but conch's own styling may reach the terminal.
+func TestCommitsDrawNoEscapesFromTheRepository(t *testing.T) {
+	m := a2Model()
+	m.width, m.height = 160, 30
+	hostile := []proto.LogCommit{
+		{Hash: "aaaaaaaaaa", Parents: []string{"bbbbbbbbbb"}, Author: "Eve \x1b]2;title\x07\u009b31m",
+			Subject: "fix \x1b]52;c;cHduZWQ=\x07 it \u009d2;owned\u009c\x1b[2J\x7f done",
+			Refs:    []string{"HEAD -> ev\u009dil", "tag: v\u009c1", "origin/x\u0085y", "lo\u009bcal"}},
+		{Hash: "bbbbbbbbbb", Author: "Tester", Subject: "initial"},
+	}
+	v := &commitsView{mid: localMachine, pid: "r1", limit: commitsPage, focus: "lo\u009bcal"}
+	v.receive(commitsMsg{v: v, seq: v.seq, res: proto.LogResult{Commits: hostile}})
+	if v.sel != 0 {
+		t.Errorf("the branch named with a C1 byte was not found by its own name: sel %d", v.sel)
+	}
+	for _, sel := range []int{0, 1} { // drawn picked and drawn plain
+		v.sel = sel
+		out := strings.Join(v.render(*m).lines, "\n")
+		for _, bad := range []string{"\x1b]", "\x07", "\x7f", "\x1b[2J"} {
+			if strings.Contains(out, bad) {
+				t.Errorf("sel %d: drawn with %q:\n%q", sel, bad, out)
+			}
+		}
+		for _, r := range out {
+			if r >= 0x80 && r <= 0x9f {
+				t.Errorf("sel %d: drawn with C1 %U", sel, r)
+				break
+			}
+		}
+		plain := ansi.Strip(out)
+		if strings.ContainsRune(plain, '\x1b') {
+			t.Errorf("sel %d: an escape that is not conch's styling:\n%q", sel, plain)
+		}
+		for _, want := range []string{"fix ·]52;c;", "Eve ·]2;title·", "HEAD → ev·il", "tag: v·1", "lo·cal"} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("sel %d: lacks %q:\n%s", sel, want, plain)
+			}
+		}
+	}
+}

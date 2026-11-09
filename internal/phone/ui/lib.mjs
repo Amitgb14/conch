@@ -635,16 +635,22 @@ export function relayWhy(kind) {
 }
 
 // paneRef is how conch's commands name a pane the phone calls
-// "machine:pane": its ID on this computer, and machine:ID elsewhere by the
-// machine's label (`conch read busybox:p3`), or its ID when the label has a
-// space or a colon and would not survive being typed. As the TUI's and the
-// app's paneRef.
+// "machine:pane": its ID on this computer, and machine:ID elsewhere — by
+// the name the gateway gives (ref: the label when no other machine
+// answers to it, remote.RefName), else by the label when it could be
+// typed (no space or colon), is not "local" and is no other machine's ID
+// or label, else by the machine's ID, which always reaches it. As the
+// TUI's and the app's paneRef.
 export function paneRef(ref, machines = []) {
   const s = String(ref || "")
   const i = s.indexOf(":")
   if (i < 0) return s
   const machine = s.slice(0, i), pane = s.slice(i + 1)
   if (!machine || machine === "local") return pane
-  const label = machines.find((m) => m.id === machine)?.label || ""
-  return label && !/[\s:]/.test(label) ? `${label}:${pane}` : `${machine}:${pane}`
+  const m = machines.find((m) => m.id === machine)
+  if (m?.ref) return `${m.ref}:${pane}`
+  const label = m?.label || ""
+  const taken = label === "local" ||
+    machines.some((o) => o.id !== machine && (o.id === label || o.label === label))
+  return label && !/[\s:]/.test(label) && !taken ? `${label}:${pane}` : `${machine}:${pane}`
 }
