@@ -21,6 +21,15 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
     public var file: String?
     public var id: String { name }
 
+    /// Whether its row offers Set key…: a built-in provider that is not
+    /// ready, which is a key it lacks. Its key goes in a card of the
+    /// providers list below, which a provider has only once added there —
+    /// so a row that said "put the key in Settings → Sandboxes" and had
+    /// nothing to press left Tensorlake, new and with no card yet, with no
+    /// way to set one. An adapted provider is left out: what it lacks may
+    /// be more than a key, and its file says.
+    public var offersSetKey: Bool { !ready && adapted != true }
+
     public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, place: String? = nil, note: String? = nil, adapted: Bool? = nil, file: String? = nil) {
         self.name = name
         self.label = label

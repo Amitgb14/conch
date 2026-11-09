@@ -432,6 +432,8 @@ struct AddProviderSheet: View {
 /// it does not know: the Sandboxes section of Settings.
 struct ProvidersCard: View {
     @ObservedObject var store: Store
+    /// Opens a built-in provider's card for its key (name, label).
+    var setKey: ((String, String) -> Void)?
     @Environment(\.conchTheme) private var theme
     @State private var providers: [SandboxProviderInfo] = []
     @State private var adding = false
@@ -456,6 +458,10 @@ struct ProvidersCard: View {
                             .foregroundStyle(p.adapted == true ? Theme.warn : Theme.muted)
                             .padding(.horizontal, 7).padding(.vertical, 1)
                             .overlay(Capsule().stroke(p.adapted == true ? Theme.warn.opacity(0.5) : Theme.line))
+                        if p.offersSetKey, let setKey {
+                            Button("Set key…") { setKey(p.name, p.label) }.controlSize(.small)
+                                .help("Add \(p.label) to the providers below and open it at its API key")
+                        }
                         if p.adapted == true {
                             Button(publishing == p.name ? "Publishing…" : "Publish…") { publish(p) }.controlSize(.small)
                                 .disabled(publishing != nil)
