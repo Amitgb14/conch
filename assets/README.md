@@ -27,7 +27,7 @@ the `…/user-attachments/assets/…` URL it hands back on a line of its own. Th
 file lives in GitHub's storage rather than the repository, which is the trade:
 a player and sound, but nothing `git clone` brings with it.
 
-A still goes in as a PNG, as the two in the README do.
+A still goes in as a PNG, as the ones in the README do. The TUI's stills are not photographed: `web/scripts/tui-capture/capture.sh` saves the screens of a staged demo, and `topng.py` draws the ones named here from the same frames the website uses, so a README picture and the site's screens are the same screen. The phone's come from `web/scripts/phone-capture/capture.sh`.
 
 ## Making one
 

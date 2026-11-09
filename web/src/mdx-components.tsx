@@ -3,6 +3,7 @@ import Link from "next/link"
 
 import { Callout } from "@/components/callout"
 import { CodeBlock } from "@/components/code-block"
+import { Shot } from "@/components/doc-shot"
 import { Step, Steps } from "@/components/steps"
 import { cn } from "@/lib/utils"
 
@@ -56,6 +57,7 @@ const components: MDXComponents = {
   Callout,
   Steps,
   Step,
+  Shot,
 }
 
 export function useMDXComponents(): MDXComponents {

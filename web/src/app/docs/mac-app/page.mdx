@@ -10,6 +10,12 @@ The Mac app is in **beta**, and says so: it is **Conch (Beta)** in the menu bar,
 
 </Callout>
 
+<Shot
+  name="desktop-agents"
+  alt="Conch.app: the tree of machines, projects, agents and branches down the left, a waiting agent's question answered from the sidebar, and a working agent in its tab"
+  caption="The same agents the TUI shows, in a native window: answer a waiting agent from the sidebar while another works."
+/>
+
 ## The window
 
 - **The toolbar** holds conch's workspaces (click one to switch; `+` makes one, as in the TUI, which shows it too; double-click or right-click one to name it — `1 main  2 review` — which the TUI shows as well; right-click → **Close Workspace…**, the **×** that shows with the pointer on one, or **File → Close Workspace…** for the one on screen, on any but the first, closes it as the TUI's `ctrl+b X` does, its projects, machines, hosts and tabs going to workspace 1 and what runs only in it moved there or ended, as you choose) — each isolated as in the TUI, with tabs of its own and only what is in it: its projects, the panes started in it and what those started, and in the first whatever no other workspace has; an agent or terminal started from the app goes into the workspace on screen, a search field in the middle (⌘K), and how many agents in that workspace are waiting for you or finished, dimmed at none rather than gone — a click on the waiting count goes to the next one (⌘.), and on the done count to the next agent that finished — then **N to review**, the TUI's review queue counted on every machine: agents waiting or finished, branches whose pull request's CI failed, with commits not pushed or merged, or with uncommitted work and no agent on it, leaving out rows dismissed in the TUI. A click lists them, the most urgent first; a row opens its agent or the branch's changes. **Fix**, on a row whose pull request's CI failed, sends the failure to the branch's agent (or starts one in its worktree with it), as `f` does in the TUI's queue (`conch branch fix-ci`); **✕** dismisses a row until it changes, as `x` does — kept in `ui.json`, so the TUI leaves it out too. A row's right-click menu has the same. A project's own check and the server's scheduled tasks are in the TUI's queue only.

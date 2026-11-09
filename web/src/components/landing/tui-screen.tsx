@@ -70,7 +70,7 @@ export function Line({ runs }: { runs: Run[] }) {
 export function TuiScreen({ id, className }: { id: string; className?: string }) {
   return (
     <div
-      className={cn("w-max font-mono text-[#e6edf3]", className)}
+      className={cn("w-max font-mono text-[#C9D1D9]", className)}
       style={{ fontSize: "clamp(8px, 0.93vw, 12.5px)", lineHeight: 1.22 }}
     >
       {frames[id].map((runs, i) => (
@@ -80,11 +80,15 @@ export function TuiScreen({ id, className }: { id: string; className?: string })
   )
 }
 
+// The screen's background and default text are the conch theme's own
+// (internal/tui/theme.go, what `conch app` gives its terminal); the band is
+// one step lighter than the background. A test keeps these two in step with
+// the theme, so a screen here looks like the one on somebody's machine.
 /** The window a screen is shown in: the TUI's own colours, macOS's buttons. */
 export function TuiWindow({ title, children }: { title?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-term-border bg-[#0d1117] shadow-[0_40px_100px_-30px_rgb(0_0_0/0.45)]">
-      <div className="flex items-center gap-2 border-b border-white/10 bg-[#161b22] px-3.5 py-2.5">
+    <div className="overflow-hidden rounded-xl border border-term-border bg-[#15191E] shadow-[0_40px_100px_-30px_rgb(0_0_0/0.45)]">
+      <div className="flex items-center gap-2 border-b border-white/10 bg-[#1B2026] px-3.5 py-2.5">
         <span className="flex gap-1.5">
           <i className="size-2.5 rounded-full bg-[#ff5f57]" />
           <i className="size-2.5 rounded-full bg-[#febc2e]" />

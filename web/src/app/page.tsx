@@ -8,6 +8,7 @@ import { BrainDemo } from "@/components/landing/brain-demo"
 import { DesktopApp, downloadURL } from "@/components/landing/desktop-app"
 import { Features } from "@/components/landing/features"
 import { InstallCard } from "@/components/landing/install-card"
+import { Phone } from "@/components/landing/phone"
 import { Screenshots } from "@/components/landing/screenshots"
 import { Section } from "@/components/landing/section"
 import { Skills } from "@/components/landing/skills"
@@ -182,6 +183,15 @@ export default function Home() {
       </Section>
 
       <Section
+        id="phone"
+        label="away from the laptop"
+        title="Your agents, in your pocket"
+        lede="conch web hands the same agents to a phone: what each one is doing, the question it waits on with its answers as buttons, every screen at once, and a keyboard into any terminal. Over your own tailnet, or from anywhere through a relay you run yourself — which carries it all without being able to read it."
+      >
+        <Phone />
+      </Section>
+
+      <Section
         id="workflow"
         label="a day with conch"
         title="Hand out the work, then stop babysitting it"
@@ -232,7 +242,7 @@ export default function Home() {
             },
             {
               title: "Reach it from a phone",
-              body: "conch web serves the same agents to a phone over your own tailnet — see what each is doing, answer the question it is waiting on, type into a terminal. No service of conch's in between.",
+              body: "conch web serves the same agents to a phone — over your own tailnet, or from any network through a relay you run. See what each is doing, answer what it waits on, type into a terminal.",
             },
           ].map((c) => (
             <div key={c.title} className="rounded-xl border bg-card p-5">
