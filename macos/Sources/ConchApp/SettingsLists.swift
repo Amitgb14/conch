@@ -185,6 +185,13 @@ struct KeyedList: View {
             }
             ForEach(ns, id: \.self) { n in card(n) }
         }
+        .onReceive(model.$openEntry) { n in
+            // names, not ns: the entry was added a moment ago, after this
+            // list last drew.
+            guard let n, names.contains(n) else { return }
+            withAnimation(.easeOut(duration: 0.15)) { _ = open.insert(n) }
+            model.openEntry = nil
+        }
     }
 
     func add(_ n: String) {

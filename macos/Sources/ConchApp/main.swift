@@ -172,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "About Conch (Beta)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
             .separator(),
             item("Settings…", ",", .command, "settings"),
-            item("Open conch in a terminal", "", [], "openTUI"),
+            item("Run in Terminal", "", [], "openTUI"),
             .separator(),
             NSMenuItem(title: "Hide Conch (Beta)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
             NSMenuItem(title: "Quit Conch (Beta)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),

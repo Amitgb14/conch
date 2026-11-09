@@ -75,3 +75,15 @@ import Testing
     let ps = try JSONDecoder().decode([SandboxProviderInfo].self, from: Data(j.utf8))
     #expect(ps[0].adapted == nil && ps[1].adapted == true && ps[1].file == "/h/providers/acme.toml")
 }
+
+// Set key… is offered where a built-in provider lacks its key, and only
+// there: Tensorlake, new and with no card below, had no way to get one.
+@Test func setKeyIsOfferedWhereAKeyIsMissing() {
+    #expect(SandboxProviderInfo(name: "tensorlake", label: "Tensorlake", ready: false, why: "set $TENSORLAKE_API_KEY").offersSetKey)
+    #expect(!SandboxProviderInfo(name: "daytona", label: "Daytona", ready: true).offersSetKey)
+    // An adapted one is not: what it lacks may be more than a key.
+    #expect(!SandboxProviderInfo(name: "hetzner", label: "Hetzner Cloud", ready: false, adapted: true).offersSetKey)
+    #expect(!SandboxProviderInfo(name: "acme", label: "Acme", ready: true, adapted: true).offersSetKey)
+    // adapted left out by an older conch is built in.
+    #expect(SandboxProviderInfo(name: "boat", label: "boat.dev", ready: false, adapted: nil).offersSetKey)
+}

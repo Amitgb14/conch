@@ -28,6 +28,9 @@ final class SettingsModel: ObservableObject {
         Task { try? await Task.sleep(for: .seconds(2.4)); if toast == t { toast = nil } }
     }
     @Published var failure = ""
+    /// An entry of a keyed list to open, asked for from elsewhere on the
+    /// page: Set key… beside a provider opens its card.
+    @Published var openEntry: String?
     @Published var saving = false
 
     let store: Store
@@ -533,7 +536,14 @@ struct SectionForm: View {
                 // Which providers there are, built in and adapted, and the
                 // way to add one conch does not know.
                 if !fields.isEmpty { card(nil, fields) }
-                ProvidersCard(store: model.store)
+                ProvidersCard(store: model.store) { name, label in
+                    // Its card in the list below, made if it has none, and
+                    // opened at the API key.
+                    guard let t = tables.first(where: { $0.kind == "keyed" }) else { return }
+                    model.form?.addEntry(section, t, name)
+                    model.openEntry = name
+                    model.say("\(label): its API key is in its card below")
+                }
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }
