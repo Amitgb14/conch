@@ -31,6 +31,9 @@ final class SettingsModel: ObservableObject {
     /// An entry of a keyed list to open, asked for from elsewhere on the
     /// page: Set key… beside a provider opens its card.
     @Published var openEntry: String?
+    /// How many times this window has saved: what was shown from the
+    /// file, such as whether a provider has its key, is read again.
+    @Published var saves = 0
     @Published var saving = false
 
     let store: Store
@@ -170,6 +173,7 @@ final class SettingsModel: ObservableObject {
                     // The autopilot reads [verify]; the servers are told now.
                     if f.payload.config["verify"] != saved.config["verify"] { store.pushAutopilotAll() }
                     form?.reset(saved)
+                    saves += 1
                     status = themeSaveNote(f.payload.config, saved.config, dark: store.systemDark)
                         ?? "Saved to config.toml — an open TUI takes it in, and this window too"
                     say(status)
@@ -536,7 +540,7 @@ struct SectionForm: View {
                 // Which providers there are, built in and adapted, and the
                 // way to add one conch does not know.
                 if !fields.isEmpty { card(nil, fields) }
-                ProvidersCard(store: model.store) { name, label in
+                ProvidersCard(store: model.store, saves: model.saves) { name, label in
                     // Its card in the list below, made if it has none, and
                     // opened at the API key.
                     guard let t = tables.first(where: { $0.kind == "keyed" }) else { return }

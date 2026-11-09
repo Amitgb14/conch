@@ -432,6 +432,10 @@ struct AddProviderSheet: View {
 /// it does not know: the Sandboxes section of Settings.
 struct ProvidersCard: View {
     @ObservedObject var store: Store
+    /// The settings window's saves: a key saved below is read again, so a
+    /// provider's row says it is ready without leaving the page. It read
+    /// once, when the page opened, and stayed grey after a key was saved.
+    var saves = 0
     /// Opens a built-in provider's card for its key (name, label).
     var setKey: ((String, String) -> Void)?
     @Environment(\.conchTheme) private var theme
@@ -481,7 +485,7 @@ struct ProvidersCard: View {
                 }
             }
         }
-        .task { await load() }
+        .task(id: saves) { await load() }
         .sheet(isPresented: $adding) {
             AddProviderSheet(store: store) { Task { await load() } }
         }
