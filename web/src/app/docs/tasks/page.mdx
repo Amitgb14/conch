@@ -260,13 +260,13 @@ What it does, and what it refuses to do:
 | **Devin** | reads Claude Code's `CLAUDE.md`, `.claude/skills` and `.mcp.json`, and OpenCode's servers, by itself, so it is given only what it would not otherwise see — a second copy would be read twice. Turn that off with `read_config_from` in Devin's `config.json` and it gets its own `AGENTS.md`, skills link and `.devin/mcp_config.json` |
 | **Nothing else** | logins are each agent's own and are never touched. A server whose environment or headers hold a value rather than a `${VAR}` reference is not copied: conch does not carry secrets between files |
 | **Hand-written files** | left alone. conch writes its own block, or a file that wasn't there; a file somebody wrote is reported as skipped, and a second sync updates the block rather than the rest |
-| **Undo** | `u` puts the last sync back, file by file, from a record under `.conch/agent-sync/`. A file conch created is removed; one it changed goes back to what it held |
+| **Undo** | `u` puts the last sync back, file by file, from a record conch keeps in its own folder (`~/.config/conch/agent-sync/checkouts/`), never in the checkout — a record in a checkout could have come with a clone. A file conch created is removed; one it changed goes back to what it held. Undoing touches only the files a sync writes, and only inside the checkout. A record an older conch left in `.conch/agent-sync/` is listed but not acted on: undoing it names the files, for `git` to put back |
 
 A file conch cannot rewrite without losing something is left alone and says so — a `.json` with comments in it, for instance, since rewriting it would drop them.
 
 The plan also says where the instructions came from, and which agents want the folder trusted before they will read what was written: **Codex** reads a project's `config.toml` only once you have trusted it, and **Gemini** leaves a project's MCP servers *and* skills out until then — the servers with a warning, the skills silently, which is how an afternoon goes missing. Trust the folder in the agent itself (conch never answers that prompt for you) and both appear.
 
-Undoing names each thing it puts back, and takes away the folders the sync made — `.codex`, `.agents/skills` and the record's own `.conch` — so the checkout looks as it did. A folder with anything else in it stays.
+Undoing names each thing it puts back, and takes away the folders the sync made — `.codex`, `.agents/skills` — so the checkout looks as it did. A folder with anything else in it stays.
 
 ```sh
 conch agent sync                                 # what it would do, from Claude Code
