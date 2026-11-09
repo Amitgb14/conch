@@ -441,3 +441,33 @@ func TestAppThemesMatchTheTUI(t *testing.T) {
 		t.Errorf("app themes\n %v\nTUI themes\n %v", app, tui)
 	}
 }
+
+// The website's TUI screens and the README's PNGs are drawn from captured
+// frames, in a window of their own; its background and default text are the
+// conch theme's, since a visitor is looking at what conch looks like. They
+// were GitHub's dark colours once, which is nobody's conch. Both files are
+// outside the Go build, so this is the only thing that notices when the
+// theme moves.
+func TestWebsiteScreenUsesTheThemesColours(t *testing.T) {
+	bg, fg, _, _ := TerminalColors("conch", "")
+	for _, f := range []string{
+		"../../web/src/components/landing/tui-screen.tsx",
+		"../../web/scripts/tui-capture/topng.py",
+	} {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		text := string(src)
+		for _, c := range []string{bg, fg} {
+			if !strings.Contains(text, c) && !strings.Contains(text, strings.ToLower(c)) {
+				t.Errorf("%s does not use the conch theme's %s", f, c)
+			}
+		}
+		for _, old := range []string{"#0d1117", "#e6edf3", "#161b22"} {
+			if strings.Contains(strings.ToLower(text), old) {
+				t.Errorf("%s still uses GitHub's %s for the screen", f, old)
+			}
+		}
+	}
+}

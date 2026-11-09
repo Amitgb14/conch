@@ -52,6 +52,15 @@ W2=$(wt api/fix-flaky-login-test)
 ( cd "$W2" && printf 'package auth\n\n// wait for sweeper\n' >> auth/session.go )
 
 echo '{"expanded":{},"show_all":{},"sidebar_width":44}' > "$D/.config/conch/ui.json"
+
+# The phone capture wants the staged demo without a TUI in front of it: two
+# clients drawing the same panes settle the size between them, and the
+# phone's screens would be the TUI's columns.
+if [ -n "${CAPTURE_NO_TUI:-}" ]; then
+  "${IE[@]}" conch status
+  exit 0
+fi
+
 nohup "${OE[@]}" "$T/conch" server > "$T/outer.log" 2>&1 &
 sleep 1.5
 python3 "$T/drive.py" start "${1:-150}" "${2:-40}"

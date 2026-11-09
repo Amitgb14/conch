@@ -43,3 +43,50 @@ func TestReleaseScriptsParse(t *testing.T) {
 		}
 	}
 }
+
+// The website's capture scripts are the same kind of thing: they run by
+// hand on a Mac to redraw the screenshots, never in CI, so nothing else
+// would notice a typo until somebody needed them. They must parse, and
+// the ones that photograph a phone must keep conch away from the
+// developer's own server — a capture that ran against it would send
+// keystrokes into real agents and put real work on the website.
+func TestCaptureScriptsParse(t *testing.T) {
+	root := filepath.Join("..", "..")
+	scripts := []string{
+		"web/scripts/tui-capture/capture.sh", "web/scripts/tui-capture/run.sh", "web/scripts/tui-capture/stage.sh",
+		"web/scripts/phone-capture/capture.sh",
+	}
+	for _, s := range scripts {
+		out, err := exec.Command("bash", "-n", filepath.Join(root, s)).CombinedOutput()
+		if err != nil {
+			t.Errorf("%s does not parse: %v\n%s", s, err, out)
+		}
+	}
+	phone, err := os.ReadFile(filepath.Join(root, "web/scripts/phone-capture/capture.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"unset CONCH_SOCKET CONCH_PANE_ID CONCH_HOME", // never the developer's own session
+		"CONCH_SOCKET=/tmp/cwd-inner.sock",            // the staged demo's socket, not ~/.config/conch
+		"-listen 127.0.0.1",                           // the gateway is reachable from this computer only
+	} {
+		if !strings.Contains(string(phone), want) {
+			t.Errorf("web/scripts/phone-capture/capture.sh lost %q, which is what keeps it off your own conch", want)
+		}
+	}
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3: the capture scripts' python is not checked here")
+	}
+	for _, s := range []string{"web/scripts/phone-capture/shots.py", "web/scripts/tui-capture/topng.py",
+		"web/scripts/tui-capture/drive.py", "web/scripts/tui-capture/tojson.py"} {
+		cmd := exec.Command(python, "-m", "py_compile", filepath.Join(root, s))
+		// Keep the compiled files out of the repository.
+		cmd.Env = append(os.Environ(), "PYTHONPYCACHEPREFIX="+t.TempDir())
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Errorf("%s does not compile: %v\n%s", s, err, out)
+		}
+	}
+}

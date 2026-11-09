@@ -46,6 +46,13 @@ conch web pair            # a QR code and a one-time code for the phone — or P
 
 The gateway serves the app itself, so it always matches your conch build; there is nothing to install from a store. It is plain HTML, CSS and ES modules with no framework and no build step, deflated as it is served — about 34 KB for a cold start, which matters on a phone that is on mobile data rather than at home. **The live connection is deflated too**, with the window kept between messages: a pane's frame is the whole screen as styled text and the next one is that screen with a few rows changed, so a burst of them crossed the wire about fifteen times smaller when measured end to end, and cost less processor time a frame than compressing each on its own. Open the gateway's address in the phone's browser. **Add it to the Home Screen** (Safari: Share → Add to Home Screen; Chrome: Install app) and it opens like an app, without the browser's bars. It is laid out like the Claude app: warm colours, one conversation at a time, everything else a tap away.
 
+<Shot
+  name="phone-agents"
+  phone
+  alt="The phone app's Agents tab: a waiting agent with its question and three answers to tap, a working agent below it with the last line it printed, and the tab bar"
+  caption="What needs you, first: the question an agent is waiting on, with its answers as buttons. The tab's badge counts them."
+/>
+
 Four tabs run along the bottom — **Agents**, **Watch**, **Machines** and **Settings** — and **＋** floats above them (devices with `full`).
 
 - **Agents** — what needs you, first. Chips along the top narrow it: **All**, **Waiting**, **Working**, **Done**, **Terminals**, each with how many. An agent waiting on a question shows the question and its choices right there: tap one to answer without opening anything. Each **working** agent shows the last line it printed under its name, live, so you can tell what it is doing without opening it; then what is done or idle, and your terminals. Each agent has its mark in a circle of its colour, ringed by its state — coral while it waits, a turning blue while it works, green when it is done. The tab's badge says how many wait for you.
@@ -59,6 +66,13 @@ Four tabs run along the bottom — **Agents**, **Watch**, **Machines** and **Set
 - **＋** (devices with `full`) — a new **task** (branch, worktree and agent), a new **agent** in a project or your home folder, with an optional first message, or a new **terminal**. The agent is a tile to tap, each with its own logo. A task can be started as **2 or 3 tries** at once, each on a branch of its own named as `conch task -n` names them, to keep the best; they open in **Watch**.
 
 **When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents and terminals as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
+
+<Shot
+  name="phone-watch"
+  phone
+  alt="The phone app's Watch tab: every agent's and terminal's screen live, two to a row, the waiting one ringed in coral"
+  caption="Watch: a wall of monitors. Only the tiles on screen stream."
+/>
 
 ## Pair a phone
 

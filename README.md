@@ -3,7 +3,9 @@
 A terminal orchestrator for AI coding agents. A background server owns the
 terminals your agents run in, so they keep working when you close the UI. The
 TUI organises everything as a tree — machines, projects, git branches, agents
-and terminals — beside a live view of whatever you select.
+and terminals — beside a live view of whatever you select. It is not the only
+way in: [Conch.app](#conchapp-on-a-mac) is the same thing in a native Mac
+window, and [`conch web`](#from-your-phone) hands it to your phone.
 
 Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode** and
 **Devin**, on your machine or on remote machines over SSH.
@@ -33,15 +35,16 @@ losses included.
 Adding a project: pick a folder, and its branches, agents and terminals are
 there to open.
 
-![conch showing a machine: its projects in the tree, plan usage and the agents installed](https://raw.githubusercontent.com/Amitgb14/conch/master/docs/images/overview.png)
-
-A machine at a glance: what is running, how much of the plan window is left,
-and which agents are installed.
-
-![conch showing a project: branches, agents and terminals in the tree, a tab per agent, and an agent's diff in the pane](https://raw.githubusercontent.com/Amitgb14/conch/master/docs/images/branches-agents.png)
+![conch showing a project: branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-project.png)
 
 A project expanded into branches, agents and terminals, with a tab per agent
-and its work live in the pane.
+— and beside it what the project holds: each worktree, the open pull requests
+and their checks, and what the agents have spent.
+
+![conch showing a branch's changes: the file list and its diff, hunk by hunk, with the keys to mark and commit one](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-diff.png)
+
+Review an agent's work before it lands: a branch's uncommitted files and
+commits ahead, each diff hunk by hunk, and `space` to stage one.
 
 ## Install
 
@@ -70,12 +73,50 @@ instead, and conch then offers to reload onto it.
 conch                                   # open the TUI (starts the server)
 conch task -cwd ~/src/api "Add a health check endpoint"   # branch + worktree + agent
 conch machine add gpu-box               # add a remote machine over ssh
+conch project move api -to gpu-box      # branches, worktrees and agents, moved there
 conch status                            # panes with agent state
+conch read gpu-box:p3                   # a pane's screen, by the ID every view shows
 ```
 
 In the TUI: `t` new task · `c` start an agent · `:` ask in plain words ·
 `B` broadcast to a group · `!` jump to the next agent waiting for you · `?` all keys ·
 `q` detach.
+
+## Conch.app, on a Mac
+
+Conch.app is conch in a native macOS window — another client of the same
+servers, so it shows the agents the TUI shows and closing it stops none of
+them. Panes are drawn by [Ghostty](https://ghostty.org); a branch's changes,
+its files and the dev server's page sit in tabs beside the agents; ⌘K finds a
+pane, a branch or a file. It is in **beta**:
+[download it](https://github.com/Amitgb14/conch/releases/latest) or build it
+from [`macos/`](macos).
+
+![Conch.app: the tree of machines, projects, branches and agents down the left, a waiting agent's question with its answers above it, and an agent at work in a Ghostty pane](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop.png)
+
+[What the window holds](https://amitgb14.github.io/conch/docs/mac-app), key
+by key.
+
+## From your phone
+
+`conch web` serves the same agents to a phone: what each one is doing, the
+question it is waiting on with its answers as buttons, every screen at once,
+and a keyboard into any terminal. It is a page the gateway serves itself —
+nothing to install, and no service of conch's in between.
+
+```sh
+conch web          # the gateway, in front of the same server
+conch web pair     # a QR code and a one-time code for the phone
+```
+
+<img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/phone.png" width="320" alt="The phone app: a waiting agent with its question and three answers to tap, an agent at work under it with its last line, and the Agents, Watch, Machines and Settings tabs">
+
+On your own tailnet the phone reaches the laptop directly. From any other
+network it goes through a **relay** you run yourself (`conch relay`): the
+phone and the laptop both connect out to it, and what it carries it cannot
+read — they make a [Noise](https://noiseprotocol.org) session whose key
+travels in the QR code, through the camera rather than the network. See
+[Phone](https://amitgb14.github.io/conch/docs/phone).
 
 ## Skills for your agents
 
@@ -116,7 +157,11 @@ built; after changing it, run `make settings-ui` (needs pnpm) and commit
 contributing, including keeping tests away from your own running conch.
 
 The website and documentation live in [`web/`](web), a Next.js and
-shadcn/ui app (`pnpm dev` there).
+shadcn/ui app (`pnpm dev` there). Its screenshots are regenerated rather
+than taken by hand: `web/scripts/tui-capture/capture.sh` stages a demo
+project in a scratch conch and saves the TUI's screens,
+`web/scripts/phone-capture/capture.sh` photographs the phone app in
+headless Chrome, and both keep away from your own server and agents.
 
 ## License
 

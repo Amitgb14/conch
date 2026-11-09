@@ -124,6 +124,20 @@ const features: { group: Group; title: string; body: string; example: string; hr
   },
   {
     group: "remote",
+    title: "Answer from your phone",
+    body: "conch web serves the same agents to a phone: what each is doing, the question it waits on with its answers to tap, a keyboard into any terminal. Over your tailnet, or a relay you run.",
+    example: "conch web pair",
+    href: "/docs/phone",
+  },
+  {
+    group: "remote",
+    title: "Move a project to another machine",
+    body: "A whole project to a bigger box: cloned there from its origin, every task worktree with its commits and uncommitted work, and the agents with their conversations.",
+    example: "conch project move api -to gpu-box",
+    href: "/docs/remote-machines#moving-a-whole-project",
+  },
+  {
+    group: "remote",
     title: "Update without stopping agents",
     body: "The server execs a new build in place: panes, scrollback and agent states survive, and every connected machine updates with one key.",
     example: "conch server reload",
