@@ -799,7 +799,7 @@ func stopServer(c *client.Client, local bool) error {
 // rebuilds (that is the point of it), so ask before replacing it: restarting
 // stops its panes. Declining keeps the old server; the TUI then warns.
 func offerUpgrade(c *client.Client) (*client.Client, error) {
-	missing := c.MissingCapabilities(proto.Capabilities)
+	missing := c.OlderBuild()
 	if len(missing) == 0 {
 		return c, nil
 	}

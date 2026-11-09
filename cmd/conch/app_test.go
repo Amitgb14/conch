@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -579,14 +581,23 @@ func TestAppInstallAndRemove(t *testing.T) {
 }
 
 // A desktop entry's Exec is a quoted word, not a line of shell, so a conch
-// installed under a path with a space in it still starts.
+// installed under a path with a space in it still starts — and the
+// backslashes are doubled once more, since the value is a string first
+// and GLib refuses an escape it does not know (\" or \$).
 func TestAppQuotesExec(t *testing.T) {
 	for in, want := range map[string]string{
 		"/usr/local/bin/conch":  "/usr/local/bin/conch",
 		"/opt/my apps/conch":    `"/opt/my apps/conch"`,
-		`/opt/wei"rd/conch`:     `"/opt/wei\"rd/conch"`,
-		`/opt/back\slash/conch`: `"/opt/back\\slash/conch"`,
-		"/opt/$HOME/conch":      `"/opt/\$HOME/conch"`,
+		`/opt/wei"rd/conch`:     `"/opt/wei\\"rd/conch"`,
+		`/opt/back\slash/conch`: `"/opt/back\\\\slash/conch"`,
+		"/opt/$HOME/conch":      `"/opt/\\$HOME/conch"`,
+		"/opt/`x`/conch":        "\"/opt/\\\\`x\\\\`/conch\"",
+		"/opt/100%/conch":       "/opt/100%%/conch",
+		"/opt/50% off/conch":    `"/opt/50%% off/conch"`,
+		"/opt/new\nline/conch":  `"/opt/new\nline/conch"`,
+		"/opt/tab\there/conch":  `"/opt/tab\there/conch"`,
+		"/opt/it's/conch":       `"/opt/it's/conch"`,
+		"":                      "",
 	} {
 		if got := appQuoteExec(in); got != want {
 			t.Errorf("appQuoteExec(%q) = %q, want %q", in, got, want)
@@ -594,6 +605,402 @@ func TestAppQuotesExec(t *testing.T) {
 	}
 	if got := appShellQuote("/opt/it's/conch"); got != `'/opt/it'\''s/conch'` {
 		t.Errorf("appShellQuote: %s", got)
+	}
+}
+
+// Whatever the path, the Exec line written for it reads back — by the
+// specification's three steps — as that path and the word app, on one line.
+func TestAppExecRoundTrips(t *testing.T) {
+	for _, path := range []string{
+		"/usr/bin/conch", "/opt/my apps/conch", `/a"b/conch`, `/a\b/conch`,
+		"/a$b/conch", "/a`b`/conch", "/a%b/conch", "/a%%u/conch", "/a\nb/conch",
+		"/a\tb\rc/conch", "/a'b/conch", "/a;b|c&d<e>f~g*h?i#j(k)/conch",
+		`/all " ' \ $ ` + "` % \n/conch", "/trailing\\",
+	} {
+		line := "Exec=" + appQuoteExec(path) + " app"
+		if strings.ContainsAny(line, "\n\r") {
+			t.Errorf("%q: the line breaks: %q", path, line)
+			continue
+		}
+		argv, err := readDesktopExec(strings.TrimPrefix(line, "Exec="))
+		if err != nil {
+			t.Errorf("%q: %v (%q)", path, err, line)
+			continue
+		}
+		if len(argv) != 2 || argv[0] != path || argv[1] != "app" {
+			t.Errorf("%q reads back as %q (%q)", path, argv, line)
+		}
+	}
+}
+
+// readDesktopExec reads an Exec value as the Desktop Entry specification
+// says a launcher does: the string escapes, then the quoting, then the
+// field codes (only %% here — conch writes no other). It is strict where
+// GLib is, so an escape the writer got wrong is an error.
+func readDesktopExec(v string) ([]string, error) {
+	var s strings.Builder
+	for i := 0; i < len(v); i++ {
+		if v[i] != '\\' {
+			s.WriteByte(v[i])
+			continue
+		}
+		if i++; i == len(v) {
+			return nil, errors.New("a backslash ends the value")
+		}
+		switch v[i] {
+		case 's':
+			s.WriteByte(' ')
+		case 'n':
+			s.WriteByte('\n')
+		case 't':
+			s.WriteByte('\t')
+		case 'r':
+			s.WriteByte('\r')
+		case '\\':
+			s.WriteByte('\\')
+		default:
+			return nil, fmt.Errorf("invalid string escape \\%c", v[i])
+		}
+	}
+	var argv []string
+	var word strings.Builder
+	inWord, quoted := false, false
+	str := s.String()
+	for i := 0; i < len(str); i++ {
+		c := str[i]
+		switch {
+		case quoted && c == '\\':
+			if i++; i == len(str) || !strings.ContainsRune("\"`$\\", rune(str[i])) {
+				return nil, errors.New("invalid escape in a quoted argument")
+			}
+			word.WriteByte(str[i])
+		case quoted && c == '"':
+			quoted = false
+		case quoted:
+			word.WriteByte(c)
+		case c == '"':
+			quoted, inWord = true, true
+		case c == ' ':
+			if inWord {
+				argv = append(argv, word.String())
+				word.Reset()
+				inWord = false
+			}
+		case strings.ContainsRune(appExecReserved, rune(c)):
+			return nil, fmt.Errorf("reserved %q outside quotes", c)
+		default:
+			word.WriteByte(c)
+			inWord = true
+		}
+	}
+	if quoted {
+		return nil, errors.New("an unclosed quote")
+	}
+	if inWord {
+		argv = append(argv, word.String())
+	}
+	for i, a := range argv {
+		var out strings.Builder
+		for j := 0; j < len(a); j++ {
+			if a[j] != '%' {
+				out.WriteByte(a[j])
+				continue
+			}
+			if j++; j == len(a) || a[j] != '%' {
+				return nil, errors.New("a field code conch did not write")
+			}
+			out.WriteByte('%')
+		}
+		argv[i] = out.String()
+	}
+	return argv, nil
+}
+
+// appNativeBundle puts what Conch.app's bundle.sh writes at path: the
+// native app, which on a Mac's case-insensitive volume is the very path
+// `conch app install` uses when it lives in ~/Applications.
+func appNativeBundle(t *testing.T, path, plist string) map[string]string {
+	t.Helper()
+	files := map[string]string{
+		"Contents/MacOS/Conch":            "native program",
+		"Contents/Resources/AppIcon.icns": "native icon",
+	}
+	if plist != "" {
+		files["Contents/Info.plist"] = plist
+	}
+	for name, body := range files {
+		p := filepath.Join(path, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return files
+}
+
+// appUnchanged fails unless every file is still there as it was, and
+// nothing was added beside them.
+func appUnchanged(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	seen := 0
+	err := filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		want, ok := files[filepath.ToSlash(rel)]
+		if !ok {
+			t.Errorf("%s was added to a bundle that is not conch's", rel)
+			return nil
+		}
+		if got, _ := os.ReadFile(p); string(got) != want {
+			t.Errorf("%s was changed to %q", rel, got)
+		}
+		seen++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("the bundle is gone: %v", err)
+	}
+	if seen != len(files) {
+		t.Errorf("%d of %d files are left", seen, len(files))
+	}
+}
+
+const nativePlist = `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>Conch (Beta)</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.conch.mac</string>
+	<key>CFBundleExecutable</key><string>Conch</string>
+</dict>
+</plist>
+`
+
+// The launcher is never written over, or removed in place of, a bundle
+// conch did not write — Conch.app above all, which on the default volume
+// is ~/Applications/conch.app as far as the file system is concerned.
+func TestAppMacLeavesOtherBundles(t *testing.T) {
+	for name, plist := range map[string]string{
+		"the native app":               nativePlist,
+		"no Info.plist":                "",
+		"a garbled Info.plist":         "<plist><dict><key>CFBundleIdentifier</key><str",
+		"a binary Info.plist":          "bplist00\xd1\x01\x02_\x10\x12CFBundleIdentifier",
+		"an identifier only near ours": strings.Replace(nativePlist, "dev.conch.mac", "dev.conch.app.other", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			appEnv(t)
+			bundle := appMacBundle()
+			files := appNativeBundle(t, bundle, plist)
+			out, _, err := a4Out(t, func() error { return appInstallMac("/usr/bin/conch", appTerm(t, "kitty")) })
+			if err == nil || !strings.Contains(err.Error(), "leaves it alone") || !strings.Contains(err.Error(), bundle) {
+				t.Errorf("install: %v\n%s", err, out)
+			}
+			if name == "the native app" && (err == nil || !strings.Contains(err.Error(), "dev.conch.mac")) {
+				t.Errorf("install does not say what is there: %v", err)
+			}
+			appUnchanged(t, bundle, files)
+			if out, _, err = a4Out(t, appRemoveMac); err == nil || strings.Contains(out, "removed") {
+				t.Errorf("remove: %v\n%s", err, out)
+			}
+			appUnchanged(t, bundle, files)
+		})
+	}
+}
+
+// Nor through a link, or over a file: install never makes either.
+func TestAppMacLeavesLinksAndFiles(t *testing.T) {
+	appEnv(t)
+	bundle := appMacBundle()
+	elsewhere := filepath.Join(t.TempDir(), "Conch.app")
+	files := appNativeBundle(t, elsewhere, strings.Replace(nativePlist, "dev.conch.mac", appMacID, 1))
+	if err := os.MkdirAll(filepath.Dir(bundle), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, bundle); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallMac("/usr/bin/conch", appTerm(t, "kitty")) }); err == nil {
+		t.Error("install wrote through a link")
+	}
+	if _, _, err := a4Out(t, appRemoveMac); err == nil {
+		t.Error("remove took a link")
+	}
+	appUnchanged(t, elsewhere, files)
+	if _, err := os.Lstat(bundle); err != nil {
+		t.Errorf("the link is gone: %v", err)
+	}
+
+	if err := os.Remove(bundle); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundle, []byte("a file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallMac("/usr/bin/conch", appTerm(t, "kitty")) }); err == nil {
+		t.Error("install wrote over a file")
+	}
+	if b, _ := os.ReadFile(bundle); string(b) != "a file" {
+		t.Errorf("the file is now %q", b)
+	}
+}
+
+// conch's own bundle is still installed, written over by the next install
+// (a new conch path), and removed.
+func TestAppMacOwnBundle(t *testing.T) {
+	appEnv(t)
+	bundle := appMacBundle()
+	term := appTerm(t, "kitty")
+	if _, _, err := a4Out(t, func() error { return appInstallMac("/old/conch", term) }); err != nil {
+		t.Fatal(err)
+	}
+	plist, _ := os.ReadFile(filepath.Join(bundle, "Contents", "Info.plist"))
+	if appPlistID(plist) != appMacID {
+		t.Fatalf("install wrote an identifier it does not recognise:\n%s", plist)
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallMac("/new place/conch", term) }); err != nil {
+		t.Fatalf("updating conch's own bundle: %v", err)
+	}
+	script, _ := os.ReadFile(filepath.Join(bundle, "Contents", "MacOS", "conch"))
+	if !strings.Contains(string(script), "'/new place/conch' app") {
+		t.Errorf("the update was not written:\n%s", script)
+	}
+	out, _, err := a4Out(t, appRemoveMac)
+	if err != nil || !strings.Contains(out, "removed "+bundle) {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if _, err := os.Lstat(bundle); !os.IsNotExist(err) {
+		t.Errorf("the bundle is still there: %v", err)
+	}
+	if out, _, err = a4Out(t, appRemoveMac); err != nil || !strings.Contains(out, "nothing to remove") {
+		t.Errorf("a second remove: %v\n%s", err, out)
+	}
+}
+
+// A case-insensitive volume is the case this is for: Conch.app put in
+// ~/Applications by its own name is the path install would use.
+func TestAppMacCaseInsensitiveVolume(t *testing.T) {
+	appEnv(t)
+	bundle := appMacBundle()
+	native := filepath.Join(filepath.Dir(bundle), "Conch.app")
+	files := appNativeBundle(t, native, nativePlist)
+	if _, err := os.Stat(bundle); err != nil {
+		t.Skip("this volume tells conch.app from Conch.app")
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallMac("/usr/bin/conch", appTerm(t, "kitty")) }); err == nil {
+		t.Error("install wrote into Conch.app")
+	}
+	if _, _, err := a4Out(t, appRemoveMac); err == nil {
+		t.Error("remove took Conch.app")
+	}
+	appUnchanged(t, native, files)
+}
+
+func TestAppPlistID(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "",
+		"<key>CFBundleIdentifier</key><string>a.b</string>":                                        "a.b",
+		"<key>CFBundleIdentifier</key>\n\t <string> a.b </string>":                                 "a.b",
+		"<key>CFBundleIdentifier</key><integer>1</integer>":                                        "",
+		"<key>CFBundleIdentifier</key><string>a.b":                                                 "",
+		"<key>CFBundleIdentifier</key>":                                                            "",
+		"<key>CFBundleName</key><string>a.b</string>":                                              "",
+		"<key>CFBundleName</key><string>x</string><key>CFBundleIdentifier</key><string>y</string>": "y",
+	} {
+		if got := appPlistID([]byte(in)); got != want {
+			t.Errorf("appPlistID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The Linux entry and icon follow the same rule: conch's own are written
+// over and removed, anybody else's are left and named.
+func TestAppXDGLeavesOtherFiles(t *testing.T) {
+	appEnv(t)
+	term := appTerm(t, "kitty")
+	theirs := "[Desktop Entry]\nType=Application\nName=conch\nExec=/opt/other/conch\n"
+	if err := appWrite(appDesktopFile(), []byte(theirs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallXDG("/usr/bin/conch", term) }); err == nil || !strings.Contains(err.Error(), appDesktopFile()) {
+		t.Errorf("install over somebody's entry: %v", err)
+	}
+	if _, err := os.Stat(appIconFile()); !os.IsNotExist(err) {
+		t.Errorf("a refused install wrote the icon: %v", err)
+	}
+	out, _, err := a4Out(t, appRemoveXDG)
+	if err == nil || strings.Contains(out, "removed") {
+		t.Errorf("remove: %v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(appDesktopFile()); string(b) != theirs {
+		t.Errorf("their entry is now:\n%s", b)
+	}
+
+	// Somebody's icon by the same name, with no entry of conch's beside it.
+	if err := os.Remove(appDesktopFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := appWrite(appIconFile(), []byte("<svg>theirs</svg>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallXDG("/usr/bin/conch", term) }); err == nil || !strings.Contains(err.Error(), appIconFile()) {
+		t.Errorf("install over somebody's icon: %v", err)
+	}
+	if _, err := os.Stat(appDesktopFile()); !os.IsNotExist(err) {
+		t.Errorf("a refused install wrote the entry: %v", err)
+	}
+	if b, _ := os.ReadFile(appIconFile()); string(b) != "<svg>theirs</svg>" {
+		t.Errorf("their icon is now %q", b)
+	}
+}
+
+// conch's own entry is replaced and removed — and so is one an older
+// conch wrote before the mark, with the icon beside it, whatever picture
+// that conch had.
+func TestAppXDGOwnFiles(t *testing.T) {
+	appEnv(t)
+	term := appTerm(t, "kitty")
+	older := strings.Join([]string{
+		"[Desktop Entry]", "Type=Application", "Name=conch",
+		"Comment=Terminal orchestrator for AI coding agents",
+		`Exec="/old place/conch" app`, "Icon=conch", "",
+	}, "\n")
+	if err := appWrite(appDesktopFile(), []byte(older), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := appWrite(appIconFile(), []byte("<svg>an older conch</svg>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a4Out(t, func() error { return appInstallXDG("/usr/bin/conch", term) }); err != nil {
+		t.Fatalf("updating an older conch's entry: %v", err)
+	}
+	entry, _ := os.ReadFile(appDesktopFile())
+	if !strings.Contains(string(entry), "Exec=/usr/bin/conch app\n") || !strings.Contains(string(entry), appDesktopMark+"\n") {
+		t.Errorf("the entry is:\n%s", entry)
+	}
+	if icon, _ := os.ReadFile(appIconFile()); string(icon) != string(phone.Icon()) {
+		t.Error("the icon was not brought up to date")
+	}
+	// Again over its own.
+	if _, _, err := a4Out(t, func() error { return appInstallXDG("/usr/bin/conch", term) }); err != nil {
+		t.Fatalf("installing twice: %v", err)
+	}
+	// The icon alone, its entry already gone, is still conch's by its picture.
+	if err := os.Remove(appDesktopFile()); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := a4Out(t, appRemoveXDG)
+	if err != nil || !strings.Contains(out, "removed "+appIconFile()) {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(appIconFile()); !os.IsNotExist(err) {
+		t.Errorf("the icon is still there: %v", err)
+	}
+	if out, _, err = a4Out(t, appRemoveXDG); err != nil || !strings.Contains(out, "nothing to remove") {
+		t.Errorf("a second remove: %v\n%s", err, out)
 	}
 }
 

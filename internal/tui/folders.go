@@ -120,6 +120,18 @@ func (m *Model) settleFolders(machine string, panes []proto.PaneInfo) bool {
 		for fi := range folders {
 			kept := folders[fi].Members[:0]
 			for _, mem := range folders[fi].Members {
+				// A saved ssh host is not a pane, and no server's panes
+				// say anything about it: it stays for as long as the host
+				// is saved. Settling once took every one of them out of
+				// its SSH folder, at every start.
+				if mem.Host != "" {
+					if slices.Contains(m.savedSSH, mem.Host) {
+						kept = append(kept, mem)
+					} else {
+						changed = true
+					}
+					continue
+				}
 				if p, ok := live[mem.ID]; ok && (mem.Name == "" || p.Name == mem.Name) {
 					kept = append(kept, mem)
 					continue

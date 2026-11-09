@@ -252,6 +252,11 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     // Another machine's items say which machine.
     let (_, panes, _) = fixture().paletteItems(machine: "box", label: "busybox")
     #expect(panes.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox:p1")
+    // A label another machine shares: the pane goes by the machine's ID,
+    // and the label is still shown.
+    let among = [MachineEntry(id: "box", label: "busybox"), MachineEntry(id: "box-2", label: "busybox")]
+    let (_, shared, _) = fixture().paletteItems(machine: "box", label: "busybox", among: among)
+    #expect(shared.first { $0.action == .pane("box|p1") }?.detail == "api · feat · busybox · box:p1")
 }
 
 @Test func paletteFilter() {
@@ -2700,11 +2705,34 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(paneRef(machine: "gone", label: nil, pane: "p3") == "gone:p3")
     #expect(paneRef(machine: "gone", label: "", pane: "p3") == "gone:p3")
 
+    // A label the commands would not find this machine by is not used:
+    // shared with another (two logins to one host), "local", another's
+    // ID, with any space in it, or shared with a disabled machine.
+    let among = [MachineEntry(id: "devbox", label: "devbox"), MachineEntry(id: "devbox-2", label: "devbox"),
+                 MachineEntry(id: "loc", label: "local"), MachineEntry(id: "bb", label: "busybox"),
+                 MachineEntry(id: "x", label: "bb"), MachineEntry(id: "old", label: "gpu", enabled: false),
+                 MachineEntry(id: "gpu-1", label: "gpu")]
+    #expect(paneRef(machine: "devbox", label: "devbox", pane: "p3", among: among) == "devbox:p3")
+    #expect(paneRef(machine: "devbox-2", label: "devbox", pane: "p3", among: among) == "devbox-2:p3")
+    #expect(paneRef(machine: "loc", label: "local", pane: "p3", among: among) == "loc:p3")
+    #expect(paneRef(machine: "loc", label: "local", pane: "p3") == "loc:p3")
+    #expect(paneRef(machine: "bb", label: "busybox", pane: "p3", among: among) == "busybox:p3")
+    #expect(paneRef(machine: "x", label: "bb", pane: "p3", among: among) == "x:p3")
+    #expect(paneRef(machine: "gpu-1", label: "gpu", pane: "p3", among: among) == "gpu-1:p3")
+    #expect(paneRef(machine: "tab", label: "lab\tbox", pane: "p3") == "tab:p3")
+    #expect(paneRef(machine: "nl", label: "lab\nbox", pane: "p3") == "nl:p3")
+    let all = MachineEntry.all(machinesJSON: Data(#"{"machines":[{"id":"a","label":"a"},{"id":"b","label":"b","enabled":false},{"id":"local","label":"x"}]}"#.utf8))
+    #expect(all.map(\.id) == ["a", "b"])
+    #expect(MachineEntry.load(machinesJSON: Data(#"{"machines":[{"id":"a","label":"a"},{"id":"b","label":"b","enabled":false}]}"#.utf8)).map(\.id) == ["a"])
+    #expect(MachineEntry.all(machinesJSON: nil).isEmpty)
+
     let s = fixture()
     let local = s.menu(for: TreeNode(id: "pane:local|p1", kind: .agent("local|p1"), title: "claude"), machine: "local")
     #expect(local.contains { $0.title == "Copy Pane ID (p1)" && $0.action == .copy("p1") })
     let remote = s.menu(for: TreeNode(id: "pane:bb|p2", kind: .terminal("bb|p2"), title: "zsh"), machine: "bb", label: "busybox")
     #expect(remote.contains { $0.title == "Copy Pane ID (busybox:p2)" && $0.action == .copy("busybox:p2") })
+    let shared = s.menu(for: TreeNode(id: "pane:bb|p2", kind: .terminal("bb|p2"), title: "zsh"), machine: "devbox-2", label: "devbox", among: among)
+    #expect(shared.contains { $0.title == "Copy Pane ID (devbox-2:p2)" && $0.action == .copy("devbox-2:p2") })
     // Close stays last.
     #expect(remote.last.map { if case .close = $0.action { return true } else { return false } } == true)
 

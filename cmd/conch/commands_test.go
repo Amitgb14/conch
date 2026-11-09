@@ -194,6 +194,56 @@ func TestA4ProjectCommands(t *testing.T) {
 	if sp.Command != "" {
 		t.Fatalf("setup -none sent %+v", sp)
 	}
+	// A flag after the ID is a flag, not the command: "-none" was saved as
+	// the setup command, to be run in every new worktree.
+	sp = proto.ProjectSetupParams{}
+	if out, err := run("setup", "api", "-none"); err != nil || out != "new worktrees of api run no setup\n" {
+		t.Fatalf("setup ID -none: %q %v", out, err)
+	}
+	if srv.params(t, proto.MethodProjectSetup, &sp); sp.Command != "" || sp.ProjectID != "api" {
+		t.Fatalf("setup ID -none sent %+v", sp)
+	}
+	// Once the command has begun, what follows is the command's.
+	if _, err := run("setup", "api", "make", "-j4", "-none"); err != nil {
+		t.Fatal(err)
+	}
+	if srv.params(t, proto.MethodProjectSetup, &sp); sp.Command != "make -j4 -none" {
+		t.Fatalf("setup with flags of its own sent %+v", sp)
+	}
+	// And -- passes a command that starts with a dash.
+	if _, err := run("setup", "api", "--", "-none"); err != nil {
+		t.Fatal(err)
+	}
+	if srv.params(t, proto.MethodProjectSetup, &sp); sp.Command != "-none" {
+		t.Fatalf("setup -- -none sent %+v", sp)
+	}
+
+	// The same for files: a flag after the ID, or after a pattern, is a flag.
+	for _, args := range [][]string{{"files", "notes", "-reset"}, {"files", "-reset", "notes"}} {
+		fp = proto.ProjectFilesParams{}
+		if _, err := run(args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if srv.params(t, proto.MethodProjectFiles, &fp); !fp.Reset || len(fp.Patterns) != 0 || fp.ProjectID != "notes" {
+			t.Fatalf("%v sent %+v", args, fp)
+		}
+	}
+	for _, args := range [][]string{{"files", "notes", "-none"}, {"files", "-none", "notes"}} {
+		fp = proto.ProjectFilesParams{}
+		if _, err := run(args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if srv.params(t, proto.MethodProjectFiles, &fp); fp.Reset || len(fp.Patterns) != 0 || fp.ProjectID != "notes" {
+			t.Fatalf("%v sent %+v", args, fp)
+		}
+	}
+	fp = proto.ProjectFilesParams{}
+	if _, err := run("files", "notes", ".env", "--", "-weird", "-none"); err != nil {
+		t.Fatal(err)
+	}
+	if srv.params(t, proto.MethodProjectFiles, &fp); fp.Reset || strings.Join(fp.Patterns, " ") != ".env -weird -none" {
+		t.Fatalf("files -- sent %+v", fp)
+	}
 
 	if _, err := run("rm", "api"); err != nil {
 		t.Fatal(err)
@@ -204,21 +254,28 @@ func TestA4ProjectCommands(t *testing.T) {
 	}
 
 	for args, want := range map[string]string{
-		"add":             "usage: conch project add PATH",
-		"add a b":         "usage: conch project add PATH",
-		"create":          "usage: conch project create",
-		"create -bad x":   "flag provided but not defined",
-		"clone":           "usage: conch project clone URL [DIR]",
-		"clone a b c":     "usage: conch project clone URL [DIR]",
-		"clone -x":        "usage: conch project clone URL [DIR]",
-		"files":           "usage: conch project files",
-		"files -what":     "flag provided but not defined",
-		"setup":           "usage: conch project setup",
-		"setup -none a b": "usage: conch project setup",
-		"setup -what":     "flag provided but not defined",
-		"rm":              "usage: conch project rm ID",
-		"frobnicate":      `unknown project subcommand "frobnicate"`,
-		"remove too many": "usage: conch project rm ID",
+		"add":                  "usage: conch project add PATH",
+		"add a b":              "usage: conch project add PATH",
+		"create":               "usage: conch project create",
+		"create -bad x":        "flag provided but not defined",
+		"clone":                "usage: conch project clone URL [DIR]",
+		"clone a b c":          "usage: conch project clone URL [DIR]",
+		"clone -x":             "usage: conch project clone URL [DIR]",
+		"files":                "usage: conch project files",
+		"files -what":          "flag provided but not defined",
+		"setup":                "usage: conch project setup",
+		"setup -none a b":      "usage: conch project setup",
+		"setup -what":          "flag provided but not defined",
+		"setup a -what":        "flag provided but not defined",
+		"setup -none":          "usage: conch project setup",
+		"setup a -none b":      "usage: conch project setup",
+		"files -none":          "usage: conch project files",
+		"files a -what":        "flag provided but not defined",
+		"files a b -none":      "usage: conch project files",
+		"files a -reset -none": "usage: conch project files",
+		"rm":                   "usage: conch project rm ID",
+		"frobnicate":           `unknown project subcommand "frobnicate"`,
+		"remove too many":      "usage: conch project rm ID",
 	} {
 		if _, err := run(strings.Fields(args)...); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("project %s: %v, want %q", args, err, want)
