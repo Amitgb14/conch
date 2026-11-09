@@ -615,6 +615,7 @@ struct MainView: View {
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id) }
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
+        .sheet(isPresented: $store.welcomeOpen) { WelcomeSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
         .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
