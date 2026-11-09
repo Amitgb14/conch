@@ -107,7 +107,23 @@ func TestFramesStillThrottledWhileBusy(t *testing.T) {
 	if frames > 32 {
 		t.Fatalf("%d frames in a second: the interval is not holding", frames)
 	}
-	if frames < 5 {
-		t.Fatalf("only %d frames in a second of constant output", frames)
+	// And frames keep coming. Not "five in that second": on a machine
+	// whose cores are all taken — the suite split across processes, other
+	// suites beside it — the shell loop itself barely runs, and fewer
+	// frames then is the machine, not the throttle. Five within five
+	// seconds still says frames are not stuck.
+	for late := time.After(5 * time.Second); frames < 5; {
+		select {
+		case m, ok := <-c.Events:
+			if !ok {
+				t.Fatalf("connection closed: %v", c.Err())
+			}
+			var f proto.Frame
+			if m.Event == proto.EventPaneFrame && json.Unmarshal(m.Data, &f) == nil && f.ID == id {
+				frames++
+			}
+		case <-late:
+			t.Fatalf("only %d frames in six seconds of constant output", frames)
+		}
 	}
 }

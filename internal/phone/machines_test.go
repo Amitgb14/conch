@@ -69,7 +69,7 @@ func addMachine(t *testing.T, f *fixture, id string, reachable bool, opts ...mac
 	for _, opt := range opts {
 		opt(m)
 	}
-	t.Cleanup(func() { srv.Stop(); time.Sleep(50 * time.Millisecond); os.RemoveAll(dir) })
+	t.Cleanup(func() { srv.StopAndWait(); os.RemoveAll(dir) })
 	for range 100 {
 		if m.c, err = client.Dial(sock, "test2"); err == nil {
 			break

@@ -36,7 +36,7 @@ func startServerWithAgents(t *testing.T, manifests map[string]string) (*client.C
 	sock := filepath.Join(dir, "s.sock")
 	srv := server.New(sock, dir)
 	go srv.Run()
-	t.Cleanup(func() { srv.Stop(); time.Sleep(100 * time.Millisecond); os.RemoveAll(dir) })
+	t.Cleanup(func() { srv.StopAndWait(); os.RemoveAll(dir) })
 	var c *client.Client
 	for range 100 {
 		if c, err = client.Dial(sock, "test"); err == nil {

@@ -22,7 +22,7 @@ func TestExecuteSendAndClose(t *testing.T) {
 	dir, _ = filepath.EvalSymlinks(dir)
 	srv := server.New(filepath.Join(dir, "s.sock"), dir)
 	go srv.Run()
-	t.Cleanup(func() { srv.Stop(); time.Sleep(100 * time.Millisecond); os.RemoveAll(dir) })
+	t.Cleanup(func() { srv.StopAndWait(); os.RemoveAll(dir) })
 	var c *client.Client
 	for i := 0; i < 100; i++ {
 		if c, err = client.Dial(filepath.Join(dir, "s.sock"), "test"); err == nil {
@@ -84,7 +84,7 @@ func startBrainServer(t *testing.T) (*client.Client, string) {
 	dir, _ = filepath.EvalSymlinks(dir)
 	srv := server.New(filepath.Join(dir, "s.sock"), dir)
 	go srv.Run()
-	t.Cleanup(func() { srv.Stop(); time.Sleep(100 * time.Millisecond); os.RemoveAll(dir) })
+	t.Cleanup(func() { srv.StopAndWait(); os.RemoveAll(dir) })
 	var c *client.Client
 	for i := 0; i < 100; i++ {
 		if c, err = client.Dial(filepath.Join(dir, "s.sock"), "test"); err == nil {

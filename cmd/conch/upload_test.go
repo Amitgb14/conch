@@ -21,7 +21,7 @@ func TestUploadCommand(t *testing.T) {
 	srv := server.New(config.SocketPath(), dir)
 	go srv.Run()
 	t.Cleanup(func() {
-		srv.Stop()
+		srv.StopAndWait()
 		for i := 0; i < 100; i++ {
 			if _, err := os.Stat(config.SocketPath()); err != nil {
 				break
@@ -110,7 +110,7 @@ func realServer(t *testing.T, dir string) {
 	srv := server.New(config.SocketPath(), dir)
 	go srv.Run()
 	t.Cleanup(func() {
-		srv.Stop()
+		srv.StopAndWait()
 		for i := 0; i < 100; i++ {
 			if _, err := os.Stat(config.SocketPath()); err != nil {
 				break
