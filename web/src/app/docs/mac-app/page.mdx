@@ -157,7 +157,7 @@ Everything else you type goes to the focused pane — except **the TUI's prefix 
 Each release from v0.1.9 carries `Conch_<version>_macos_arm64.zip` on its [GitHub release page](https://github.com/Amitgb14/conch/releases), with its SHA-256 beside it. It needs a Mac with Apple Silicon and macOS 14 or later, and conch's server comes inside it, so nothing else has to be installed first.
 
 1. Download the zip and open it: it unpacks **Conch.app**.
-2. Drag Conch.app into **Applications**.
+2. Drag Conch.app into **Applications** — the system's `/Applications`. In `~/Applications` it has the same name, to a Mac, as the launcher [`conch app install`](/docs/cli#app) writes there, so that launcher is not added; install and remove never touch Conch.app.
 3. Open it. The app is signed with a Developer ID and notarized by Apple, so macOS only asks the usual *downloaded from the internet* question the first time — no "could not verify" warning, and nothing to allow in System Settings.
 
 To update, download the next release's zip and replace the app; your agents keep running through it, since the server holds them, not the window. A machine you reach over ssh gets the released conch of the same version when the app upgrades it. Report what breaks with **⊙** in the status bar.

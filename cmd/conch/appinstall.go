@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,26 +54,57 @@ func appRemove(args []string) error {
 	if len(args) > 0 {
 		return errors.New(appUsage)
 	}
-	var paths []string
 	if runtime.GOOS == "darwin" {
-		paths = []string{appMacBundle()}
-	} else {
-		paths = []string{appDesktopFile(), appIconFile()}
+		return appRemoveMac()
 	}
+	return appRemoveXDG()
+}
+
+// appRemoveMac takes the bundle away only when it is the one install
+// writes. On the case-insensitive volume a Mac has by default,
+// ~/Applications/conch.app is also Conch.app — the native app, which is
+// somebody's own and not this command's to delete.
+func appRemoveMac() error {
+	bundle := appMacBundle()
+	there, err := appMacOurs(bundle)
+	if err != nil {
+		return err
+	}
+	if !there {
+		fmt.Println("nothing to remove:", bundle, "is not there")
+		return nil
+	}
+	if err := os.RemoveAll(bundle); err != nil {
+		return err
+	}
+	fmt.Println("removed", bundle)
+	return nil
+}
+
+// appRemoveXDG takes away the entry and the icon that are conch's, and
+// leaves — and names — any that are not.
+func appRemoveXDG() error {
+	entry, icon, err := appXDGOurs()
 	gone := 0
-	for _, p := range paths {
-		switch err := os.RemoveAll(p); {
-		case err != nil:
-			return err
-		default:
-			fmt.Println("removed", p)
-			gone++
+	for _, p := range []struct {
+		path  string
+		state appOwner
+	}{{appDesktopFile(), entry}, {appIconFile(), icon}} {
+		if p.state != appOwnedByConch {
+			continue
 		}
+		if err := os.Remove(p.path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		fmt.Println("removed", p.path)
+		gone++
 	}
 	if gone > 0 {
 		appRefreshMenu()
+	} else if err == nil {
+		fmt.Println("nothing to remove")
 	}
-	return nil
+	return err
 }
 
 // appDataDir is where a user's own desktop files go: $XDG_DATA_HOME, or
@@ -103,6 +135,10 @@ func appIconFile() string {
 // whatever that name later means, and a conch started from the launcher
 // has no PATH of a shell's to look in.
 func appInstallXDG(conch string, term appTerminal) error {
+	// Checked before anything is written, so a refusal leaves no half.
+	if _, _, err := appXDGOurs(); err != nil {
+		return err
+	}
 	entry := strings.Join([]string{
 		"[Desktop Entry]",
 		"Type=Application",
@@ -119,6 +155,9 @@ func appInstallXDG(conch string, term appTerminal) error {
 		"Categories=Development;",
 		"Keywords=agent;claude;codex;terminal;",
 		"StartupNotify=true",
+		// How remove and a later install know the file is conch's to
+		// replace. The specification leaves X- keys to applications.
+		appDesktopMark,
 		"",
 	}, "\n")
 	if err := appWrite(appDesktopFile(), []byte(entry), 0o644); err != nil {
@@ -134,16 +173,106 @@ func appInstallXDG(conch string, term appTerminal) error {
 	return nil
 }
 
-// appQuoteExec is a program path as a desktop entry's Exec takes it:
-// quoted when it holds a space, with the backslash and the quote escaped
-// as the specification asks.
+// appQuoteExec is a program path as a desktop entry's Exec takes it. The
+// specification layers three escapes, read in this order: the value is a
+// string (\\, \n, \t, \r, \s), then Exec splits it into quoted words
+// (inside double quotes, " ` $ and \ take a backslash), then % starts a
+// field code, so a literal one is %%. Written, they go on in reverse. A
+// path with any reserved character is quoted; a newline in one is legal
+// on both systems, if unlikely, and must not end the line.
 func appQuoteExec(path string) string {
-	if !strings.ContainsAny(path, " \t\"'\\$`") {
-		return path
+	arg := path
+	if strings.ContainsAny(path, appExecReserved) {
+		arg = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", "$", `\$`).Replace(path) + `"`
 	}
-	esc := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", "$", "\\$").Replace(path)
-	return `"` + esc + `"`
+	arg = strings.ReplaceAll(arg, "%", "%%")
+	return strings.NewReplacer(`\`, `\\`, "\n", `\n`, "\t", `\t`, "\r", `\r`).Replace(arg)
 }
+
+// appExecReserved are the characters the specification says make an Exec
+// argument need quoting. The carriage return is not among them, but a
+// quoted one is the safer reading of a path that holds it.
+const appExecReserved = " \t\n\r\"'\\><~|&;$*?#()`"
+
+// appDesktopMark is the line that says a desktop entry was written by
+// `conch app install`.
+const appDesktopMark = "X-Conch-App=install"
+
+// appOwner is what is at a path conch installs to.
+type appOwner int
+
+const (
+	appMissing      appOwner = iota // nothing: conch may write it
+	appOwnedByConch                 // conch's own: conch may replace or remove it
+	appNotConchs                    // somebody else's: conch touches nothing
+)
+
+// appXDGOurs says, for the entry and the icon, whether each is missing,
+// conch's or not, and an error naming those that are not. An entry is
+// conch's when it carries the mark, or — written before there was one —
+// the comment and Exec conch wrote. The icon is conch's when it is conch's
+// icon, or sits beside an entry of conch's: an older conch may have had
+// another picture.
+func appXDGOurs() (entry, icon appOwner, err error) {
+	entry = appXDGOwner(appDesktopFile(), func(b []byte) bool {
+		lines := strings.Split(string(b), "\n")
+		has := func(want func(string) bool) bool {
+			for _, l := range lines {
+				if want(strings.TrimRight(l, "\r")) {
+					return true
+				}
+			}
+			return false
+		}
+		if has(func(l string) bool { return l == appDesktopMark }) {
+			return true
+		}
+		return has(func(l string) bool { return l == "Comment=Terminal orchestrator for AI coding agents" }) &&
+			has(func(l string) bool { return strings.HasPrefix(l, "Exec=") && strings.HasSuffix(l, " app") })
+	})
+	icon = appXDGOwner(appIconFile(), func(b []byte) bool {
+		return entry == appOwnedByConch || string(b) == string(phone.Icon())
+	})
+	var not []string
+	for _, p := range []struct {
+		path  string
+		state appOwner
+	}{{appDesktopFile(), entry}, {appIconFile(), icon}} {
+		if p.state == appNotConchs {
+			not = append(not, p.path)
+		}
+	}
+	switch len(not) {
+	case 0:
+	case 1:
+		err = fmt.Errorf("%s was not written by conch app install, so conch leaves it alone; move it aside for conch to use the name", not[0])
+	default:
+		err = fmt.Errorf("%s were not written by conch app install, so conch leaves them alone; move them aside for conch to use the names", strings.Join(not, " and "))
+	}
+	return entry, icon, err
+}
+
+// appXDGOwner reads one installed file. Only a regular file can be
+// conch's: install never writes a link, and following one would write
+// wherever it points.
+func appXDGOwner(path string, ours func([]byte) bool) appOwner {
+	fi, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return appMissing
+	}
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > appMaxOwnedFile {
+		return appNotConchs
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || !ours(b) {
+		return appNotConchs
+	}
+	return appOwnedByConch
+}
+
+// appMaxOwnedFile is more than anything conch writes, so a larger file is
+// somebody else's without reading it.
+const appMaxOwnedFile = 1 << 20
 
 // appRefreshMenu tells the desktop there is a new entry, where there is a
 // tool for it. Most desktops notice by themselves, so its absence is not
@@ -167,11 +296,81 @@ func appMacBundle() string {
 	return filepath.Join(home, "Applications", "conch.app")
 }
 
+// appMacID is the bundle identifier install writes, and how a bundle is
+// known to be conch's. It is not the native app's (dev.conch.mac).
+const appMacID = "dev.conch.app"
+
+// appMacOurs says whether there is a bundle at path, and refuses — with
+// an error that says what is there — one install did not write. A link,
+// a file, a bundle with no Info.plist, an unreadable or binary one, and
+// one with another identifier are all left alone: guessing wrong here
+// overwrites or deletes somebody's application.
+func appMacOurs(bundle string) (bool, error) {
+	fi, err := os.Lstat(bundle)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	refuse := func(why string) (bool, error) {
+		return true, fmt.Errorf("%s is not the launcher conch app install writes (%s), so conch leaves it alone. "+
+			"On a Mac that is also the name of Conch.app, the native app: keep that in /Applications, "+
+			"or move it aside, for conch app install to add the launcher", bundle, why)
+	}
+	if !fi.IsDir() {
+		return refuse("it is not a folder")
+	}
+	plist, err := os.Open(filepath.Join(bundle, "Contents", "Info.plist"))
+	if err != nil {
+		return refuse("it has no Info.plist conch can read")
+	}
+	defer plist.Close()
+	body, err := io.ReadAll(io.LimitReader(plist, appMaxOwnedFile))
+	if err != nil {
+		return refuse("it has no Info.plist conch can read")
+	}
+	switch id := appPlistID(body); id {
+	case appMacID:
+		return true, nil
+	case "":
+		return refuse("its Info.plist names no bundle identifier conch can read")
+	default:
+		return refuse("its bundle identifier is " + id)
+	}
+}
+
+// appPlistID is CFBundleIdentifier from an XML property list, read as
+// text: a <key> and the <string> after it. That is the form install
+// writes, which is all this has to recognise; a binary plist reads as no
+// identifier, and so as not conch's.
+func appPlistID(body []byte) string {
+	s := string(body)
+	const key = "<key>CFBundleIdentifier</key>"
+	i := strings.Index(s, key)
+	if i < 0 {
+		return ""
+	}
+	s = strings.TrimLeft(s[i+len(key):], " \t\r\n")
+	if !strings.HasPrefix(s, "<string>") {
+		return ""
+	}
+	s = s[len("<string>"):]
+	end := strings.Index(s, "</string>")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[:end])
+}
+
 // appInstallMac writes a bundle whose program is a script that runs
 // `conch app`: the bundle is a way to be double-clicked, and the terminal
 // it opens is the same one the command opens.
 func appInstallMac(conch string, term appTerminal) error {
 	bundle := appMacBundle()
+	if _, err := appMacOurs(bundle); err != nil {
+		return err
+	}
 	plist := strings.Join([]string{
 		`<?xml version="1.0" encoding="UTF-8"?>`,
 		`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">`,
@@ -179,7 +378,7 @@ func appInstallMac(conch string, term appTerminal) error {
 		`<dict>`,
 		`	<key>CFBundleName</key><string>conch</string>`,
 		`	<key>CFBundleDisplayName</key><string>conch</string>`,
-		`	<key>CFBundleIdentifier</key><string>dev.conch.app</string>`,
+		`	<key>CFBundleIdentifier</key><string>` + appMacID + `</string>`,
 		`	<key>CFBundleExecutable</key><string>conch</string>`,
 		`	<key>CFBundleIconFile</key><string>conch</string>`,
 		`	<key>CFBundlePackageType</key><string>APPL</string>`,
