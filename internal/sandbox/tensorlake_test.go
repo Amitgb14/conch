@@ -394,3 +394,29 @@ func TestTensorlakeNames(t *testing.T) {
 		t.Fatal("two names alike")
 	}
 }
+
+// An endpoint given with /sandboxes on the end — as Tensorlake's docs
+// show beside create — is taken as its base: every call went to
+// /sandboxes/sandboxes, which answers 405.
+func TestTensorlakeEndpointIsItsBase(t *testing.T) {
+	t.Setenv("TENSORLAKE_API_URL", "")
+	for in, want := range map[string]string{
+		"https://api.tensorlake.ai":            "https://api.tensorlake.ai",
+		"https://api.tensorlake.ai/":           "https://api.tensorlake.ai",
+		"https://api.tensorlake.ai/sandboxes":  "https://api.tensorlake.ai",
+		"https://api.tensorlake.ai/sandboxes/": "https://api.tensorlake.ai",
+		"https://proxy.test/tl/sandboxes":      "https://proxy.test/tl",
+		"https://proxy.test/sandboxes-api":     "https://proxy.test/sandboxes-api",
+		"":                                     DefaultTensorlakeURL,
+	} {
+		if got := NewTensorlake(config.ProviderCfg{APIURL: in}).base; got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+	// And so it reaches create, not a 405.
+	_, tl := newFakeTensorlake(t)
+	t2 := NewTensorlake(config.ProviderCfg{APIURL: tl.base + "/sandboxes", APIKey: "k"})
+	if _, err := t2.Create(context.Background(), Spec{Name: "x"}); err != nil {
+		t.Fatalf("create through …/sandboxes: %v", err)
+	}
+}

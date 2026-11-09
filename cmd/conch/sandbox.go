@@ -208,6 +208,7 @@ func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []str
 	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", sb.ID)
 	saved, c, err := setUpSandboxMachine(ctx, label, sb.ID)
 	if err != nil {
+		err = refusedKey(p, err)
 		if c == nil { // setting up failed, not saving
 			abandonSandbox(p, sb.ID, yes)
 		}
@@ -286,6 +287,7 @@ func sandboxAdd(args []string) error {
 	}
 	saved, c, err := setUpSandboxMachine(ctx, *label, id)
 	if err != nil {
+		err = refusedKey(p, err)
 		if c == nil {
 			return fmt.Errorf("%w (sandbox %s is left as it was)", err, id)
 		}
@@ -305,6 +307,24 @@ func sandboxAdd(args []string) error {
 
 // abandonSandbox offers to delete a sandbox whose setting up failed, since
 // it costs for as long as it runs.
+// refusedKey says in plain words that the provider's gateway refused the
+// ssh key, and how to get it registered, when that is what failed. A
+// provider whose gateway lets in only keys registered with the account
+// (Tensorlake) fails setting up in ssh's own words — "never answered:
+// Permission denied (publickey)", with advice about answering ssh prompts
+// that does not help — and the sandbox it has just made is left running.
+func refusedKey(p sandbox.Provider, err error) error {
+	ak, ok := p.(sandbox.AccountKeyed)
+	if !ok || !ak.AccountKey() || !strings.Contains(err.Error(), "Permission denied (publickey)") {
+		return err
+	}
+	how := "register your public key with your account there"
+	if n, ok := p.(sandbox.Noted); ok && n.Note() != "" {
+		how = n.Note()
+	}
+	return fmt.Errorf("%s refused your ssh key, so conch could not log in to set the sandbox up. %s", sandbox.ProviderLabel(p.Name()), how)
+}
+
 func abandonSandbox(p sandbox.Provider, id string, yes bool) {
 	if !yes && !confirm(fmt.Sprintf("  Setting up sandbox %s failed. Delete it? [Y/n] ", id), true) {
 		fmt.Fprintf(os.Stderr, "  kept it; delete it with: %s\n", sandboxCmd(p.Name(), "rm "+id))
