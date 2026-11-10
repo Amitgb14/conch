@@ -1049,7 +1049,10 @@ struct NodeView: View {
                 if part.hasPrefix("⚑") {
                     Pill(text: String(part.dropFirst()), fg: Theme.onWarn, bg: Theme.warn)
                 } else if part.hasPrefix("⠋") {
-                    Pill(text: String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
+                    // Turning while they work, as an agent's own row does.
+                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                        Pill(text: spinnerFrame(at: ctx.date) + " " + String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
+                    }
                 } else if part.hasPrefix("✓") {
                     Pill(text: String(part.dropFirst()), fg: Theme.ok, bg: Theme.ok.opacity(0.16))
                 }
@@ -1150,12 +1153,18 @@ struct NodeView: View {
                 if !c.isEmpty { muted(c) }
                 counts(node.badge)
             }.fixedSize()
-        case .group:
-            // How many repos, then what its projects' agents are doing.
+        case .group(let m, let name):
+            // How many repos, what they have cost, then what their agents
+            // are doing; each repo said in full in the tooltip.
             HStack(spacing: 6) {
                 muted(node.detail)
+                let ids = store.group(m, name)?.projects ?? []
+                let c = store.costChip(machine: m, projects: ids)
+                if !c.isEmpty { muted(c) }
                 counts(node.badge)
-            }.fixedSize()
+            }
+            .fixedSize()
+            .help(store.groupTip(m, name))
         case .section(let name) where name == "Agents":
             HStack(spacing: 6) {
                 if let pk = sectionProject(node.id) {

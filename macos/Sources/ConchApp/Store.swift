@@ -1720,10 +1720,11 @@ final class Store: ObservableObject {
     var rawSearched: String?
 
     /// The usage chip for a row's panes ("" with none, or cost turned off).
-    func costChip(machine m: String, project: String? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
+    func costChip(machine m: String, project: String? = nil, projects: [String]? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
         guard showCost, let s = snapshots[m] else { return "" }
         var panes = s.shown(in: ws, machine: m)
         if let project { panes = panes.filter { $0.projectID == project } }
+        if let projects { panes = panes.filter { $0.projectID.map(projects.contains) ?? false } }
         if agentsOnly { panes = panes.filter { $0.agent != nil } }
         if let pane { panes = panes.filter { $0.id == pane } }
         return usage(of: panes).chip
@@ -2926,6 +2927,12 @@ final class ShownTheme: ObservableObject {
 /// they change together. The server keeps them, so each change here is a
 /// group.save or group.remove, and its group.changed redraws the tree.
 extension Store {
+    /// A group row's tooltip: a line for each of its repos.
+    func groupTip(_ machine: String, _ name: String) -> String {
+        guard let g = group(machine, name), let s = snapshots[machine] else { return name }
+        return ([name + " · \(g.projects.count) repos"] + s.repoSummaries(g, in: ws, machine: machine).map(\.line)).joined(separator: "\n")
+    }
+
     func canGroup(_ machine: String) -> Bool {
         conns[machine]?.hello?.capabilities?.contains("project.groups.v1") == true
     }

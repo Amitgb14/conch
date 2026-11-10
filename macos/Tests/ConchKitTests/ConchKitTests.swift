@@ -3182,3 +3182,24 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(l.groups == [GroupInfo(name: "clinic", projects: ["r1", "r2"], notes: "n")])
     #expect(try JSONDecoder().decode(GroupList.self, from: Data("{}".utf8)).groups == nil)
 }
+
+// A group row's tooltip: each repo with its running agents by state, the
+// branches checked out beside the main one, and what is uncommitted —
+// exited panes and repos not in the snapshot left out.
+@Test func groupRepoSummaries() {
+    var gone = PaneInfo(id: "p4", name: "x", agent: AgentStatus(name: "codex", state: .working), projectID: "r1")
+    gone.state = "exited"
+    var spring = ProjectInfo(id: "r1", name: "spring", path: "/s", worktrees: [WorktreeInfo(path: "/s", branch: "main", main: true),
+                                                                                  WorktreeInfo(path: "/s-feat", branch: "feat")])
+    spring.worktrees![0].status = GitStatus(files: 1, added: 10, deleted: 2)
+    spring.worktrees![1].status = GitStatus(files: 2, added: 30)
+    let s = Snapshot(panes: [PaneInfo(id: "p1", name: "a", agent: AgentStatus(name: "claude", state: .working), projectID: "r1"),
+                             PaneInfo(id: "p2", name: "b", agent: AgentStatus(name: "codex", state: .blocked), projectID: "r1"),
+                             PaneInfo(id: "p3", name: "zsh", projectID: "r2"), gone],
+                     projects: [spring, ProjectInfo(id: "r2", name: "web", path: "/w")])
+    let rs = s.repoSummaries(GroupInfo(name: "clinic", projects: ["r1", "r2", "r9"]))
+    #expect(rs.map(\.name) == ["spring", "web"])
+    #expect(rs[0].working == 1 && rs[0].waiting == 1 && rs[0].checkouts == 1 && rs[0].files == 3 && rs[0].added == 40 && rs[0].deleted == 2)
+    #expect(rs[0].line == "spring — 1 working, 1 waiting · 1 branch checked out · 3 files changed (+40 −2)")
+    #expect(rs[1].line == "web — no agents")
+}

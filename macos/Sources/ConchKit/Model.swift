@@ -621,6 +621,32 @@ extension Snapshot {
         }
     }
 
+    /// Each repo of a group as its row's tooltip says it: its agents by
+    /// state, its checkouts beside the main one, and what is uncommitted
+    /// across its worktrees — for the panes the workspace shows.
+    public func repoSummaries(_ g: GroupInfo, in ws: Workspace? = nil, machine: String = "local") -> [RepoSummary] {
+        let shown = self.shown(in: ws, machine: machine)
+        return g.projects.compactMap { id -> RepoSummary? in
+            guard let pr = project(id) else { return nil }
+            var r = RepoSummary(name: pr.name)
+            for p in shown where p.projectID == id && p.running {
+                switch p.agent?.state {
+                case .working: r.working += 1
+                case .blocked: r.waiting += 1
+                case .done: r.done += 1
+                default: break
+                }
+            }
+            for w in pr.worktrees ?? [] {
+                if w.main != true { r.checkouts += 1 }
+                r.files += w.status?.files ?? 0
+                r.added += w.status?.added ?? 0
+                r.deleted += w.status?.deleted ?? 0
+            }
+            return r
+        }
+    }
+
     /// The CLI's sections, as the TUI splits it (tree.go): Agents,
     /// Terminals and SSH, each holding its folders — those the workspace
     /// shows, folded until opened — and then what is in none. An SSH folder
@@ -1142,6 +1168,29 @@ public struct WorkspaceSummary: Equatable, Sendable {
         if terminals > 0 { parts.append(n(terminals, "terminal")) }
         guard !parts.isEmpty else { return "nothing running" }
         return parts.joined(separator: ", ") + (waiting > 0 ? " · \(waiting) waiting for you" : "")
+    }
+}
+
+/// One repo of a group, for the group row's tooltip.
+public struct RepoSummary: Equatable, Sendable {
+    public var name: String
+    public var working = 0, waiting = 0, done = 0
+    /// Worktrees besides the main checkout: branches being worked on.
+    public var checkouts = 0
+    public var files = 0, added = 0, deleted = 0
+
+    public init(name: String) { self.name = name }
+
+    /// "spring — 2 working, 1 waiting · 1 branch checked out · 3 files changed (+40 −2)".
+    public var line: String {
+        var agents: [String] = []
+        if working > 0 { agents.append("\(working) working") }
+        if waiting > 0 { agents.append("\(waiting) waiting") }
+        if done > 0 { agents.append("\(done) done") }
+        var parts = [agents.isEmpty ? "no agents" : agents.joined(separator: ", ")]
+        if checkouts > 0 { parts.append("\(checkouts) branch\(checkouts == 1 ? "" : "es") checked out") }
+        if files > 0 { parts.append("\(files) file\(files == 1 ? "" : "s") changed (+\(added) −\(deleted))") }
+        return name + " — " + parts.joined(separator: " · ")
     }
 }
 
