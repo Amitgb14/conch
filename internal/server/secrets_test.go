@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,5 +98,29 @@ func TestNoTokensWithoutALibraryOrAKeychain(t *testing.T) {
 	s.secrets.forget()
 	if env := s.secretEnv(); len(env) != 0 {
 		t.Fatalf("no security: %v", env)
+	}
+}
+
+// A machine with no Keychain (Linux) does not claim to keep tokens in one,
+// and is no older for it: every capability of this build is still there.
+func TestNoKeychainIsNoOlderBuild(t *testing.T) {
+	s, _ := afterFixture(t)
+	if !slices.Contains(s.capabilities(), proto.CapLibraryKeychain) {
+		t.Fatal("a machine with a Keychain does not say so")
+	}
+	was := keychainHas
+	keychainHas = func() bool { return false }
+	t.Cleanup(func() { keychainHas = was })
+	caps := s.capabilities()
+	if slices.Contains(caps, proto.CapLibraryKeychain) {
+		t.Fatal("claimed a Keychain it has not got")
+	}
+	for _, c := range proto.BuildCapabilities() {
+		if !slices.Contains(caps, c) {
+			t.Errorf("without a Keychain it lacks %s, and so looks like an older build", c)
+		}
+	}
+	if env := s.secretEnv(); env != nil {
+		t.Fatalf("given %v", env)
 	}
 }

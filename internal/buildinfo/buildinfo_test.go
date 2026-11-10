@@ -109,7 +109,7 @@ func TestA3PlatformAndCurrent(t *testing.T) {
 	SourceBuild, proto.Version = "src123456789", "7.8.9"
 
 	info := Current()
-	want := Info{Version: "7.8.9", Build: Build(), BuildID: "src123456789", Platform: Platform(), Capabilities: proto.Capabilities}
+	want := Info{Version: "7.8.9", Build: Build(), BuildID: "src123456789", Platform: Platform(), Capabilities: proto.Capabilities, Optional: proto.OptionalCapabilities}
 	if !reflect.DeepEqual(info, want) {
 		t.Fatalf("Current = %+v, want %+v", info, want)
 	}

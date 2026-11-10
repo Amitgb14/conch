@@ -530,15 +530,19 @@ extension TreeNode {
 /// The capabilities a server lacks that this app's own conch has: what a
 /// reload or an upgrade would bring. A server newer than the app lacks
 /// none; one that said nothing (older than capabilities) lacks them all.
-public func capabilitiesBehind(server: [String]?, app: [String]) -> [String] {
+/// Those optional (a server of this build may leave them out where its
+/// machine cannot give them, as one with no Keychain does) are no sign of
+/// an older build.
+public func capabilitiesBehind(server: [String]?, app: [String], optional: [String] = []) -> [String] {
     let have = Set(server ?? [])
-    return app.filter { !have.contains($0) }
+    return app.filter { !have.contains($0) && !optional.contains($0) }
 }
 
 /// What `conch version --json` says of this app's conch.
 public struct BuildInfo: Decodable, Sendable {
     public var version: String?
     public var capabilities: [String]?
+    public var optional: [String]?
 }
 
 /// What deleting a branch would lose, as branch.discard's dry run says it.

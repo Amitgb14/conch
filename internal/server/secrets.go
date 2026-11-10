@@ -61,7 +61,8 @@ func securityBinary() string {
 }
 
 // keychainHas says whether a server here can read the Keychain at all.
-func keychainHas() bool { return runtime.GOOS == "darwin" || os.Getenv("CONCH_SECURITY") != "" }
+// A variable so a test can be a machine without one.
+var keychainHas = func() bool { return runtime.GOOS == "darwin" || os.Getenv("CONCH_SECURITY") != "" }
 
 // lookup is the variable's token from the Keychain, "" when it has none.
 func (sc *secretCache) lookup(name string) string {

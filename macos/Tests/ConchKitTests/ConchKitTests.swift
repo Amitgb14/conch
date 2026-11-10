@@ -2138,6 +2138,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(capabilitiesBehind(server: ["a", "b", "c"], app: ["a", "b"]).isEmpty)
     #expect(capabilitiesBehind(server: ["a"], app: ["a", "b", "c"]) == ["b", "c"])
     #expect(capabilitiesBehind(server: nil, app: ["a"]) == ["a"])
+    // One a server of this build may leave out (no Keychain there) is not behind.
+    #expect(capabilitiesBehind(server: ["a"], app: ["a", "agent.library.keychain.v1", "b"], optional: ["agent.library.keychain.v1"]) == ["b"])
+    #expect((try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"capabilities":["a"],"optional":["x"]}"#.utf8)))?.optional == ["x"])
     #expect(capabilitiesBehind(server: [], app: []).isEmpty)
     let info = try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"version":"0.1.9","build":"x","capabilities":["fs.v1"]}"#.utf8))
     #expect(info?.capabilities == ["fs.v1"])

@@ -1210,14 +1210,18 @@ final class Store: ObservableObject {
 
     /// The capabilities of this app's own conch, asked once.
     private var appCapabilities: [String]?
+    private var appOptional: [String] = []
 
     /// Whether a server is behind this app's conch, said on its row.
     private func noteBehind(_ machine: String, _ c: Connection) async {
         if appCapabilities == nil, let b = binary, let out = try? await runConch(b, ["version", "--json"]) {
-            appCapabilities = (try? JSONDecoder().decode(BuildInfo.self, from: out))?.capabilities ?? []
+            let info = try? JSONDecoder().decode(BuildInfo.self, from: out)
+            appCapabilities = info?.capabilities ?? []
+            // An older conch says nothing of these; it knew only file watching.
+            appOptional = info?.optional ?? ["worktree.watch.v1"]
         }
         guard let i = machines.firstIndex(where: { $0.id == machine }) else { return }
-        machines[i].behind = capabilitiesBehind(server: c.hello?.capabilities, app: appCapabilities ?? [])
+        machines[i].behind = capabilitiesBehind(server: c.hello?.capabilities, app: appCapabilities ?? [], optional: appOptional)
     }
 
     /// Machines reloading: their connection is tried again at once when it
