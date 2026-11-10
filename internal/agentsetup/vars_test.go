@@ -207,3 +207,21 @@ func TestSyncToCodexVariables(t *testing.T) {
 		t.Fatalf("gemini url read as %+v", s)
 	}
 }
+
+// The variables a library's servers refer to, each once, in any agent's
+// form, from a URL, arguments, environment and headers; a literal is no
+// variable.
+func TestLibraryVars(t *testing.T) {
+	lib := Library{Servers: []LibServer{
+		{Name: "wiki", URL: "https://wiki.example/${TENANT}/mcp", Headers: map[string]string{"X-Key": "{env:WIKI_KEY}", "Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"}},
+		{Name: "gh", Command: "npx", Args: []string{"--repo", "$REPO"}, Env: map[string]string{"GITHUB_TOKEN": "${GITHUB_TOKEN}", "PLAIN": "x"}},
+		{Name: "again", URL: "https://x", Headers: map[string]string{"Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"}},
+	}}
+	got := strings.Join(LibraryVars(lib), ",")
+	if got != "TENANT,CONCH_MCP_WIKI_TOKEN,WIKI_KEY,REPO,GITHUB_TOKEN" {
+		t.Fatalf("%s", got)
+	}
+	if v := LibraryVars(Library{}); len(v) != 0 {
+		t.Fatalf("empty: %v", v)
+	}
+}

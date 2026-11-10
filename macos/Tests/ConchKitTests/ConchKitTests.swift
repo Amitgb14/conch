@@ -2138,6 +2138,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(capabilitiesBehind(server: ["a", "b", "c"], app: ["a", "b"]).isEmpty)
     #expect(capabilitiesBehind(server: ["a"], app: ["a", "b", "c"]) == ["b", "c"])
     #expect(capabilitiesBehind(server: nil, app: ["a"]) == ["a"])
+    // One a server of this build may leave out (no Keychain there) is not behind.
+    #expect(capabilitiesBehind(server: ["a"], app: ["a", "agent.library.keychain.v1", "b"], optional: ["agent.library.keychain.v1"]) == ["b"])
+    #expect((try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"capabilities":["a"],"optional":["x"]}"#.utf8)))?.optional == ["x"])
     #expect(capabilitiesBehind(server: [], app: []).isEmpty)
     let info = try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"version":"0.1.9","build":"x","capabilities":["fs.v1"]}"#.utf8))
     #expect(info?.capabilities == ["fs.v1"])
@@ -3355,4 +3358,51 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let s = Snapshot(projects: [ProjectInfo(id: "r1", name: "spring", path: "/s")], groups: [GroupInfo(name: "c", projects: ["r1"], tasks: [t])])
     let task = s.tree(machine: "local").children!.first { $0.kind == .workspace("local") }!.children![0].children![0]
     #expect(task.kind == .groupTask(machine: "local", group: "c", branch: "b") && task.detail == "merged")
+}
+
+// A server's token is kept under CONCH_MCP_<NAME>_TOKEN; typed in the
+// Token field or pasted into a header, it leaves the server referring to
+// that variable and nothing else, and a header is never left holding it.
+@Test func tokensKeptForServers() throws {
+    #expect(tokenVariable(for: "wiki") == "CONCH_MCP_WIKI_TOKEN")
+    #expect(tokenVariable(for: "my-docs.v2") == "CONCH_MCP_MY_DOCS_V2_TOKEN")
+
+    // Typed: a URL's Authorization header is made to refer to it.
+    var url = LibraryServer(name: "wiki", url: "https://wiki.example/mcp", agents: ["claude"])
+    var k = try keepingToken(url, token: "  tok-123 \n")
+    #expect(k.token == "tok-123" && k.variable == "CONCH_MCP_WIKI_TOKEN")
+    #expect(k.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"] && k.server.usesKeptToken)
+
+    // Pasted into the header, with a scheme or without one.
+    url.headers = ["Authorization": "Bearer tok-456"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == "tok-456" && k.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"])
+    url.headers = ["X-API-Key": "tok-789"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == "tok-789" && k.server.headers == ["X-API-Key": "${CONCH_MCP_WIKI_TOKEN}"])
+
+    // A header that already names a variable is left alone, and with no
+    // token there is nothing to keep.
+    url.headers = ["Authorization": "Bearer ${OWN_TOKEN}"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == nil && k.server.headers == ["Authorization": "Bearer ${OWN_TOKEN}"] && !k.server.usesKeptToken)
+    url.headers = ["X-Key": "${CONCH_MCP_WIKI_TOKEN}"]
+    k = try keepingToken(url, token: "new")
+    #expect(k.token == "new" && k.server.headers == ["X-Key": "${CONCH_MCP_WIKI_TOKEN}"])
+
+    // Two tokens, or one pasted and another typed, or one the Keychain is
+    // not handed here, are refused.
+    url.headers = ["A": "one", "B": "two"]
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "") }
+    url.headers = ["Authorization": "Bearer one"]
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "two") }
+    url.headers = nil
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "a\"b") }
+
+    // A command has to say where it reads the token.
+    var cmd = LibraryServer(name: "jira", command: "npx", args: ["jira-mcp"], agents: ["claude"])
+    #expect(throws: LibraryFormError.self) { try keepingToken(cmd, token: "t") }
+    cmd.env = ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"]
+    k = try keepingToken(cmd, token: "t")
+    #expect(k.token == "t" && k.server.env == ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"] && k.server.usesKeptToken)
 }
