@@ -1115,7 +1115,10 @@ final class Store: ObservableObject {
             try await c.handshake()
             let panes = try await c.call("pane.list", as: PaneList.self)
             let projects = try await c.call("project.list", as: ProjectList.self)
-            snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects)
+            // Groups from a server that has them; an older one has none.
+            let groups = c.hello?.capabilities?.contains("project.groups.v1") == true
+                ? (try? await c.call("group.list", as: GroupList.self))?.groups ?? [] : []
+            snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects, groups: groups)
             setState(machine, "", version: c.hello?.version ?? "")
             await noteBehind(machine, c)
             localRetries = 0
@@ -1520,6 +1523,8 @@ final class Store: ObservableObject {
                 // And an open commit graph, unless it is already reading.
                 for v in commitViews.values where v.machine == machine && v.project == p.id && !v.loading && layout.tab(showing: v.key) != nil { v.load() }
             }
+        case "group.changed":
+            if let l = try? dec.decode(GroupList.self, from: data) { snap.groups = l.groups ?? [] }
         case "project.removed":
             struct Ref: Decodable { var id: String }
             if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
@@ -2226,7 +2231,7 @@ final class Store: ObservableObject {
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
-                           folders: folders, savedHosts: m == "local" ? savedHosts : [])
+                           folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m))
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2351,6 +2356,13 @@ final class Store: ObservableObject {
         case .addAsMachine(let h): addAsMachine(h)
         case .redraw(let k): redraw(k)
         case .collapseProjects(let m): collapseProjects(m)
+        case .newGroup(let m): newGroup(m)
+        case .groupWith(let pk, let other): groupWith(pk, other)
+        case .addToGroup(let pk, let g): addToGroup(pk, g)
+        case .takeOutOfGroup(let pk, let g): takeOutOfGroup(pk, g)
+        case .renameGroup(let m, let g): renameGroup(m, g)
+        case .groupNotes(let m, let g): groupNotes(m, g)
+        case .removeGroup(let m, let g): removeGroup(m, g)
         }
     }
 
@@ -2906,4 +2918,160 @@ private struct PaneRefParams: Encodable { var id: String }
 @MainActor
 final class ShownTheme: ObservableObject {
     @Published var theme = ConchTheme.conch
+}
+
+// MARK: project groups
+
+/// Project groups (project.groups.v1): projects kept together because
+/// they change together. The server keeps them, so each change here is a
+/// group.save or group.remove, and its group.changed redraws the tree.
+extension Store {
+    func canGroup(_ machine: String) -> Bool {
+        conns[machine]?.hello?.capabilities?.contains("project.groups.v1") == true
+    }
+
+    private struct GroupSave: Encodable {
+        var name: String
+        var old: String?
+        var projects: [String]
+        var notes: String?
+    }
+
+    /// group.save, with what the server refused said.
+    func saveGroup(_ machine: String, name: String, old: String? = nil, projects: [String], notes: String?, done: String) {
+        guard let c = conns[machine] else { return }
+        Task {
+            do {
+                try await c.call("group.save", GroupSave(name: name, old: old, projects: projects, notes: notes))
+                say(done)
+            } catch {
+                say("Could not save the group: \(error)", .err)
+            }
+        }
+    }
+
+    func group(_ machine: String, _ name: String) -> GroupInfo? {
+        snapshots[machine]?.groups.first { $0.name == name }
+    }
+
+    private func projectName(_ pk: String) -> String {
+        let (m, id) = unkey(pk)
+        return snapshots[m]?.project(id)?.name ?? id
+    }
+
+    /// New Project Group…: a name, the projects in it ticked off a list
+    /// (two at least), and notes for the agents.
+    func newGroup(_ machine: String) {
+        let projects = snapshots[machine]?.projects ?? []
+        let a = NSAlert()
+        a.messageText = "New project group"
+        a.informativeText = "Projects that change together. Each stays a project of its own, with its own git, branches and pull requests."
+        let box = NSStackView(frame: NSRect(x: 0, y: 0, width: 340, height: CGFloat(110 + 22 * projects.count)))
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 6
+        box.addArrangedSubview(NSTextField(labelWithString: "Name"))
+        let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        name.placeholderString = "clinic"
+        box.addArrangedSubview(name)
+        box.addArrangedSubview(NSTextField(labelWithString: "Projects"))
+        let ticks = projects.map { p -> NSButton in
+            let b = NSButton(checkboxWithTitle: "\(p.name)  —  \(p.path)", target: nil, action: nil)
+            box.addArrangedSubview(b)
+            return b
+        }
+        box.addArrangedSubview(NSTextField(labelWithString: "Notes for the agents (optional)"))
+        let notes = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        notes.placeholderString = "API in spring, UI in angular-clinic; change the spec first"
+        box.addArrangedSubview(notes)
+        a.accessoryView = box
+        a.addButton(withTitle: "Make Group")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = name
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let picked = zip(projects, ticks).filter { $0.1.state == .on }.map(\.0.id)
+        let n = name.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { say("A group needs a name", .err); return }
+        guard picked.count >= 2 else { say("A group needs two projects at least", .err); return }
+        saveGroup(machine, name: n, projects: picked, notes: notes.stringValue, done: "Made the group \(n)")
+    }
+
+    /// One project grouped with another, asked first: dropped one onto
+    /// the other, or Group With ▸. The group is named after the one it was
+    /// dropped on, which can be changed here.
+    func groupWith(_ pk: String, _ other: String) {
+        let (m, id) = unkey(pk), (om, oid) = unkey(other)
+        guard m == om, id != oid else { return }
+        let a = NSAlert()
+        a.messageText = "Group \(projectName(pk)) with \(projectName(other))?"
+        a.informativeText = "They stay two projects, each with its own git, branches and pull requests. The group lets one task make the same branch in both, with one agent working in both."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = projectName(other)
+        field.placeholderString = "Group name"
+        a.accessoryView = field
+        a.addButton(withTitle: "Make Group")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = field
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let n = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { say("A group needs a name", .err); return }
+        if group(m, n) != nil { say("There is a group called \(n) already: drop it on that group instead", .err); return }
+        saveGroup(m, name: n, projects: [oid, id], notes: nil, done: "Grouped \(projectName(pk)) with \(projectName(other)) as \(n)")
+    }
+
+    func addToGroup(_ pk: String, _ name: String, ask: Bool = false) {
+        let (m, id) = unkey(pk)
+        guard let g = group(m, name), !g.projects.contains(id) else { return }
+        if ask {
+            let a = NSAlert()
+            a.messageText = "Add \(projectName(pk)) to \(name)?"
+            a.informativeText = "It stays a project of its own; tasks across \(name) will include it."
+            a.addButton(withTitle: "Add")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        saveGroup(m, name: name, old: name, projects: g.projects + [id], notes: g.notes, done: "Added \(projectName(pk)) to \(name)")
+    }
+
+    /// Out of a group; the last one out takes the group with it, after
+    /// asking, since a group of none is no group.
+    func takeOutOfGroup(_ pk: String, _ name: String) {
+        let (m, id) = unkey(pk)
+        guard let g = group(m, name) else { return }
+        let rest = g.projects.filter { $0 != id }
+        if rest.isEmpty { removeGroup(m, name); return }
+        saveGroup(m, name: name, old: name, projects: rest, notes: g.notes, done: "Took \(projectName(pk)) out of \(name)")
+    }
+
+    func renameGroup(_ machine: String, _ name: String) {
+        guard let g = group(machine, name),
+              let n = ask("Rename \(name)", info: "Its projects stay in it.", value: name, button: "Rename")?.trimmingCharacters(in: .whitespaces),
+              !n.isEmpty, n != name else { return }
+        saveGroup(machine, name: n, old: name, projects: g.projects, notes: g.notes, done: "Renamed \(name) to \(n)")
+    }
+
+    func groupNotes(_ machine: String, _ name: String) {
+        guard let g = group(machine, name),
+              let n = ask("Notes for the agents · \(name)", info: "What an agent working across \(name) should know: which repo holds what, what to change first.", value: g.notes ?? "", button: "Save") else { return }
+        saveGroup(machine, name: name, old: name, projects: g.projects, notes: n, done: "Saved the notes of \(name)")
+    }
+
+    func removeGroup(_ machine: String, _ name: String) {
+        guard let c = conns[machine] else { return }
+        let a = NSAlert()
+        a.messageText = "Remove the group \(name)?"
+        a.informativeText = "Its projects stay, in conch and on disk; only the group goes."
+        a.addButton(withTitle: "Remove Group")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        struct Ref: Encodable { var name: String }
+        Task {
+            do {
+                try await c.call("group.remove", Ref(name: name))
+                say("Removed the group \(name): its projects stay")
+            } catch {
+                say("Could not remove \(name): \(error)", .err)
+            }
+        }
+    }
 }

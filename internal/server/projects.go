@@ -326,7 +326,8 @@ func within(path, dir string) bool {
 
 func (pm *projectManager) remove(id string) *proto.Error {
 	pm.mu.Lock()
-	if _, ok := pm.projects[id]; !ok {
+	gone, ok := pm.projects[id]
+	if !ok {
 		pm.mu.Unlock()
 		return proto.Errorf(proto.ErrNotFound, "no project %q", id)
 	}
@@ -344,6 +345,9 @@ func (pm *projectManager) remove(id string) *proto.Error {
 		pm.s.autopilot.forget(id)
 	}
 	pm.s.broadcast(proto.EventProjectRemoved, proto.ProjectRef{ID: id})
+	if pm.s.groups != nil {
+		pm.s.groups.dropProject(gone.root)
+	}
 	return nil
 }
 

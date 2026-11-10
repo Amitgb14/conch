@@ -925,6 +925,8 @@ struct NodeView: View {
             guard let p = store.pane(k), p.projectID == nil || store.snapshots[unkey(k).machine]?.project(p.projectID!) == nil else { return nil }
             return k
         case .savedHost(let h): return "host:" + h
+        // A project dropped on another groups them, on a group joins it.
+        case .project(let pk): return "project:" + pk
         default: return nil
         }
     }
@@ -1009,6 +1011,7 @@ struct NodeView: View {
             TreeIcon(sec == .agents ? "bot" : sec == .ssh ? "globe" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
         case .folder:
             TreeIcon(open ? "folder-open" : "folder", look: store.appLook, color: Theme.text2, size: 12)
+        case .group: TreeIcon("layout-grid", look: store.appLook)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -1124,6 +1127,12 @@ struct NodeView: View {
                 if !c.isEmpty { muted(c) }
                 counts(node.badge)
             }.fixedSize()
+        case .group:
+            // How many repos, then what its projects' agents are doing.
+            HStack(spacing: 6) {
+                muted(node.detail)
+                counts(node.badge)
+            }.fixedSize()
         case .section(let name) where name == "Agents":
             HStack(spacing: 6) {
                 if let pk = sectionProject(node.id) {
@@ -1224,30 +1233,38 @@ struct FolderDragDrop: ViewModifier {
 
     var target: Bool {
         switch node.kind {
-        case .folder, .cliSection: return true
+        case .folder, .cliSection, .group, .project: return true
         default: return false
         }
     }
 
     func body(content: Content) -> some View {
-        Group {
-            if let id = dragID {
-                content.onDrag { NSItemProvider(object: (Self.prefix + id) as NSString) }
-            } else if target {
-                content
-                    .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(over ? Theme.accent : .clear, lineWidth: 1.5))
-                    .onDrop(of: [.text], isTargeted: $over) { items in
-                        guard let item = items.first else { return false }
-                        _ = item.loadObject(ofClass: NSString.self) { obj, _ in
-                            guard let s = obj as? String, s.hasPrefix(Self.prefix) else { return }
-                            let id = String(s.dropFirst(Self.prefix.count))
-                            DispatchQueue.main.async { _ = store.drop(id, on: node) }
-                        }
-                        return true
+        dropping(dragging(content))
+    }
+
+    @ViewBuilder func dragging(_ content: Content) -> some View {
+        if let id = dragID {
+            content.onDrag { NSItemProvider(object: (Self.prefix + id) as NSString) }
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder func dropping(_ content: some View) -> some View {
+        if target {
+            content
+                .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(over ? Theme.accent : .clear, lineWidth: 1.5))
+                .onDrop(of: [.text], isTargeted: $over) { items in
+                    guard let item = items.first else { return false }
+                    _ = item.loadObject(ofClass: NSString.self) { obj, _ in
+                        guard let s = obj as? String, s.hasPrefix(Self.prefix) else { return }
+                        let id = String(s.dropFirst(Self.prefix.count))
+                        DispatchQueue.main.async { _ = store.drop(id, on: node) }
                     }
-            } else {
-                content
-            }
+                    return true
+                }
+        } else {
+            content
         }
     }
 }

@@ -121,6 +121,21 @@ extension Store {
     /// A row dropped on a folder (into it) or on its section (out of its
     /// folder): only within the section it belongs to.
     func drop(_ dragged: String, on node: TreeNode) -> Bool {
+        // A project onto another groups the two, asked first; onto a group
+        // it joins that group. Only on its own machine.
+        if dragged.hasPrefix("project:") {
+            let pk = String(dragged.dropFirst(8))
+            switch node.kind {
+            case .project(let other) where other != pk && unkey(other).machine == unkey(pk).machine && canGroup(unkey(pk).machine):
+                groupWith(pk, other)
+                return true
+            case .group(let m, let name) where m == unkey(pk).machine:
+                addToGroup(pk, name, ask: true)
+                return true
+            default:
+                return false
+            }
+        }
         let item: FolderItem
         let machine: String, sec: FolderSection
         if dragged.hasPrefix("host:") {

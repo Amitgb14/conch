@@ -45,6 +45,7 @@ var compCommands = []compItem{
 	{"view", "what the terminal is showing"},
 	{"show", "put panes in front of the person"},
 	{"project", "the git repositories you work in"},
+	{"group", "projects kept together because they change together"},
 	{"branch", "commit, push, open a pull request, merge"},
 	{"review", "comments on a branch, sent to its agent"},
 	{"worktree", "list or clean up worktrees"},
@@ -97,6 +98,11 @@ var compSubcommands = map[string][]compItem{
 		{"add", "add a git repository"}, {"create", "make a new one"}, {"clone", "clone a repository and add it"}, {"move", "move it to another machine"}, {"ls", "list projects"},
 		{"rm", "forget a project"}, {"files", "local files copied into each worktree"},
 		{"setup", "what runs in a new worktree"},
+	},
+	"group": {
+		{"ls", "list project groups"}, {"add", "make a group, or add projects to one"},
+		{"rm", "take projects out, or the group away"}, {"rename", "rename a group"},
+		{"notes", "notes for the agents working across it"},
 	},
 	"branch": {
 		{"commit", "commit on this branch"}, {"push", "push it"}, {"pr", "open a pull request"},
