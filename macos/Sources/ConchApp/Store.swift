@@ -1720,10 +1720,11 @@ final class Store: ObservableObject {
     var rawSearched: String?
 
     /// The usage chip for a row's panes ("" with none, or cost turned off).
-    func costChip(machine m: String, project: String? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
+    func costChip(machine m: String, project: String? = nil, projects: [String]? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
         guard showCost, let s = snapshots[m] else { return "" }
         var panes = s.shown(in: ws, machine: m)
         if let project { panes = panes.filter { $0.projectID == project } }
+        if let projects { panes = panes.filter { $0.projectID.map(projects.contains) ?? false } }
         if agentsOnly { panes = panes.filter { $0.agent != nil } }
         if let pane { panes = panes.filter { $0.id == pane } }
         return usage(of: panes).chip
@@ -2231,7 +2232,8 @@ final class Store: ObservableObject {
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
-                           folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m))
+                           folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
+                           canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true)
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2363,6 +2365,10 @@ final class Store: ObservableObject {
         case .renameGroup(let m, let g): renameGroup(m, g)
         case .groupNotes(let m, let g): groupNotes(m, g)
         case .removeGroup(let m, let g): removeGroup(m, g)
+        case .newGroupTask(let m, let g): newGroupTask(m, g)
+        case .groupTaskPush(let m, let g, let b): groupTaskEach(m, g, b, pr: false)
+        case .groupTaskPRs(let m, let g, let b): groupTaskEach(m, g, b, pr: true)
+        case .removeGroupTask(let m, let g, let b): removeGroupTask(m, g, b)
         }
     }
 
@@ -2580,6 +2586,8 @@ final class Store: ObservableObject {
     func activate(_ node: TreeNode) {
         switch node.kind {
         case .agent(let id), .terminal(let id): open(id)
+        case .groupTask(let m, let g, let b):
+            if let p = groupTask(m, g, b)?.panes?.first(where: { pane(key(m, $0)) != nil }) { open(key(m, p)) }
         default: break
         }
     }
@@ -2926,6 +2934,12 @@ final class ShownTheme: ObservableObject {
 /// they change together. The server keeps them, so each change here is a
 /// group.save or group.remove, and its group.changed redraws the tree.
 extension Store {
+    /// A group row's tooltip: a line for each of its repos.
+    func groupTip(_ machine: String, _ name: String) -> String {
+        guard let g = group(machine, name), let s = snapshots[machine] else { return name }
+        return ([name + " · \(g.projects.count) repos"] + s.repoSummaries(g, in: ws, machine: machine).map(\.line)).joined(separator: "\n")
+    }
+
     func canGroup(_ machine: String) -> Bool {
         conns[machine]?.hello?.capabilities?.contains("project.groups.v1") == true
     }
@@ -3075,3 +3089,136 @@ extension Store {
         }
     }
 }
+
+// MARK: tasks across a group's repos
+
+extension Store {
+    func groupTask(_ machine: String, _ group: String, _ branch: String) -> GroupTask? {
+        self.group(machine, group)?.tasks?.first { $0.branch == branch }
+    }
+
+    /// New Task Across Repos…: what to do, the branch made in each repo,
+    /// which repos, one agent across them or one each, and which agent.
+    func newGroupTask(_ machine: String, _ name: String) {
+        guard let g = group(machine, name), let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains("group.task.v1") == true else {
+            say("The server on \(label(machine)) predates tasks across a group: reload it", .err)
+            return
+        }
+        let repos = g.projects.compactMap { snapshots[machine]?.project($0) }
+        let a = NSAlert()
+        a.messageText = "New task in \(name)"
+        a.informativeText = "The same branch in a worktree of each repo ticked, gathered in one task folder."
+        let box = NSStackView(frame: NSRect(x: 0, y: 0, width: 380, height: CGFloat(250 + 22 * repos.count)))
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 6
+        box.addArrangedSubview(NSTextField(labelWithString: "What to do"))
+        let prompt = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 60))
+        prompt.placeholderString = "Add patient search: an endpoint in the API, a search box in the UI, the contract in the specs"
+        prompt.translatesAutoresizingMaskIntoConstraints = false
+        prompt.widthAnchor.constraint(equalToConstant: 380).isActive = true
+        prompt.heightAnchor.constraint(equalToConstant: 60).isActive = true
+        box.addArrangedSubview(prompt)
+        box.addArrangedSubview(NSTextField(labelWithString: "Branch (the same in each repo; empty: named from what to do)"))
+        let branch = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+        branch.placeholderString = "add-patient-search"
+        box.addArrangedSubview(branch)
+        box.addArrangedSubview(NSTextField(labelWithString: "Repos"))
+        let ticks = repos.map { p -> NSButton in
+            let b = NSButton(checkboxWithTitle: p.name + (p.base.map { "  from \($0)" } ?? ""), target: nil, action: nil)
+            b.state = .on
+            box.addArrangedSubview(b)
+            return b
+        }
+        let one = NSButton(radioButtonWithTitle: "One agent for the whole task, with every repo", target: nil, action: nil)
+        let each = NSButton(radioButtonWithTitle: "An agent per repo, each told about the others", target: nil, action: nil)
+        one.state = .on
+        box.addArrangedSubview(one)
+        box.addArrangedSubview(each)
+        let pick = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 26), pullsDown: false)
+        let agents = startable(on: machine)
+        pick.addItems(withTitles: agents.map(\.title))
+        box.addArrangedSubview(pick)
+        a.accessoryView = box
+        a.addButton(withTitle: "Start Task")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = prompt
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let what = prompt.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !what.isEmpty else { say("A task needs something to do", .err); return }
+        let picked = zip(repos, ticks).filter { $0.1.state == .on }.map(\.0.id)
+        guard !picked.isEmpty else { say("Tick a repo at least", .err); return }
+        struct Params: Encodable {
+            var group: String, prompt: String, branch: String?, agent: String?, projects: [String], each: Bool, cols: Int, rows: Int
+        }
+        let agent = agents.indices.contains(pick.indexOfSelectedItem) ? agents[pick.indexOfSelectedItem].name : nil
+        let b = branch.stringValue.trimmingCharacters(in: .whitespaces)
+        struct Result: Decodable { var panes: [PaneInfo]? }
+        say("Starting the task across \(picked.count) repos…", .info)
+        Task {
+            do {
+                let res = try await c.call("group.task", Params(group: name, prompt: what, branch: b.isEmpty ? nil : b, agent: agent,
+                                                                 projects: picked.count == repos.count ? [] : picked, each: each.state == .on, cols: 120, rows: 40),
+                                           as: Result.self)
+                for p in res.panes ?? [] {
+                    snapshots[machine, default: Snapshot()].upsert(p)
+                    layout.open(key(machine, p.id))
+                }
+                focusTerminal()
+            } catch {
+                say("Could not start the task: \(error)", .err)
+            }
+        }
+    }
+
+    /// The task's branch pushed, or its pull request opened, in each of its
+    /// repos, one after another; what each said, said.
+    func groupTaskEach(_ machine: String, _ group: String, _ branch: String, pr: Bool) {
+        guard let t = groupTask(machine, group, branch), let c = conns[machine] else { return }
+        let names = t.projects.map { snapshots[machine]?.project($0)?.name ?? $0 }
+        struct Push: Encodable { var project_id: String; var branch: String }
+        struct PR: Encodable { var project_id: String; var branch: String; var title: String; var body: String }
+        Task {
+            var done: [String] = [], failed: [String] = []
+            for (id, name) in zip(t.projects, names) {
+                do {
+                    if pr {
+                        let others = names.filter { $0 != name }
+                        let body = "Part of `\(branch)` across \(group): the same branch in " + (others.isEmpty ? "no other repo." : others.joined(separator: ", ") + ".")
+                        try await c.call("branch.pr", PR(project_id: id, branch: branch, title: branch, body: body))
+                    } else {
+                        try await c.call("branch.push", Push(project_id: id, branch: branch))
+                    }
+                    done.append(name)
+                } catch {
+                    failed.append("\(name): \(error)")
+                }
+            }
+            let verb = pr ? "Opened pull requests for" : "Pushed \(branch) in"
+            if failed.isEmpty { say("\(verb) \(done.joined(separator: ", "))") } else {
+                say((done.isEmpty ? "" : "\(verb) \(done.joined(separator: ", ")); ") + failed.joined(separator: "; "), .err)
+            }
+        }
+    }
+
+    func removeGroupTask(_ machine: String, _ group: String, _ branch: String) {
+        guard let c = conns[machine] else { return }
+        let a = NSAlert()
+        a.messageText = "Remove the task \(branch)?"
+        a.informativeText = "Its folder of links goes. Each repo keeps its worktree and the branch \(branch), to merge or delete as any branch; its agents keep running."
+        a.addButton(withTitle: "Remove Task")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        struct Ref: Encodable { var group: String; var branch: String }
+        Task {
+            do {
+                try await c.call("group.task.remove", Ref(group: group, branch: branch))
+                say("Removed the task \(branch); its branches stay")
+            } catch {
+                say("Could not remove the task: \(error)", .err)
+            }
+        }
+    }
+}
+

@@ -287,11 +287,32 @@ public struct GroupInfo: Decodable, Equatable, Sendable {
     public var name: String
     public var projects: [String]
     public var notes: String?
+    /// Tasks across its repos (group.task.v1), the newest last.
+    public var tasks: [GroupTask]?
 
-    public init(name: String, projects: [String], notes: String? = nil) {
+    public init(name: String, projects: [String], notes: String? = nil, tasks: [GroupTask]? = nil) {
         self.name = name
         self.projects = projects
         self.notes = notes
+        self.tasks = tasks
+    }
+}
+
+/// A task across a group's repos: the branch in each of its projects, the
+/// folder linking their worktrees, and the panes it started.
+public struct GroupTask: Decodable, Equatable, Sendable {
+    public var branch: String
+    public var folder: String
+    public var projects: [String]
+    public var panes: [String]?
+    public var each: Bool?
+
+    public init(branch: String, folder: String, projects: [String], panes: [String]? = nil, each: Bool? = nil) {
+        self.branch = branch
+        self.folder = folder
+        self.projects = projects
+        self.panes = panes
+        self.each = each
     }
 }
 

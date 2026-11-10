@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -289,6 +289,11 @@ const CapPRReview = "pr.review.v1"
 // app, their specs — each still a project of its own.
 const CapProjectGroups = "project.groups.v1"
 
+// CapGroupTask is group.task and group.task.remove: one task across a
+// group's repos — the same branch in a worktree of each, gathered in a
+// task folder, with one agent given them all or an agent in each.
+const CapGroupTask = "group.task.v1"
+
 // CapReviewSendTo is review.send's Pane and New: the notes handed to the
 // agent picked, or to a new one, rather than whichever is first on the
 // branch — a branch like the base can have a dozen.
@@ -352,15 +357,19 @@ const (
 
 	// Project groups (CapProjectGroups): GroupList, GroupSaveParams →
 	// GroupInfo, GroupRef.
-	MethodGroupList      = "group.list"
-	MethodGroupSave      = "group.save"
-	MethodGroupRemove    = "group.remove"
-	MethodProjectList    = "project.list"
-	MethodProjectAdd     = "project.add"
-	MethodProjectRemove  = "project.remove"
-	MethodProjectRefresh = "project.refresh"
-	MethodProjectChanges = "project.changes"
-	MethodProjectDiff    = "project.diff"
+	MethodGroupList   = "group.list"
+	MethodGroupSave   = "group.save"
+	MethodGroupRemove = "group.remove"
+	// Tasks across a group's repos (CapGroupTask): GroupTaskParams →
+	// GroupTaskResult; GroupTaskRef.
+	MethodGroupTask       = "group.task"
+	MethodGroupTaskRemove = "group.task.remove"
+	MethodProjectList     = "project.list"
+	MethodProjectAdd      = "project.add"
+	MethodProjectRemove   = "project.remove"
+	MethodProjectRefresh  = "project.refresh"
+	MethodProjectChanges  = "project.changes"
+	MethodProjectDiff     = "project.diff"
 	// MethodProjectLog is a project's history for a commit graph
 	// (CapProjectLog).
 	MethodProjectLog = "project.log"
@@ -855,6 +864,46 @@ type GroupInfo struct {
 	Name     string   `json:"name"`
 	Projects []string `json:"projects"`
 	Notes    string   `json:"notes,omitempty"`
+	// Tasks across its repos (CapGroupTask), the newest last.
+	Tasks []GroupTask `json:"tasks,omitempty"`
+}
+
+// GroupTask is one task across a group's repos: the branch made in each
+// of its projects, the folder holding a link to each worktree (where its
+// agent works), and the panes it started — one agent, or one per repo.
+type GroupTask struct {
+	Branch   string    `json:"branch"`
+	Folder   string    `json:"folder"`
+	Projects []string  `json:"projects"`
+	Panes    []string  `json:"panes,omitempty"`
+	Each     bool      `json:"each,omitempty"`
+	Created  time.Time `json:"created"`
+}
+
+// GroupTaskParams starts a task across Group's repos: Projects (default
+// all of them, in the group's order), each on Branch (default named from
+// the prompt). One agent at the task folder with every worktree, or with
+// Each an agent in each worktree.
+type GroupTaskParams struct {
+	Group    string   `json:"group"`
+	Prompt   string   `json:"prompt"`
+	Branch   string   `json:"branch,omitempty"`
+	Agent    string   `json:"agent,omitempty"`
+	Projects []string `json:"projects,omitempty"`
+	Each     bool     `json:"each,omitempty"`
+	Cols     int      `json:"cols,omitempty"`
+	Rows     int      `json:"rows,omitempty"`
+}
+
+type GroupTaskResult struct {
+	Task  GroupTask  `json:"task"`
+	Panes []PaneInfo `json:"panes"`
+}
+
+// GroupTaskRef names a task by its group and branch.
+type GroupTaskRef struct {
+	Group  string `json:"group"`
+	Branch string `json:"branch"`
 }
 
 type GroupList struct {

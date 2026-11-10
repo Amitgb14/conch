@@ -148,6 +148,7 @@ Usage:
                                 terminal of its own in each new worktree (npm install…),
                                 and every pane there gets its own ports from $CONCH_PORT
   conch group [ls [-json]] | add NAME PROJECT... | rm NAME [PROJECT...] | rename OLD NEW | notes NAME [TEXT]
+                | task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT... | tasks NAME | task-rm NAME BRANCH
                                 projects kept together because they change together (an API, its
                                 web app, their specs), each still a project of its own
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-sandbox PROVIDER] PROMPT

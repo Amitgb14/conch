@@ -1,15 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
+	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -36,9 +42,20 @@ type groupBook struct {
 }
 
 type savedGroup struct {
-	Name     string   `json:"name"`
-	Projects []string `json:"projects"` // folders, in the person's order
-	Notes    string   `json:"notes,omitempty"`
+	Name     string      `json:"name"`
+	Projects []string    `json:"projects"` // folders, in the person's order
+	Notes    string      `json:"notes,omitempty"`
+	Tasks    []savedTask `json:"tasks,omitempty"`
+}
+
+// savedTask is a task across the group's repos, its projects by folder.
+type savedTask struct {
+	Branch   string    `json:"branch"`
+	Folder   string    `json:"folder"`
+	Projects []string  `json:"projects"`
+	Panes    []string  `json:"panes,omitempty"`
+	Each     bool      `json:"each,omitempty"`
+	Created  time.Time `json:"created"`
 }
 
 type groupsFile struct {
@@ -88,14 +105,24 @@ func (g *groupBook) list() proto.GroupList {
 	defer g.mu.Unlock()
 	out := proto.GroupList{Groups: []proto.GroupInfo{}}
 	for _, sg := range g.groups {
-		info := proto.GroupInfo{Name: sg.Name, Notes: sg.Notes, Projects: []string{}}
-		for _, root := range sg.Projects {
-			if id := projectID(root); g.registered(id) {
-				info.Projects = append(info.Projects, id)
-			}
+		info := proto.GroupInfo{Name: sg.Name, Notes: sg.Notes, Projects: g.ids(sg.Projects)}
+		for _, t := range sg.Tasks {
+			info.Tasks = append(info.Tasks, proto.GroupTask{Branch: t.Branch, Folder: t.Folder, Projects: g.ids(t.Projects),
+				Panes: t.Panes, Each: t.Each, Created: t.Created})
 		}
 		if len(info.Projects) > 0 {
 			out.Groups = append(out.Groups, info)
+		}
+	}
+	return out
+}
+
+// ids are the projects of those folders this server has, in order.
+func (g *groupBook) ids(roots []string) []string {
+	out := []string{}
+	for _, root := range roots {
+		if id := projectID(root); g.registered(id) {
+			out = append(out, id)
 		}
 	}
 	return out
@@ -149,6 +176,7 @@ func (g *groupBook) save(p proto.GroupSaveParams) (proto.GroupInfo, *proto.Error
 	if at < 0 {
 		g.groups = append(g.groups, sg)
 	} else {
+		sg.Tasks = g.groups[at].Tasks // its tasks go with it, renamed or not
 		g.groups[at] = sg
 	}
 	g.mu.Unlock()
@@ -218,4 +246,224 @@ func (g *groupBook) changed() {
 		log.Printf("groups: save: %v", err)
 	}
 	g.s.broadcast(proto.EventGroups, g.list())
+}
+
+// A task across a group's repos: the same branch in a worktree of each of
+// its projects, made as any task's worktree is — so each repo's branch,
+// changes, pull request and checks are that project's as ever — and a
+// task folder ($CONCH_HOME/tasks/GROUP/BRANCH) holding a link to each
+// worktree under the repo's name and CONCH-TASK.md, the prompt and the
+// repos. One agent works from the folder, given every worktree (Claude's
+// and Codex's --add-dir), or each worktree gets an agent of its own told
+// about the others. Before anything is made, everything that would refuse
+// is asked: a worktree made and then a failure would leave half a task.
+func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *proto.Error) {
+	s := g.s
+	if strings.TrimSpace(tp.Prompt) == "" {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
+	}
+	g.mu.Lock()
+	at := slices.IndexFunc(g.groups, func(sg savedGroup) bool { return sg.Name == tp.Group })
+	var sg savedGroup
+	if at >= 0 {
+		sg = g.groups[at]
+	}
+	g.mu.Unlock()
+	if at < 0 {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrNotFound, "no group called %s", tp.Group)
+	}
+	// Its projects, in the group's order: those asked for, or all.
+	var projects []*project
+	for _, root := range sg.Projects {
+		id := projectID(root)
+		if len(tp.Projects) > 0 && !slices.Contains(tp.Projects, id) {
+			continue
+		}
+		p, perr := s.projects.get(id)
+		if perr != nil {
+			continue // not registered now: not part of this task
+		}
+		if !p.snapshot().Git {
+			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each", p.snapshot().Name)
+		}
+		projects = append(projects, p)
+	}
+	for _, id := range tp.Projects {
+		if !slices.ContainsFunc(projects, func(p *project) bool { return p.id == id }) {
+			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a repo of %s", id, tp.Group)
+		}
+	}
+	if len(projects) == 0 {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s has no repo to start a task in", tp.Group)
+	}
+	if tp.Agent == "" {
+		tp.Agent = s.defaultAgent()
+	}
+	if ad, ok := s.adapters.Get(tp.Agent); ok {
+		if perr := s.notInstalled(ad); perr != nil {
+			return proto.GroupTaskResult{}, perr
+		}
+	} else {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "no agent called %s", tp.Agent)
+	}
+	if tp.Branch == "" {
+		tp.Branch = gitx.BranchFromPrompt(tp.Group, tp.Prompt)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	err := gitx.ValidBranchName(ctx, projects[0].root, tp.Branch)
+	cancel()
+	if err != nil {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	if slices.ContainsFunc(sg.Tasks, func(t savedTask) bool { return t.Branch == tp.Branch }) {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s already has a task on %s", tp.Group, tp.Branch)
+	}
+	for _, p := range projects {
+		if wt, ok := p.branchWorktree(tp.Branch); ok {
+			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s already has %s checked out at %s", p.snapshot().Name, tp.Branch, wt.Path)
+		}
+	}
+	folder := filepath.Join(filepath.Dir(g.file), "tasks", safeSegment(tp.Group), safeSegment(tp.Branch))
+	if _, err := os.Stat(folder); err == nil {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is there already", folder)
+	}
+
+	// Made now: a worktree in each, undone if a later one fails.
+	paths := make([]string, len(projects))
+	for i, p := range projects {
+		path, _, perr := s.projects.addWorktree(p, tp.Branch, "")
+		if perr != nil {
+			for j := 0; j < i; j++ {
+				if rerr := s.projects.removeWorktree(proto.WorktreeRemoveParams{ProjectID: projects[j].id, Path: paths[j]}); rerr != nil {
+					log.Printf("group task: undoing %s: %v", paths[j], rerr.Message)
+				}
+			}
+			return proto.GroupTaskResult{}, proto.Errorf(perr.Code, "%s: %s (nothing was kept)", p.snapshot().Name, perr.Message)
+		}
+		paths[i] = path
+		s.startSetup(p, path, tp.Branch)
+	}
+	names := linkNames(projects)
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrInternal, "%v", err)
+	}
+	for i, path := range paths {
+		if err := os.Symlink(path, filepath.Join(folder, names[i])); err != nil {
+			log.Printf("group task: link %s: %v", names[i], err)
+		}
+	}
+	brief := taskBrief(tp, sg.Notes, projects, names, paths)
+	if err := os.WriteFile(filepath.Join(folder, "CONCH-TASK.md"), []byte(brief), 0o644); err != nil {
+		log.Printf("group task: %v", err)
+	}
+
+	var started []proto.PaneInfo
+	if tp.Each {
+		for i, p := range projects {
+			prompt := tp.Prompt + fmt.Sprintf("\n\nThis is one part of a task across %d repos of %s, all on the branch %s; the others are worked on by other agents at the same time. What each repo is for and where its worktree is: %s.",
+				len(projects), tp.Group, tp.Branch, filepath.Join(folder, "CONCH-TASK.md")) + s.shipNote(p.id)
+			info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Prompt: prompt, Cwd: paths[i], Cols: tp.Cols, Rows: tp.Rows})
+			if perr != nil {
+				return proto.GroupTaskResult{}, perr
+			}
+			started = append(started, info)
+		}
+	} else {
+		repos := fmt.Sprintf("%d repos", len(projects))
+		if len(projects) == 1 {
+			repos = "1 repo"
+		}
+		prompt := tp.Prompt + fmt.Sprintf("\n\nThis task spans %s of %s, each checked out on the branch %s in a folder of its own here (%s). Read CONCH-TASK.md first. Commit and push in each repo on its own: they are separate repositories.",
+			repos, tp.Group, tp.Branch, strings.Join(names, ", "))
+		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, AgentArgs: adapter.DirArgs(tp.Agent, paths), Prompt: prompt,
+			Cwd: folder, NoProject: true, Cols: tp.Cols, Rows: tp.Rows})
+		if perr != nil {
+			return proto.GroupTaskResult{}, perr
+		}
+		started = append(started, info)
+	}
+
+	t := savedTask{Branch: tp.Branch, Folder: folder, Each: tp.Each, Created: time.Now()}
+	for _, p := range projects {
+		t.Projects = append(t.Projects, p.root)
+	}
+	for _, info := range started {
+		t.Panes = append(t.Panes, info.ID)
+	}
+	g.mu.Lock()
+	if i := slices.IndexFunc(g.groups, func(x savedGroup) bool { return x.Name == tp.Group }); i >= 0 {
+		g.groups[i].Tasks = append(g.groups[i].Tasks, t)
+	}
+	g.mu.Unlock()
+	g.changed()
+	return proto.GroupTaskResult{Task: proto.GroupTask{Branch: t.Branch, Folder: t.Folder, Projects: g.ids(t.Projects), Panes: t.Panes, Each: t.Each, Created: t.Created},
+		Panes: started}, nil
+}
+
+// removeTask forgets a task and takes its folder away — links and the
+// brief, never what they point at: each repo's worktree and branch stay,
+// to be merged or deleted as any branch is.
+func (g *groupBook) removeTask(ref proto.GroupTaskRef) *proto.Error {
+	g.mu.Lock()
+	gi := slices.IndexFunc(g.groups, func(sg savedGroup) bool { return sg.Name == ref.Group })
+	if gi < 0 {
+		g.mu.Unlock()
+		return proto.Errorf(proto.ErrNotFound, "no group called %s", ref.Group)
+	}
+	ti := slices.IndexFunc(g.groups[gi].Tasks, func(t savedTask) bool { return t.Branch == ref.Branch })
+	if ti < 0 {
+		g.mu.Unlock()
+		return proto.Errorf(proto.ErrNotFound, "%s has no task on %s", ref.Group, ref.Branch)
+	}
+	folder := g.groups[gi].Tasks[ti].Folder
+	g.groups[gi].Tasks = slices.Delete(g.groups[gi].Tasks, ti, ti+1)
+	g.mu.Unlock()
+	if folder != "" && strings.HasPrefix(folder, filepath.Join(filepath.Dir(g.file), "tasks")+string(filepath.Separator)) {
+		// os.RemoveAll takes the links themselves, not what they name.
+		if err := os.RemoveAll(folder); err != nil {
+			log.Printf("group task: %v", err)
+		}
+	}
+	g.changed()
+	return nil
+}
+
+// linkNames are the names of each worktree's link in the task folder: the
+// repo's name, made unique when two repos share one.
+func linkNames(projects []*project) []string {
+	out := make([]string, len(projects))
+	seen := map[string]int{}
+	for i, p := range projects {
+		n := safeSegment(p.snapshot().Name)
+		seen[n]++
+		if seen[n] > 1 {
+			n = fmt.Sprintf("%s-%d", n, seen[n])
+		}
+		out[i] = n
+	}
+	return out
+}
+
+// safeSegment is a name made safe as one folder name.
+func safeSegment(name string) string {
+	r := strings.NewReplacer("/", "-", "\\", "-", string(filepath.Separator), "-", "\x00", "")
+	n := strings.Trim(r.Replace(name), ". ")
+	if n == "" {
+		return "task"
+	}
+	return n
+}
+
+func taskBrief(tp proto.GroupTaskParams, notes string, projects []*project, names, paths []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s — a task across %s\n\n%s\n\n## Repos\n\n", tp.Branch, tp.Group, strings.TrimSpace(tp.Prompt))
+	for i, p := range projects {
+		info := p.snapshot()
+		fmt.Fprintf(&b, "- `%s/` — %s, branch `%s` from `%s`; its worktree is %s\n", names[i], info.Name, tp.Branch, info.Base, paths[i])
+	}
+	if strings.TrimSpace(notes) != "" {
+		fmt.Fprintf(&b, "\n## Notes for the agents\n\n%s\n", strings.TrimSpace(notes))
+	}
+	b.WriteString("\nEach repo is its own git repository: commit, push and open a pull request in each one that changed.\n")
+	return b.String()
 }

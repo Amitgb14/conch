@@ -471,6 +471,8 @@ public enum NodeKind: Equatable, Sendable {
     case folder(machine: String, section: FolderSection, name: String)
     /// A project group under Workspace, its projects under it.
     case group(machine: String, name: String)
+    /// A task across a group's repos: its agents, then its branch in each.
+    case groupTask(machine: String, group: String, branch: String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -566,7 +568,10 @@ extension Snapshot {
                                          badge: attention(mine),
                                          children: sections, fold: tui, foldDefault: !mine.isEmpty))
         }
-        let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
+        // A group task's agent works at the task's folder, in no project,
+        // and is listed under its task rather than in CLI.
+        let taskPanes = Set(groups.flatMap { ($0.tasks ?? []).flatMap { $0.panes ?? [] } })
+        let loose = shown.filter { ($0.projectID == nil || project($0.projectID!) == nil) && !taskPanes.contains($0.id) }
         // The projects under a Workspace row, the CLI group beside it: the
         // TUI's tree (kindWorkspace, open unless folded).
         var top: [TreeNode] = []
@@ -611,14 +616,73 @@ extension Snapshot {
                 kids.append(n)
             }
             guard !kids.isEmpty else { continue }
-            let mine = shown.filter { $0.projectID.map(g.projects.contains) ?? false }
+            let repoCount = kids.count
+            kids = (g.tasks ?? []).map { taskNode($0, group: g.name, machine: machine, shown: shown) } + kids
+            let taskPanes = Set((g.tasks ?? []).flatMap { $0.panes ?? [] })
+            let mine = shown.filter { ($0.projectID.map(g.projects.contains) ?? false) || taskPanes.contains($0.id) }
             out.append(TreeNode(id: "grp:\(machine):\(g.name)", kind: .group(machine: machine, name: g.name), title: g.name,
-                                detail: "\(kids.count) repos", badge: attention(mine), children: kids, fold: "grp:\(machine):\(g.name)"))
+                                detail: "\(repoCount) repos", badge: attention(mine), children: kids, fold: "grp:\(machine):\(g.name)"))
         }
         return out + projectNodes.filter { n in
             if case .project(let pk) = n.kind { return !placed.contains(pk) }
             return true
         }
+    }
+
+    /// Each repo of a group as its row's tooltip says it: its agents by
+    /// state, its checkouts beside the main one, and what is uncommitted
+    /// across its worktrees — for the panes the workspace shows.
+    public func repoSummaries(_ g: GroupInfo, in ws: Workspace? = nil, machine: String = "local") -> [RepoSummary] {
+        let shown = self.shown(in: ws, machine: machine)
+        return g.projects.compactMap { id -> RepoSummary? in
+            guard let pr = project(id) else { return nil }
+            var r = RepoSummary(name: pr.name)
+            for p in shown where p.projectID == id && p.running {
+                switch p.agent?.state {
+                case .working: r.working += 1
+                case .blocked: r.waiting += 1
+                case .done: r.done += 1
+                default: break
+                }
+            }
+            for w in pr.worktrees ?? [] {
+                if w.main != true { r.checkouts += 1 }
+                r.files += w.status?.files ?? 0
+                r.added += w.status?.added ?? 0
+                r.deleted += w.status?.deleted ?? 0
+            }
+            return r
+        }
+    }
+
+    /// A task across a group's repos: its agents (those still listed),
+    /// then the task's branch in each repo — the project's own branch, so
+    /// a click opens that repo's changes and its badge says its pull
+    /// request — and its counts.
+    func taskNode(_ t: GroupTask, group: String, machine: String, shown: [PaneInfo]) -> TreeNode {
+        let ids = Set(t.panes ?? [])
+        let agents = paneForest(shown.filter { ids.contains($0.id) }, machine)
+        let repos = t.projects.compactMap { id -> TreeNode? in
+            guard let pr = project(id) else { return nil }
+            let pk = key(machine, id)
+            let b = pr.branches?.first { $0.name == t.branch } ?? BranchInfo(name: t.branch)
+            return TreeNode(id: "gtb:\(machine):\(group):\(t.branch):\(id)", kind: .branch(project: pk, name: t.branch, checkedOut: true),
+                            title: pr.name, badge: branchBadge(b),
+                            parts: branchBadgeParts(b, worktree: pr.worktrees?.first { $0.branch == t.branch }, isBase: false,
+                                                    agents: shown.filter { $0.projectID == id && $0.branch == t.branch && $0.running }.compactMap { $0.agent?.state }))
+        }
+        let mine = shown.filter { ids.contains($0.id) || ($0.projectID.map(t.projects.contains) ?? false) && $0.branch == t.branch }
+        return TreeNode(id: "gt:\(machine):\(group):\(t.branch)", kind: .groupTask(machine: machine, group: group, branch: t.branch),
+                        title: t.branch, detail: "\(t.projects.count) repos", badge: attention(mine), children: agents + repos,
+                        fold: "gt:\(machine):\(group):\(t.branch)")
+    }
+
+    /// The group task a pane belongs to, by its group and branch.
+    public func groupTask(of pane: String) -> (group: String, task: GroupTask)? {
+        for g in groups {
+            if let t = (g.tasks ?? []).first(where: { ($0.panes ?? []).contains(pane) }) { return (g.name, t) }
+        }
+        return nil
     }
 
     /// The CLI's sections, as the TUI splits it (tree.go): Agents,
@@ -1142,6 +1206,29 @@ public struct WorkspaceSummary: Equatable, Sendable {
         if terminals > 0 { parts.append(n(terminals, "terminal")) }
         guard !parts.isEmpty else { return "nothing running" }
         return parts.joined(separator: ", ") + (waiting > 0 ? " · \(waiting) waiting for you" : "")
+    }
+}
+
+/// One repo of a group, for the group row's tooltip.
+public struct RepoSummary: Equatable, Sendable {
+    public var name: String
+    public var working = 0, waiting = 0, done = 0
+    /// Worktrees besides the main checkout: branches being worked on.
+    public var checkouts = 0
+    public var files = 0, added = 0, deleted = 0
+
+    public init(name: String) { self.name = name }
+
+    /// "spring — 2 working, 1 waiting · 1 branch checked out · 3 files changed (+40 −2)".
+    public var line: String {
+        var agents: [String] = []
+        if working > 0 { agents.append("\(working) working") }
+        if waiting > 0 { agents.append("\(waiting) waiting") }
+        if done > 0 { agents.append("\(done) done") }
+        var parts = [agents.isEmpty ? "no agents" : agents.joined(separator: ", ")]
+        if checkouts > 0 { parts.append("\(checkouts) branch\(checkouts == 1 ? "" : "es") checked out") }
+        if files > 0 { parts.append("\(files) file\(files == 1 ? "" : "s") changed (+\(added) −\(deleted))") }
+        return name + " — " + parts.joined(separator: " · ")
     }
 }
 

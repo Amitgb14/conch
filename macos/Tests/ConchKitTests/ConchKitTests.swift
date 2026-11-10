@@ -3167,7 +3167,9 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(!Snapshot(projects: [ProjectInfo(id: "r1", name: "a", path: "/a")]).menu(for: ws, machine: "box").contains { $0.action == .newGroup(machine: "box") })
 
     let g = TreeNode(id: "grp:box:clinic", kind: .group(machine: "box", name: "clinic"), title: "clinic")
-    let gm = s.menu(for: g, machine: "box")
+    let gm = s.menu(for: g, machine: "box", canGroupTask: false)
+    #expect(s.menu(for: g, machine: "box").first?.action == .newGroupTask(machine: "box", group: "clinic"))
+    #expect(!s.menu(for: g, machine: "box", machineOnline: false).contains { $0.action == .newGroupTask(machine: "box", group: "clinic") })
     #expect(gm.map(\.title) == ["Rename Group…", "Edit Notes for the Agents…", "Add a Project", "Take a Project Out", "", "Remove Group (Projects Stay)"])
     #expect(gm[2].children.map(\.action) == [.addToGroup(project: "box|r3", group: "clinic")])
     #expect(gm[3].children.map(\.action) == [.takeOutOfGroup(project: "box|r1", group: "clinic"), .takeOutOfGroup(project: "box|r2", group: "clinic")])
@@ -3181,4 +3183,70 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"clinic","projects":["r1","r2"],"notes":"n"}]}"#.utf8))
     #expect(l.groups == [GroupInfo(name: "clinic", projects: ["r1", "r2"], notes: "n")])
     #expect(try JSONDecoder().decode(GroupList.self, from: Data("{}".utf8)).groups == nil)
+}
+
+// A group row's tooltip: each repo with its running agents by state, the
+// branches checked out beside the main one, and what is uncommitted —
+// exited panes and repos not in the snapshot left out.
+@Test func groupRepoSummaries() {
+    var gone = PaneInfo(id: "p4", name: "x", agent: AgentStatus(name: "codex", state: .working), projectID: "r1")
+    gone.state = "exited"
+    var spring = ProjectInfo(id: "r1", name: "spring", path: "/s", worktrees: [WorktreeInfo(path: "/s", branch: "main", main: true),
+                                                                                  WorktreeInfo(path: "/s-feat", branch: "feat")])
+    spring.worktrees![0].status = GitStatus(files: 1, added: 10, deleted: 2)
+    spring.worktrees![1].status = GitStatus(files: 2, added: 30)
+    let s = Snapshot(panes: [PaneInfo(id: "p1", name: "a", agent: AgentStatus(name: "claude", state: .working), projectID: "r1"),
+                             PaneInfo(id: "p2", name: "b", agent: AgentStatus(name: "codex", state: .blocked), projectID: "r1"),
+                             PaneInfo(id: "p3", name: "zsh", projectID: "r2"), gone],
+                     projects: [spring, ProjectInfo(id: "r2", name: "web", path: "/w")])
+    let rs = s.repoSummaries(GroupInfo(name: "clinic", projects: ["r1", "r2", "r9"]))
+    #expect(rs.map(\.name) == ["spring", "web"])
+    #expect(rs[0].working == 1 && rs[0].waiting == 1 && rs[0].checkouts == 1 && rs[0].files == 3 && rs[0].added == 40 && rs[0].deleted == 2)
+    #expect(rs[0].line == "spring — 1 working, 1 waiting · 1 branch checked out · 3 files changed (+40 −2)")
+    #expect(rs[1].line == "web — no agents")
+}
+
+// A group's tasks come first under it: each its agent, then the task's
+// branch in each repo — that project's own branch row, with its badge —
+// and its counts; the task's agent is not listed again in CLI, though it
+// belongs to no project. A task's menu pushes, opens pull requests and
+// removes it; the group's + starts one.
+@Test func groupTasksInTheTree() {
+    var spring = ProjectInfo(id: "r1", name: "spring", path: "/s", worktrees: [WorktreeInfo(path: "/s", branch: "main", main: true),
+                                                                                  WorktreeInfo(path: "/s.worktrees/add-search", branch: "add-search")])
+    spring.branches = [BranchInfo(name: "main"), BranchInfo(name: "add-search", baseAhead: 2)]
+    let task = GroupTask(branch: "add-search", folder: "/h/tasks/clinic/add-search", projects: ["r1", "r2"], panes: ["p9"])
+    let s = Snapshot(panes: [PaneInfo(id: "p9", name: "claude", agent: AgentStatus(name: "claude", state: .working)),
+                             PaneInfo(id: "p3", name: "zsh")],
+                     projects: [spring, ProjectInfo(id: "r2", name: "web", path: "/w")],
+                     groups: [GroupInfo(name: "clinic", projects: ["r1", "r2"], tasks: [task])])
+    let top = s.tree(machine: "box").children!
+    let clinic = top.first { $0.kind == .workspace("box") }!.children![0]
+    #expect(clinic.children!.map(\.title) == ["add-search", "spring", "web"])
+    #expect(clinic.detail == "2 repos" && clinic.badge == "⠋1")
+    let t = clinic.children![0]
+    #expect(t.kind == .groupTask(machine: "box", group: "clinic", branch: "add-search") && t.machine == "box")
+    #expect(t.children!.map(\.id) == ["pane:box|p9", "gtb:box:clinic:add-search:r1", "gtb:box:clinic:add-search:r2"])
+    #expect(t.children![1].kind == .branch(project: "box|r1", name: "add-search", checkedOut: true) && t.children![1].title == "spring")
+    #expect(t.detail == "2 repos" && t.badge == "⠋1")
+    // The task's agent is under its task, not in CLI.
+    let cli = top.first { $0.kind == .cli("box") }!
+    #expect(cli.badge == "1" && !(cli.children ?? []).flatMap { $0.children ?? [] }.contains { $0.id == "pane:box|p9" })
+    #expect(s.groupTask(of: "p9")?.task.branch == "add-search" && s.groupTask(of: "p3") == nil)
+
+    let tm = s.menu(for: t, machine: "box")
+    #expect(tm.map(\.title) == ["Open Its Agent", "Push add-search in Every Repo", "Open Pull Requests in Every Repo…", "",
+                                "Copy Task Folder", "", "Remove Task (Branches Stay)…"])
+    #expect(tm[1].action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(tm.last?.action == .removeGroupTask(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(s.menu(for: t, machine: "local").contains { $0.action == .reveal("/h/tasks/clinic/add-search") })
+    #expect(!s.menu(for: t, machine: "box", machineOnline: false).contains { $0.action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search") })
+    #expect(s.menu(for: TreeNode(id: "x", kind: .groupTask(machine: "box", group: "clinic", branch: "gone"), title: "gone"), machine: "box").isEmpty)
+    #expect(s.rowButtons(for: clinic, machine: "box")?.primary?.action == .newGroupTask(machine: "box", group: "clinic"))
+    #expect(s.rowButtons(for: clinic, machine: "box", machineOnline: false) == nil)
+}
+
+@Test func groupTaskDecodes() throws {
+    let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"c","projects":["r1"],"tasks":[{"branch":"b","folder":"/f","projects":["r1"],"panes":["p1"],"created":"2026-11-10T00:00:00Z"}]}]}"#.utf8))
+    #expect(l.groups?.first?.tasks == [GroupTask(branch: "b", folder: "/f", projects: ["r1"], panes: ["p1"])])
 }

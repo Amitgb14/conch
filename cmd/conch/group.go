@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,12 @@ const groupUsage = `usage: conch group [ls [-json]]
        conch group rm NAME [PROJECT...]       take projects out of a group, or the group away
        conch group rename OLD NEW
        conch group notes NAME [TEXT]          notes for the agents working across it ("" clears)
+       conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...
+                                              one task across its repos: the branch in a worktree
+                                              of each, one agent given them all (-each: one per repo)
+       conch group tasks NAME                 its tasks, their repos, folder and agents
+       conch group task-rm NAME BRANCH        forget a task and remove its folder; the worktrees
+                                              and branches stay
 A PROJECT is its ID, its name or its folder, as conch project ls lists them.`
 
 // runGroup is conch group: projects the person keeps together because
@@ -30,7 +37,7 @@ func runGroup(args []string) error {
 		args = []string{"ls"}
 	}
 	switch args[0] {
-	case "ls", "list", "add", "rm", "remove", "rename", "notes":
+	case "ls", "list", "add", "rm", "remove", "rename", "notes", "task", "tasks", "task-rm":
 	default:
 		return unknownSubcommand("group", args[0])
 	}
@@ -142,6 +149,41 @@ func runGroup(args []string) error {
 		}
 		return saveGroup(c, proto.GroupSaveParams{Name: args[2], Old: g.Name, Projects: g.Projects, Notes: g.Notes}, projects.Projects)
 
+	case "task":
+		return runGroupTask(c, args[1:], projects.Projects)
+
+	case "tasks":
+		if len(args) != 2 {
+			return errors.New(groupUsage)
+		}
+		g, ok := find(args[1])
+		if !ok {
+			return fmt.Errorf("no group called %s", args[1])
+		}
+		if len(g.Tasks) == 0 {
+			fmt.Printf("no tasks in %s: conch group task %s PROMPT starts one\n", g.Name, g.Name)
+			return nil
+		}
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "BRANCH\tREPOS\tAGENTS\tFOLDER")
+		for _, t := range g.Tasks {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Branch, strings.Join(projectNames(t.Projects, projects.Projects), ", "), strings.Join(t.Panes, ","), t.Folder)
+		}
+		return tw.Flush()
+
+	case "task-rm":
+		if len(args) != 3 {
+			return errors.New(groupUsage)
+		}
+		if len(c.MissingCapabilities([]string{proto.CapGroupTask})) > 0 {
+			return errors.New("this server predates tasks across a group (group.task.v1): reload it with conch server reload")
+		}
+		if err := call(c, proto.MethodGroupTaskRemove, proto.GroupTaskRef{Group: args[1], Branch: args[2]}, nil); err != nil {
+			return err
+		}
+		fmt.Printf("removed the task %s of %s and its folder; each repo keeps its worktree and branch\n", args[2], args[1])
+		return nil
+
 	case "notes":
 		if len(args) < 2 {
 			return errors.New(groupUsage)
@@ -211,4 +253,41 @@ func projectNames(ids []string, projects []proto.ProjectInfo) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// runGroupTask is conch group task: one task across a group's repos.
+func runGroupTask(c *client.Client, args []string, projects []proto.ProjectInfo) error {
+	fs := flag.NewFlagSet("group task", flag.ContinueOnError)
+	branch := fs.String("branch", "", "the branch made in each repo (default: named from the prompt)")
+	agent := fs.String("agent", "", "the agent to start (default: the server's first)")
+	each := fs.Bool("each", false, "an agent in each repo's worktree, rather than one across them all")
+	only := fs.String("only", "", "the repos to include, by name, folder or ID, comma-separated (default: all)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		return errors.New(groupUsage)
+	}
+	if len(c.MissingCapabilities([]string{proto.CapGroupTask})) > 0 {
+		return errors.New("this server predates tasks across a group (group.task.v1): reload it with conch server reload")
+	}
+	p := proto.GroupTaskParams{Group: fs.Arg(0), Prompt: strings.Join(fs.Args()[1:], " "), Branch: *branch, Agent: *agent, Each: *each, Cols: 120, Rows: 40}
+	if *only != "" {
+		for _, w := range strings.Split(*only, ",") {
+			id, err := pickProject(strings.TrimSpace(w), projects)
+			if err != nil {
+				return err
+			}
+			p.Projects = append(p.Projects, id)
+		}
+	}
+	var res proto.GroupTaskResult
+	if err := call(c, proto.MethodGroupTask, p, &res); err != nil {
+		return err
+	}
+	fmt.Printf("%s across %s: %s\n", res.Task.Branch, strings.Join(projectNames(res.Task.Projects, projects), ", "), res.Task.Folder)
+	for _, pane := range res.Panes {
+		fmt.Println(pane.ID)
+	}
+	return nil
 }

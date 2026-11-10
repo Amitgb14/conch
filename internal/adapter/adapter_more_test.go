@@ -368,3 +368,24 @@ func TestDevinAdapter(t *testing.T) {
 		t.Fatalf("installed devin: %+v", av)
 	}
 }
+
+// The folders a task across repos gives an agent, in the words each one
+// takes, quoted for a shell; nothing for an agent that takes none, or
+// when there is nothing to give.
+func TestDirArgs(t *testing.T) {
+	dirs := []string{"/w/spring", "/w/my web"}
+	for agent, want := range map[string]string{
+		"claude":   "--add-dir /w/spring --add-dir '/w/my web'",
+		"codex":    "--add-dir /w/spring --add-dir '/w/my web'",
+		"gemini":   "--include-directories '/w/spring,/w/my web'",
+		"opencode": "",
+		"grok":     "",
+	} {
+		if got := DirArgs(agent, dirs); got != want {
+			t.Errorf("%s: %q, want %q", agent, got, want)
+		}
+	}
+	if DirArgs("claude", nil) != "" {
+		t.Error("no folders gave words")
+	}
+}

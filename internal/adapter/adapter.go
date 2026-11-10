@@ -592,3 +592,24 @@ func writeFileAtomic(path string, data []byte) error {
 	}
 	return os.Rename(tmp.Name(), path)
 }
+
+// DirArgs are the words that give an agent more folders than the one it
+// starts in — a task across several repos gives it every repo's worktree
+// — for the agents that take them: Claude Code's and Codex's --add-dir,
+// Gemini CLI's --include-directories. Any other gets nothing and works
+// from where it starts, which holds the worktrees anyway.
+func DirArgs(agent string, dirs []string) string {
+	if len(dirs) == 0 {
+		return ""
+	}
+	var words []string
+	switch agent {
+	case "claude", "codex":
+		for _, d := range dirs {
+			words = append(words, "--add-dir", ShellQuote(d))
+		}
+	case "gemini":
+		words = []string{"--include-directories", ShellQuote(strings.Join(dirs, ","))}
+	}
+	return strings.Join(words, " ")
+}

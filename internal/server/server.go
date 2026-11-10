@@ -402,7 +402,7 @@ func (s *Server) serve(nc net.Conn) {
 
 var slowMethods = map[string]bool{
 	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true, proto.MethodProjectLog: true,
-	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true,
+	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true, proto.MethodGroupTask: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true, proto.MethodFSWrite: true, proto.MethodFSFind: true,
@@ -709,6 +709,24 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.groups.save(gp)
+
+	case proto.MethodGroupTask:
+		tp, perr := decode[proto.GroupTaskParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		res, perr := s.groups.task(tp)
+		for _, p := range res.Panes {
+			s.madeBy(c, p.ID)
+		}
+		return res, perr
+
+	case proto.MethodGroupTaskRemove:
+		ref, perr := decode[proto.GroupTaskRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.groups.removeTask(ref)
 
 	case proto.MethodGroupRemove:
 		ref, perr := decode[proto.GroupRef](msg)
