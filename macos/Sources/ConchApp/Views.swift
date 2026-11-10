@@ -325,10 +325,13 @@ final class WorkspacesHost: NSHostingView<WorkspacesControl> {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let p = convert(event.locationInWindow, from: nil)
+    /// The workspace's menu for a click at a point of the window, or nil
+    /// when no workspace is under it.
+    func workspaceMenu(at locationInWindow: CGPoint) -> NSMenu? {
+        let p = convert(locationInWindow, from: nil)
+        guard bounds.contains(p) else { return nil }
         let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
-        guard let i = WorkspaceHits.shared.index(at: point) else { return super.menu(for: event) }
+        guard let i = WorkspaceHits.shared.index(at: point) else { return nil }
         let store = rootView.store
         let m = NSMenu()
         m.addItem(ClosureItem("Rename…") { store.renameWorkspace(i) })
@@ -339,8 +342,28 @@ final class WorkspacesHost: NSHostingView<WorkspacesControl> {
         return m
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        if let m = menu(for: event) { NSMenu.popUpContextMenu(m, with: event, for: self) } else { super.rightMouseDown(with: event) }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        workspaceMenu(at: event.locationInWindow) ?? super.menu(for: event)
+    }
+
+    /// A right-click (or a control-click) on a workspace, caught before it
+    /// is dispatched: in the toolbar, the toolbar takes it first and shows
+    /// its own Icon and Text / Icon Only menu, so neither menu(for:) nor
+    /// rightMouseDown here ever saw a real one — only an event handed to
+    /// the window directly did, which is how a test said it worked.
+    private var monitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        guard window != nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] e in
+            guard let self, e.window === self.window,
+                  e.type == .rightMouseDown || e.modifierFlags.contains(.control),
+                  let m = self.workspaceMenu(at: e.locationInWindow) else { return e }
+            NSMenu.popUpContextMenu(m, with: e, for: self)
+            return nil
+        }
     }
 }
 
