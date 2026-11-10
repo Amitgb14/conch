@@ -34,7 +34,7 @@ func TestHelloPayload(t *testing.T) {
 		t.Fatalf("%d hellos", len(got))
 	}
 	r := got[0]
-	if r.Header.Get("Conch-Contract") != "1.3.0" || r.Header.Get("Authorization") != "Bearer tok" {
+	if r.Header.Get("Conch-Contract") != "1.4.0" || r.Header.Get("Authorization") != "Bearer tok" {
 		t.Fatalf("headers %v", r.Header)
 	}
 	var sent map[string]any
@@ -42,7 +42,7 @@ func TestHelloPayload(t *testing.T) {
 	if sent["conch_version"] != "0.1.12" || sent["server_key"] != "key" || sent["woke_from"] != "boot" {
 		t.Fatalf("sent %s", r.Body)
 	}
-	if caps, _ := sent["capabilities"].([]any); len(caps) != 2 || caps[1] != "cloud.contract.1.3.0" {
+	if caps, _ := sent["capabilities"].([]any); len(caps) != 2 || caps[1] != "cloud.contract.1.4.0" {
 		t.Fatalf("capabilities %v", sent["capabilities"])
 	}
 }
@@ -111,7 +111,7 @@ func TestHelloFatal(t *testing.T) {
 		want   string
 	}{
 		{409, "conflict", "different server key"},
-		{426, "contract_unsupported", "does not speak contract 1.3.0"},
+		{426, "contract_unsupported", "does not speak contract 1.4.0"},
 		{400, "invalid_request", "invalid_request"},
 		{403, "suspended", "suspended"},
 	} {

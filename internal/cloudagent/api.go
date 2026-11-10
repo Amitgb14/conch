@@ -17,7 +17,7 @@ import (
 // Contract is the conch-cloud contract version this agent speaks: sent as
 // Conch-Contract on every call, and as cloud.contract.<Contract> among the
 // capabilities in hello (PROTOCOL §1).
-const Contract = "1.3.0"
+const Contract = "1.4.0"
 
 // ContractCapability is how hello says which contract the VM implements.
 const ContractCapability = "cloud.contract." + Contract
@@ -77,6 +77,10 @@ type VMCommand struct {
 
 // CommandPauseAgents is the unattended cap's pause (PROTOCOL §5).
 const CommandPauseAgents = "pause_agents"
+
+// CommandHello (1.4.0) asks for hello again: the machine is waking, so
+// this VM resumed from a memory sleep without knowing (PROTOCOL §3.1).
+const CommandHello = "hello"
 
 type vmActivityResult struct {
 	Commands []VMCommand `json:"commands"`

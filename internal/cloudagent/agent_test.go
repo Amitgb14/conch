@@ -91,13 +91,13 @@ func isolate(t *testing.T) (home string) {
 func fast(t *testing.T) {
 	t.Helper()
 	fastHello(t)
-	saved := []*time.Duration{&heartbeat, &minReport, &busyEvery, &watchEvery, &reportRetry, &bootWait, &serverRetry}
+	saved := []*time.Duration{&heartbeat, &minReport, &busyEvery, &watchEvery, &reportRetry, &bootWait, &serverRetry, &refusedGrace, &refusedPoll}
 	was := make([]time.Duration, len(saved))
 	for i, p := range saved {
 		was[i] = *p
 	}
-	heartbeat, minReport, busyEvery, watchEvery, reportRetry, bootWait, serverRetry =
-		time.Hour, 10*time.Millisecond, 50*time.Millisecond, time.Hour, 50*time.Millisecond, 20*time.Millisecond, 50*time.Millisecond
+	heartbeat, minReport, busyEvery, watchEvery, reportRetry, bootWait, serverRetry, refusedGrace, refusedPoll =
+		time.Hour, 10*time.Millisecond, 50*time.Millisecond, time.Hour, 50*time.Millisecond, 20*time.Millisecond, 50*time.Millisecond, 5*time.Second, 20*time.Millisecond
 	t.Cleanup(func() {
 		for i, p := range saved {
 			*p = was[i]
@@ -445,11 +445,37 @@ func TestPauseAgents(t *testing.T) {
 	if !strings.Contains(r.log.String(), "paused 1 working agent(s): unattended too long") {
 		t.Fatalf("log: %s", r.log)
 	}
-	// A command of a later contract is ignored (the contract's enum has
-	// only pause_agents today, so the fake cannot send one).
+	// A command of a later contract is ignored (the control plane only
+	// sends types the caller's version defines, so the fake cannot send one).
 	r.agent.command(context.Background(), VMCommand{Type: "reboot_everything"})
 	if s := r.screen(work.ID); strings.Count(s, "1b") != 1 {
 		t.Fatalf("an unknown command did something: %s", s)
+	}
+}
+
+// TestHelloCommand: a VM resumed from a memory sleep doesn't know it slept;
+// a 1.4.0 control plane answers its activity report with hello, and it says
+// hello again, from memory.
+func TestHelloCommand(t *testing.T) {
+	r := newRig(t)
+	var told atomic.Bool
+	r.cloud.handle("POST /v1/vm/activity", func(w http.ResponseWriter, req *http.Request) {
+		cmds := []any{}
+		if req.Header.Get("Conch-Contract") == Contract && told.CompareAndSwap(false, true) {
+			cmds = append(cmds, map[string]any{"type": "hello", "reason": "The machine woke from a memory sleep."})
+		}
+		writeJSON(w, 200, map[string]any{"commands": cmds})
+	})
+	r.startServer()
+	r.run()
+	hellos := r.cloud.waitFor("POST /v1/vm/hello", 2, 10*time.Second)
+	var h VMHello
+	json.Unmarshal(hellos[1].Body, &h)
+	if h.WokeFrom != WokeMemory || hellos[1].Header.Get("Conch-Contract") != "1.4.0" {
+		t.Fatalf("second hello %s (Conch-Contract %q)", hellos[1].Body, hellos[1].Header.Get("Conch-Contract"))
+	}
+	if !slices.Contains(h.Capabilities, "cloud.contract.1.4.0") {
+		t.Fatalf("capabilities %v", h.Capabilities)
 	}
 }
 
@@ -472,6 +498,7 @@ func TestActivityTo10Server(t *testing.T) {
 // agent, with exit status 3.
 func TestRefusedTokenStops(t *testing.T) {
 	r := newRig(t)
+	refusedGrace = 300 * time.Millisecond
 	r.startServer()
 	r.run()
 	r.cloud.waitFor("POST /v1/vm/activity", 1, 10*time.Second)
@@ -485,8 +512,36 @@ func TestRefusedTokenStops(t *testing.T) {
 	}
 }
 
+// TestRefusedWhileAnInjectIsUnderWay: the control plane stores a new
+// token's hash before it writes boot.json, so a report in between is
+// refused with no newer token on the machine yet. The agent waits for it
+// rather than stopping — the unit doesn't restart exit status 3.
+func TestRefusedWhileAnInjectIsUnderWay(t *testing.T) {
+	r := newRig(t)
+	heartbeat = 50 * time.Millisecond
+	r.startServer()
+	r.run()
+	r.cloud.waitFor("POST /v1/vm/activity", 1, 10*time.Second)
+	r.cloud.setToken("ccm_second")
+	refused := len(r.cloud.requests("POST /v1/vm/activity"))
+	r.cloud.waitFor("POST /v1/vm/activity", refused+1, 10*time.Second) // refused: boot.json still has the old token
+	time.Sleep(200 * time.Millisecond)
+	r.writeBoot("ccm_second")
+	hellos := r.cloud.waitFor("POST /v1/vm/hello", 2, 10*time.Second)
+	if hellos[1].Header.Get("Authorization") != "Bearer ccm_second" {
+		t.Fatalf("second hello with %q", hellos[1].Header.Get("Authorization"))
+	}
+	select {
+	case err := <-r.done:
+		r.done <- err
+		t.Fatalf("the agent stopped: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestRefusedHelloStops(t *testing.T) {
 	r := newRig(t)
+	refusedGrace = 300 * time.Millisecond
 	r.cloud.setToken("ccm_newer")
 	r.startServer()
 	r.run()

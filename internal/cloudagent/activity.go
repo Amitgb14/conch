@@ -31,6 +31,11 @@ var (
 	watchEvery  = 5 * time.Second  // boot.json and the clock
 	sleptAfter  = 20 * time.Second // a tick this late means the machine was paused
 	reportRetry = 5 * time.Second
+	// A refused token with no newer one in boot.json yet: the control
+	// plane stores an inject's token before it writes the file, so wait
+	// this long for it, looking every refusedPoll, before stopping.
+	refusedGrace = 2 * time.Minute
+	refusedPoll  = time.Second
 )
 
 // foreground is the program in front of a pane's terminal; a variable so
@@ -188,8 +193,11 @@ func (a *Agent) reportLoop(ctx context.Context) error {
 				return nil
 			}
 			if errors.Is(err, ErrUnauthorized) {
-				if !a.newToken() {
+				switch a.awaitNewToken(ctx) {
+				case tokenNone:
 					return err
+				case tokenTaken:
+					continue // the watch loop saw it first and said hello
 				}
 				// A new inject while this process kept running: its
 				// processes are where they were.
@@ -220,6 +228,12 @@ func (a *Agent) command(ctx context.Context, c VMCommand) {
 	case CommandPauseAgents:
 		n := a.pauseAgents(ctx)
 		a.logf("cloud: paused %d working agent(s): %s", n, c.Reason)
+	case CommandHello:
+		// A memory wake: same boot, same process, nothing else says so.
+		a.logf("cloud: control plane asks for hello: %s", c.Reason)
+		if err := a.hello(ctx, WokeMemory); err != nil {
+			a.logf("cloud: hello after a memory wake: %v", err)
+		}
 	default:
 		a.logf("cloud: ignoring command %q", c.Type)
 	}
@@ -290,4 +304,40 @@ func slept(prev, now time.Time, interval time.Duration) bool {
 	wall := now.Round(0).Sub(prev.Round(0))
 	mono := now.Sub(prev)
 	return wall-interval > sleptAfter || mono-interval > sleptAfter
+}
+
+type tokenChange int
+
+const (
+	tokenNone  tokenChange = iota // none came within refusedGrace
+	tokenNew                      // this call took boot.json's new token
+	tokenTaken                    // another loop took it (and said hello)
+)
+
+// awaitNewToken is what a refused token waits for: an inject's new token in
+// boot.json, which the control plane writes after it stores the token.
+func (a *Agent) awaitNewToken(ctx context.Context) tokenChange {
+	a.mu.Lock()
+	was := a.boot.MachineToken
+	a.mu.Unlock()
+	deadline := time.Now().Add(refusedGrace)
+	for {
+		if a.newToken() {
+			return tokenNew
+		}
+		a.mu.Lock()
+		now := a.boot.MachineToken
+		a.mu.Unlock()
+		if now != was {
+			return tokenTaken
+		}
+		if time.Now().After(deadline) {
+			return tokenNone
+		}
+		select {
+		case <-ctx.Done():
+			return tokenNone
+		case <-time.After(refusedPoll):
+		}
+	}
 }
