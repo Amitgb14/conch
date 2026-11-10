@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,3 +49,6 @@ func ForegroundProcess(ptmx *os.File) (Process, error) {
 	}
 	return processInfo(pgid)
 }
+
+// errNoTerminal is a process with no controlling terminal.
+var errNoTerminal = errors.New("the process has no terminal")

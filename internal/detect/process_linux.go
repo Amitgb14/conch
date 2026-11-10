@@ -27,3 +27,23 @@ func ParentPID(pid int) (int, error) {
 	}
 	return statParent(stat)
 }
+
+// TerminalForeground is the foreground process of the terminal pid runs
+// on: what a person sees running there, which is pid itself while its
+// shell waits at a prompt. It is read without the terminal's descriptor,
+// for a process that does not hold it (conch cloud agent, beside the
+// server that does).
+func TerminalForeground(pid int) (Process, error) {
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return Process{}, err
+	}
+	pgid, err := statTPGID(stat)
+	if err != nil {
+		return Process{}, err
+	}
+	if pgid <= 0 {
+		return Process{}, errNoTerminal
+	}
+	return processInfo(pgid)
+}
