@@ -3091,3 +3091,25 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(sshCommandLine(host: "box", args: ["-o", "ProxyCommand=ssh -W %h:%p jump"]) == "ssh -o 'ProxyCommand=ssh -W %h:%p jump' box")
     #expect(sshCommandLine(host: "it's", args: []) == #"ssh 'it'\''s'"#)
 }
+
+// A workspace tab's summary: its running agents and terminals, and the
+// agents waiting for you — exited panes and other workspaces' left out.
+@Test func workspaceSummaries() {
+    var gone = PaneInfo(id: "p4", name: "old", agent: AgentStatus(name: "codex", state: .blocked))
+    gone.state = "exited"
+    let s = Snapshot(panes: [
+        PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .blocked)),
+        PaneInfo(id: "p2", name: "codex", agent: AgentStatus(name: "codex", state: .working)),
+        PaneInfo(id: "p3", name: "zsh"),
+        gone,
+    ])
+    #expect(s.summary(in: nil) == WorkspaceSummary(agents: 2, terminals: 1, waiting: 1))
+    let w2 = Workspace(id: "w2", name: "b", panes: ["local|p3"])
+    #expect(s.summary(in: w2) == WorkspaceSummary(terminals: 1))
+    #expect(Snapshot().summary(in: nil) == WorkspaceSummary())
+    #expect(WorkspaceSummary(agents: 2, terminals: 1, waiting: 1).text == "2 agents, 1 terminal · 1 waiting for you")
+    #expect(WorkspaceSummary(agents: 1).text == "1 agent")
+    #expect(WorkspaceSummary(terminals: 3).text == "3 terminals")
+    #expect(WorkspaceSummary().text == "nothing running")
+    #expect(WorkspaceSummary(agents: 1, waiting: 1) + WorkspaceSummary(terminals: 2) == WorkspaceSummary(agents: 1, terminals: 2, waiting: 1))
+}

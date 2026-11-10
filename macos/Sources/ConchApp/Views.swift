@@ -364,36 +364,15 @@ struct WorkspacesControl: View {
     var body: some View { content.environment(\.conchTheme, store.themeLook) }
 
     @ViewBuilder var content: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
-                let on = i == store.workspace
-                Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
-                    .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
-                    .lineLimit(1)
-                    .padding(.horizontal, 10).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: Theme.corner(5, meadow: 20)).fill(on ? (Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise) : .clear))
-                    .contentShape(Rectangle())
-                    .background(GeometryReader { g in
-                        Color.clear
-                            .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .named(WorkspaceHits.space)) }
-                            .onChange(of: g.frame(in: .named(WorkspaceHits.space))) { WorkspaceHits.shared.frames[i] = $0 }
-                    })
-                    .onDisappear { WorkspaceHits.shared.frames[i] = nil }
-                    .onTapGesture(count: 2) { store.renameWorkspace(i) }
-                    .onTapGesture { store.workspace = i }
-                    // A button to VoiceOver (and a script): pressed, it switches.
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { store.workspace = i }
-                    .contextMenu {
-                        Button("Rename…") { store.renameWorkspace(i) }
-                        if i > 0 { Button("Close Workspace…") { store.closeWorkspace(i) } }
-                    }
-                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click to rename or close it" : "Workspace 1 — double-click or right-click to name it")
+                WorkspaceTab(store: store, index: i, ws: ws)
             }
-            // A new workspace, shared with the TUI through ui.json.
-            Text("+").font(.ui(size: 12)).foregroundStyle(Theme.muted)
-                .padding(.horizontal, 9).padding(.vertical, 3)
+            // A new workspace, shared with the TUI through ui.json, set
+            // apart from the tabs by a line.
+            Rectangle().fill(Theme.line).frame(width: 1, height: 14).padding(.horizontal, 1)
+            Text("+").font(.ui(size: 13)).foregroundStyle(Theme.muted)
+                .frame(minWidth: 24, minHeight: 24)
                 .contentShape(Rectangle())
                 .onTapGesture { store.newWorkspace() }
                 .accessibilityAddTraits(.isButton)
@@ -401,14 +380,80 @@ struct WorkspacesControl: View {
                 .accessibilityAction { store.newWorkspace() }
                 .help("New workspace — conch's TUI has it too")
         }
-        .padding(Theme.ink ? 0 : 2)
-        .background(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
-        .overlay(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
-        .help("Workspaces, shared with conch's TUI")
+        .padding(Theme.ink ? 1 : 3)
+        .background(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
         // Every name whole: the toolbar gives the control the room it asks
         // for (WorkspacesHost), rather than squeezing a name to "…".
         .fixedSize()
         .coordinateSpace(name: WorkspaceHits.space)
+    }
+}
+
+/// One workspace's tab. It switches on the press itself: a tap gesture
+/// that also listened for a double-click held every single click back
+/// until a double-click could no longer come — a third of a second, which
+/// was the switcher's slowness. A double-click still names it, on top. The
+/// pointer over it lights it, and a dot says an agent in it waits for you.
+struct WorkspaceTab: View {
+    @ObservedObject var store: Store
+    let index: Int
+    let ws: Workspace
+    @State private var hovering = false
+    @State private var pressed = false
+
+    var body: some View {
+        let i = index
+        let on = i == store.workspace
+        let summary = store.workspaceSummary(i)
+        HStack(spacing: 5) {
+            Text("\(i + 1)").font(.ui(size: 12.5, weight: Theme.ink || on ? .bold : .semibold))
+            if !ws.name.isEmpty { Text(ws.name).font(.ui(size: 12.5, weight: Theme.ink ? .bold : .regular)) }
+        }
+        .foregroundStyle(Theme.ink && on ? Theme.window : on || hovering ? Theme.text : Theme.text2)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .frame(minWidth: 30, minHeight: 24)
+        .background(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 20)).fill(fill(on)))
+        // An agent here waits for you: said on every tab but the one on
+        // screen, whose Needs you list already says it.
+        .overlay(alignment: .topTrailing) {
+            if summary.waiting > 0 && !on {
+                Circle().fill(Theme.warn).frame(width: 6, height: 6).offset(x: -3, y: 3)
+                    .accessibilityHidden(true)
+            }
+        }
+        .scaleEffect(pressed ? 0.96 : 1)
+        .animation(.easeOut(duration: 0.08), value: pressed)
+        .animation(.easeOut(duration: 0.08), value: hovering)
+        .contentShape(Rectangle())
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .named(WorkspaceHits.space)) }
+                .onChange(of: g.frame(in: .named(WorkspaceHits.space))) { WorkspaceHits.shared.frames[i] = $0 }
+        })
+        .onDisappear { WorkspaceHits.shared.frames[i] = nil }
+        .onHover { hovering = $0 }
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard !pressed else { return }
+                pressed = true
+                if store.workspace != i { store.workspace = i }
+            }
+            .onEnded { _ in pressed = false })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { store.renameWorkspace(i) })
+        // A button to VoiceOver (and a script): pressed, it switches.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(Workspace.label(i, ws))
+        .accessibilityAction { store.workspace = i }
+        .help("Workspace \(i + 1) · \(summary.text) — " + (i > 0 ? "double-click to name it; right-click to rename or close it" : "double-click or right-click to name it"))
+    }
+
+    func fill(_ on: Bool) -> Color {
+        if on { return Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise }
+        if pressed { return Theme.raise }
+        return hovering ? Theme.raise.opacity(0.55) : .clear
     }
 }
 

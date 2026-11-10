@@ -322,6 +322,13 @@ final class Store: ObservableObject {
 
     var ws: Workspace? { workspaces.indices.contains(workspace) ? workspaces[workspace] : nil }
 
+    /// What workspace i holds that runs, across every machine, for its tab.
+    func workspaceSummary(_ i: Int) -> WorkspaceSummary {
+        guard workspaces.indices.contains(i) else { return WorkspaceSummary() }
+        let w = workspaces.count > 1 ? workspaces[i] : nil
+        return machines.reduce(WorkspaceSummary()) { sum, m in sum + (snapshots[m.id] ?? Snapshot()).summary(in: w, machine: m.id) }
+    }
+
     /// This computer's server answers: the window has something to show.
     var connected: Bool { machines.first?.online == true }
     var serverVersion: String { machines.first?.version ?? "" }
