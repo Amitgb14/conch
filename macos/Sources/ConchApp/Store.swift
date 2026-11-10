@@ -2268,6 +2268,12 @@ final class Store: ObservableObject {
     /// The agents to offer on a machine: those installed there, else the
     /// supported ones by name, so the menu is never empty while the list
     /// is still being asked for.
+    func rowButtons(for node: TreeNode) -> RowButtons? {
+        guard let m = node.machine else { return nil }
+        let online = machines.first { $0.id == m }?.online ?? false
+        return (snapshots[m] ?? Snapshot()).rowButtons(for: node, machine: m, machineOnline: online)
+    }
+
     func startable(on machine: String) -> [AgentAvailability] {
         let have = agents[machine] ?? []
         return have.isEmpty ? ["claude", "codex", "gemini", "opencode", "devin"].map { AgentAvailability(name: $0) } : have
@@ -2289,6 +2295,7 @@ final class Store: ObservableObject {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
             say("Copied \(text.count > 60 ? String(text.prefix(57)) + "…" : text)")
+        case .reveal(let path): NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()

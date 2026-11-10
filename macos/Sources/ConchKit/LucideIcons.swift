@@ -41,6 +41,9 @@ public enum LucideIcons {
         "chevron-up": ["m18 15-6-6-6 6"],
         "chevron-down": ["m6 9 6 6 6-6"],
         "x": ["M18 6 6 18", "m6 6 12 12"],
+        // A project or machine row's buttons: new, and its menu.
+        "plus": ["M5 12h14", "M12 5v14"],
+        "ellipsis": [svgCircle(12, 12, 1), svgCircle(19, 12, 1), svgCircle(5, 12, 1)],
         "pencil": ["M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4"],
         "trash-2": ["M3 6h18", "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", "M10 11v6", "M14 11v6"],
         "git-commit-horizontal": [svgCircle(12, 12, 3), svgLine(3, 12, 9, 12), svgLine(15, 12, 21, 12)],

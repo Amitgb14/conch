@@ -813,6 +813,15 @@ struct NodeView: View {
     }
     /// The keyboard's row, while the sidebar has the keyboard.
     var cursor: Bool { !store.terminalHasKeyboard && store.treeCursor == node.id }
+    /// A project's or machine's buttons, in place of its counts, while the
+    /// pointer is on it or it is the keyboard's row — never on every row at
+    /// once, so the tree stays as quiet as it was.
+    var showButtons: Bool {
+        switch node.kind {
+        case .project, .machine: return hovering || cursor
+        default: return false
+        }
+    }
 
     /// A row as the mock draws it: a fold arrow, what it is (a machine's
     /// state, an agent's colour), its name, and at the right its state or
@@ -835,7 +844,11 @@ struct NodeView: View {
                 Text(node.title).font(isBranch ? .tree(size: 12, design: .monospaced) : .tree(size: 13, weight: inverted ? .semibold : .regular))
                     .foregroundStyle(inverted ? Theme.window : solid ? Theme.selectedText : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
-                badge
+                if showButtons, let b = store.rowButtons(for: node) {
+                    RowButtonsView(store: store, node: node, buttons: b, color: solid ? Theme.selectedText : cursor ? Theme.text : Theme.text2)
+                } else {
+                    badge
+                }
             }
         }
         .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: Theme.meadow ? 28 : 26)
@@ -1039,6 +1052,66 @@ struct NodeView: View {
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
+        }
+    }
+}
+
+/// A project's or machine's buttons, as Orca's project row has them: + (a
+/// new task in a project, a project on a machine), an agent or a terminal
+/// started there, and ⋯, the row's whole menu — the one right-click opens.
+struct RowButtonsView: View {
+    @ObservedObject var store: Store
+    let node: TreeNode
+    let buttons: RowButtons
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 1) {
+            if let p = buttons.primary {
+                Button { store.perform(p.action, on: node) } label: { glyph("plus") }
+                    .buttonStyle(RowButtonStyle())
+                    .help(p.title)
+                    .accessibilityLabel(p.title)
+            }
+            if let m = buttons.agentMachine {
+                Menu {
+                    ForEach(store.startable(on: m), id: \.name) { a in
+                        Button(a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
+                    }
+                    Divider()
+                    Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
+                } label: { glyph("bot") }
+                    .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                    .help("Start an Agent")
+                    .accessibilityLabel("Start an Agent")
+            }
+            Menu { RowMenu(store: store, node: node) } label: { glyph("ellipsis") }
+                .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                .help("More")
+                .accessibilityLabel("More")
+        }
+        .fixedSize()
+    }
+
+    func glyph(_ name: String) -> some View {
+        LucideIcon(name, color: color, size: 13).frame(width: 20, height: 18).contentShape(Rectangle())
+    }
+}
+
+/// A row button's look: nothing until the pointer is on it, then a shade.
+struct RowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Shaded(pressed: configuration.isPressed) { configuration.label } }
+
+    /// A view of its own, so the pointer's being on it is state a view
+    /// holds: a style's own state is not kept between bodies.
+    struct Shaded<Label: View>: View {
+        let pressed: Bool
+        @ViewBuilder let label: Label
+        @State private var over = false
+        var body: some View {
+            label
+                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.text.opacity(pressed ? 0.16 : over ? 0.08 : 0)))
+                .onHover { over = $0 }
         }
     }
 }
