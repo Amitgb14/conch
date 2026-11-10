@@ -283,17 +283,22 @@ struct AgentReviewView: View {
             }
             .padding(.horizontal, 12).frame(height: 34)
             Rectangle().fill(Theme.line).frame(height: 1)
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(hunks.enumerated()), id: \.offset) { _, l in
-                        if let l { line(l) } else {
-                            Text("⋯").foregroundStyle(Theme.muted).frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 12).frame(height: 18).background(Theme.paneHeader)
+            // Scrolled both ways, a diff smaller than the view was put in
+            // its middle: it is held to the top left at the view's size.
+            GeometryReader { geo in
+                ScrollView([.vertical, .horizontal]) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(hunks.enumerated()), id: \.offset) { _, l in
+                            if let l { line(l) } else {
+                                Text("⋯").foregroundStyle(Theme.muted).frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 12).frame(height: 18).background(Theme.paneHeader)
+                            }
                         }
                     }
+                    .font(.system(size: 12, design: .monospaced))
+                    .padding(.vertical, 6)
+                    .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
                 }
-                .font(.system(size: 12, design: .monospaced))
-                .padding(.vertical, 6)
             }
             Rectangle().fill(Theme.line).frame(height: 1)
             HStack(spacing: 8) {
@@ -304,9 +309,11 @@ struct AgentReviewView: View {
                     .help("Write back the file as it was handed over")
                 if let p = edit.pane {
                     Button("Open \(edit.agent)'s pane") { store.open(p) }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+                        .fixedSize()
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 Text("Already on disk: undoing writes the old text back").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                    .lineLimit(1).truncationMode(.tail)
             }
             .padding(.horizontal, 12).frame(height: 40)
         }

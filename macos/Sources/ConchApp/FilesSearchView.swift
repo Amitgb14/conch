@@ -235,20 +235,51 @@ struct FilesSearchPanel: View {
         .buttonStyle(.plain).help(help).accessibilityLabel(help).accessibilityValue(on.wrappedValue ? "on" : "off")
     }
 
+    /// One row of the results, named uniquely across the whole list: a
+    /// lazy list takes rows by their identity, and lines named only by
+    /// their numbers collided between files — line 6 of one file drew
+    /// nothing, taken for line 6 of another.
+    enum ResultRow: Identifiable {
+        case heading(String)
+        case name(String)
+        case file(FSSearchFile)
+        case line(FSSearchFile, FSSearchLine)
+
+        var id: String {
+            switch self {
+            case .heading(let s): return "h:" + s
+            case .name(let p): return "n:" + p
+            case .file(let f): return "f:" + f.path
+            case .line(let f, let l): return "l:" + lineKey(f.path, l.line)
+            }
+        }
+    }
+
+    func rows(_ r: FSSearchResult) -> [ResultRow] {
+        var out: [ResultRow] = []
+        if model.q.scope != .text, let names = r.names, !names.isEmpty {
+            out.append(.heading("FILE NAMES"))
+            out += names.map { .name($0) }
+        }
+        if model.q.scope != .names, let fs = r.files, !fs.isEmpty {
+            if model.q.scope == .everything { out.append(.heading("TEXT")) }
+            for f in fs {
+                out.append(.file(f))
+                if !model.folded.contains(f.path) { out += f.lines.map { .line(f, $0) } }
+            }
+        }
+        return out
+    }
+
     func results(_ r: FSSearchResult) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if model.q.scope != .text, let names = r.names, !names.isEmpty {
-                    heading("FILE NAMES")
-                    ForEach(names, id: \.self) { p in nameRow(p) }
-                }
-                if model.q.scope != .names, let fs = r.files, !fs.isEmpty {
-                    if model.q.scope == .everything { heading("TEXT") }
-                    ForEach(fs, id: \.path) { f in
-                        fileHeader(f)
-                        if !model.folded.contains(f.path) {
-                            ForEach(f.lines, id: \.line) { l in lineRow(f, l) }
-                        }
+                ForEach(rows(r)) { row in
+                    switch row {
+                    case .heading(let s): heading(s)
+                    case .name(let p): nameRow(p)
+                    case .file(let f): fileHeader(f)
+                    case .line(let f, let l): lineRow(f, l)
                     }
                 }
             }

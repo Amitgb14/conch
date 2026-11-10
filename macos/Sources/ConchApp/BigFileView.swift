@@ -254,6 +254,8 @@ final class BigFileModel: ObservableObject {
                 edit = nil
                 files.store.say("Saved lines \(e.lines.lowerBound)–\(e.lines.upperBound) of \((path as NSString).lastPathComponent)")
                 reload()
+                // Lines put in or taken out move the matches after them.
+                if !query.isEmpty { find() }
             } catch let err as ConchError where err.code == "file_changed" {
                 files.store.say("Those lines changed on disk since you opened them: read them again to edit", .err)
             } catch {
