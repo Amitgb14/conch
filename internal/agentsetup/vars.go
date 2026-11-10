@@ -3,6 +3,7 @@ package agentsetup
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -142,4 +143,43 @@ func unwritable(agent string, s mcpServer) string {
 		return why
 	}
 	return ""
+}
+
+// LibraryVars are the variables the library's servers refer to, each
+// once, in the order first met: what an agent's environment has to hold
+// for them to work.
+func LibraryVars(lib Library) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		for _, m := range neutralRef.FindAllStringSubmatch(neutral(s), -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				out = append(out, m[1])
+			}
+		}
+	}
+	for _, s := range lib.Servers {
+		add(s.Command)
+		add(s.URL)
+		for _, a := range s.Args {
+			add(a)
+		}
+		for _, k := range stringKeys(s.Env) {
+			add(s.Env[k])
+		}
+		for _, k := range stringKeys(s.Headers) {
+			add(s.Headers[k])
+		}
+	}
+	return out
+}
+
+func stringKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

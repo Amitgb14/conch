@@ -392,3 +392,69 @@ public func splitArgs(_ s: String) -> [String] {
 public func joinArgs(_ words: [String]) -> String {
     words.map { $0.isEmpty || $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
 }
+
+// MARK: tokens kept in the Keychain (agent.library.keychain.v1)
+
+/// The variable a server's token is kept under, in the Keychain and in the
+/// environment of the agents conch starts: CONCH_MCP_<NAME>_TOKEN.
+public func tokenVariable(for server: String) -> String {
+    let name = server.uppercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "_" }.joined()
+    return "CONCH_MCP_\(name)_TOKEN"
+}
+
+/// A server and the token to keep for it: the token typed in the form, or
+/// one pasted into a header, which is taken out of the header and its place
+/// given to the variable — conch never writes a token into an agent's file.
+public struct ServerWithToken: Equatable, Sendable {
+    public var server: LibraryServer
+    /// What to keep in the Keychain under variable; nil when nothing is.
+    public var token: String?
+    public var variable: String
+}
+
+public func keepingToken(_ s: LibraryServer, token typed: String) throws -> ServerWithToken {
+    var s = s
+    let variable = tokenVariable(for: s.name)
+    var token = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    func isRef(_ v: String) -> Bool { v.range(of: #"^(?:[A-Za-z]+ )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$"#, options: .regularExpression) != nil }
+    // A token pasted where a reference goes: Authorization=Bearer abc…, or
+    // X-API-Key=abc…. One is taken; two are more than one token.
+    var headers = s.headers ?? [:]
+    let literal = headers.filter { !$0.value.trimmingCharacters(in: .whitespaces).isEmpty && !isRef($0.value.trimmingCharacters(in: .whitespaces)) }
+    if literal.count > 1 {
+        throw LibraryFormError("\(literal.keys.sorted().joined(separator: " and ")) both hold a value: put the token in the Token field, and refer to it as ${\(variable)}")
+    }
+    if let (k, v) = literal.first {
+        let parts = v.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1).map(String.init)
+        let scheme = parts.count == 2 && ["bearer", "token", "basic"].contains(parts[0].lowercased()) ? parts[0] : nil
+        let pasted = scheme == nil ? v.trimmingCharacters(in: .whitespaces) : parts[1]
+        if !token.isEmpty && token != pasted {
+            throw LibraryFormError("\(k) holds a token and the Token field another: keep one")
+        }
+        token = pasted
+        headers[k] = (scheme.map { $0 + " " } ?? "") + "${\(variable)}"
+    }
+    guard !token.isEmpty else { return ServerWithToken(server: s, token: nil, variable: variable) }
+    guard !token.contains(where: { $0 == "\"" || $0 == "\\" || $0.isNewline }) else {
+        throw LibraryFormError("the token has a quote, a backslash or a line break in it, which the Keychain is not given here")
+    }
+    let named = "${\(variable)}"
+    if s.url != nil {
+        // A URL's token goes in its Authorization header unless a header
+        // already names it.
+        if !headers.values.contains(where: { $0.contains(named) }) { headers["Authorization"] = "Bearer " + named }
+        s.headers = headers
+    } else if !(s.env ?? [:]).values.contains(where: { $0.contains(named) }) && !(s.args ?? []).contains(where: { $0.contains(named) }) {
+        throw LibraryFormError("say where the command reads the token: in Environment, e.g. API_KEY=\(named)")
+    }
+    return ServerWithToken(server: s, token: token, variable: variable)
+}
+
+extension LibraryServer {
+    /// Whether it refers to the variable conch keeps its token under.
+    public var usesKeptToken: Bool {
+        let named = "${\(tokenVariable(for: name))}"
+        return (headers ?? [:]).values.contains { $0.contains(named) } || (env ?? [:]).values.contains { $0.contains(named) }
+            || (args ?? []).contains { $0.contains(named) }
+    }
+}

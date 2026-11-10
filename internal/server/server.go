@@ -54,6 +54,8 @@ type Server struct {
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
 	groups    *groupBook
+	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
+	secrets   secretCache
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
 	reviews   *reviewBook
@@ -1461,7 +1463,8 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	id := "p" + strconv.Itoa(s.nextID)
 	s.mu.Unlock()
 
-	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, cp.Env...)
+	// The library's tokens first, so anything the caller set wins.
+	env := append(append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...), cp.Env...)
 	p, err := pane.Start(pane.Options{
 		ID: id, Name: cp.Name, Command: cp.Command, Cwd: cp.Cwd,
 		BaseEnv: adapter.SanitizeEnv(os.Environ()), Env: env,
@@ -1617,12 +1620,14 @@ func (s *Server) alive(e *entry) bool {
 // capabilities is what this server can actually do. Watching worktrees is
 // the machine's to give: without it clients must keep polling, so it is not
 // claimed.
+// A machine with no Keychain does not claim to keep tokens in one.
 func (s *Server) capabilities() []string {
-	if s.watcher != nil {
+	keychain := keychainHas()
+	if s.watcher != nil && keychain {
 		return proto.Capabilities
 	}
 	return slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool {
-		return c == proto.CapWorktreeWatch
+		return c == proto.CapWorktreeWatch && s.watcher == nil || c == proto.CapLibraryKeychain && !keychain
 	})
 }
 

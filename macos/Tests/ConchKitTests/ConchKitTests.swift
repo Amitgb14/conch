@@ -3356,3 +3356,50 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let task = s.tree(machine: "local").children!.first { $0.kind == .workspace("local") }!.children![0].children![0]
     #expect(task.kind == .groupTask(machine: "local", group: "c", branch: "b") && task.detail == "merged")
 }
+
+// A server's token is kept under CONCH_MCP_<NAME>_TOKEN; typed in the
+// Token field or pasted into a header, it leaves the server referring to
+// that variable and nothing else, and a header is never left holding it.
+@Test func tokensKeptForServers() throws {
+    #expect(tokenVariable(for: "wiki") == "CONCH_MCP_WIKI_TOKEN")
+    #expect(tokenVariable(for: "my-docs.v2") == "CONCH_MCP_MY_DOCS_V2_TOKEN")
+
+    // Typed: a URL's Authorization header is made to refer to it.
+    var url = LibraryServer(name: "wiki", url: "https://wiki.example/mcp", agents: ["claude"])
+    var k = try keepingToken(url, token: "  tok-123 \n")
+    #expect(k.token == "tok-123" && k.variable == "CONCH_MCP_WIKI_TOKEN")
+    #expect(k.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"] && k.server.usesKeptToken)
+
+    // Pasted into the header, with a scheme or without one.
+    url.headers = ["Authorization": "Bearer tok-456"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == "tok-456" && k.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"])
+    url.headers = ["X-API-Key": "tok-789"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == "tok-789" && k.server.headers == ["X-API-Key": "${CONCH_MCP_WIKI_TOKEN}"])
+
+    // A header that already names a variable is left alone, and with no
+    // token there is nothing to keep.
+    url.headers = ["Authorization": "Bearer ${OWN_TOKEN}"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == nil && k.server.headers == ["Authorization": "Bearer ${OWN_TOKEN}"] && !k.server.usesKeptToken)
+    url.headers = ["X-Key": "${CONCH_MCP_WIKI_TOKEN}"]
+    k = try keepingToken(url, token: "new")
+    #expect(k.token == "new" && k.server.headers == ["X-Key": "${CONCH_MCP_WIKI_TOKEN}"])
+
+    // Two tokens, or one pasted and another typed, or one the Keychain is
+    // not handed here, are refused.
+    url.headers = ["A": "one", "B": "two"]
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "") }
+    url.headers = ["Authorization": "Bearer one"]
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "two") }
+    url.headers = nil
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "a\"b") }
+
+    // A command has to say where it reads the token.
+    var cmd = LibraryServer(name: "jira", command: "npx", args: ["jira-mcp"], agents: ["claude"])
+    #expect(throws: LibraryFormError.self) { try keepingToken(cmd, token: "t") }
+    cmd.env = ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"]
+    k = try keepingToken(cmd, token: "t")
+    #expect(k.token == "t" && k.server.env == ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"] && k.server.usesKeptToken)
+}
