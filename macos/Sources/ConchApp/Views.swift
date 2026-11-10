@@ -306,7 +306,21 @@ struct Dot: View {
 
 /// The toolbar's view of the workspaces: a right-click on one is its menu
 /// (rename, close), as the TUI has, in place of the toolbar's own.
+///
+/// Its width follows the workspaces: one added, closed or named arrives
+/// after the toolbar has laid the control out, and a frame fixed at that
+/// first size squeezed the names into it — "1 work" became "…" beside a
+/// "2" and a "3" — so the toolbar sizes it by its intrinsic size instead.
 final class WorkspacesHost: NSHostingView<WorkspacesControl> {
+    required init(rootView: WorkspacesControl) {
+        super.init(rootView: rootView)
+        sizingOptions = .intrinsicContentSize
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         let p = convert(event.locationInWindow, from: nil)
         let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
@@ -340,7 +354,6 @@ final class ClosureItem: NSMenuItem {
 
 struct WorkspacesControl: View {
     @ObservedObject var store: Store
-    @State private var hovered: Int?
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
@@ -350,22 +363,12 @@ struct WorkspacesControl: View {
         HStack(spacing: 2) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
                 let on = i == store.workspace
-                HStack(spacing: 4) {
-                    Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
-                        .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
-                    // Closing one is a click away, as a browser's tab: ×
-                    // on the pointer's workspace, any but the first.
-                    if i > 0 && hovered == i {
-                        Text("×").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
-                            .contentShape(Rectangle())
-                            .onTapGesture { store.closeWorkspace(i) }
-                            .help("Close workspace \(i + 1)")
-                    }
-                }
+                Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
+                    .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
+                    .lineLimit(1)
                     .padding(.horizontal, 10).padding(.vertical, 3)
                     .background(RoundedRectangle(cornerRadius: Theme.corner(5, meadow: 20)).fill(on ? (Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise) : .clear))
                     .contentShape(Rectangle())
-                    .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
                     .background(GeometryReader { g in
                         Color.clear
                             .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .global) }
@@ -382,7 +385,7 @@ struct WorkspacesControl: View {
                         Button("Rename…") { store.renameWorkspace(i) }
                         if i > 0 { Button("Close Workspace…") { store.closeWorkspace(i) } }
                     }
-                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click or × to close it" : "Workspace 1 — double-click or right-click to name it")
+                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click to rename or close it" : "Workspace 1 — double-click or right-click to name it")
             }
             // A new workspace, shared with the TUI through ui.json.
             Text("+").font(.ui(size: 12)).foregroundStyle(Theme.muted)
@@ -398,6 +401,9 @@ struct WorkspacesControl: View {
         .background(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
         .overlay(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
         .help("Workspaces, shared with conch's TUI")
+        // Every name whole: the toolbar gives the control the room it asks
+        // for (WorkspacesHost), rather than squeezing a name to "…".
+        .fixedSize()
     }
 }
 
