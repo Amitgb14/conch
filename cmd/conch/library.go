@@ -16,7 +16,7 @@ import (
 )
 
 const libraryUsage = `usage: conch agent library [list]
-       conch agent library add [-to NAMES] [-env K=${V}]... [-header K=V]... [-sse] NAME (URL | -- COMMAND [ARGS...])
+       conch agent library add [-to NAMES] [-env K=${V}]... [-header K=V]... [-sse] [-plain] NAME (URL | -- COMMAND [ARGS...])
        conch agent library mcp [-to NAMES]
        conch agent library skill [-to NAMES] NAME FOLDER
        conch agent library skill [-to NAMES] [NAME] owner/repo[/path/to/skill][@ref]   (or a github.com link: downloaded on that machine)
@@ -76,6 +76,7 @@ func runLibrary(c *client.Client, w io.Writer, cmd string, args []string) error 
 		fs.SetOutput(io.Discard)
 		to := fs.String("to", "all", "the agents to give it to, comma separated, or all")
 		sse := fs.Bool("sse", false, "the server speaks SSE rather than streamable HTTP")
+		plain := fs.Bool("plain", false, "-env and -header may hold a token as it is, written into each agent's file in plain text")
 		var env, headers pairs
 		fs.Var(&env, "env", "an environment variable, K=${VAR} (repeatable)")
 		fs.Var(&headers, "header", "an HTTP header, e.g. Authorization=Bearer ${TOKEN} (repeatable)")
@@ -87,6 +88,12 @@ func runLibrary(c *client.Client, w io.Writer, cmd string, args []string) error 
 			return err
 		}
 		s := proto.LibraryServer{Name: fs.Arg(0), Env: env.m, Headers: headers.m, Agents: agentList(*to, res.Agents)}
+		if *plain {
+			if len(c.MissingCapabilities([]string{proto.CapLibraryPlain})) > 0 {
+				return errors.New("this machine's conch server is from before -plain: reload it (conch server reload)")
+			}
+			s.Plain = true
+		}
 		rest := fs.Args()[1:]
 		if len(rest) > 0 && rest[0] == "--" {
 			rest = rest[1:]
