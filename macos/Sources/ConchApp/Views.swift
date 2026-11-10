@@ -823,7 +823,7 @@ struct NodeView: View {
     /// once, so the tree stays as quiet as it was.
     var showButtons: Bool {
         switch node.kind {
-        case .project, .machine: return hovering || cursor
+        case .project, .machine, .workspace, .cli: return hovering || cursor
         default: return false
         }
     }
@@ -869,6 +869,19 @@ struct NodeView: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { activateRow() }
         .contextMenu { RowMenu(store: store, node: node) }
+        .modifier(FolderDragDrop(store: store, node: node, dragID: dragID))
+    }
+
+    /// What dragging this row carries, for a folder to take: a pane outside
+    /// every project, or a saved host. nil for a row that goes in none.
+    var dragID: String? {
+        switch node.kind {
+        case .agent(let k), .terminal(let k):
+            guard let p = store.pane(k), p.projectID == nil || store.snapshots[unkey(k).machine]?.project(p.projectID!) == nil else { return nil }
+            return k
+        case .savedHost(let h): return "host:" + h
+        default: return nil
+        }
     }
 
     /// A badge part's colour in the theme.
@@ -898,7 +911,12 @@ struct NodeView: View {
         }
     }
 
-    var isSection: Bool { if case .section = node.kind { return true }; return false }
+    var isSection: Bool {
+        switch node.kind {
+        case .section, .cliSection: return true
+        default: return false
+        }
+    }
     var isMore: Bool { if case .more = node.kind { return true }; return false }
 
     /// A section row's project, from its id ("s:machine|project:agents").
@@ -942,6 +960,10 @@ struct NodeView: View {
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
         case .savedHost: TreeIcon(name: .globe, look: store.appLook, color: Theme.muted, size: 12)
+        case .cliSection(_, let sec):
+            TreeIcon(sec == .agents ? "bot" : sec == .ssh ? "globe" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
+        case .folder:
+            TreeIcon(open ? "folder-open" : "folder", look: store.appLook, color: Theme.text2, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -969,7 +991,38 @@ struct NodeView: View {
     }
 
     /// The row's right side, as the mock has it.
+    /// Whether an ssh row's host logs in with a key (a green key) or asks
+    /// for a password each time (an amber lock) — once the app has asked it
+    /// (Store.keyLogin). Icons, so a saved host's "saved" still fits.
+    @ViewBuilder var keyMark: some View {
+        let host: String? = {
+            switch node.kind {
+            case .savedHost(let h): return h
+            case .terminal(let id): return store.pane(id)?.sshTarget
+            default: return nil
+            }
+        }()
+        if let host, let key = store.keyLogin[host] {
+            if key {
+                LucideIcon("key-round", color: solid ? Theme.selectedText : Theme.ok, size: 11)
+                    .frame(width: 11, height: 11)
+                    .help("Logs in with your ssh key")
+            } else {
+                LucideIcon("lock", color: solid ? Theme.selectedText : Theme.warn, size: 11)
+                    .frame(width: 11, height: 11)
+                    .help("Asks for a password each time: right-click → Set Up Login Without a Password…")
+            }
+        }
+    }
+
     @ViewBuilder var badge: some View {
+        HStack(spacing: 6) {
+            badgeOnly
+            keyMark
+        }
+    }
+
+    @ViewBuilder var badgeOnly: some View {
         switch node.kind {
         case .agent(let id), .terminal(let id):
             if let p = store.pane(id) {
@@ -1072,19 +1125,30 @@ struct RowButtonsView: View {
 
     var body: some View {
         HStack(spacing: 1) {
-            if let p = buttons.primary {
-                Button { store.perform(p.action, on: node) } label: { glyph("plus") }
+            if let p = buttons.primary, !p.children.isEmpty {
+                Menu { RowMenuItems(store: store, node: node, items: p.children) } label: { glyph(buttons.primaryIcon) }
+                    .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                    .help(p.title + "…")
+                    .accessibilityLabel(p.title)
+            } else if let p = buttons.primary {
+                Button { store.perform(p.action, on: node) } label: { glyph(buttons.primaryIcon) }
                     .buttonStyle(RowButtonStyle())
                     .help(p.title)
                     .accessibilityLabel(p.title)
             }
-            if let m = buttons.agentMachine {
+            if !buttons.tasks.isEmpty {
+                Menu { RowMenuItems(store: store, node: node, items: buttons.tasks) } label: { glyph("bot") }
+                    .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                    .help("New Task in a Project")
+                    .accessibilityLabel("New Task in a Project")
+            } else if let m = buttons.agentMachine {
                 Menu {
                     ForEach(store.startable(on: m), id: \.name) { a in
                         Button(a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
                     }
                     Divider()
                     Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
+                    if buttons.ssh { Button("SSH to a Host…") { store.perform(.sshToHost, on: node) } }
                 } label: { glyph("bot") }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
                     .help("Start an Agent")
@@ -1100,6 +1164,46 @@ struct RowButtonsView: View {
 
     func glyph(_ name: String) -> some View {
         LucideIcon(name, color: color, size: 13).frame(width: 20, height: 18).contentShape(Rectangle())
+    }
+}
+
+/// A tree row dragged onto a folder goes in it, and onto its section comes
+/// out of its folder (Store.drop). Only those rows take a drop, and only
+/// panes outside projects and saved hosts are dragged.
+struct FolderDragDrop: ViewModifier {
+    static let prefix = "conch-row:"
+    @ObservedObject var store: Store
+    let node: TreeNode
+    let dragID: String?
+    @State private var over = false
+
+    var target: Bool {
+        switch node.kind {
+        case .folder, .cliSection: return true
+        default: return false
+        }
+    }
+
+    func body(content: Content) -> some View {
+        Group {
+            if let id = dragID {
+                content.onDrag { NSItemProvider(object: (Self.prefix + id) as NSString) }
+            } else if target {
+                content
+                    .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(over ? Theme.accent : .clear, lineWidth: 1.5))
+                    .onDrop(of: [.text], isTargeted: $over) { items in
+                        guard let item = items.first else { return false }
+                        _ = item.loadObject(ofClass: NSString.self) { obj, _ in
+                            guard let s = obj as? String, s.hasPrefix(Self.prefix) else { return }
+                            let id = String(s.dropFirst(Self.prefix.count))
+                            DispatchQueue.main.async { _ = store.drop(id, on: node) }
+                        }
+                        return true
+                    }
+            } else {
+                content
+            }
+        }
     }
 }
 
@@ -1127,10 +1231,20 @@ struct RowMenu: View {
     @ObservedObject var store: Store
     let node: TreeNode
 
+    var body: some View { RowMenuItems(store: store, node: node, items: store.menu(for: node)) }
+}
+
+/// A menu's items, a submenu for one that has its own.
+struct RowMenuItems: View {
+    @ObservedObject var store: Store
+    let node: TreeNode
+    let items: [RowMenuItem]
+
     var body: some View {
-        let items = store.menu(for: node)
         ForEach(Array(items.enumerated()), id: \.offset) { _, it in
-            if it.action == .divider {
+            if !it.children.isEmpty {
+                Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children) }
+            } else if it.action == .divider {
                 Divider()
             } else if it.picksAgent, let m = node.machine {
                 Menu(it.title) {

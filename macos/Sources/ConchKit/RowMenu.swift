@@ -88,16 +88,49 @@ public enum RowAction: Equatable, Sendable {
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
+    /// A folder of your own made in a section of a machine's CLI, renamed,
+    /// or taken away (what is in it stays, nothing closes).
+    case newFolder(machine: String, section: FolderSection)
+    case renameFolder(machine: String, section: FolderSection, name: String)
+    case removeFolder(machine: String, section: FolderSection, name: String)
+    /// A pane or a saved host put in a folder of its section, nil for out
+    /// of every one; or in a folder made for it, its name asked for.
+    case moveToFolder(FolderItem, folder: String?)
+    case moveToNewFolder(FolderItem)
+    /// Another ssh session to the host a session is logged in to, with
+    /// the same options (the TUI's d).
+    case anotherSession(pane: String)
+    /// A saved host's name, options and folder, or a session's host saved
+    /// with them (the TUI's e).
+    case editHost(host: String, args: [String])
+    /// This computer's key put on a host so it logs in without a password,
+    /// in a terminal where ssh asks for the password the once (the TUI's K).
+    case copyKey(host: String, args: [String])
+    /// A host made one of conch's machines: conch installed there.
+    case addAsMachine(host: String)
+    /// A pane's program asked to draw its screen again (pane.redraw).
+    case redraw(pane: String)
+    /// Every project of a machine's Workspace folded.
+    case collapseProjects(machine: String)
     case divider
+}
+
+/// What goes in a folder: a pane (key(machine, id)) or a saved ssh host.
+public enum FolderItem: Equatable, Sendable {
+    case pane(String)
+    case host(String)
 }
 
 public struct RowMenuItem: Equatable, Sendable {
     public var title: String
     public var action: RowAction
+    /// A submenu's items; its own action is then never performed.
+    public var children: [RowMenuItem]
 
-    public init(_ title: String, _ action: RowAction) {
+    public init(_ title: String, _ action: RowAction, children: [RowMenuItem] = []) {
         self.title = title
         self.action = action
+        self.children = children
     }
 
     static let divider = RowMenuItem("", .divider)
@@ -132,15 +165,19 @@ extension Snapshot {
     /// what the app does itself. machineOnline false leaves out whatever
     /// would start something there.
     /// among is every machine in machines.json, for paneRef.
+    /// folders is ui.json's (loadFolders) and savedHosts this computer's,
+    /// for what goes in a folder and where it is now.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
-                     among: [MachineEntry] = []) -> [RowMenuItem] {
+                     among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = []) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
             guard let p = pane(unkey(k).id) else { return [] }
             let agent = p.agent != nil
             out = [RowMenuItem("Open", .open), RowMenuItem("Rename…", .rename(pane: k))]
-            if agent && p.running { out.append(RowMenuItem("Prompt…", .prompt(pane: k))) }
+            if agent && p.running {
+                out.append(RowMenuItem(p.agent?.state == .blocked ? "Prompt… (It Is Waiting for an Answer)" : "Prompt…", .prompt(pane: k)))
+            }
             if machineOnline {
                 out += [.divider,
                         RowMenuItem("Start an Agent Here", .startAgent(machine: machine, cwd: p.cwd, inProject: p.projectID != nil)),
@@ -157,10 +194,27 @@ extension Snapshot {
                         RowMenuItem((quiet ? "✓ " : "") + "Alert When It Goes Quiet", .monitor(pane: k, quiet: true)),
                         RowMenuItem((output ? "✓ " : "") + "Alert on Output", .monitor(pane: k, quiet: false))]
             }
-            if machine == "local", p.sshTarget != nil { out += [.divider, RowMenuItem("Save This Host", .saveHost(pane: k))] }
+            let saved = savedHosts.first { $0.host == p.sshTarget }
+            if machine == "local", let host = p.sshTarget {
+                let args = saved?.args ?? p.sshArgs
+                out += [.divider]
+                if machineOnline { out.append(RowMenuItem("Another Session to \(saved?.title ?? host)", .anotherSession(pane: k))) }
+                out += [RowMenuItem("Copy ssh Command", .copy(sshCommandLine(host: host, args: args))),
+                        RowMenuItem(saved == nil ? "Save This Host…" : "Edit Host (Name, Folder, Options)…", .editHost(host: host, args: args)),
+                        RowMenuItem("Set Up Login Without a Password…", .copyKey(host: host, args: args)),
+                        RowMenuItem("Add as a Machine (conch There Too)…", .addAsMachine(host: host))]
+            }
+            // In a folder only where folders are: outside every project.
+            if p.projectID == nil || project(p.projectID!) == nil {
+                let sec: FolderSection = agent ? .agents : p.isSSH ? .ssh : .terminals
+                let item: FolderItem = sec == .ssh && saved != nil ? .host(saved!.host) : .pane(k)
+                out += [.divider, folderMenu(item, machine: machine, section: sec, folders: folders, panes: panes)]
+            }
             // What conch's commands call it (conch read p12), which no row says.
             let ref = paneRef(machine: machine, label: label, pane: p.id, among: among)
-            out += [.divider, RowMenuItem("Copy Pane ID (\(ref))", .copy(ref)),
+            out += [.divider, RowMenuItem("Copy Pane ID (\(ref))", .copy(ref))]
+            if p.running && machineOnline { out.append(RowMenuItem("Redraw", .redraw(pane: k))) }
+            out += [
                     RowMenuItem(agent && p.running ? "Close Agent…" : "Close", .close(pane: k))]
         case .branch(let pk, let name, _):
             out = [RowMenuItem("View Changes", .changes(project: pk, branch: name))]
@@ -212,6 +266,7 @@ extension Snapshot {
                 if hasRunning(scope) { out.append(RowMenuItem("Broadcast…", .broadcast(scope))) }
                 if isMachine { out += [.divider, RowMenuItem("Add Project…", .addProject(machine: machine))] }
             }
+            if !isMachine { out += [.divider, newFolderMenu(machine)] }
             if isMachine { out += [RowMenuItem("Add Machine…", .addMachine), RowMenuItem("New Sandbox…", .newSandbox)] }
             if isMachine && machineOnline {
                 out.append(RowMenuItem("Skills & MCP Servers…", .skillsSettings(machine: machine)))
@@ -232,6 +287,7 @@ extension Snapshot {
             if hasRunning(.machine(machine)) { out.append(RowMenuItem("Broadcast…", .broadcast(.machine(machine)))) }
             if !projects.isEmpty { out.append(.divider) }
             out += projects.map { RowMenuItem("New Task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
+            if !projects.isEmpty { out += [.divider, RowMenuItem("Collapse All Projects", .collapseProjects(machine: machine))] }
         case .section(let name):
             // A project's Agents or Terminals: a message to those alone.
             guard machineOnline, name == "Agents" || name == "Terminals", node.id.hasPrefix("s:") else { return [] }
@@ -240,12 +296,79 @@ extension Snapshot {
             let scope = BroadcastScope.section(project: String(rest[..<colon]), agents: name == "Agents")
             return hasRunning(scope) ? [RowMenuItem(name == "Agents" ? "Broadcast to These Agents…" : "Broadcast to These Terminals…", .broadcast(scope))] : []
         case .savedHost(let h):
-            return [RowMenuItem("Connect", .connectHost(h)), .divider, RowMenuItem("Forget This Host", .forgetHost(h))]
+            let args = savedHosts.first { $0.host == h }?.args ?? []
+            return [RowMenuItem("Connect", .connectHost(h)),
+                    RowMenuItem("Copy ssh Command", .copy(sshCommandLine(host: h, args: args))), .divider,
+                    folderMenu(.host(h), machine: "local", section: .ssh, folders: folders, panes: panes),
+                    RowMenuItem("Edit Host (Name, Folder, Options)…", .editHost(host: h, args: args)),
+                    RowMenuItem("Set Up Login Without a Password…", .copyKey(host: h, args: args)),
+                    RowMenuItem("Add as a Machine (conch There Too)…", .addAsMachine(host: h)),
+                    .divider, RowMenuItem("Forget This Host", .forgetHost(h))]
+        case .cliSection(_, let sec):
+            var items: [RowMenuItem] = [RowMenuItem("New Folder…", .newFolder(machine: machine, section: sec))]
+            if machineOnline {
+                switch sec {
+                case .agents: items.append(RowMenuItem("Start an Agent", .startAgent(machine: machine, cwd: nil, inProject: false)))
+                case .terminals: items.append(RowMenuItem("New Terminal", .newTerminal(machine: machine, cwd: nil, inProject: false)))
+                case .ssh: if machine == "local" { items.append(RowMenuItem("SSH to a Host…", .sshToHost)) }
+                }
+            }
+            return items
+        case .folder(_, let sec, let name):
+            return [RowMenuItem("Rename Folder…", .renameFolder(machine: machine, section: sec, name: name)),
+                    RowMenuItem("New Folder…", .newFolder(machine: machine, section: sec)), .divider,
+                    RowMenuItem("Remove Folder (What's in It Stays)", .removeFolder(machine: machine, section: sec, name: name))]
         case .sessions, .files, .subagent, .more:
             return []
         }
         return out
     }
+}
+
+extension Snapshot {
+    /// Move to Folder ▸: the section's folders, the one it is in ticked,
+    /// out of them when it is in one, and a new folder for it.
+    func folderMenu(_ item: FolderItem, machine: String, section: FolderSection, folders: [String: [Folder]], panes: [PaneInfo]) -> RowMenuItem {
+        let fs = folders[folderKey(machine: machine, section: section)] ?? []
+        let now = currentFolder(item, machine: machine, section: section, folders: fs)
+        var kids = fs.map { RowMenuItem(($0.name == now ? "✓ " : "") + $0.name, .moveToFolder(item, folder: $0.name)) }
+        if !kids.isEmpty { kids.append(.divider) }
+        kids.append(RowMenuItem("New Folder…", .moveToNewFolder(item)))
+        if now != nil { kids.append(RowMenuItem("Out of Any Folder", .moveToFolder(item, folder: nil))) }
+        return RowMenuItem("Move to Folder", .divider, children: kids)
+    }
+
+    /// The folder an item is in now, as the tree places it.
+    func currentFolder(_ item: FolderItem, machine: String, section: FolderSection, folders fs: [Folder]) -> String? {
+        switch item {
+        case .host(let h): return fs.first { $0.hosts.contains(h) }?.name
+        case .pane(let k):
+            let id = unkey(k).id
+            var taken: Set<String> = []
+            let mine = panes.filter { $0.projectID == nil || project($0.projectID!) == nil }
+            for f in fs where f.claim(mine, taken: &taken).contains(where: { $0.id == id }) { return f.name }
+            return nil
+        }
+    }
+
+    /// New Folder ▸ on a CLI row: which of its sections it goes in.
+    func newFolderMenu(_ machine: String) -> RowMenuItem {
+        RowMenuItem("New Folder", .divider, children: FolderSection.allCases.map {
+            RowMenuItem("In \($0.title)…", .newFolder(machine: machine, section: $0))
+        })
+    }
+}
+
+/// A login as somebody would type it: ssh, its options, then the host —
+/// each word quoted for a shell where it needs to be.
+public func sshCommandLine(host: String, args: [String]) -> String {
+    (["ssh"] + args + [host]).map(shellQuote).joined(separator: " ")
+}
+
+func shellQuote(_ w: String) -> String {
+    let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@%+=:,./-_")
+    if !w.isEmpty, w.unicodeScalars.allSatisfy(safe.contains) { return w }
+    return "'" + w.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 /// The buttons a project or machine row shows on the pointer, as Orca's
@@ -260,12 +383,24 @@ public struct RowButtons: Equatable, Sendable {
     public var agentMachine: String?
     public var agentCwd: String?
     public var agentInProject: Bool
+    /// The first button's icon: + for most, folder-plus on CLI, where it
+    /// is a menu of the sections to make a folder in (primary's children).
+    public var primaryIcon: String
+    /// What the bot button lists instead of agents: Workspace's new task
+    /// in each of its projects, a task needing a project to be in.
+    public var tasks: [RowMenuItem]
+    /// Whether the bot button also offers SSH to a Host… (this CLI).
+    public var ssh: Bool
 
-    public init(primary: RowMenuItem? = nil, agentMachine: String? = nil, agentCwd: String? = nil, agentInProject: Bool = false) {
+    public init(primary: RowMenuItem? = nil, agentMachine: String? = nil, agentCwd: String? = nil, agentInProject: Bool = false,
+                primaryIcon: String = "plus", tasks: [RowMenuItem] = [], ssh: Bool = false) {
         self.primary = primary
         self.agentMachine = agentMachine
         self.agentCwd = agentCwd
         self.agentInProject = agentInProject
+        self.primaryIcon = primaryIcon
+        self.tasks = tasks
+        self.ssh = ssh
     }
 
     /// Starting the agent named, or a terminal for nil, where it says.
@@ -277,9 +412,10 @@ public struct RowButtons: Equatable, Sendable {
 }
 
 extension Snapshot {
-    /// A row's buttons: a project's and a machine's only. Offline nothing
-    /// is started, so a machine shows only its menu (reconnect, upgrade)
-    /// and a project none at all.
+    /// A row's buttons: a project's, a machine's, Workspace's and CLI's.
+    /// Offline nothing is started, so a machine shows only its menu
+    /// (reconnect, upgrade), CLI its folders and menu, and a project and
+    /// Workspace none at all.
     public func rowButtons(for node: TreeNode, machine: String, machineOnline: Bool = true) -> RowButtons? {
         switch node.kind {
         case .project(let pk):
@@ -289,6 +425,14 @@ extension Snapshot {
         case .machine:
             guard machineOnline else { return RowButtons() }
             return RowButtons(primary: RowMenuItem("Add Project…", .addProject(machine: machine)), agentMachine: machine)
+        case .workspace:
+            guard machineOnline else { return nil }
+            return RowButtons(primary: RowMenuItem("Add Project…", .addProject(machine: machine)),
+                              tasks: projects.map { RowMenuItem("New Task in \($0.name)…", .newTask(project: key(machine, $0.id))) })
+        case .cli:
+            // Folders are ui.json's, so they are made with the machine away.
+            return RowButtons(primary: newFolderMenu(machine), agentMachine: machineOnline ? machine : nil,
+                              primaryIcon: "folder-plus", ssh: machineOnline && machine == "local")
         default:
             return nil
         }
@@ -304,6 +448,7 @@ extension TreeNode {
         case .savedHost: return "local"
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
+        case .cliSection(let m, _), .folder(let m, _, _): return m
         }
     }
 }

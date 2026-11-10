@@ -93,6 +93,12 @@ Usage:
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID
+  conch ssh -copy-key TARGET [SSH OPTION...]
+                                a terminal that puts this computer's key on the host, asking
+                                for its password there once, so later logins need none
+  conch ssh -check-key TARGET [SSH OPTION...]
+                                whether the host takes the key: prints key, password or
+                                unreachable (a batch-mode login, which never asks)
   conch agent explain ID        show how a pane's agent state was decided
   conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
   conch agent answer [-question QID] ID CHOICE

@@ -87,7 +87,8 @@ func fixture() -> Snapshot {
     #expect(api.children?[1].children?.map(\.title) == ["main", "feat"])
     #expect(api.children?[1].children?.last?.kind == .branch(project: "local|r1", name: "feat", checkedOut: true))
     #expect(api.children?[1].children?.last?.badge == "↑2")
-    #expect(top[1].children?.map(\.title) == ["bash"])
+    #expect(top[1].children?.map(\.title) == ["Terminals"])
+    #expect(top[1].children?[0].children?.map(\.title) == ["bash"])
 }
 
 func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.children?.first }
@@ -231,7 +232,8 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let review = s.tree(in: ws[1]).children ?? []
     #expect(review.map(\.title) == ["Workspace", "CLI"])
     #expect(projects(s.tree(in: ws[1])).map(\.title) == ["api"])
-    #expect(review[1].children?.map(\.title) == ["bash"])
+    #expect(review[1].children?.map(\.title) == ["Terminals"])
+    #expect(review[1].children?[0].children?.map(\.title) == ["bash"])
     #expect((s.tree(in: ws[2]).children ?? []).isEmpty)
     // A project of another machine is kept as the TUI writes it.
     #expect(ws[1].shows(ProjectInfo(id: "r9", name: "x", path: "/"), machine: "busybox"))
@@ -640,13 +642,13 @@ final class FakeServer: @unchecked Sendable {
     // An agent: open, rename, prompt, start beside it, its branch, close.
     let agent = api.children![0].children![0]
     let am = s.menu(for: agent, machine: "box")
-    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an Agent Here", "New Terminal Here", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Close Agent…"])
+    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an Agent Here", "New Terminal Here", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Redraw", "Close Agent…"])
     #expect(am[4].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[4].picksAgent)
     #expect(am[6].action == .changes(project: "box|r1", branch: "feat"))
     #expect(am.last?.action == .close(pane: "box|p1"))
     // A terminal: no prompt, a plain Close; one in no project starts things outside any.
     let cli = t.children!.first { $0.kind == .cli("box") }!
-    let bm = s.menu(for: cli.children![0], machine: "box")
+    let bm = s.menu(for: cli.children![0].children![0], machine: "box") // CLI → Terminals → bash
     #expect(!titles(bm).contains("Prompt…") && bm.last?.title == "Close")
     #expect(bm.first { $0.picksAgent }?.action == .startAgent(machine: "box", cwd: nil, inProject: false))
     // An exited agent is not prompted, and closes without asking.
@@ -759,7 +761,6 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.rowButtons(for: api, machine: "box", machineOnline: false) == nil)
     // Nothing on other rows, nor on a project gone from the snapshot.
     #expect(s.rowButtons(for: api.children![0], machine: "box") == nil)
-    #expect(s.rowButtons(for: t.children!.first { $0.kind == .cli("box") }!, machine: "box") == nil)
     #expect(s.rowButtons(for: TreeNode(id: "x", kind: .project("box|r9"), title: "x"), machine: "box") == nil)
     // Reveal in Finder only for this Mac's folders.
     #expect(!s.menu(for: api, machine: "box").contains { if case .reveal = $0.action { return true }; return false })
@@ -1112,7 +1113,7 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let w = s.tree(machine: "box").children![0]
     #expect(w.kind == .workspace("box") && w.machine == "box")
-    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .broadcast(.machine("box")), .divider, .newTask(project: "box|r1")])
+    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .broadcast(.machine("box")), .divider, .newTask(project: "box|r1"), .divider, .collapseProjects(machine: "box")])
     #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
     #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
@@ -1153,7 +1154,8 @@ final class FakeServer: @unchecked Sendable {
 // to something to draw; an unknown one draws as the cog.
 @Test func lucideIconsRead() {
     let names = ["folder", "folder-open", "git-branch", "terminal", "square-terminal", "history", "laptop", "server", "cloud", "globe", "layers",
-                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings"]
+                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings",
+                 "plus", "ellipsis", "folder-plus", "key-round"]
     for n in names {
         #expect(LucideIcons.all[n] != nil, "\(n)")
         let ops = LucideIcons.ops(n)
@@ -2493,18 +2495,42 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 
     let s = Snapshot(panes: [ssh])
     let cli = s.tree(machine: "local", savedHosts: hosts).children?.first { $0.kind == .cli("local") }
-    #expect(cli?.children?.last?.kind == .savedHost("dev@10.0.0.9") && cli?.children?.last?.badge == "saved")
+    // Both under CLI → SSH: the session, then the host it is not open to.
+    #expect(cli?.children?.map(\.kind) == [.cliSection(machine: "local", section: .ssh)])
+    let sshRows = cli?.children?.first?.children ?? []
+    #expect(sshRows.last?.kind == .savedHost("dev@10.0.0.9") && sshRows.last?.badge == "saved")
     #expect(cli?.badge == "2") // the session and the saved host it lists
-    #expect(!(cli?.children ?? []).contains { $0.kind == .savedHost("busybox") }) // a session is open to it
+    #expect(!sshRows.contains { $0.kind == .savedHost("busybox") }) // a session is open to it
     // Only this computer lists them; with none and no terminals, no CLI.
     #expect(Snapshot().tree(machine: "box", savedHosts: hosts).children?.contains { $0.kind == .cli("box") } != true)
     #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.kind == .cli("local"))
     #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.badge == "2") // never 0 beside what it lists
     let row = TreeNode(id: "host:dev@10.0.0.9", kind: .savedHost("dev@10.0.0.9"), title: "dev")
-    #expect(s.menu(for: row, machine: "local").map(\.action) == [.connectHost("dev@10.0.0.9"), .divider, .forgetHost("dev@10.0.0.9")])
+    let hm = s.menu(for: row, machine: "local", savedHosts: hosts)
+    #expect(hm.map(\.title) == ["Connect", "Copy ssh Command", "", "Move to Folder", "Edit Host (Name, Folder, Options)…",
+                                "Set Up Login Without a Password…", "Add as a Machine (conch There Too)…", "", "Forget This Host"])
+    #expect(hm[1].action == .copy("ssh dev@10.0.0.9") && hm.last?.action == .forgetHost("dev@10.0.0.9"))
+    #expect(hm[3].children.map(\.action) == [.moveToNewFolder(.host("dev@10.0.0.9"))]) // no folders yet
     #expect(row.machine == "local")
     let sessionRow = TreeNode(id: "pane:local|p7", kind: .terminal("local|p7"), title: "ssh")
-    #expect(s.menu(for: sessionRow, machine: "local").contains { $0.action == .saveHost(pane: "local|p7") })
+    // A session to a host not saved offers to save it, with what it was
+    // started with; one to a saved host edits that host.
+    let sm = s.menu(for: sessionRow, machine: "local")
+    #expect(sm.contains { $0.action == .editHost(host: "busybox", args: ["-p", "2222"]) && $0.title == "Save This Host…" })
+    #expect(sm.contains { $0.action == .anotherSession(pane: "local|p7") })
+    #expect(sm.contains { $0.action == .copyKey(host: "busybox", args: ["-p", "2222"]) })
+    #expect(sm.contains { $0.action == .copy("ssh -p 2222 busybox") })
+    let smMove: RowAction? = sm.first { $0.title == "Move to Folder" }?.children.last?.action
+    #expect(smMove == .moveToNewFolder(.pane("local|p7")))
+    let savedMenu = s.menu(for: sessionRow, machine: "local", savedHosts: hosts)
+    #expect(savedMenu.contains { $0.title == "Edit Host (Name, Folder, Options)…" && $0.action == .editHost(host: "busybox", args: ["-p", "2222"]) })
+    #expect(savedMenu.contains { $0.title == "Another Session to Busybox" })
+    // In a folder as its host: the host is what moves.
+    let savedMove: RowAction? = savedMenu.first { $0.title == "Move to Folder" }?.children.last?.action
+    #expect(savedMove == .moveToNewFolder(.host("busybox")))
+    // Offline, nothing new is started there.
+    let offline = s.menu(for: sessionRow, machine: "local", machineOnline: false).map(\.action)
+    #expect(!offline.contains(.anotherSession(pane: "local|p7")))
 }
 
 // A sandbox's menu: start one not running, stop one that is, its cost and
@@ -2843,4 +2869,225 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(!String(decoding: try JSONEncoder().encode(back.skills.first { $0.name == "mine" }!), as: UTF8.self).contains("source"))
     let several = try JSONDecoder().decode(LibraryFetchResult.self, from: Data(#"{"source":"acme/many","found":["acme/many/skills/pdf","acme/many/skills/xlsx"]}"#.utf8))
     #expect(several.found?.count == 2 && several.path == nil)
+}
+
+// MARK: - CLI folders
+
+/// A pane started by `conch ssh host`, as the server lists one.
+func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
+    var p = PaneInfo(id: id, name: host)
+    p.command = ["ssh"] + args + ["--", host]
+    return p
+}
+
+// ui.json's folders as the TUI writes them: by section key, in order,
+// members by id and name or by host; nameless folders and odd shapes
+// dropped rather than failing the rest.
+@Test func foldersLoad() {
+    let ui = #"{"folders":{"/3":[{"name":"research","members":[{"id":"p1","name":"docs"}]},{"name":""}],"/11":[{"name":"prod","members":[{"host":"db-1"}]}],"busybox~/4":[{"name":"logs"}],"bad":7}}"#
+    let fs = loadFolders(uiJSON: Data(ui.utf8))
+    #expect(fs["/3"] == [Folder(name: "research", members: [FolderMember(name: "docs", id: "p1")])])
+    #expect(fs["/11"]?.first?.hosts == ["db-1"])
+    #expect(fs["busybox~/4"] == [Folder(name: "logs")])
+    #expect(fs["bad"] == nil)
+    #expect(loadFolders(uiJSON: nil).isEmpty && loadFolders(uiJSON: Data("[]".utf8)).isEmpty)
+    #expect(folderKey(machine: "local", section: .ssh) == "/11" && folderKey(machine: "busybox", section: .agents) == "busybox~/3")
+    #expect(folderFold("/11", "prod") == "folder:/11/prod")
+}
+
+// A folder holds a pane by id, only while the name written down agrees
+// (an id handed out again to another pane is not it), and a pane is in one
+// folder: the first that claims it.
+@Test func folderClaims() {
+    let a = PaneInfo(id: "p1", name: "zsh"), b = PaneInfo(id: "p2", name: "zsh"), c = PaneInfo(id: "p3", name: "vim")
+    let f = Folder(name: "f", members: [FolderMember(name: "zsh", id: "p2"), FolderMember(name: "other", id: "p3"), FolderMember(id: "p9")])
+    var taken: Set<String> = []
+    #expect(f.claim([a, b, c], taken: &taken).map(\.id) == ["p2"])
+    #expect(Folder(name: "g", members: [FolderMember(id: "p2"), FolderMember(id: "p1")]).claim([a, b], taken: &taken).map(\.id) == ["p1"])
+    #expect(Folder(name: "e").claim([a], taken: &taken).isEmpty)
+}
+
+// Making, renaming and removing folders, and moving things in and out,
+// leave the rest of ui.json alone; a bad name or a clash is refused, and a
+// file that is not conch's is never written over.
+@Test func folderEdits() throws {
+    let ui = #"{"expanded":{"x":true},"spaces":[{"id":"w2","folders":["/3\nold"]}],"first_space":{"name":"Home"}}"#
+    var d = try FolderEdit.adding(" eng ", key: "/3", workspace: "w2", in: Data(ui.utf8))
+    #expect(loadFolders(uiJSON: d)["/3"]?.map(\.name) == ["eng"])
+    #expect(Workspace.load(uiJSON: d)[1].folders == ["/3\nold", "/3\neng"])
+    #expect(loadFolds(uiJSON: d) == ["x": true])
+    #expect(throws: ConchError.self) { try FolderEdit.adding("eng", key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding("", key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding("a\u{7}b", key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding(String(repeating: "x", count: 65), key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding("x", key: "/3", workspace: "first", in: Data("[1]".utf8)) }
+    // Made in the first workspace, it is kept in first_space, beside its name.
+    d = try FolderEdit.adding("ops", key: "/4", workspace: "first", in: d)
+    #expect(Workspace.load(uiJSON: d)[0].folders == ["/4\nops"] && Workspace.load(uiJSON: d)[0].name == "Home")
+    #expect(Workspace.load(uiJSON: d)[0].claimedFolders == ["/3\nold", "/3\neng"])
+
+    // In and out: one of two panes called zsh moves, the other stays.
+    let a = PaneInfo(id: "p1", name: "zsh"), b = PaneInfo(id: "p2", name: "zsh")
+    d = try FolderEdit.moving(a, to: "eng", key: "/3", panes: [a, b], workspace: "w2", in: d)
+    d = try FolderEdit.moving(b, to: "eng", key: "/3", panes: [a, b], workspace: "w2", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.first?.members == [FolderMember(name: "zsh", id: "p1"), FolderMember(name: "zsh", id: "p2")])
+    d = try FolderEdit.moving(b, to: nil, key: "/3", panes: [a, b], workspace: "w2", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.first?.members == [FolderMember(name: "zsh", id: "p1")])
+    // To a folder not there yet: made on the way, in that workspace.
+    d = try FolderEdit.moving(a, to: "new", key: "/3", panes: [a, b], workspace: "w2", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.map(\.name) == ["eng", "new"])
+    #expect(loadFolders(uiJSON: d)["/3"]?.first?.members.isEmpty == true) // moved, not copied
+    #expect(Workspace.load(uiJSON: d)[1].folders.contains("/3\nnew"))
+
+    // Renamed: members and every workspace's list follow.
+    d = try FolderEdit.renaming("new", to: "build", key: "/3", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.last == Folder(name: "build", members: [FolderMember(name: "zsh", id: "p1")]))
+    #expect(Workspace.load(uiJSON: d)[1].folders.contains("/3\nbuild") && !Workspace.load(uiJSON: d)[1].folders.contains("/3\nnew"))
+    #expect(throws: ConchError.self) { try FolderEdit.renaming("build", to: "eng", key: "/3", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.renaming("gone", to: "x", key: "/3", in: d) }
+    #expect(try FolderEdit.renaming("build", to: "build", key: "/3", in: d) == d)
+
+    // Removed: gone from the section and from every workspace; the
+    // section's key goes with its last folder.
+    d = try FolderEdit.removing("build", key: "/3", in: d)
+    d = try FolderEdit.removing("eng", key: "/3", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"] == nil && loadFolders(uiJSON: d)["/4"]?.map(\.name) == ["ops"])
+    #expect(Workspace.load(uiJSON: d)[1].folders == ["/3\nold"])
+    #expect(try FolderEdit.removing("none", key: "/9", in: d) == d)
+}
+
+// A saved host goes in an SSH folder as a host, and any session to it held
+// in a folder as a pane comes out of there, since a host's sessions follow it.
+@Test func folderHosts() throws {
+    let s1 = sshPane("p5", "db-1")
+    var d = try FolderEdit.adding("staging", key: "/11", workspace: "first", in: nil)
+    d = try FolderEdit.moving(s1, to: "staging", key: "/11", panes: [s1], workspace: "first", in: d)
+    d = try FolderEdit.movingHost("db-1", to: "prod", key: "/11", sessions: [s1], workspace: "first", in: d)
+    let fs = loadFolders(uiJSON: d)["/11"] ?? []
+    #expect(fs.map(\.name) == ["staging", "prod"])
+    #expect(fs[0].members.isEmpty && fs[1].members == [FolderMember(host: "db-1")])
+    d = try FolderEdit.movingHost("db-1", to: "staging", key: "/11", sessions: [s1], workspace: "first", in: d)
+    #expect(loadFolders(uiJSON: d)["/11"]?.map(\.hosts) == [["db-1"], []])
+    d = try FolderEdit.movingHost("db-1", to: nil, key: "/11", sessions: [s1], workspace: "first", in: d)
+    #expect(loadFolders(uiJSON: d)["/11"]?.allSatisfy { $0.hosts.isEmpty } == true)
+}
+
+// The CLI as the TUI lists it: Agents, Terminals, SSH, each with its
+// folders first (folded until opened) and then what is in none; a saved
+// host's sessions in its folder and the host itself while none is open;
+// an empty folder still shown, a section with nothing at all left out.
+@Test func cliSectionsAndFolders() {
+    var agent = PaneInfo(id: "p1", name: "docs", agent: AgentStatus(name: "claude", state: .done))
+    agent.customName = true
+    let codex = PaneInfo(id: "p2", name: "scratch", agent: AgentStatus(name: "codex", state: .working))
+    let zsh = PaneInfo(id: "p3", name: "zsh")
+    let api = sshPane("p4", "api-1"), other = sshPane("p6", "loose")
+    let s = Snapshot(panes: [agent, codex, zsh, api, other])
+    let hosts = [SavedHost(host: "api-1"), SavedHost(host: "db-1", name: "DB"), SavedHost(host: "free")]
+    let folders: [String: [Folder]] = [
+        "/3": [Folder(name: "research", members: [FolderMember(name: "docs", id: "p1")])],
+        "/11": [Folder(name: "prod", members: [FolderMember(host: "api-1"), FolderMember(host: "db-1"), FolderMember(host: "never-saved")]),
+                Folder(name: "empty")],
+    ]
+    let cli = s.tree(machine: "local", savedHosts: hosts, folders: folders).children!.first { $0.kind == .cli("local") }!
+    #expect(cli.children!.map(\.title) == ["Agents", "Terminals", "SSH"])
+    #expect(cli.children!.map(\.fold) == ["m:local/agents", "m:local/terminals", "m:local/ssh"])
+    let agents = cli.children![0].children!
+    #expect(agents.map(\.title) == ["research", "scratch"])
+    #expect(agents[0].kind == .folder(machine: "local", section: .agents, name: "research"))
+    #expect(agents[0].children!.map(\.id) == ["pane:local|p1"] && agents[0].badge == "1")
+    #expect(agents[0].fold == "folder:/3/research" && agents[0].foldDefault == false)
+    #expect(cli.children![1].children!.map(\.title) == ["zsh"])
+    let ssh = cli.children![2].children!
+    #expect(ssh.map(\.title) == ["prod", "empty", "loose", "free"])
+    #expect(ssh[0].children!.map(\.id) == ["pane:local|p4", "host:db-1"] && ssh[0].badge == "2")
+    #expect(ssh[1].children!.isEmpty && ssh[1].badge == "")
+    #expect(cli.children![2].badge == "4") // two sessions, two idle hosts
+    // Nothing but a folder: the section is there for it, and the CLI too.
+    let bare = Snapshot().tree(machine: "local", folders: ["/4": [Folder(name: "ops")]]).children!
+    #expect(bare.first?.children?.map(\.title) == ["Terminals"])
+    #expect(bare.first?.children?.first?.children?.map(\.title) == ["ops"])
+    #expect(bare.first?.children?.first?.badge == "") // nothing in it yet: no 0
+    // Another machine's folders are its own.
+    #expect(Snapshot(panes: [zsh]).tree(machine: "box", folders: folders).children!.first!.children!.first!.children!.map(\.title) == ["zsh"])
+    #expect(cli.children![2].machine == "local" && ssh[0].machine == "local")
+}
+
+// A workspace shows the folders made in it; the first, those no other
+// made; any workspace, one holding a pane it shows or a saved host.
+@Test func foldersInWorkspaces() {
+    let zsh = PaneInfo(id: "p3", name: "zsh")
+    var w2 = Workspace(id: "w2", name: "b", panes: ["local|p3"])
+    w2.folders = ["/4\nmine"]
+    var first = Workspace(name: "", first: true)
+    first.claimedFolders = ["/4\nmine"]
+    let mine = Folder(name: "mine"), loose = Folder(name: "loose")
+    let holding = Folder(name: "holding", members: [FolderMember(name: "zsh", id: "p3")])
+    let hosting = Folder(name: "hosting", members: [FolderMember(host: "db")])
+    #expect(w2.shows(folder: mine, key: "/4", panes: [zsh]) && !w2.shows(folder: loose, key: "/4", panes: []))
+    #expect(w2.shows(folder: holding, key: "/4", panes: [zsh]) && w2.shows(folder: hosting, key: "/11", panes: []))
+    #expect(!first.shows(folder: mine, key: "/4", panes: []) && first.shows(folder: loose, key: "/4", panes: []))
+}
+
+// Move to Folder ticks where it is now and offers out of it; the CLI's
+// sections and folders have menus of their own.
+@Test func folderMenus() {
+    let zsh = PaneInfo(id: "p3", name: "zsh")
+    let s = Snapshot(panes: [zsh])
+    let folders: [String: [Folder]] = ["/4": [Folder(name: "a"), Folder(name: "b", members: [FolderMember(name: "zsh", id: "p3")])]]
+    let row = TreeNode(id: "pane:local|p3", kind: .terminal("local|p3"), title: "zsh")
+    let move = s.menu(for: row, machine: "local", folders: folders).first { $0.title == "Move to Folder" }!
+    #expect(move.children.map(\.title) == ["a", "✓ b", "", "New Folder…", "Out of Any Folder"])
+    #expect(move.children[0].action == .moveToFolder(.pane("local|p3"), folder: "a"))
+    #expect(move.children.last?.action == .moveToFolder(.pane("local|p3"), folder: nil))
+    // A pane in a project has no folder to go in.
+    var inProject = zsh
+    inProject.projectID = "r1"
+    let ps = Snapshot(panes: [inProject], projects: [ProjectInfo(id: "r1", name: "api", path: "/src/api")])
+    #expect(!ps.menu(for: row, machine: "local", folders: folders).contains { $0.title == "Move to Folder" })
+
+    let sec = TreeNode(id: "cs:local:11", kind: .cliSection(machine: "local", section: .ssh), title: "SSH")
+    #expect(s.menu(for: sec, machine: "local").map(\.action) == [.newFolder(machine: "local", section: .ssh), .sshToHost])
+    #expect(s.menu(for: sec, machine: "local", machineOnline: false).map(\.action) == [.newFolder(machine: "local", section: .ssh)])
+    let agents = TreeNode(id: "cs:box:3", kind: .cliSection(machine: "box", section: .agents), title: "Agents")
+    #expect(s.menu(for: agents, machine: "box").last?.action == .startAgent(machine: "box", cwd: nil, inProject: false))
+    let f = TreeNode(id: "folder:local:4:b", kind: .folder(machine: "local", section: .terminals, name: "b"), title: "b")
+    #expect(s.menu(for: f, machine: "local").map(\.action) == [.renameFolder(machine: "local", section: .terminals, name: "b"),
+                                                               .newFolder(machine: "local", section: .terminals), .divider,
+                                                               .removeFolder(machine: "local", section: .terminals, name: "b")])
+    #expect(f.machine == "local" && agents.machine == "box")
+    // CLI's own menu: a folder in any of its sections.
+    let cli = TreeNode(id: "cli:local", kind: .cli("local"), title: "CLI")
+    let nf = s.menu(for: cli, machine: "local").last!
+    #expect(nf.children.map(\.action) == FolderSection.allCases.map { .newFolder(machine: "local", section: $0) })
+}
+
+// Workspace's buttons: Add Project…, and a new task in each project; CLI's:
+// a folder menu, agents with a terminal and (here) ssh. Offline, Workspace
+// has none and CLI only its folders.
+@Test func workspaceAndCLIButtons() {
+    let s = Snapshot(panes: [PaneInfo(id: "p3", name: "zsh")], projects: [ProjectInfo(id: "r1", name: "api", path: "/src/api")])
+    let ws = TreeNode(id: "ws:local", kind: .workspace("local"), title: "Workspace")
+    let wb = s.rowButtons(for: ws, machine: "local")!
+    #expect(wb.primary?.action == .addProject(machine: "local") && wb.primaryIcon == "plus")
+    #expect(wb.tasks == [RowMenuItem("New Task in api…", .newTask(project: "local|r1"))])
+    #expect(s.rowButtons(for: ws, machine: "local", machineOnline: false) == nil)
+    let cli = TreeNode(id: "cli:local", kind: .cli("local"), title: "CLI")
+    let cb = s.rowButtons(for: cli, machine: "local")!
+    #expect(cb.primaryIcon == "folder-plus" && cb.primary?.children.count == 3 && cb.ssh && cb.agentMachine == "local")
+    #expect(cb.start(nil) == .newTerminal(machine: "local", cwd: nil, inProject: false))
+    #expect(s.rowButtons(for: TreeNode(id: "cli:box", kind: .cli("box"), title: "CLI"), machine: "box")?.ssh == false)
+    let off = s.rowButtons(for: cli, machine: "local", machineOnline: false)!
+    #expect(off.agentMachine == nil && !off.ssh && off.primary != nil)
+}
+
+// A saved host edited keeps its place in the list; the ssh command copied
+// is quoted for a shell where a word needs it.
+@Test func hostEditsAndCommands() throws {
+    let ui = #"{"saved_ssh":["a","b","c"]}"#
+    let d = try savingHost(SavedHost(host: "b", name: "Bee", args: ["-p", "22"]), in: Data(ui.utf8))
+    #expect(loadSavedHosts(uiJSON: d).map(\.host) == ["a", "b", "c"] && loadSavedHosts(uiJSON: d)[1].name == "Bee")
+    #expect(sshCommandLine(host: "me@box", args: ["-p", "2222"]) == "ssh -p 2222 me@box")
+    #expect(sshCommandLine(host: "box", args: ["-o", "ProxyCommand=ssh -W %h:%p jump"]) == "ssh -o 'ProxyCommand=ssh -W %h:%p jump' box")
+    #expect(sshCommandLine(host: "it's", args: []) == #"ssh 'it'\''s'"#)
 }

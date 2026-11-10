@@ -33,8 +33,9 @@ public func loadSavedHosts(uiJSON data: Data?) -> [SavedHost] {
     return out
 }
 
-/// ui.json with a host saved (its options with it) or, save false,
-/// forgotten — the rest of the file as it was.
+/// ui.json with a host saved (its name and options with it), in its place
+/// when it was saved already, or, save false, forgotten — the rest of the
+/// file as it was.
 public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws -> Data {
     var ui: [String: Any] = [:]
     if let data, !data.isEmpty {
@@ -45,10 +46,12 @@ public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws
     }
     var saved = (ui["saved_ssh"] as? [String]) ?? []
     var info = ui["ssh_hosts"] as? [String: Any] ?? [:]
+    // One saved already keeps its place in the list.
+    let at = saved.firstIndex(of: h.host)
     saved.removeAll { $0 == h.host }
     info.removeValue(forKey: h.host)
     if save {
-        saved.append(h.host)
+        saved.insert(h.host, at: min(at ?? saved.count, saved.count))
         var i: [String: Any] = [:]
         if let n = h.name, !n.isEmpty { i["name"] = n }
         if !h.args.isEmpty { i["args"] = h.args }

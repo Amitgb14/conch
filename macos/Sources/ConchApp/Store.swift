@@ -81,6 +81,12 @@ final class Store: ObservableObject {
     /// The TUI's folds (ui.json), and the ones chosen here, which are kept
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
+    /// The CLI's folders (ui.json's, Folders.swift), by section.
+    @Published var folders: [String: [Folder]] = [:]
+    /// Whether each ssh host logs in with this computer's key, as far as
+    /// the app has asked (checkKeys); and the hosts it has asked.
+    @Published var keyLogin: [String: Bool] = [:]
+    var keyAsked: Set<String> = []
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
     @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
     /// Plan limit alerts already raised (limitCrossings), kept with the
@@ -420,7 +426,7 @@ final class Store: ObservableObject {
     var tree: [TreeNode] {
         machines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
-                                                            savedHosts: savedHosts)
+                                                            savedHosts: savedHosts, folders: folders)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -1595,6 +1601,8 @@ final class Store: ObservableObject {
                 for (m, s) in self.snapshots where self.conns[m] != nil {
                     for p in s.panes where p.running && p.agent?.state == .blocked { self.ask(key(m, p.id)) }
                 }
+                // A new ssh session's host asked once whether it takes the key.
+                self.checkKeys()
             }
         }
     }
@@ -2210,7 +2218,8 @@ final class Store: ObservableObject {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
-        var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog)
+        var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
+                           folders: folders, savedHosts: m == "local" ? savedHosts : [])
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2324,6 +2333,17 @@ final class Store: ObservableObject {
         case .forgetHost(let h): saveHost(SavedHost(host: h), save: false)
         case .saveHost(let k):
             if let p = pane(k), let h = p.sshTarget { saveHost(SavedHost(host: h, args: p.sshArgs)) }
+        case .newFolder(let m, let sec): newFolder(m, sec)
+        case .renameFolder(let m, let sec, let name): renameFolder(m, sec, name)
+        case .removeFolder(let m, let sec, let name): removeFolder(m, sec, name)
+        case .moveToFolder(let item, let folder): move(item, to: folder)
+        case .moveToNewFolder(let item): moveToNewFolder(item)
+        case .anotherSession(let k): anotherSession(k)
+        case .editHost(let h, let args): editHost(h, args)
+        case .copyKey(let h, let args): copyKey(h, args)
+        case .addAsMachine(let h): addAsMachine(h)
+        case .redraw(let k): redraw(k)
+        case .collapseProjects(let m): collapseProjects(m)
         }
     }
 
@@ -2444,37 +2464,14 @@ final class Store: ObservableObject {
         say(save ? "Saved \(h.host): it stays under CLI to connect again" : "Forgot \(h.host)")
     }
 
-    func sshToHost() {
-        guard let b = binary,
-              let (host, options) = askTwo("SSH from this computer", info: "Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there.",
-                                           first: ("Host", "user@host, a host alias or ssh://user@host:port"),
-                                           second: ("SSH options", "optional, e.g. -p 2222 -o KexAlgorithms=+diffie-hellman-group14-sha1"),
-                                           button: "Connect") else { return }
-        let target = host.trimmingCharacters(in: .whitespaces)
-        guard !target.isEmpty else { return }
-        let args = ["ssh", target] + options.split(separator: " ").map(String.init)
-        Task {
-            do {
-                let out = try await runConch(b, args)
-                let id = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !id.isEmpty else { return }
-                layout.open(key("local", id))
-                if let p = pane(key("local", id)) { joinWorkspace(machine: "local", pane: p) }
-                focusTerminal()
-            } catch {
-                self.error = "\(error)"
-            }
-        }
-    }
-
     /// Another machine, as the TUI's M: `conch machine add` in a terminal of
     /// its own, so the install is watched; the machine shows in the sidebar
     /// when machines.json has it.
-    func addMachine() {
+    func addMachine(target: String = "") {
         guard let b = binary, let c = conns["local"],
               let (host, label) = askTwo("Add a machine", info: "conch is installed there over ssh, and runs agents there that keep running when you close this.",
                                          first: ("SSH target", "user@host or a host alias"), second: ("Label", "optional, how the sidebar names it"),
-                                         button: "Add") else { return }
+                                         button: "Add", firstValue: target) else { return }
         let target = host.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
         var command = [b, "machine", "add"]
@@ -2533,7 +2530,8 @@ final class Store: ObservableObject {
     }
 
     /// Two lines from a small dialog, or nil when cancelled.
-    private func askTwo(_ title: String, info: String, first: (String, String), second: (String, String), button: String) -> (String, String)? {
+    private func askTwo(_ title: String, info: String, first: (String, String), second: (String, String), button: String,
+                        firstValue: String = "") -> (String, String)? {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = info
@@ -2551,6 +2549,7 @@ final class Store: ObservableObject {
             return f
         }
         let one = field(first.0, first.1), two = field(second.0, second.1)
+        one.stringValue = firstValue
         a.accessoryView = box
         a.addButton(withTitle: button)
         a.addButton(withTitle: "Cancel")
@@ -2668,6 +2667,16 @@ final class Store: ObservableObject {
             } catch {
                 self.error = "Could not start the task: \(error)"
             }
+        }
+    }
+
+    /// A pane's program asked to draw its screen again, as the TUI's Redraw.
+    func redraw(_ k: String) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m] else { return }
+        struct Params: Encodable { var id: String }
+        Task {
+            do { try await c.call("pane.redraw", Params(id: id)) } catch { self.error = "\(error)" }
         }
     }
 
@@ -2823,8 +2832,11 @@ final class Store: ObservableObject {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         tuiFolds = loadFolds(uiJSON: data)
+        let fs = loadFolders(uiJSON: data)
+        if fs != folders { folders = fs }
         let hosts = loadSavedHosts(uiJSON: data)
         if hosts != savedHosts { savedHosts = hosts }
+        checkKeys()
         let dismissed = loadQueueDismissed(uiJSON: data)
         if dismissed != queueDismissed { queueDismissed = dismissed }
         let active = activeWorkspace(uiJSON: data)
