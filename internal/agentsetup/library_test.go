@@ -130,6 +130,43 @@ func TestLibraryEmpty(t *testing.T) {
 	}
 }
 
+// A server or skill given to no agent is saved as an empty list, not a
+// null (#166: an add without -to wrote null and Conch.app could not read
+// the library), and a file that already holds null loads as empty.
+func TestLibraryNoAgentsIsAnEmptyList(t *testing.T) {
+	libHome(t)
+	lib := Library{
+		Servers: []LibServer{{Name: "jira", URL: "https://jira.example/mcp", Headers: map[string]string{"Authorization": "Bearer ${CONCH_MCP_JIRA_TOKEN}"}}},
+		Skills:  []LibSkill{{Name: "review", Path: "~/skills/review"}},
+	}
+	if err := SaveLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(libraryPath())
+	if strings.Contains(string(b), "null") || strings.Count(string(b), `"agents": []`) != 2 {
+		t.Fatalf("saved:\n%s", b)
+	}
+
+	// What an older conch wrote: null, and agents left out altogether.
+	os.WriteFile(libraryPath(), []byte(`{"servers":[{"name":"jira","url":"https://jira.example/mcp","agents":null},{"name":"wiki","url":"https://wiki.example/mcp"},{"name":"gh","command":"gh","agents":["claude"]}],"skills":[{"name":"review","path":"~/r","agents":null}]}`), 0o600)
+	got, err := LoadLibrary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got.Servers {
+		if s.Agents == nil {
+			t.Errorf("server %s: agents nil", s.Name)
+		}
+	}
+	if got.Skills[0].Agents == nil || len(got.Servers[2].Agents) != 1 {
+		t.Fatalf("loaded %+v", got)
+	}
+	out, _ := json.Marshal(got)
+	if strings.Contains(string(out), "null") {
+		t.Fatalf("handed out %s", out)
+	}
+}
+
 // A server goes to the agents chosen, each in its own format; turning one
 // off takes conch's copy back out and leaves the rest of the file alone.
 func TestLibraryServers(t *testing.T) {

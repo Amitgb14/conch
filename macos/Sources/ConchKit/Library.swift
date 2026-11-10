@@ -31,6 +31,20 @@ public struct LibraryServer: Codable, Equatable, Sendable {
         self.agents = agents
     }
 
+    // An older server writes "agents": null for a server given to no agent
+    // (#166), which failed the whole library: none is an empty list.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        command = try c.decodeIfPresent(String.self, forKey: .command)
+        args = try c.decodeIfPresent([String].self, forKey: .args)
+        env = try c.decodeIfPresent([String: String].self, forKey: .env)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
+        headers = try c.decodeIfPresent([String: String].self, forKey: .headers)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+    }
+
     /// What it is in a word or two: http, sse, or the command it runs.
     public var what: String {
         if let u = url, !u.isEmpty { return transport == "sse" ? "sse" : "http" }
@@ -59,6 +73,15 @@ public struct LibrarySkill: Codable, Equatable, Sendable {
         self.path = path
         self.agents = agents
         self.source = source
+    }
+
+    // Null or missing agents, as for a server: none.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+        source = try c.decodeIfPresent(String.self, forKey: .source)
     }
 }
 

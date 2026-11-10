@@ -72,6 +72,19 @@ func LoadLibrary() (Library, error) {
 	if err := json.Unmarshal(b, &lib); err != nil {
 		return lib, fmt.Errorf("%s cannot be read: %v", libraryPath(), err)
 	}
+	// A server or skill given to no agent was once saved as "agents": null
+	// (an add without -to, #166), which Conch.app could not read: the whole
+	// library failed. It is handed out as an empty list.
+	for i := range lib.Servers {
+		if lib.Servers[i].Agents == nil {
+			lib.Servers[i].Agents = []string{}
+		}
+	}
+	for i := range lib.Skills {
+		if lib.Skills[i].Agents == nil {
+			lib.Skills[i].Agents = []string{}
+		}
+	}
 	return lib, nil
 }
 
@@ -178,8 +191,13 @@ func writeJSONFile(path string, v any) error {
 }
 
 // agentOrder puts agents in the order conch lists them, once each.
+// agentOrder is never nil: none is an empty list, not a null, in the file
+// and on the wire.
 func agentOrder(list []string) []string {
 	out := uniq(list...)
+	if out == nil {
+		out = []string{}
+	}
 	sort.SliceStable(out, func(i, j int) bool { return rankAgent(out[i]) < rankAgent(out[j]) })
 	return out
 }
