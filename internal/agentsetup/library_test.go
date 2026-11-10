@@ -277,6 +277,62 @@ func TestLibraryServers(t *testing.T) {
 	}
 }
 
+// A server marked plain is one whose token somebody chose to keep in plain
+// text rather than the Keychain: its values are written into each agent's
+// file as they are — a $ in the token included — and conch still knows the
+// copy as its own. Without plain the same value is refused.
+func TestLibraryPlainServer(t *testing.T) {
+	home, e := libHome(t)
+	const tok = "tok-$abc-123"
+	wiki := LibServer{Name: "wiki", URL: "https://wiki.example/mcp", Headers: map[string]string{"Authorization": "Bearer " + tok},
+		Agents: []string{"codex", "gemini", "opencode"}}
+	if err := SaveLibrary(Library{Servers: []LibServer{wiki}}); err == nil || !strings.Contains(err.Error(), "mark it plain") {
+		t.Fatalf("a token written out, not plain: %v", err)
+	}
+	// (A refused save has already put the header's references in one form,
+	// in place, so it is given again.)
+	wiki.Plain, wiki.Headers = true, map[string]string{"Authorization": "Bearer " + tok}
+	mustSave(t, Library{Servers: []LibServer{wiki}})
+	lib, _ := LoadLibrary()
+	if !lib.Servers[0].Plain || lib.Servers[0].Headers["Authorization"] != "Bearer "+tok {
+		t.Fatalf("saved %+v", lib.Servers[0])
+	}
+
+	mustApply(t, e)
+	codex := read(t, filepath.Join(home, ".codex", "config.toml"))
+	if !strings.Contains(codex, `"Authorization" = "Bearer `+tok+`"`) && !strings.Contains(codex, `Authorization = "Bearer `+tok+`"`) {
+		t.Fatalf("codex:\n%s", codex)
+	}
+	for _, f := range []string{filepath.Join(home, ".gemini", "settings.json"), filepath.Join(home, ".config", "opencode", "opencode.json")} {
+		if got := read(t, f); !strings.Contains(got, "Bearer "+tok) {
+			t.Fatalf("%s:\n%s", f, got)
+		}
+	}
+	_, cs, _ := LibraryStatus(e)
+	// Devin reads OpenCode's servers, so it has this one already.
+	if got := cells(cs, SyncMCP, "wiki"); got != "claude=off codex=on gemini=on opencode=on devin=theirs" {
+		t.Fatalf("after apply: %s", got)
+	}
+	if res, _ := ApplyLibrary(e, false); res.Writes() != 0 {
+		t.Fatalf("again:\n%s", changeLines(res))
+	}
+	// A new token replaces the old where conch wrote it, and taking it out
+	// of the library takes it out of the files.
+	wiki.Headers["Authorization"] = "Bearer tok-2"
+	mustSave(t, Library{Servers: []LibServer{wiki}})
+	mustApply(t, e)
+	if got := read(t, filepath.Join(home, ".gemini", "settings.json")); !strings.Contains(got, "tok-2") || strings.Contains(got, tok) {
+		t.Fatalf("gemini after a new token:\n%s", got)
+	}
+	mustSave(t, Library{})
+	mustApply(t, e)
+	for _, f := range []string{filepath.Join(home, ".codex", "config.toml"), filepath.Join(home, ".gemini", "settings.json"), filepath.Join(home, ".config", "opencode", "opencode.json")} {
+		if got := read(t, f); strings.Contains(got, "tok-2") {
+			t.Fatalf("%s still holds the token:\n%s", f, got)
+		}
+	}
+}
+
 // Devin reads Claude Code's servers itself, so a server Claude has is not
 // given to Devin a second time; Claude's are added with its own command.
 func TestLibraryClaudeAndDevin(t *testing.T) {

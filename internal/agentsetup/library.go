@@ -116,14 +116,16 @@ func CheckLibrary(lib Library) error {
 		case s.Transport != "" && s.Transport != "sse":
 			return fmt.Errorf("server %s: the transport is sse or nothing, not %q", s.Name, s.Transport)
 		}
+		// A plain server's values are the person's to write out: they
+		// chose that over the Keychain.
 		for k, v := range s.Env {
-			if !safeValue(v) {
-				return fmt.Errorf("server %s: %s holds a value; write ${%s} and set it in your environment — conch does not keep secrets in agents' files", s.Name, k, k)
+			if !s.Plain && !safeValue(v) {
+				return fmt.Errorf("server %s: %s holds a value; write ${%s} and set it in your environment — conch does not keep secrets in agents' files unless the server is marked plain", s.Name, k, k)
 			}
 		}
 		for k, v := range s.Headers {
-			if !safeValue(v) {
-				return fmt.Errorf("server %s: the %s header holds a value; refer to a variable, e.g. Bearer ${TOKEN}", s.Name, k)
+			if !s.Plain && !safeValue(v) {
+				return fmt.Errorf("server %s: the %s header holds a value; refer to a variable, e.g. Bearer ${TOKEN}, or mark it plain to write the value out", s.Name, k)
 			}
 		}
 		if err := agents("server "+s.Name, s.Agents); err != nil {
@@ -157,7 +159,11 @@ func SaveLibrary(lib Library) error {
 		for j := range s.Args {
 			s.Args[j] = neutral(s.Args[j])
 		}
-		s.Env, s.Headers = neutralMap(s.Env), neutralMap(s.Headers)
+		// A plain server's values are tokens as they are, and a token may
+		// hold a $ that is not a reference.
+		if !s.Plain {
+			s.Env, s.Headers = neutralMap(s.Env), neutralMap(s.Headers)
+		}
 		s.Agents = agentOrder(s.Agents)
 	}
 	for i := range lib.Skills {
@@ -338,8 +344,12 @@ func sameServer(a, b mcpServer) bool {
 		if len(x) != len(y) {
 			return false
 		}
+		// An agent's file is read with its references in one form, so a
+		// plain token holding a $ is compared in that form too; anything
+		// else is already in it.
 		for k, v := range x {
-			if y[k] != v {
+			w, ok := y[k]
+			if !ok || neutral(w) != neutral(v) {
 				return false
 			}
 		}
