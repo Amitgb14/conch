@@ -299,6 +299,10 @@ struct Dot: View {
 /// this which workspace the pointer is on (WorkspacesHost).
 @MainActor final class WorkspaceHits {
     static let shared = WorkspaceHits()
+    /// The switcher's own coordinates, whose origin is its hosting view's:
+    /// `.global` is not that view's in a toolbar, so a right-click found
+    /// no workspace under it and the switcher's menu never opened.
+    static let space = "workspaces"
     var frames: [Int: CGRect] = [:]
 
     func index(at p: CGPoint) -> Int? { frames.first { $0.value.contains(p) }?.key }
@@ -371,8 +375,8 @@ struct WorkspacesControl: View {
                     .contentShape(Rectangle())
                     .background(GeometryReader { g in
                         Color.clear
-                            .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .global) }
-                            .onChange(of: g.frame(in: .global)) { WorkspaceHits.shared.frames[i] = $0 }
+                            .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .named(WorkspaceHits.space)) }
+                            .onChange(of: g.frame(in: .named(WorkspaceHits.space))) { WorkspaceHits.shared.frames[i] = $0 }
                     })
                     .onDisappear { WorkspaceHits.shared.frames[i] = nil }
                     .onTapGesture(count: 2) { store.renameWorkspace(i) }
@@ -404,6 +408,7 @@ struct WorkspacesControl: View {
         // Every name whole: the toolbar gives the control the room it asks
         // for (WorkspacesHost), rather than squeezing a name to "…".
         .fixedSize()
+        .coordinateSpace(name: WorkspaceHits.space)
     }
 }
 
