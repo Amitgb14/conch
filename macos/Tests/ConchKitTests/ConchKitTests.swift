@@ -3406,3 +3406,31 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     k = try keepingToken(cmd, token: "t")
     #expect(k.token == "t" && k.server.env == ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"] && k.server.usesKeptToken)
 }
+
+// Kept in plain text instead, as the person chose: the token is written in
+// where the variable was, the server says plain, and an edit takes it back
+// out of the header into the Token field rather than showing it.
+@Test func tokensWrittenPlain() throws {
+    let url = LibraryServer(name: "wiki", url: "https://wiki.example/mcp", agents: ["claude"])
+    let p = writingTokenPlain(try keepingToken(url, token: "tok-$1"))
+    #expect(p.plain == true && p.headers == ["Authorization": "Bearer tok-$1"] && !p.usesKeptToken)
+    let back = formOfPlain(p)
+    #expect(back.token == "tok-$1" && back.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"])
+    #expect(writingTokenPlain(try keepingToken(back.server, token: back.token ?? "")) == p)
+
+    // A command's: where its environment names the variable.
+    let cmd = LibraryServer(name: "jira", command: "npx", args: ["jira-mcp"], env: ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}", "MODE": "ro"], agents: ["codex"])
+    let c = writingTokenPlain(try keepingToken(cmd, token: "t-9"))
+    #expect(c.env == ["JIRA_TOKEN": "t-9", "MODE": "ro"] && c.plain == true && c.args == ["jira-mcp"])
+
+    // No token: nothing written and nothing marked.
+    let none = writingTokenPlain(try keepingToken(url, token: ""))
+    #expect(none.plain == nil && none.headers == nil)
+
+    // On the wire: plain only when it is, so an older server is sent what it knows.
+    let wire = String(decoding: try JSONEncoder().encode(url), as: UTF8.self)
+    #expect(!wire.contains("plain"))
+    #expect(String(decoding: try JSONEncoder().encode(p), as: UTF8.self).contains(#""plain":true"#))
+    let decoded = try JSONDecoder().decode(LibraryServer.self, from: Data(#"{"name":"w","url":"https://w","headers":{"Authorization":"Bearer x"},"agents":[],"plain":true}"#.utf8))
+    #expect(decoded.plain == true)
+}

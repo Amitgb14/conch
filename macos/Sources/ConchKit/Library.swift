@@ -18,9 +18,14 @@ public struct LibraryServer: Codable, Equatable, Sendable {
     /// "sse", or nil for streamable HTTP.
     public var transport: String?
     public var agents: [String]
+    /// true when the person chose to keep its token in plain text rather
+    /// than the Keychain: env and headers may hold it as it is, and it is
+    /// written into each agent's file (agent.library.plain.v1).
+    public var plain: Bool?
 
     public init(name: String, command: String? = nil, args: [String]? = nil, env: [String: String]? = nil,
-                url: String? = nil, headers: [String: String]? = nil, transport: String? = nil, agents: [String]) {
+                url: String? = nil, headers: [String: String]? = nil, transport: String? = nil, agents: [String],
+                plain: Bool? = nil) {
         self.name = name
         self.command = command
         self.args = args
@@ -29,6 +34,22 @@ public struct LibraryServer: Codable, Equatable, Sendable {
         self.headers = headers
         self.transport = transport
         self.agents = agents
+        self.plain = plain
+    }
+
+    // An older server writes "agents": null for a server given to no agent
+    // (#166), which failed the whole library: none is an empty list.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        command = try c.decodeIfPresent(String.self, forKey: .command)
+        args = try c.decodeIfPresent([String].self, forKey: .args)
+        env = try c.decodeIfPresent([String: String].self, forKey: .env)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
+        headers = try c.decodeIfPresent([String: String].self, forKey: .headers)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+        plain = try c.decodeIfPresent(Bool.self, forKey: .plain)
     }
 
     /// What it is in a word or two: http, sse, or the command it runs.
@@ -59,6 +80,15 @@ public struct LibrarySkill: Codable, Equatable, Sendable {
         self.path = path
         self.agents = agents
         self.source = source
+    }
+
+    // Null or missing agents, as for a server: none.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+        source = try c.decodeIfPresent(String.self, forKey: .source)
     }
 }
 
@@ -448,6 +478,25 @@ public func keepingToken(_ s: LibraryServer, token typed: String) throws -> Serv
         throw LibraryFormError("say where the command reads the token: in Environment, e.g. API_KEY=\(named)")
     }
     return ServerWithToken(server: s, token: token, variable: variable)
+}
+
+/// The server with its token written in where the variable was, as the
+/// person chose rather than the Keychain: what agents' files will hold.
+public func writingTokenPlain(_ kept: ServerWithToken) -> LibraryServer {
+    var s = kept.server
+    guard let token = kept.token else { return s }
+    let named = "${\(kept.variable)}"
+    s.headers = s.headers?.mapValues { $0.replacingOccurrences(of: named, with: token) }
+    s.env = s.env?.mapValues { $0.replacingOccurrences(of: named, with: token) }
+    s.args = s.args?.map { $0.replacingOccurrences(of: named, with: token) }
+    s.plain = true
+    return s
+}
+
+/// A plain server as the form shows it: the token taken back out of its
+/// header into the Token field, never shown in the clear.
+public func formOfPlain(_ s: LibraryServer) -> ServerWithToken {
+    (try? keepingToken(s, token: "")) ?? ServerWithToken(server: s, token: nil, variable: tokenVariable(for: s.name))
 }
 
 extension LibraryServer {

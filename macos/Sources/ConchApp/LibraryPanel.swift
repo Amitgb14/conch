@@ -45,6 +45,13 @@ final class LibraryModel: ObservableObject {
         machine == "local" && store.connection(machine)?.hello?.capabilities?.contains("agent.library.keychain.v1") == true
     }
 
+    /// Whether this machine's server takes a token written out in plain
+    /// text, for somebody who chose that over the Keychain — on any machine.
+    var canWritePlain: Bool { store.connection(machine)?.hello?.capabilities?.contains("agent.library.plain.v1") == true }
+
+    /// Whether the form takes a token at all.
+    var takesTokens: Bool { canKeepTokens || canWritePlain }
+
     /// Whether this machine's server can fetch a skill from GitHub.
     var canFetch: Bool { store.connection(machine)?.hello?.capabilities?.contains("agent.library.fetch.v1") == true }
 
@@ -272,9 +279,12 @@ struct LibraryPanel: View {
             let servers = r.library.servers.sorted { $0.name < $1.name }
             ForEach(Array(servers.enumerated()), id: \.element.name) { i, s in
                 row(r, LibraryKind.server, s.name, s.what, icon: "server", first: i == 0, edit: {
-                    model.serverForm = ServerForm(old: s.name, name: s.name, command: s.commandLine, env: joinPairs(s.env),
-                                                  headers: joinPairs(s.headers), sse: s.transport == "sse", agents: Set(s.agents),
-                                                  tokenKept: s.usesKeptToken)
+                    // A plain token is taken back out of its header into
+                    // the Token field, so it is never shown in the clear.
+                    let p = s.plain == true ? formOfPlain(s) : nil
+                    model.serverForm = ServerForm(old: s.name, name: s.name, command: s.commandLine, env: joinPairs((p?.server ?? s).env),
+                                                  headers: joinPairs((p?.server ?? s).headers), sse: s.transport == "sse", agents: Set(s.agents),
+                                                  token: p?.token ?? "", tokenKept: s.usesKeptToken)
                 })
             }
             if servers.isEmpty { empty("No MCP servers yet: a command or a URL, with secrets as ${VAR}.") }
@@ -436,16 +446,18 @@ struct ServerFormView: View {
                 TextField("Command or URL", text: $form.command, prompt: Text("npx -y @modelcontextprotocol/server-github, or https://…"))
                 TextField("Environment", text: $form.env, prompt: Text("GITHUB_TOKEN=${GITHUB_TOKEN}; …"))
                 TextField("Headers", text: $form.headers, prompt: Text("Authorization=Bearer ${TOKEN}; … (a URL's)"))
-                if model.canKeepTokens {
+                if model.takesTokens {
                     SecureField("Token", text: $form.token,
-                                prompt: Text(form.tokenKept ? "Kept in the Keychain · type a new one to replace it" : "Pasted here, kept in this Mac's Keychain"))
+                                prompt: Text(form.tokenKept ? "Kept in the Keychain · type a new one to replace it" : "Pasted here · on Save you choose how it is kept"))
                 }
                 Toggle("The URL speaks SSE rather than streamable HTTP", isOn: $form.sse)
             }
             Text("Give it to").font(.ui(size: 12, weight: .medium))
             AgentTicks(agents: agents, on: $form.agents, name: model.agentName)
-            if model.canKeepTokens {
-                Text("A token goes in this Mac's Keychain as \(tokenVariable(for: form.name.isEmpty ? "name" : form.name)), and a URL's Authorization header refers to it. The agents conch starts from now on are given it; their own files only ever name it. One pasted into a header is moved there too.")
+            if model.takesTokens {
+                Text(model.canKeepTokens
+                     ? "On Save you choose: this Mac's Keychain as \(tokenVariable(for: form.name.isEmpty ? "name" : form.name)) — agents conch starts are given it and their files only name it — or plain text in each agent's file. One pasted into a header is taken out of it either way."
+                     : "A token here is written in plain text in each agent's file on \(model.store.label(model.machine)): the Keychain is this Mac's alone.")
                     .font(.ui(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             } else if model.machine != "local" {
                 Text("On \(model.store.label(model.machine)), set the variables in the environment its conch server starts with.")
@@ -467,15 +479,27 @@ struct ServerFormView: View {
             var lib = try r.library.addingServer(name: form.name, commandOrURL: form.command, env: form.env, headers: form.headers,
                                                  sse: form.sse, agents: r.agents.filter(form.agents.contains), replacing: form.old)
             var flash = "Saved \(form.name.trimmingCharacters(in: .whitespaces))"
-            if model.canKeepTokens, let i = lib.servers.lastIndex(where: { $0.name == form.name.trimmingCharacters(in: .whitespaces) }) {
+            var stepsFor: String?
+            if model.takesTokens, let i = lib.servers.lastIndex(where: { $0.name == form.name.trimmingCharacters(in: .whitespaces) }) {
                 let kept = try keepingToken(lib.servers[i], token: form.token)
                 lib.servers[i] = kept.server
                 if let t = kept.token {
-                    try Keychain.keep(t, as: kept.variable)
-                    flash += " · its token is in the Keychain; agents started from now on have it"
+                    switch askWhereToKeep(kept.variable) {
+                    case .cancel:
+                        return
+                    case .keychain:
+                        try Keychain.keep(t, as: kept.variable)
+                        flash += " · its token is in the Keychain; agents started from now on have it"
+                        stepsFor = kept.variable
+                    case .plain:
+                        lib.servers[i] = writingTokenPlain(kept)
+                        flash += " · its token is in plain text in each agent's file"
+                        // It was in the Keychain: it is not kept twice.
+                        if form.tokenKept, model.canKeepTokens { try? Keychain.forget(kept.variable) }
+                    }
                 }
                 // Renamed: the token goes with it.
-                if let old = form.old, old != lib.servers[i].name, form.tokenKept {
+                if model.canKeepTokens, let old = form.old, old != lib.servers[i].name, form.tokenKept {
                     if kept.token == nil, let t = Keychain.read(tokenVariable(for: old)) {
                         try Keychain.keep(t, as: kept.variable)
                         lib.servers[i] = try keepingToken(lib.servers[i], token: t).server
@@ -484,9 +508,51 @@ struct ServerFormView: View {
                 }
             }
             model.save(lib, flash: flash)
+            if let v = stepsFor { showKeychainSteps(v) }
             dismiss()
         } catch {
             problem = "\(error)"
+        }
+    }
+
+    enum TokenHome { case keychain, plain, cancel }
+
+    /// Where the person wants the token: the Keychain (this Mac only), or
+    /// plain text in the agents' files — asked, never assumed.
+    func askWhereToKeep(_ variable: String) -> TokenHome {
+        let a = NSAlert()
+        a.messageText = "Keep this token securely?"
+        if model.canKeepTokens {
+            a.informativeText = "Yes keeps it in this Mac's Keychain as \(variable): agents conch starts are given it, and their files only name it.\n\nNo writes it in plain text into each agent's config file, where anything that can read those files can read it."
+            a.addButton(withTitle: "Yes, Use the Keychain")
+            a.addButton(withTitle: "No, Save as Plain Text")
+        } else {
+            a.informativeText = "The Keychain is this Mac's, and \(model.store.label(model.machine)) cannot reach it. Saved, the token is written in plain text into each agent's config file there, where anything that can read those files can read it."
+            a.addButton(withTitle: "Save as Plain Text")
+        }
+        a.addButton(withTitle: "Cancel")
+        switch a.runModal() {
+        case .alertFirstButtonReturn: return model.canKeepTokens ? .keychain : .plain
+        case .alertSecondButtonReturn: return model.canKeepTokens ? .plain : .cancel
+        default: return .cancel
+        }
+    }
+
+    /// What was just done in the Keychain, and how to find it there.
+    func showKeychainSteps(_ variable: String) {
+        let a = NSAlert()
+        a.messageText = "Token saved in your Keychain"
+        a.informativeText = """
+        1. It is in your login keychain as “conch: \(variable)”.
+        2. Click Apply, so each agent's file names $\(variable).
+        3. Agents conch starts from now on are given it. Restart any already running.
+        4. To see, change or delete it: Keychain Access → login → search “conch”.
+        """
+        a.addButton(withTitle: "Done")
+        a.addButton(withTitle: "Open Keychain Access")
+        if a.runModal() == .alertSecondButtonReturn,
+           let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.keychainaccess") {
+            NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
         }
     }
 }
