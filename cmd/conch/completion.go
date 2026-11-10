@@ -103,7 +103,7 @@ var compSubcommands = map[string][]compItem{
 		{"ls", "list project groups"}, {"add", "make a group, or add projects to one"},
 		{"rm", "take projects out, or the group away"}, {"rename", "rename a group"},
 		{"notes", "notes for the agents working across it"},
-		{"task", "one task across its repos"}, {"tasks", "its tasks"}, {"task-rm", "forget a task and its folder"},
+		{"task", "one task across its repos"}, {"tasks", "its tasks"}, {"task-rm", "forget a task and its folder"}, {"merge", "merge a task's pull requests once all are green"},
 	},
 	"branch": {
 		{"commit", "commit on this branch"}, {"push", "push it"}, {"pr", "open a pull request"},

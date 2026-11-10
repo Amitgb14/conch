@@ -728,6 +728,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return nil, s.groups.removeTask(ref)
 
+	case proto.MethodGroupTaskMerge:
+		mp, perr := decode[proto.GroupTaskMergeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.groups.armMerge(mp)
+
 	case proto.MethodGroupRemove:
 		ref, perr := decode[proto.GroupRef](msg)
 		if perr != nil {

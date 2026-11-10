@@ -211,3 +211,38 @@ func TestGroupTaskRefuses(t *testing.T) {
 		t.Error("a second task on the same branch was taken")
 	}
 }
+
+// The task's brief is read and saved through fs.read and fs.write with the
+// task folder as the root — what the task page's Brief does — while its
+// links to the worktrees are not a way into them, and a folder that is no
+// task's is still refused.
+func TestGroupTaskBriefThroughFS(t *testing.T) {
+	c, dir, _, _ := groupTaskFixture(t)
+	ctx := a5Ctx(t)
+	var res proto.GroupTaskResult
+	if err := c.Call(ctx, proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "Add patient search", Branch: "add-search", Agent: "claude", Cols: 80, Rows: 20}, &res); err != nil {
+		t.Fatal(err)
+	}
+	folder := res.Task.Folder
+	var r proto.FSReadResult
+	if err := c.Call(ctx, proto.MethodFSRead, proto.FSReadParams{Root: folder, Path: "CONCH-TASK.md"}, &r); err != nil || !strings.Contains(r.Data, "Add patient search") {
+		t.Fatalf("read the brief: %v %+v", err, r)
+	}
+	var w proto.FSWriteResult
+	if err := c.Call(ctx, proto.MethodFSWrite, proto.FSWriteParams{Root: folder, Path: "CONCH-TASK.md", Data: "# changed\n", Base: r.Hash}, &w); err != nil {
+		t.Fatalf("save the brief: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(folder, "CONCH-TASK.md")); string(b) != "# changed\n" {
+		t.Fatalf("saved %q", b)
+	}
+	if fi, err := os.Lstat(filepath.Join(folder, "spring")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link to spring went: %v", err)
+	}
+	os.WriteFile(filepath.Join(dir, "spring.worktrees", "add-search", "secret.txt"), []byte("x"), 0o644)
+	if err := c.Call(ctx, proto.MethodFSRead, proto.FSReadParams{Root: folder, Path: "spring/secret.txt"}, &r); err == nil {
+		t.Fatal("read a worktree's file through the task folder's link")
+	}
+	if err := c.Call(ctx, proto.MethodFSRead, proto.FSReadParams{Root: filepath.Dir(folder), Path: "add-search/CONCH-TASK.md"}, &r); err == nil {
+		t.Fatal("the folder above a task's was taken as a root")
+	}
+}

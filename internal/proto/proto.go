@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -294,6 +294,13 @@ const CapProjectGroups = "project.groups.v1"
 // task folder, with one agent given them all or an agent in each.
 const CapGroupTask = "group.task.v1"
 
+// CapGroupTaskMerge is group.task.merge: a task's pull requests merged
+// once every one of them is green, one repo after another in the order
+// given, by the server so it carries on with no client open. With it, a
+// task's folder is also a root fs.read and fs.write take, for its
+// CONCH-TASK.md.
+const CapGroupTaskMerge = "group.task.merge.v1"
+
 // CapReviewSendTo is review.send's Pane and New: the notes handed to the
 // agent picked, or to a new one, rather than whichever is first on the
 // branch — a branch like the base can have a dozen.
@@ -364,12 +371,15 @@ const (
 	// GroupTaskResult; GroupTaskRef.
 	MethodGroupTask       = "group.task"
 	MethodGroupTaskRemove = "group.task.remove"
-	MethodProjectList     = "project.list"
-	MethodProjectAdd      = "project.add"
-	MethodProjectRemove   = "project.remove"
-	MethodProjectRefresh  = "project.refresh"
-	MethodProjectChanges  = "project.changes"
-	MethodProjectDiff     = "project.diff"
+	// MethodGroupTaskMerge arms (or with Stop, disarms) Merge All When
+	// Green on a task (CapGroupTaskMerge): GroupTaskMergeParams → GroupTask.
+	MethodGroupTaskMerge = "group.task.merge"
+	MethodProjectList    = "project.list"
+	MethodProjectAdd     = "project.add"
+	MethodProjectRemove  = "project.remove"
+	MethodProjectRefresh = "project.refresh"
+	MethodProjectChanges = "project.changes"
+	MethodProjectDiff    = "project.diff"
 	// MethodProjectLog is a project's history for a commit graph
 	// (CapProjectLog).
 	MethodProjectLog = "project.log"
@@ -878,6 +888,41 @@ type GroupTask struct {
 	Panes    []string  `json:"panes,omitempty"`
 	Each     bool      `json:"each,omitempty"`
 	Created  time.Time `json:"created"`
+	// Merge is Merge All When Green on this task, once armed
+	// (CapGroupTaskMerge); nil when it never was.
+	Merge *GroupTaskMerge `json:"merge,omitempty"`
+}
+
+// The states of a task's Merge All When Green.
+const (
+	MergeWaiting = "waiting" // armed: not every pull request is green yet
+	MergeMerging = "merging" // every one was green; merging in order
+	MergeMerged  = "merged"  // all of them merged
+	MergeStopped = "stopped" // one could not be merged, or it was stopped; Why says which
+)
+
+// GroupTaskMerge is where a task's Merge All When Green stands: the
+// projects in the order they merge, those merged so far, and — while it
+// waits or once it stopped — why, in a sentence.
+type GroupTaskMerge struct {
+	Order      []string  `json:"order"`
+	Merged     []string  `json:"merged,omitempty"`
+	State      string    `json:"state"`
+	Why        string    `json:"why,omitempty"`
+	RemoveTask bool      `json:"remove_task,omitempty"`
+	Armed      time.Time `json:"armed"`
+}
+
+// GroupTaskMergeParams arms Merge All When Green on Group's task on
+// Branch: Order is every one of the task's projects (default the task's
+// own order), RemoveTask takes the task, its worktrees and its folder away
+// once all are merged. Stop disarms it instead.
+type GroupTaskMergeParams struct {
+	Group      string   `json:"group"`
+	Branch     string   `json:"branch"`
+	Order      []string `json:"order,omitempty"`
+	RemoveTask bool     `json:"remove_task,omitempty"`
+	Stop       bool     `json:"stop,omitempty"`
 }
 
 // GroupTaskParams starts a task across Group's repos: Projects (default

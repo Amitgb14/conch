@@ -127,6 +127,8 @@ public enum RowAction: Equatable, Sendable {
     /// a task's branch pushed, or its pull requests opened, in every repo;
     /// a task forgotten, its folder removed (the branches stay).
     case newGroupTask(machine: String, group: String)
+    /// A task's page: every repo on one page (task|machine|group|branch).
+    case openGroupTask(machine: String, group: String, branch: String)
     case groupTaskPush(machine: String, group: String, branch: String)
     case groupTaskPRs(machine: String, group: String, branch: String)
     case removeGroupTask(machine: String, group: String, branch: String)
@@ -358,7 +360,7 @@ extension Snapshot {
             return items + [.divider, RowMenuItem("Remove Group (Projects Stay)", .removeGroup(machine: machine, name: name))]
         case .groupTask(_, let group, let branch):
             guard let t = groups.first(where: { $0.name == group })?.tasks?.first(where: { $0.branch == branch }) else { return [] }
-            var items: [RowMenuItem] = []
+            var items = [RowMenuItem("Open Task Page", .openGroupTask(machine: machine, group: group, branch: branch))]
             if t.panes?.contains(where: { pane($0) != nil }) == true { items.append(RowMenuItem("Open Its Agent", .open)) }
             if machineOnline {
                 items += [RowMenuItem("Push \(branch) in Every Repo", .groupTaskPush(machine: machine, group: group, branch: branch)),

@@ -351,6 +351,7 @@ final class Store: ObservableObject {
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
         if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
+        if let t = parseTaskKey(k) { return [t.group, label(t.machine)].joined(separator: " · ") }
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
@@ -1159,6 +1160,8 @@ final class Store: ObservableObject {
                     if c.machine == machine { layout.open(o) } // a branch's changes
                 } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
+                } else if let t = parseTaskKey(o) {
+                    if t.machine == machine { openTask(t.machine, t.group, t.branch) } // a task's page
                 } else {
                     let k = o.contains("|") ? o : key("local", o)
                     if unkey(k).machine == machine, pane(k) != nil { layout.open(k) }
@@ -2366,6 +2369,7 @@ final class Store: ObservableObject {
         case .groupNotes(let m, let g): groupNotes(m, g)
         case .removeGroup(let m, let g): removeGroup(m, g)
         case .newGroupTask(let m, let g): newGroupTask(m, g)
+        case .openGroupTask(let m, let g, let b): openTask(m, g, b)
         case .groupTaskPush(let m, let g, let b): groupTaskEach(m, g, b, pr: false)
         case .groupTaskPRs(let m, let g, let b): groupTaskEach(m, g, b, pr: true)
         case .removeGroupTask(let m, let g, let b): removeGroupTask(m, g, b)
@@ -3200,6 +3204,67 @@ extension Store {
                 say((done.isEmpty ? "" : "\(verb) \(done.joined(separator: ", ")); ") + failed.joined(separator: "; "), .err)
             }
         }
+    }
+
+    /// The task's page, in a tab of its own: what its row opens.
+    func openTask(_ machine: String, _ group: String, _ branch: String) {
+        let k = taskKey(machine, group, branch)
+        // Each repo's branch read afresh, its pull request as GitHub has it now.
+        for id in groupTask(machine, group, branch)?.projects ?? [] {
+            let ck = changesKey(machine, id, branch)
+            if let m = changeViews[ck] { Task { await m.load() } } else { _ = changes(for: ck) }
+        }
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
+    /// Merge All When Green armed on a task, its order given (and, after,
+    /// the task removed or not), or with stop disarmed.
+    func groupTaskMerge(_ machine: String, _ group: String, _ branch: String, order: [String] = [], removeTask: Bool = false, stop: Bool = false) {
+        guard let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains("group.task.merge.v1") == true else {
+            say("The server on \(label(machine)) predates Merge All: reload it", .err)
+            return
+        }
+        struct P: Encodable { var group: String; var branch: String; var order: [String]?; var remove_task: Bool?; var stop: Bool? }
+        Task {
+            do {
+                try await c.call("group.task.merge", P(group: group, branch: branch, order: order.isEmpty ? nil : order,
+                                                        remove_task: removeTask ? true : nil, stop: stop ? true : nil))
+                say(stop ? "Stopped Merge All on \(branch)" : "Merge All armed on \(branch): it merges once every pull request is green")
+            } catch {
+                say("Could not \(stop ? "stop" : "arm") Merge All: \(error)", .err)
+            }
+        }
+    }
+
+    /// The same words to every agent of a task, as if typed and submitted.
+    func sendTaskAgents(_ machine: String, _ panes: [String], text: String) {
+        guard let c = conns[machine], !panes.isEmpty else { return }
+        struct P: Encodable { var id: String; var text: String }
+        Task {
+            var failed: [String] = []
+            for id in panes {
+                do { try await c.call("agent.prompt", P(id: id, text: text)) } catch { failed.append("\(pane(key(machine, id))?.displayName ?? id): \(error)") }
+            }
+            if failed.isEmpty { say("Told \(panes.count) agent\(panes.count == 1 ? "" : "s")") } else { say(failed.joined(separator: "; "), .err) }
+        }
+    }
+
+    /// Commit Each…'s one question: the message for every repo's commit,
+    /// "" to use each repo's own box; nil when cancelled.
+    func askCommitMessage(_ repos: [String]) -> String? {
+        ask("Commit in \(repos.joined(separator: ", "))", info: "One message for every repo's commit. Left empty, each repo's own message box is used.",
+            value: "", button: "Commit Each")
+    }
+
+    /// Message Every Agent…: asked for, then sent to each.
+    func messageTaskAgents(_ machine: String, _ panes: [String], what: String) {
+        let agents = panes.filter { pane(key(machine, $0))?.agent != nil }
+        guard !agents.isEmpty else { return }
+        guard let text = ask(what, info: "Sent to each of its \(agents.count) agents as if typed and submitted.", value: "", button: "Send"),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sendTaskAgents(machine, agents, text: text)
     }
 
     func removeGroupTask(_ machine: String, _ group: String, _ branch: String) {
