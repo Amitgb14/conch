@@ -129,7 +129,7 @@ var compSubcommands = map[string][]compItem{
 		{"permission", "what a phone may do"}, {"start", "start conch web in the background"}, {"stop", "stop a conch web in the background"},
 		{"relay", "the link to the relay, and its key"},
 	},
-	"cloud":      {{"agent", "the machine's side of Conch Cloud"}, {"git-credential", "git's credential helper there"}},
+	"cloud":      {{"agent", "the machine's side of Conch Cloud"}, {"install", "ready a machine image"}, {"git-credential", "git's credential helper there"}},
 	"update":     {{"latest", "the newest release"}, {"list", "every published release"}, {"rollback", "the version before the last update"}},
 	"completion": {{"bash", ""}, {"zsh", ""}, {"fish", ""}},
 	"help":       {{"all", "every command"}},

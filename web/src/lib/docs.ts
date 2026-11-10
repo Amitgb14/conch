@@ -34,6 +34,7 @@ export const docs: DocSection[] = [
       { title: "Command line", href: "/docs/cli", description: "Scripting conch from a shell." },
       { title: "Configuration", href: "/docs/configuration", description: "Files conch keeps and config.toml." },
       { title: "Protocol", href: "/docs/protocol", description: "The NDJSON protocol and the source layout." },
+      { title: "Cloud machine image", href: "/docs/cloud-machine", description: "Build a machine image with conch in it for Conch Cloud." },
     ],
   },
 ]

@@ -20,15 +20,36 @@ import (
 // unit, or the inject script without systemd).
 func runCloud(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: conch cloud agent [flags] | conch cloud git-credential get")
+		return errors.New("usage: conch cloud agent [flags] | conch cloud install [-user NAME] | conch cloud git-credential get")
 	}
 	switch args[0] {
 	case "agent":
 		return runCloudAgent(args[1:])
+	case "install":
+		return runCloudInstall(args[1:])
 	case "git-credential":
 		return cloudagent.GitCredential(args[1:], os.Stdin, os.Stdout)
 	}
-	return fmt.Errorf("unknown cloud subcommand %q (agent, git-credential)", args[0])
+	return fmt.Errorf("unknown cloud subcommand %q (agent, install, git-credential)", args[0])
+}
+
+// runCloudInstall readies a machine image: the agent's systemd unit,
+// enabled, and its state directory (scripts/cloud-image.sh runs it).
+func runCloudInstall(args []string) error {
+	fs := flag.NewFlagSet("cloud install", flag.ContinueOnError)
+	userName := fs.String("user", "conch", "the machine's user, which must exist")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("conch cloud install writes the system's units: run it as root")
+	}
+	path, err := cloudagent.Install(context.Background(), cloudagent.InstallOptions{User: *userName})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("installed %s; the machine's host starts it after writing %s\n", path, cloudagent.DefaultBootPath)
+	return nil
 }
 
 // cloudAgentExit is the agent's exit, a variable so a test can see it.

@@ -268,6 +268,9 @@ Usage:
                                 agents do so the machine sleeps when idle, and joins the relay
                                 so clients reach the server through an end-to-end tunnel.
                                 Exits 3 when the control plane refuses its token
+  conch cloud install [-user NAME]
+                                ready a machine image for Conch Cloud (as root): the
+                                conch-cloud-agent systemd unit, enabled, and its state directory
   conch cloud git-credential [-socket PATH] get
                                 git's credential helper on a Conch Cloud machine: the machine
                                 token for the git proxy, asked of the cloud agent

@@ -25,6 +25,11 @@ func TestCloudCommandRefuses(t *testing.T) {
 			t.Errorf("%v: %v, want %q", c.args, err, c.want)
 		}
 	}
+	if os.Geteuid() != 0 {
+		if err := runCloud([]string{"install"}); err == nil || !strings.Contains(err.Error(), "as root") {
+			t.Errorf("install as a user: %v", err)
+		}
+	}
 }
 
 // TestCloudAgentBadBootExits: a boot.json others can read stops the agent
