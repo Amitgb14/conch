@@ -728,6 +728,48 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.menu(for: TreeNode(id: "x", kind: .agent("box|p99"), title: "x"), machine: "box").isEmpty)
 }
 
+// A project's and a machine's buttons: + for what the row is most often
+// for, an agent or a terminal started there, and the menu — each also on
+// the right-click menu; offline, nothing that starts anything.
+@Test func rowButtons() {
+    let s = fixture()
+    let t = s.tree(machine: "box")
+    let api = projects(t)[0]
+    let pb = try! #require(s.rowButtons(for: api, machine: "box"))
+    #expect(pb.primary?.action == .newTask(project: "box|r1") && pb.primary?.title == "New Task…")
+    #expect(pb.start("codex") == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
+    #expect(pb.start(nil) == .newTerminal(machine: "box", cwd: "/src/api", inProject: true))
+    let menu = s.menu(for: api, machine: "box").map(\.action)
+    #expect(menu.contains(pb.primary!.action) && menu.contains(pb.start("codex")!) && menu.contains(pb.start(nil)!))
+    // A folder that is not a repository: its task is an agent with a prompt.
+    var plain = s
+    var np = s.project("r1")!
+    np.git = false
+    plain.upsert(np)
+    #expect(plain.rowButtons(for: api, machine: "box")?.primary?.title == "New Task (an Agent with a Prompt, Here)…")
+    // A machine: a project added there, an agent in its home, outside any project.
+    let mb = try! #require(s.rowButtons(for: t, machine: "box"))
+    #expect(mb.primary?.action == .addProject(machine: "box"))
+    #expect(mb.start("claude") == .startAgent(machine: "box", cwd: nil, inProject: false) && mb.start(nil) == .newTerminal(machine: "box", cwd: nil, inProject: false))
+    let mm = s.menu(for: t, machine: "box").map(\.action)
+    #expect(mm.contains(mb.primary!.action) && mm.contains(mb.start("claude")!))
+    // Offline: a machine keeps only its menu (reconnect, upgrade); a project shows none.
+    #expect(s.rowButtons(for: t, machine: "box", machineOnline: false) == RowButtons())
+    #expect(RowButtons().start(nil) == nil)
+    #expect(s.rowButtons(for: api, machine: "box", machineOnline: false) == nil)
+    // Nothing on other rows, nor on a project gone from the snapshot.
+    #expect(s.rowButtons(for: api.children![0], machine: "box") == nil)
+    #expect(s.rowButtons(for: t.children!.first { $0.kind == .cli("box") }!, machine: "box") == nil)
+    #expect(s.rowButtons(for: TreeNode(id: "x", kind: .project("box|r9"), title: "x"), machine: "box") == nil)
+    // Reveal in Finder only for this Mac's folders.
+    #expect(!s.menu(for: api, machine: "box").contains { if case .reveal = $0.action { return true }; return false })
+    let lt = s.tree()
+    let lapi = projects(lt)[0]
+    let lm = s.menu(for: lapi, machine: "local")
+    let copy = try! #require(lm.firstIndex { $0.title == "Copy Path" })
+    #expect(lm[copy + 1] == RowMenuItem("Reveal in Finder", .reveal("/src/api")))
+}
+
 // Every row knows its machine, which is where its menu acts.
 @Test func rowMachines() {
     let t = fixture().tree(machine: "box")

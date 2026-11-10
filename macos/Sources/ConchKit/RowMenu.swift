@@ -37,6 +37,8 @@ public enum RowAction: Equatable, Sendable {
     case commits(project: String, branch: String?)
     case newTask(project: String)
     case copy(String)
+    /// A folder on this Mac shown in the Finder.
+    case reveal(String)
     /// Adds a project on that machine (the TUI's a).
     case addProject(machine: String)
     /// A terminal here logged in to a host with ssh (the TUI's H).
@@ -196,6 +198,8 @@ extension Snapshot {
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]
+            // Only this Mac's folders are the Finder's to show.
+            if machine == "local" { out.append(RowMenuItem("Reveal in Finder", .reveal(pr.path))) }
             if pr.git != false { out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))] }
             out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
@@ -241,6 +245,53 @@ extension Snapshot {
             return []
         }
         return out
+    }
+}
+
+/// The buttons a project or machine row shows on the pointer, as Orca's
+/// project row has them: what it is most often for, an agent (or a
+/// terminal) started there, and its whole menu. Every one is on the row's
+/// right-click menu too.
+public struct RowButtons: Equatable, Sendable {
+    /// The + button: a new task in a project, a project on a machine.
+    public var primary: RowMenuItem?
+    /// Where Start Agent starts one, and whether in the project: the bot
+    /// button lists the agents there, and a terminal.
+    public var agentMachine: String?
+    public var agentCwd: String?
+    public var agentInProject: Bool
+
+    public init(primary: RowMenuItem? = nil, agentMachine: String? = nil, agentCwd: String? = nil, agentInProject: Bool = false) {
+        self.primary = primary
+        self.agentMachine = agentMachine
+        self.agentCwd = agentCwd
+        self.agentInProject = agentInProject
+    }
+
+    /// Starting the agent named, or a terminal for nil, where it says.
+    public func start(_ agent: String?) -> RowAction? {
+        guard let m = agentMachine else { return nil }
+        return agent == nil ? .newTerminal(machine: m, cwd: agentCwd, inProject: agentInProject)
+            : .startAgent(machine: m, cwd: agentCwd, inProject: agentInProject)
+    }
+}
+
+extension Snapshot {
+    /// A row's buttons: a project's and a machine's only. Offline nothing
+    /// is started, so a machine shows only its menu (reconnect, upgrade)
+    /// and a project none at all.
+    public func rowButtons(for node: TreeNode, machine: String, machineOnline: Bool = true) -> RowButtons? {
+        switch node.kind {
+        case .project(let pk):
+            guard machineOnline, let pr = project(unkey(pk).id) else { return nil }
+            return RowButtons(primary: RowMenuItem(pr.git == false ? "New Task (an Agent with a Prompt, Here)…" : "New Task…", .newTask(project: pk)),
+                              agentMachine: machine, agentCwd: pr.path, agentInProject: true)
+        case .machine:
+            guard machineOnline else { return RowButtons() }
+            return RowButtons(primary: RowMenuItem("Add Project…", .addProject(machine: machine)), agentMachine: machine)
+        default:
+            return nil
+        }
     }
 }
 
