@@ -88,6 +88,21 @@ public struct Snapshot: Equatable, Sendable {
         return (waiting, done)
     }
 
+    /// What a workspace holds that is running, for its tab: agents,
+    /// terminals, and the agents waiting for you.
+    public func summary(in ws: Workspace?, machine: String = "local") -> WorkspaceSummary {
+        var out = WorkspaceSummary()
+        for p in shown(in: ws, machine: machine) where p.running {
+            if let a = p.agent {
+                out.agents += 1
+                if a.state == .blocked { out.waiting += 1 }
+            } else {
+                out.terminals += 1
+            }
+        }
+        return out
+    }
+
     /// The agent to go to next: waiting ones first, then finished ones, each
     /// oldest first (attentionOrder), after the one given.
     public func nextAttention(after current: String?, in ws: Workspace? = nil, machine: String = "local") -> String? {
@@ -1061,3 +1076,32 @@ public func paneEndBadge(_ p: PaneInfo) -> BadgePart? {
     default: return nil
     }
 }
+
+/// A workspace's running panes, for its tab in the toolbar: its tooltip
+/// says them, and a tab whose agent waits for you carries a dot.
+public struct WorkspaceSummary: Equatable, Sendable {
+    public var agents = 0
+    public var terminals = 0
+    public var waiting = 0
+
+    public init(agents: Int = 0, terminals: Int = 0, waiting: Int = 0) {
+        self.agents = agents
+        self.terminals = terminals
+        self.waiting = waiting
+    }
+
+    public static func + (a: Self, b: Self) -> Self {
+        Self(agents: a.agents + b.agents, terminals: a.terminals + b.terminals, waiting: a.waiting + b.waiting)
+    }
+
+    /// "2 agents, 1 terminal · 1 waiting for you", or "nothing running".
+    public var text: String {
+        func n(_ c: Int, _ w: String) -> String { "\(c) \(w)\(c == 1 ? "" : "s")" }
+        var parts: [String] = []
+        if agents > 0 { parts.append(n(agents, "agent")) }
+        if terminals > 0 { parts.append(n(terminals, "terminal")) }
+        guard !parts.isEmpty else { return "nothing running" }
+        return parts.joined(separator: ", ") + (waiting > 0 ? " · \(waiting) waiting for you" : "")
+    }
+}
+
