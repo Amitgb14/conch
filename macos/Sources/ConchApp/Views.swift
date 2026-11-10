@@ -891,7 +891,7 @@ struct NodeView: View {
     /// once, so the tree stays as quiet as it was.
     var showButtons: Bool {
         switch node.kind {
-        case .project, .machine, .workspace, .cli: return hovering || cursor
+        case .project, .machine, .workspace, .cli, .group: return hovering || cursor
         default: return false
         }
     }
@@ -1035,6 +1035,7 @@ struct NodeView: View {
         case .folder:
             TreeIcon(open ? "folder-open" : "folder", look: store.appLook, color: Theme.text2, size: 12)
         case .group: TreeIcon("layout-grid", look: store.appLook)
+        case .groupTask: TreeIcon("git-branch", look: store.appLook, color: Theme.text2, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -1153,6 +1154,11 @@ struct NodeView: View {
                 if !c.isEmpty { muted(c) }
                 counts(node.badge)
             }.fixedSize()
+        case .groupTask:
+            HStack(spacing: 6) {
+                muted(node.detail)
+                counts(node.badge)
+            }.fixedSize()
         case .group(let m, let name):
             // How many repos, what they have cost, then what their agents
             // are doing; each repo said in full in the tooltip.
@@ -1193,6 +1199,10 @@ struct NodeView: View {
         case .files(let pk): store.openFiles(project: pk)
         case .more(let pk, _): store.toggleAllBranches(pk)
         case .savedHost(let h): store.connectSaved(h)
+        // A task across repos: its agent, when there is one to show.
+        case .groupTask(let m, let g, let b):
+            if let p = store.groupTask(m, g, b)?.panes?.first(where: { store.pane(key(m, $0)) != nil }) { store.open(key(m, p)) }
+            else { withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) } }
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }

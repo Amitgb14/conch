@@ -14,10 +14,12 @@ import (
 // groupFake is a server holding projects and groups the way the real one
 // answers for them, recording each group.save.
 type groupFake struct {
-	mu     sync.Mutex
-	groups []proto.GroupInfo
-	saves  []proto.GroupSaveParams
-	gone   []string
+	mu       sync.Mutex
+	groups   []proto.GroupInfo
+	saves    []proto.GroupSaveParams
+	gone     []string
+	tasks    []proto.GroupTaskParams
+	taskGone []proto.GroupTaskRef
 }
 
 func startGroupFake(t *testing.T, groups ...proto.GroupInfo) *groupFake {
@@ -44,6 +46,20 @@ func startGroupFake(t *testing.T, groups ...proto.GroupInfo) *groupFake {
 			json.Unmarshal(msg.Params, &p)
 			f.saves = append(f.saves, p)
 			return proto.GroupInfo{Name: p.Name, Projects: p.Projects, Notes: p.Notes}, nil
+		case proto.MethodGroupTask:
+			var p proto.GroupTaskParams
+			json.Unmarshal(msg.Params, &p)
+			f.tasks = append(f.tasks, p)
+			ids := p.Projects
+			if len(ids) == 0 {
+				ids = []string{"r1", "r2"}
+			}
+			return proto.GroupTaskResult{Task: proto.GroupTask{Branch: "add-search", Folder: "/h/tasks/clinic/add-search", Projects: ids, Panes: []string{"p7"}},
+				Panes: []proto.PaneInfo{{ID: "p7"}}}, nil
+		case proto.MethodGroupTaskRemove:
+			var r proto.GroupTaskRef
+			json.Unmarshal(msg.Params, &r)
+			f.taskGone = append(f.taskGone, r)
 		case proto.MethodGroupRemove:
 			var r proto.GroupRef
 			json.Unmarshal(msg.Params, &r)
@@ -176,5 +192,40 @@ func TestGroupNoGroups(t *testing.T) {
 	out, _ := a4Capture(t, "", func() { err = runGroup([]string{"ls"}) })
 	if err != nil || !strings.Contains(out, "no groups") {
 		t.Fatalf("%v %q", err, out)
+	}
+}
+
+// group task starts one across a group's repos — the prompt the words
+// after the name, the repos given with -only by name — and says the
+// folder and the agents; tasks lists them; task-rm forgets one.
+func TestGroupTask(t *testing.T) {
+	f := startGroupFake(t, proto.GroupInfo{Name: "clinic", Projects: []string{"r1", "r2"},
+		Tasks: []proto.GroupTask{{Branch: "add-search", Folder: "/h/tasks/clinic/add-search", Projects: []string{"r1", "r2"}, Panes: []string{"p7"}}}})
+	var err error
+	out, _ := a4Capture(t, "", func() {
+		err = runGroup([]string{"task", "-branch", "add-search", "-agent", "codex", "-each", "-only", "spring,/src/angular-clinic", "clinic", "Add", "patient", "search"})
+	})
+	if err != nil || !strings.Contains(out, "add-search across spring, angular-clinic: /h/tasks/clinic/add-search") || !strings.Contains(out, "p7") {
+		t.Fatalf("%v %q", err, out)
+	}
+	f.mu.Lock()
+	got := f.tasks[len(f.tasks)-1]
+	f.mu.Unlock()
+	if got.Group != "clinic" || got.Prompt != "Add patient search" || got.Branch != "add-search" || got.Agent != "codex" || !got.Each || !slices.Equal(got.Projects, []string{"r1", "r2"}) {
+		t.Fatalf("%+v", got)
+	}
+	if err := runGroup([]string{"task", "clinic"}); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("no prompt: %v", err)
+	}
+	if err := runGroup([]string{"task", "-only", "nope", "clinic", "x"}); err == nil {
+		t.Fatal("an unknown repo was taken")
+	}
+	out, _ = a4Capture(t, "", func() { err = runGroup([]string{"tasks", "clinic"}) })
+	if err != nil || !strings.Contains(out, "add-search") || !strings.Contains(out, "spring, angular-clinic") || !strings.Contains(out, "/h/tasks/clinic/add-search") {
+		t.Fatalf("%v %q", err, out)
+	}
+	out, _ = a4Capture(t, "", func() { err = runGroup([]string{"task-rm", "clinic", "add-search"}) })
+	if err != nil || !strings.Contains(out, "keeps its worktree") || len(f.taskGone) != 1 || f.taskGone[0] != (proto.GroupTaskRef{Group: "clinic", Branch: "add-search"}) {
+		t.Fatalf("%v %q %+v", err, out, f.taskGone)
 	}
 }

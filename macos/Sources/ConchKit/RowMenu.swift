@@ -123,6 +123,13 @@ public enum RowAction: Equatable, Sendable {
     case renameGroup(machine: String, name: String)
     case groupNotes(machine: String, name: String)
     case removeGroup(machine: String, name: String)
+    /// Tasks across a group's repos (group.task.v1): a new one asked for;
+    /// a task's branch pushed, or its pull requests opened, in every repo;
+    /// a task forgotten, its folder removed (the branches stay).
+    case newGroupTask(machine: String, group: String)
+    case groupTaskPush(machine: String, group: String, branch: String)
+    case groupTaskPRs(machine: String, group: String, branch: String)
+    case removeGroupTask(machine: String, group: String, branch: String)
     case divider
 }
 
@@ -180,7 +187,7 @@ extension Snapshot {
     /// for what goes in a folder and where it is now.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
-                     canGroup: Bool = true) -> [RowMenuItem] {
+                     canGroup: Bool = true, canGroupTask: Bool = true) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -332,7 +339,11 @@ extension Snapshot {
             guard let g = groups.first(where: { $0.name == name }) else { return [] }
             let others = projects.filter { !g.projects.contains($0.id) }
             let members = g.projects.compactMap { project($0) }
-            var items: [RowMenuItem] = [RowMenuItem("Rename Group…", .renameGroup(machine: machine, name: name)),
+            var items: [RowMenuItem] = []
+            if canGroupTask && machineOnline {
+                items += [RowMenuItem("New Task Across Repos…", .newGroupTask(machine: machine, group: name)), .divider]
+            }
+            items += [RowMenuItem("Rename Group…", .renameGroup(machine: machine, name: name)),
                                         RowMenuItem((g.notes ?? "").isEmpty ? "Notes for the Agents…" : "Edit Notes for the Agents…", .groupNotes(machine: machine, name: name))]
             if !others.isEmpty {
                 items.append(RowMenuItem("Add a Project", .divider, children: others.map {
@@ -345,6 +356,17 @@ extension Snapshot {
                 }))
             }
             return items + [.divider, RowMenuItem("Remove Group (Projects Stay)", .removeGroup(machine: machine, name: name))]
+        case .groupTask(_, let group, let branch):
+            guard let t = groups.first(where: { $0.name == group })?.tasks?.first(where: { $0.branch == branch }) else { return [] }
+            var items: [RowMenuItem] = []
+            if t.panes?.contains(where: { pane($0) != nil }) == true { items.append(RowMenuItem("Open Its Agent", .open)) }
+            if machineOnline {
+                items += [RowMenuItem("Push \(branch) in Every Repo", .groupTaskPush(machine: machine, group: group, branch: branch)),
+                          RowMenuItem("Open Pull Requests in Every Repo…", .groupTaskPRs(machine: machine, group: group, branch: branch))]
+            }
+            items += [.divider, RowMenuItem("Copy Task Folder", .copy(t.folder))]
+            if machine == "local" { items.append(RowMenuItem("Reveal Task Folder in Finder", .reveal(t.folder))) }
+            return items + [.divider, RowMenuItem("Remove Task (Branches Stay)…", .removeGroupTask(machine: machine, group: group, branch: branch))]
         case .folder(_, let sec, let name):
             return [RowMenuItem("Rename Folder…", .renameFolder(machine: machine, section: sec, name: name)),
                     RowMenuItem("New Folder…", .newFolder(machine: machine, section: sec)), .divider,
@@ -472,6 +494,9 @@ extension Snapshot {
         case .machine:
             guard machineOnline else { return RowButtons() }
             return RowButtons(primary: RowMenuItem("Add Project…", .addProject(machine: machine)), agentMachine: machine)
+        case .group(let m, let name):
+            guard machineOnline else { return nil }
+            return RowButtons(primary: RowMenuItem("New Task Across Repos…", .newGroupTask(machine: m, group: name)))
         case .workspace:
             guard machineOnline else { return nil }
             return RowButtons(primary: RowMenuItem("Add Project…", .addProject(machine: machine)),
@@ -495,7 +520,7 @@ extension TreeNode {
         case .savedHost: return "local"
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
-        case .cliSection(let m, _), .folder(let m, _, _), .group(let m, _): return m
+        case .cliSection(let m, _), .folder(let m, _, _), .group(let m, _), .groupTask(let m, _, _): return m
         }
     }
 }
