@@ -269,6 +269,13 @@ final class FilesModel: ObservableObject {
         }
     }
 
+    /// A file's size as its folder's listing gave it.
+    func knownSize(_ path: String) -> Int64? {
+        let dir = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        return dirs[dir]?.first { $0.name == name }?.size
+    }
+
     /// The file picked, read into the editor (and what it was saved against).
     func read(_ path: String) {
         guard let c = store.connection(machine), !root.isEmpty else { return }
@@ -276,12 +283,16 @@ final class FilesModel: ObservableObject {
         // (fs.lines.v1); a bigger one is then read by its lines.
         struct Params: Encodable { var root: String; var path: String; var whole: Bool? }
         let lines = has("fs.lines.v1")
+        // A file the tree already knows to be too big to edit whole is not
+        // read whole first: 4 MB through the socket only to be put aside
+        // held up opening a big log by seconds.
+        let whole = lines && (knownSize(path) ?? 0) <= FileTier.wholeMax
         let n = reads.next()
         busy(true)
         Task {
             defer { busy(false) }
             do {
-                let r = try await c.call("fs.read", Params(root: root, path: path, whole: lines ? true : nil), as: FSRead.self)
+                let r = try await c.call("fs.read", Params(root: root, path: path, whole: whole ? true : nil), as: FSRead.self)
                 guard reads.isLatest(n) else { return } // another file was picked meanwhile
                 preview = r
                 previewError = ""
@@ -655,7 +666,7 @@ struct FilePreview: View {
                         AgentReviewView(model: model, store: store, edit: e)
                     } else if kind.needsFile && !(mediaHasSource(path) && model.showSource) {
                         media(kind)
-                    } else if p.binary == true || p.data == nil {
+                    } else if !p.isText {
                         note("A binary file\(p.mime.map { " (\($0))" } ?? ""): nothing to show as text.")
                     } else {
                         if let e = model.openEdit { workingBanner(e) }
