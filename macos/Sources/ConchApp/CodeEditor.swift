@@ -17,6 +17,13 @@ struct CodeEditor: NSViewRepresentable {
     /// Off for a file that can't be saved: still selectable and searchable.
     var editable = true
     var onSave: () -> Void
+    /// Where the selection is, for an agent asked about it.
+    var selection: Binding<NSRange>? = nil
+    /// Bumped to show the find bar — its replace field too with replace.
+    var findRequest = 0
+    var replace = false
+    /// A line to select and scroll to; its token changes to ask again.
+    var reveal: (line: Int, token: Int)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -81,15 +88,41 @@ struct CodeEditor: NSViewRepresentable {
             c.style(scroll)
             c.recolour()
         }
+        if findRequest != c.findShown {
+            c.findShown = findRequest
+            let item = NSMenuItem()
+            item.tag = Int((replace ? NSTextFinder.Action.showReplaceInterface : .showFindInterface).rawValue)
+            DispatchQueue.main.async {
+                tv.window?.makeFirstResponder(tv)
+                tv.performTextFinderAction(item)
+            }
+        }
+        if let r = reveal, r.token != c.revealed {
+            c.revealed = r.token
+            let range = lineRange(tv.string as NSString, line: r.line)
+            DispatchQueue.main.async {
+                tv.setSelectedRange(range)
+                tv.scrollRangeToVisible(range)
+                tv.showFindIndicator(for: range)
+            }
+        }
     }
 
     @MainActor final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CodeEditor
         weak var textView: CodeTextView?
         var drawn = ""
+        var findShown = 0
+        var revealed = 0
         private var pending: DispatchWorkItem?
 
-        init(_ p: CodeEditor) { parent = p }
+        init(_ p: CodeEditor) {
+            parent = p
+            findShown = p.findRequest
+            revealed = p.reveal?.token ?? 0
+            // A file opened at a line (a search result) goes there at once.
+            if p.reveal != nil { revealed = -1 }
+        }
 
         func style(_ scroll: NSScrollView) {
             guard let tv = textView else { return }
@@ -148,6 +181,10 @@ struct CodeEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ note: Notification) {
+            if let tv = textView, let sel = parent.selection, sel.wrappedValue != tv.selectedRange() {
+                let r = tv.selectedRange()
+                DispatchQueue.main.async { sel.wrappedValue = r }
+            }
             textView?.needsDisplay = true
             textView?.enclosingScrollView?.verticalRulerView?.needsDisplay = true
         }
@@ -259,3 +296,4 @@ final class LineNumberRuler: NSRulerView {
         s.draw(at: NSPoint(x: ruleThickness - size.width - 10, y: y + (height - size.height) / 2))
     }
 }
+
