@@ -200,6 +200,10 @@ public struct Workspace: Equatable, Sendable {
     /// For the first, what the later ones have between them.
     public var claimedProjects: Set<String> = []
     public var claimedPanes: Set<String> = []
+    /// The folders made in it, as spaceFolder names them (key, a newline,
+    /// the name); for the first, those the later ones made between them.
+    public var folders: Set<String> = []
+    public var claimedFolders: Set<String> = []
 
     public init(id: String = "first", name: String, projects: Set<String> = [], panes: Set<String> = [], first: Bool = false) {
         self.id = id
@@ -230,6 +234,7 @@ public struct Workspace: Equatable, Sendable {
             var name: String?
             var projects: [String]?
             var panes: [String]?
+            var folders: [String]?
         }
         struct UI: Decodable {
             var spaces: [Saved]?
@@ -237,16 +242,20 @@ public struct Workspace: Equatable, Sendable {
         }
         let ui = data.flatMap { try? JSONDecoder().decode(UI.self, from: $0) }
         let later = (ui?.spaces ?? []).enumerated().map { i, s in
-            Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
-                      projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
+            var w = Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
+                              projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
+            w.folders = Set(s.folders ?? [])
+            return w
         }
         var first = Workspace(name: ui?.first_space?.name ?? "", first: true)
+        if let f = ui?.first_space { first.folders = Set(f.folders ?? []) }
         if !later.isEmpty, let f = ui?.first_space {
             first.projects = Set(f.projects ?? [])
             first.panes = Set(f.panes ?? [])
         }
         first.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
         first.claimedPanes = later.reduce(into: []) { $0.formUnion($1.panes) }
+        first.claimedFolders = later.reduce(into: []) { $0.formUnion($1.folders) }
         return [first] + later
     }
 
@@ -435,6 +444,10 @@ public enum NodeKind: Equatable, Sendable {
     case more(project: String, count: Int)
     /// A saved ssh host with no session open to it (this computer's CLI).
     case savedHost(String)
+    /// The CLI's Agents, Terminals or SSH, on a machine.
+    case cliSection(machine: String, section: FolderSection)
+    /// A folder of your own in one of those (Folders.swift).
+    case folder(machine: String, section: FolderSection, name: String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -482,7 +495,8 @@ extension Snapshot {
     /// no project — the TUI's tree. sessions counts each project's saved
     /// conversations, when they have been read.
     public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
-                     sessions: [String: Int] = [:], allBranches: Set<String> = [], savedHosts: [SavedHost] = [], now: Date = Date()) -> TreeNode {
+                     sessions: [String: Int] = [:], allBranches: Set<String> = [], savedHosts: [SavedHost] = [],
+                     folders: [String: [Folder]] = [:], now: Date = Date()) -> TreeNode {
         let shown = self.shown(in: ws, machine: machine)
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
@@ -540,15 +554,84 @@ extension Snapshot {
         // This computer's saved ssh hosts with no session open, after its
         // own terminals, as the TUI lists them under CLI → SSH.
         let idle = machine == "local" ? idleSavedHosts(savedHosts, panes: panes) : []
-        if !loose.isEmpty || !idle.isEmpty {
-            let hosts = idle.map { TreeNode(id: "host:\($0.host)", kind: .savedHost($0.host), title: $0.title, detail: $0.host, badge: "saved") }
-            // Its count is what it lists: terminals and saved hosts both.
+        let cli = cliSections(loose: loose, idle: idle, saved: machine == "local" ? Set(savedHosts.map(\.host)) : [],
+                              machine: machine, ws: ws, shown: shown, folders: folders)
+        if !cli.isEmpty {
+            // Its count is what it lists: panes and saved hosts both.
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count + idle.count)",
-                                children: paneForest(loose, machine) + hosts, fold: "m:\(machine)/cli"))
+                                children: cli, fold: "m:\(machine)/cli"))
         }
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: attention(shown),
                         children: top, fold: "m:\(machine)")
+    }
+
+    /// The CLI's sections, as the TUI splits it (tree.go): Agents,
+    /// Terminals and SSH, each holding its folders — those the workspace
+    /// shows, folded until opened — and then what is in none. An SSH folder
+    /// holds saved hosts as well as sessions: a host's sessions are listed
+    /// in its folder, and the host itself while none is open, and a host's
+    /// place is settled before any session's (sshSectionRows). A section
+    /// with nothing in it, not even an empty folder, is left out.
+    func cliSections(loose: [PaneInfo], idle: [SavedHost], saved: Set<String>, machine: String, ws: Workspace?, shown: [PaneInfo],
+                     folders: [String: [Folder]]) -> [TreeNode] {
+        let agents = loose.filter { $0.agent != nil }
+        let ssh = loose.filter { $0.agent == nil && $0.isSSH }
+        let terms = loose.filter { $0.agent == nil && !$0.isSSH }
+        func listed(_ sec: FolderSection) -> [Folder] {
+            let k = folderKey(machine: machine, section: sec)
+            return (folders[k] ?? []).filter { ws?.shows(folder: $0, key: k, panes: shown) ?? true }
+        }
+        func folderNode(_ sec: FolderSection, _ f: Folder, _ kids: [TreeNode], count: Int) -> TreeNode {
+            let k = folderKey(machine: machine, section: sec)
+            return TreeNode(id: "folder:\(machine):\(sec.rawValue):\(f.name)", kind: .folder(machine: machine, section: sec, name: f.name),
+                            title: f.name, badge: count > 0 ? "\(count)" : "", children: kids,
+                            fold: folderFold(k, f.name), foldDefault: false)
+        }
+        func hostNode(_ h: SavedHost) -> TreeNode {
+            TreeNode(id: "host:\(h.host)", kind: .savedHost(h.host), title: h.title, detail: h.host, badge: "saved")
+        }
+        var out: [TreeNode] = []
+        func section(_ sec: FolderSection, _ kids: [TreeNode], count: Int) {
+            guard !kids.isEmpty else { return }
+            let word = sec == .ssh ? "ssh" : sec == .agents ? "agents" : "terminals"
+            out.append(TreeNode(id: "cs:\(machine):\(sec.rawValue)", kind: .cliSection(machine: machine, section: sec), title: sec.title,
+                                badge: count > 0 ? "\(count)" : "", children: kids, fold: "m:\(machine)/\(word)"))
+        }
+        for (sec, panes) in [(FolderSection.agents, agents), (.terminals, terms)] {
+            var taken: Set<String> = []
+            var kids: [TreeNode] = []
+            for f in listed(sec) {
+                let mine = f.claim(panes, taken: &taken)
+                kids.append(folderNode(sec, f, paneForest(mine, machine), count: mine.count))
+            }
+            kids += paneForest(panes.filter { !taken.contains($0.id) }, machine)
+            section(sec, kids, count: panes.count)
+        }
+        // SSH: a saved host's folder first, then each folder's own panes.
+        let fs = listed(.ssh)
+        var folderOf: [String: Int] = [:]
+        for (i, f) in fs.enumerated() {
+            for h in f.hosts where folderOf[h] == nil && saved.contains(h) { folderOf[h] = i }
+        }
+        var taken: Set<String> = []
+        var mine = Array(repeating: [PaneInfo](), count: fs.count)
+        for p in ssh {
+            if let t = p.sshTarget, let i = folderOf[t] {
+                mine[i].append(p)
+                taken.insert(p.id)
+            }
+        }
+        for (i, f) in fs.enumerated() { mine[i] += f.claim(ssh, taken: &taken) }
+        var kids: [TreeNode] = []
+        for (i, f) in fs.enumerated() {
+            let hosts = idle.filter { folderOf[$0.host] == i }
+            kids.append(folderNode(.ssh, f, paneForest(mine[i], machine) + hosts.map(hostNode), count: mine[i].count + hosts.count))
+        }
+        kids += paneForest(ssh.filter { !taken.contains($0.id) }, machine)
+        kids += idle.filter { folderOf[$0.host] == nil }.map(hostNode)
+        section(.ssh, kids, count: ssh.count + idle.count)
+        return out
     }
 
     /// A machine or project row's counts, as the TUI's attentionBadge:

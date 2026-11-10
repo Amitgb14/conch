@@ -40,7 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         // never applied.
         PaneTerminal.fontSize = look.fontSize
         for t in store.terminals.values { t.setFontSize(look.fontSize) }
-        ScratchHotKey.shared.set(look.scratchKey)
+        // Not for a -background run: the key is global, so a scripted copy
+        // beside the person's own Conch would take their ⌥Space — and come
+        // to the front with it, taking the keys typed next.
+        ScratchHotKey.shared.set(look.scratchKey && !UserDefaults.standard.bool(forKey: "background"))
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {

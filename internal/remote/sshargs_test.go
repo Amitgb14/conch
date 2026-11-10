@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -255,5 +256,52 @@ echo private > "$2"; echo "ssh-ed25519 NEWKEY made" > "$2.pub"
 	}
 	if b, _ := os.ReadFile(filepath.Join(remoteHome, ".ssh", "authorized_keys")); string(b) != "ssh-ed25519 NEWKEY made\n" {
 		t.Fatalf("authorized_keys %q", b)
+	}
+}
+
+// A key check is a login that cannot ask: batch mode, no password prompts,
+// a short connect timeout, all before the person's own options, `true`
+// after the host. A bad target or option is refused as a login's is.
+func TestCheckKeyCommand(t *testing.T) {
+	a4Env(t)
+	t.Setenv("CONCH_SSH", "/fake/ssh")
+	cmd, err := CheckKeyCommand("me@box", []string{"-p", "2222"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := len(cmd)
+	if cmd[0] != "/fake/ssh" || cmd[n-1] != "true" || cmd[n-2] != "me@box" || cmd[n-3] != "--" {
+		t.Fatalf("%q", cmd)
+	}
+	j := strings.Join(cmd, " ")
+	for _, want := range []string{"-o BatchMode=yes", "-o NumberOfPasswordPrompts=0", "-o ConnectTimeout=8"} {
+		if !strings.Contains(j, want) || strings.Index(j, want) > strings.Index(j, "-p 2222") {
+			t.Fatalf("%q missing or after the person's options: %q", want, j)
+		}
+	}
+	if _, err := CheckKeyCommand("-oProxyCommand=x", nil); err == nil {
+		t.Fatal("an option taken as the host")
+	}
+	if _, err := CheckKeyCommand("box", []string{"-F", "x"}); err == nil {
+		t.Fatal("-F taken")
+	}
+}
+
+func TestKeyLoginResult(t *testing.T) {
+	for _, c := range []struct {
+		err    error
+		stderr string
+		want   string
+	}{
+		{nil, "", "key"},
+		{nil, "Warning: Permanently added 'box'", "key"},
+		{errors.New("exit status 255"), "me@box: Permission denied (publickey).", "password"},
+		{errors.New("exit status 255"), "Received disconnect from 1.2.3.4: Too many authentication failures", "password"},
+		{errors.New("exit status 255"), "ssh: Could not resolve hostname box", "unreachable"},
+		{errors.New("exit status 255"), "", "unreachable"},
+	} {
+		if got := KeyLoginResult(c.err, c.stderr); got != c.want {
+			t.Errorf("%v %q: %q, want %q", c.err, c.stderr, got, c.want)
+		}
 	}
 }
