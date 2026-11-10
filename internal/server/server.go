@@ -53,6 +53,7 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
+	groups    *groupBook
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
 	reviews   *reviewBook
@@ -124,6 +125,7 @@ func New(sockPath, configDir string) *Server {
 		ran:       make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.groups = loadGroups(s, configDir)
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
@@ -697,6 +699,23 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 
 	case proto.MethodProjectList:
 		return proto.ProjectList{Projects: s.projects.list()}, nil
+
+	case proto.MethodGroupList:
+		return s.groups.list(), nil
+
+	case proto.MethodGroupSave:
+		gp, perr := decode[proto.GroupSaveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.groups.save(gp)
+
+	case proto.MethodGroupRemove:
+		ref, perr := decode[proto.GroupRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.groups.remove(ref.Name)
 
 	case proto.MethodProjectAdd:
 		ap, perr := decode[proto.ProjectAddParams](msg)

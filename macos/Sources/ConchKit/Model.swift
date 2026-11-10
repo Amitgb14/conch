@@ -6,11 +6,17 @@ import Foundation
 public struct Snapshot: Equatable, Sendable {
     public var panes: [PaneInfo] = []
     public var projects: [ProjectInfo] = []
+    /// Its server's project groups (group.list), empty for one too old.
+    public var groups: [GroupInfo] = []
 
-    public init(panes: [PaneInfo] = [], projects: [ProjectInfo] = []) {
+    public init(panes: [PaneInfo] = [], projects: [ProjectInfo] = [], groups: [GroupInfo] = []) {
         self.panes = panes
         self.projects = projects
+        self.groups = groups
     }
+
+    /// The groups a project is in, in their order.
+    public func groups(of project: String) -> [GroupInfo] { groups.filter { $0.projects.contains(project) } }
 
     public func pane(_ id: String) -> PaneInfo? { panes.first { $0.id == id } }
     public func project(_ id: String) -> ProjectInfo? { projects.first { $0.id == id } }
@@ -463,6 +469,8 @@ public enum NodeKind: Equatable, Sendable {
     case cliSection(machine: String, section: FolderSection)
     /// A folder of your own in one of those (Folders.swift).
     case folder(machine: String, section: FolderSection, name: String)
+    /// A project group under Workspace, its projects under it.
+    case group(machine: String, name: String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -562,9 +570,10 @@ extension Snapshot {
         // The projects under a Workspace row, the CLI group beside it: the
         // TUI's tree (kindWorkspace, open unless folded).
         var top: [TreeNode] = []
-        if !projectNodes.isEmpty {
+        let workspaceRows = grouped(projectNodes, machine: machine, shown: shown)
+        if !workspaceRows.isEmpty {
             top.append(TreeNode(id: "ws:\(machine)", kind: .workspace(machine), title: "Workspace", badge: "\(projectNodes.count)",
-                                children: projectNodes, fold: "m:\(machine)/workspace"))
+                                children: workspaceRows, fold: "m:\(machine)/workspace"))
         }
         // This computer's saved ssh hosts with no session open, after its
         // own terminals, as the TUI lists them under CLI → SSH.
@@ -579,6 +588,37 @@ extension Snapshot {
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: attention(shown),
                         children: top, fold: "m:\(machine)")
+    }
+
+    /// Workspace's rows: each group with its projects under it, in the
+    /// group's order, then the projects in none, in their own. A project in
+    /// two groups is listed under both, its row's id made its own the
+    /// second time so the tree can tell them apart. A group none of whose
+    /// projects the workspace shows is left out.
+    func grouped(_ projectNodes: [TreeNode], machine: String, shown: [PaneInfo]) -> [TreeNode] {
+        let byKey = Dictionary(projectNodes.compactMap { n -> (String, TreeNode)? in
+            if case .project(let pk) = n.kind { return (pk, n) }
+            return nil
+        }, uniquingKeysWith: { a, _ in a })
+        var out: [TreeNode] = [], placed: Set<String> = []
+        for g in groups {
+            var kids: [TreeNode] = []
+            for id in g.projects {
+                let pk = key(machine, id)
+                guard var n = byKey[pk] else { continue }
+                if placed.contains(pk) { n.id += "@" + g.name }
+                placed.insert(pk)
+                kids.append(n)
+            }
+            guard !kids.isEmpty else { continue }
+            let mine = shown.filter { $0.projectID.map(g.projects.contains) ?? false }
+            out.append(TreeNode(id: "grp:\(machine):\(g.name)", kind: .group(machine: machine, name: g.name), title: g.name,
+                                detail: "\(kids.count) repos", badge: attention(mine), children: kids, fold: "grp:\(machine):\(g.name)"))
+        }
+        return out + projectNodes.filter { n in
+            if case .project(let pk) = n.kind { return !placed.contains(pk) }
+            return true
+        }
     }
 
     /// The CLI's sections, as the TUI splits it (tree.go): Agents,

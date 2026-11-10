@@ -133,6 +133,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodProjectSetup: scopeHome,
 	// What runs later runs with nobody watching: the person's to arrange.
 	proto.MethodScheduleAdd: scopeHome, proto.MethodScheduleRemove: scopeHome,
+	// Which projects belong together is the person's arrangement.
+	proto.MethodGroupSave: scopeHome, proto.MethodGroupRemove: scopeHome,
 	// A reviewing agent comments on its project's branches and hands them
 	// over, as the person would.
 	proto.MethodReviewSet: scopeProject, proto.MethodReviewSend: scopeProject, proto.MethodReviewReply: scopeProject,
@@ -360,6 +362,7 @@ var verbs = map[string]string{
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
 	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
 	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
+	proto.MethodGroupSave: "change a project group", proto.MethodGroupRemove: "remove a project group",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodLibraryFetch: "download a skill into the library",
 	proto.MethodAgentSync:    "sync one agent's setup to the others",

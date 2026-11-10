@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -284,6 +284,11 @@ const CapCommitShow = "project.commit.v1"
 // through gh.
 const CapPRReview = "pr.review.v1"
 
+// CapProjectGroups is group.list, group.save and group.remove: projects
+// grouped by the person because they change together — an API, its web
+// app, their specs — each still a project of its own.
+const CapProjectGroups = "project.groups.v1"
+
 // CapReviewSendTo is review.send's Pane and New: the notes handed to the
 // agent picked, or to a new one, rather than whichever is first on the
 // branch — a branch like the base can have a dozen.
@@ -345,6 +350,11 @@ const (
 	MethodAgentStatus  = "agent.status"
 	MethodAgentInstall = "agent.install"
 
+	// Project groups (CapProjectGroups): GroupList, GroupSaveParams →
+	// GroupInfo, GroupRef.
+	MethodGroupList      = "group.list"
+	MethodGroupSave      = "group.save"
+	MethodGroupRemove    = "group.remove"
 	MethodProjectList    = "project.list"
 	MethodProjectAdd     = "project.add"
 	MethodProjectRemove  = "project.remove"
@@ -486,6 +496,9 @@ const (
 	// EventProjectUpdated carries a ProjectInfo (added or git state changed).
 	EventProjectUpdated = "project.updated"
 	EventProjectRemoved = "project.removed"
+	// EventGroups carries the whole GroupList whenever a group changes,
+	// or a project leaves one by being removed.
+	EventGroups = "group.changed"
 	// EventAgentLimits carries a PlanLimits that changed.
 	EventAgentLimits = "agent.limits"
 	// EventWorktreeChanged carries a WorktreeChanged: files in a worktree
@@ -833,6 +846,32 @@ type BranchInfo struct {
 // ProjectRef addresses a project.
 type ProjectRef struct {
 	ID string `json:"id"`
+}
+
+// GroupInfo is a project group: its name, its projects in the person's
+// order (the order a task across them merges in), and notes for the
+// agents working across them.
+type GroupInfo struct {
+	Name     string   `json:"name"`
+	Projects []string `json:"projects"`
+	Notes    string   `json:"notes,omitempty"`
+}
+
+type GroupList struct {
+	Groups []GroupInfo `json:"groups"`
+}
+
+// GroupSaveParams makes a group, or replaces the one called Old (or Name)
+// — a rename when Old differs.
+type GroupSaveParams struct {
+	Name     string   `json:"name"`
+	Old      string   `json:"old,omitempty"`
+	Projects []string `json:"projects"`
+	Notes    string   `json:"notes,omitempty"`
+}
+
+type GroupRef struct {
+	Name string `json:"name"`
 }
 
 // ProjectAddParams adds the project containing Path.

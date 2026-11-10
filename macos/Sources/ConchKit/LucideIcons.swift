@@ -17,6 +17,7 @@ public enum LucideIcons {
         "server": [svgRect(2, 2, 20, 8, 2), svgRect(2, 14, 20, 8, 2), svgLine(6, 6, 6.01, 6), svgLine(6, 18, 6.01, 18)],
         "cloud": ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
         "globe": [svgCircle(12, 12, 10), "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", "M2 12h20"],
+        "layout-grid": [svgRect(3, 3, 7, 7, 1), svgRect(14, 3, 7, 7, 1), svgRect(14, 14, 7, 7, 1), svgRect(3, 14, 7, 7, 1)],
         "layers": ["m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
                    "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"],
         // The settings page's sections (internal/configweb/schema.go).

@@ -112,6 +112,17 @@ public enum RowAction: Equatable, Sendable {
     case redraw(pane: String)
     /// Every project of a machine's Workspace folded.
     case collapseProjects(machine: String)
+    /// Project groups (project.groups.v1): a new one picked from a list; a
+    /// project grouped with another (asked first) or added to a group or
+    /// taken out of one; a group renamed, given notes for the agents, or
+    /// taken away (its projects stay). Projects are key(machine, id).
+    case newGroup(machine: String)
+    case groupWith(project: String, other: String)
+    case addToGroup(project: String, group: String)
+    case takeOutOfGroup(project: String, group: String)
+    case renameGroup(machine: String, name: String)
+    case groupNotes(machine: String, name: String)
+    case removeGroup(machine: String, name: String)
     case divider
 }
 
@@ -168,7 +179,8 @@ extension Snapshot {
     /// folders is ui.json's (loadFolders) and savedHosts this computer's,
     /// for what goes in a folder and where it is now.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
-                     among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = []) -> [RowMenuItem] {
+                     among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
+                     canGroup: Bool = true) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -254,6 +266,7 @@ extension Snapshot {
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]
             // Only this Mac's folders are the Finder's to show.
             if machine == "local" { out.append(RowMenuItem("Reveal in Finder", .reveal(pr.path))) }
+            if canGroup { out += [.divider] + groupItems(pk, machine: machine) }
             if pr.git != false { out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))] }
             out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
@@ -287,6 +300,7 @@ extension Snapshot {
             if hasRunning(.machine(machine)) { out.append(RowMenuItem("Broadcast…", .broadcast(.machine(machine)))) }
             if !projects.isEmpty { out.append(.divider) }
             out += projects.map { RowMenuItem("New Task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
+            if canGroup && projects.count > 1 { out += [.divider, RowMenuItem("New Project Group…", .newGroup(machine: machine))] }
             if !projects.isEmpty { out += [.divider, RowMenuItem("Collapse All Projects", .collapseProjects(machine: machine))] }
         case .section(let name):
             // A project's Agents or Terminals: a message to those alone.
@@ -314,6 +328,23 @@ extension Snapshot {
                 }
             }
             return items
+        case .group(_, let name):
+            guard let g = groups.first(where: { $0.name == name }) else { return [] }
+            let others = projects.filter { !g.projects.contains($0.id) }
+            let members = g.projects.compactMap { project($0) }
+            var items: [RowMenuItem] = [RowMenuItem("Rename Group…", .renameGroup(machine: machine, name: name)),
+                                        RowMenuItem((g.notes ?? "").isEmpty ? "Notes for the Agents…" : "Edit Notes for the Agents…", .groupNotes(machine: machine, name: name))]
+            if !others.isEmpty {
+                items.append(RowMenuItem("Add a Project", .divider, children: others.map {
+                    RowMenuItem($0.name, .addToGroup(project: key(machine, $0.id), group: name))
+                }))
+            }
+            if members.count > 1 {
+                items.append(RowMenuItem("Take a Project Out", .divider, children: members.map {
+                    RowMenuItem($0.name, .takeOutOfGroup(project: key(machine, $0.id), group: name))
+                }))
+            }
+            return items + [.divider, RowMenuItem("Remove Group (Projects Stay)", .removeGroup(machine: machine, name: name))]
         case .folder(_, let sec, let name):
             return [RowMenuItem("Rename Folder…", .renameFolder(machine: machine, section: sec, name: name)),
                     RowMenuItem("New Folder…", .newFolder(machine: machine, section: sec)), .divider,
@@ -349,6 +380,22 @@ extension Snapshot {
             for f in fs where f.claim(mine, taken: &taken).contains(where: { $0.id == id }) { return f.name }
             return nil
         }
+    }
+
+    /// A project's group items: Group With ▸ the other projects and the
+    /// groups it is not in, and Take Out of each group it is in.
+    func groupItems(_ pk: String, machine: String) -> [RowMenuItem] {
+        let id = unkey(pk).id
+        var with = projects.filter { $0.id != id }.map { RowMenuItem($0.name, .groupWith(project: pk, other: key(machine, $0.id))) }
+        let joinable = groups.filter { !$0.projects.contains(id) }
+        if !joinable.isEmpty {
+            if !with.isEmpty { with.append(.divider) }
+            with += joinable.map { RowMenuItem("Add to \($0.name)", .addToGroup(project: pk, group: $0.name)) }
+        }
+        var out: [RowMenuItem] = []
+        if !with.isEmpty { out.append(RowMenuItem("Group With", .divider, children: with)) }
+        out += groups(of: id).map { RowMenuItem("Take Out of \($0.name)", .takeOutOfGroup(project: pk, group: $0.name)) }
+        return out
     }
 
     /// New Folder ▸ on a CLI row: which of its sections it goes in.
@@ -448,7 +495,7 @@ extension TreeNode {
         case .savedHost: return "local"
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
-        case .cliSection(let m, _), .folder(let m, _, _): return m
+        case .cliSection(let m, _), .folder(let m, _, _), .group(let m, _): return m
         }
     }
 }

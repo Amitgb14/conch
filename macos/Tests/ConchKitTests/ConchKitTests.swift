@@ -1155,7 +1155,7 @@ final class FakeServer: @unchecked Sendable {
 @Test func lucideIconsRead() {
     let names = ["folder", "folder-open", "git-branch", "terminal", "square-terminal", "history", "laptop", "server", "cloud", "globe", "layers",
                  "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings",
-                 "plus", "ellipsis", "folder-plus", "key-round"]
+                 "plus", "ellipsis", "folder-plus", "key-round", "layout-grid"]
     for n in names {
         #expect(LucideIcons.all[n] != nil, "\(n)")
         let ops = LucideIcons.ops(n)
@@ -3112,4 +3112,73 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(WorkspaceSummary(terminals: 3).text == "3 terminals")
     #expect(WorkspaceSummary().text == "nothing running")
     #expect(WorkspaceSummary(agents: 1, waiting: 1) + WorkspaceSummary(terminals: 2) == WorkspaceSummary(agents: 1, terminals: 2, waiting: 1))
+}
+
+// MARK: - Project groups
+
+// Workspace lists each group with its projects under it in the group's
+// order, then the projects in none; a project in two groups under both,
+// with an id of its own the second time; a group the workspace shows none
+// of is left out.
+@Test func groupsInTheTree() {
+    var s = Snapshot(panes: [PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .blocked), projectID: "r2")],
+                     projects: [ProjectInfo(id: "r1", name: "spring", path: "/s"), ProjectInfo(id: "r2", name: "web", path: "/w"),
+                                ProjectInfo(id: "r3", name: "specs", path: "/x"), ProjectInfo(id: "r4", name: "conch", path: "/c")],
+                     groups: [GroupInfo(name: "clinic", projects: ["r3", "r1", "r2", "r9"]), GroupInfo(name: "api", projects: ["r1"])])
+    let ws = s.tree(machine: "box").children!.first { $0.kind == .workspace("box") }!
+    #expect(ws.children!.map(\.title) == ["clinic", "api", "conch"])
+    let clinic = ws.children![0]
+    #expect(clinic.kind == .group(machine: "box", name: "clinic") && clinic.machine == "box")
+    #expect(clinic.children!.map(\.title) == ["specs", "spring", "web"]) // its order; r9 is not here
+    #expect(clinic.detail == "3 repos" && clinic.badge == "⚑1" && clinic.fold == "grp:box:clinic")
+    #expect(ws.children![1].children!.map(\.id) == ["p:box|r1@api"]) // listed twice, told apart
+    #expect(ws.badge == "4") // projects, not rows
+    #expect(s.groups(of: "r1").map(\.name) == ["clinic", "api"])
+    // In a workspace that shows none of a group's projects, no group.
+    let w2 = Workspace(id: "w2", name: "b", projects: ["r4"])
+    #expect(s.tree(machine: "local", in: w2).children!.first!.children!.map(\.title) == ["conch"])
+    s.groups = []
+    #expect(s.tree(machine: "box").children!.first!.children!.map(\.title) == ["spring", "web", "specs", "conch"])
+}
+
+// A project's menu groups it with another or adds it to a group it is not
+// in, and takes it out of those it is; Workspace makes a group; a group's
+// menu renames it, its notes, adds and takes out projects, and removes it.
+// None of it where the server has no groups.
+@Test func groupMenus() {
+    let s = Snapshot(projects: [ProjectInfo(id: "r1", name: "spring", path: "/s"), ProjectInfo(id: "r2", name: "web", path: "/w"),
+                                ProjectInfo(id: "r3", name: "specs", path: "/x")],
+                     groups: [GroupInfo(name: "clinic", projects: ["r1", "r2"], notes: "API first")])
+    let r3 = TreeNode(id: "p:box|r3", kind: .project("box|r3"), title: "specs")
+    let m3 = s.menu(for: r3, machine: "box")
+    let with = m3.first { $0.title == "Group With" }!
+    #expect(with.children.map(\.title) == ["spring", "web", "", "Add to clinic"])
+    #expect(with.children[0].action == .groupWith(project: "box|r3", other: "box|r1"))
+    #expect(with.children.last?.action == .addToGroup(project: "box|r3", group: "clinic"))
+    #expect(!m3.contains { $0.title.hasPrefix("Take Out of") })
+    let m1 = s.menu(for: TreeNode(id: "p:box|r1", kind: .project("box|r1"), title: "spring"), machine: "box")
+    #expect(m1.contains { $0.action == .takeOutOfGroup(project: "box|r1", group: "clinic") && $0.title == "Take Out of clinic" })
+    #expect(!(m1.first { $0.title == "Group With" }?.children.contains { $0.title == "Add to clinic" } ?? true))
+    #expect(!s.menu(for: r3, machine: "box", canGroup: false).contains { $0.title == "Group With" })
+
+    let ws = TreeNode(id: "ws:box", kind: .workspace("box"), title: "Workspace")
+    #expect(s.menu(for: ws, machine: "box").contains { $0.action == .newGroup(machine: "box") })
+    #expect(!s.menu(for: ws, machine: "box", canGroup: false).contains { $0.action == .newGroup(machine: "box") })
+    #expect(!Snapshot(projects: [ProjectInfo(id: "r1", name: "a", path: "/a")]).menu(for: ws, machine: "box").contains { $0.action == .newGroup(machine: "box") })
+
+    let g = TreeNode(id: "grp:box:clinic", kind: .group(machine: "box", name: "clinic"), title: "clinic")
+    let gm = s.menu(for: g, machine: "box")
+    #expect(gm.map(\.title) == ["Rename Group…", "Edit Notes for the Agents…", "Add a Project", "Take a Project Out", "", "Remove Group (Projects Stay)"])
+    #expect(gm[2].children.map(\.action) == [.addToGroup(project: "box|r3", group: "clinic")])
+    #expect(gm[3].children.map(\.action) == [.takeOutOfGroup(project: "box|r1", group: "clinic"), .takeOutOfGroup(project: "box|r2", group: "clinic")])
+    #expect(gm.last?.action == .removeGroup(machine: "box", name: "clinic"))
+    #expect(s.menu(for: TreeNode(id: "grp:box:x", kind: .group(machine: "box", name: "x"), title: "x"), machine: "box").isEmpty)
+}
+
+// A group from the server, notes and all; an older server's answer
+// without a list is no groups.
+@Test func groupListDecodes() throws {
+    let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"clinic","projects":["r1","r2"],"notes":"n"}]}"#.utf8))
+    #expect(l.groups == [GroupInfo(name: "clinic", projects: ["r1", "r2"], notes: "n")])
+    #expect(try JSONDecoder().decode(GroupList.self, from: Data("{}".utf8)).groups == nil)
 }

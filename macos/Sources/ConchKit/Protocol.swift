@@ -280,6 +280,23 @@ public struct ProjectInfo: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// A project group (project.groups.v1): projects kept together because
+/// they change together, each still a project of its own, in the order
+/// the person gave them.
+public struct GroupInfo: Decodable, Equatable, Sendable {
+    public var name: String
+    public var projects: [String]
+    public var notes: String?
+
+    public init(name: String, projects: [String], notes: String? = nil) {
+        self.name = name
+        self.projects = projects
+        self.notes = notes
+    }
+}
+
+public struct GroupList: Decodable { public var groups: [GroupInfo]? }
+
 public struct PaneList: Decodable { public var panes: [PaneInfo] }
 public struct ProjectList: Decodable { public var projects: [ProjectInfo] }
 

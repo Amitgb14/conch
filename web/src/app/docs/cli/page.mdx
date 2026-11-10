@@ -171,6 +171,17 @@ conch tells who is asking from the operating system — the process at the other
 | `conch project files ID [-reset \| -none \| PATTERN...]` | set the [local file patterns](/docs/tasks#local-files-in-worktrees) copied into new worktrees; `-reset` restores the defaults, `-none` copies nothing |
 | `conch project setup ID [-none \| COMMAND]` | show or set the [setup command](/docs/tasks#setup-and-ports-in-worktrees) run in each new worktree; `-none` runs nothing |
 
+### group
+
+Projects kept together because they change together — an API, its web app, their specs. Each stays a project of its own, with its own git, branches and pull requests; the server keeps the groups (`groups.json`), so Conch.app shows the same ones.
+
+| Command | Description |
+| --- | --- |
+| `conch group [ls [-json]]` | the project groups: projects kept together because they change together — an API, its web app, their specs — each still a project of its own |
+| `conch group add NAME PROJECT...` | make a group of projects already added, or add projects to one; a project is named by its ID, its folder, or its name when only one project has it |
+| `conch group rm NAME [PROJECT...]` | take projects out of a group, or with none named take the group away — its projects stay |
+| `conch group rename OLD NEW` / `conch group notes NAME [TEXT]` | rename a group; give it notes for the agents working across it (`""` clears them) |
+
 ### task
 
 `conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-at` later, `-every` again and again, `-queue` when the project has room, `-after` once other work has finished, on top of it: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
