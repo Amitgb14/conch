@@ -260,6 +260,13 @@ Usage:
                                 phones and computers to meet at; it forwards what it can't
                                 read and stores nothing, but serves the phone's app, so
                                 use only a relay you trust as you trust the computer
+  conch cloud agent [-boot FILE] [-state DIR] [-user NAME] [-socket PATH] [-server-socket PATH]
+                                runs inside a Conch Cloud machine, started by its host (the
+                                conch-cloud-agent systemd unit): reads boot.json (root-only,
+                                0600), says hello to the control plane, starts this machine's
+                                conch server as -user (conch when root), and reports what its
+                                agents do so the machine sleeps when idle.
+                                Exits 3 when the control plane refuses its token
   conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
@@ -416,6 +423,8 @@ func main() {
 		err = runWeb(args)
 	case "relay":
 		err = runRelay(args)
+	case "cloud":
+		err = runCloud(args)
 	case "config":
 		err = runConfig(args)
 	case "mcp":
