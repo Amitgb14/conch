@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -35,12 +36,29 @@ var ErrNoGateway = errors.New("the computer isn't connected to the relay")
 // Dial opens a session with the gateway in room, whose key is gwPub (from
 // the pairing link): the relay first, then the handshake through it.
 func Dial(ctx context.Context, relay, room string, gwPub []byte) (*Session, error) {
+	return DialTicket(ctx, relay, room, "", gwPub)
+}
+
+// TicketHeader carries a ticket to a relay that admits a room's clients
+// only with one (Conch Cloud's, PROTOCOL §3.2): single use, short-lived,
+// handed out by the control plane. A relay of conch's own ignores it.
+const TicketHeader = "X-Conch-Relay-Ticket"
+
+// DialTicket is Dial with a ticket for the relay, when it has one.
+func DialTicket(ctx context.Context, relay, room, ticket string, gwPub []byte) (*Session, error) {
 	u, err := wsURL(relay, PhonePath, url.Values{"room": {room}})
 	if err != nil {
 		return nil, err
 	}
-	c, _, err := websocket.Dial(ctx, u, nil)
+	var opts *websocket.DialOptions
+	if ticket != "" {
+		opts = &websocket.DialOptions{HTTPHeader: http.Header{TicketHeader: {ticket}}}
+	}
+	c, res, err := websocket.Dial(ctx, u, opts)
 	if err != nil {
+		if res != nil && res.StatusCode == http.StatusUnauthorized {
+			return nil, errors.New("the relay refused the ticket")
+		}
 		return nil, err
 	}
 	c.SetReadLimit(maxMessage)
@@ -229,12 +247,24 @@ func (k *Socket) Send(ctx context.Context, text string) error {
 	return k.s.out.send(ctx, Frame{T: "wm", ID: k.id, D: text})
 }
 
-// Recv waits for the socket's next message.
+// Recv waits for the socket's next message. Messages that came before the
+// socket closed are still given, in order: a script's exit status is its
+// last message, sent just before the close.
 func (k *Socket) Recv(ctx context.Context) (string, error) {
 	select {
 	case m := <-k.msgs:
 		return m, nil
+	default:
+	}
+	select {
+	case m := <-k.msgs:
+		return m, nil
 	case <-k.done:
+		select {
+		case m := <-k.msgs:
+			return m, nil
+		default:
+		}
 		return "", fmt.Errorf("the socket closed (%d)", k.code)
 	case <-ctx.Done():
 		return "", ctx.Err()

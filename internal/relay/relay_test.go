@@ -750,3 +750,39 @@ func TestConnectedMeansAPhoneFindsIt(t *testing.T) {
 		s.Close()
 	}
 }
+
+// TestDialTicket: a ticket travels to the relay in its header; one the
+// relay refuses is said as such; a relay of conch's own ignores it.
+func TestDialTicket(t *testing.T) {
+	f := newFixture(t)
+	var seen sync.Map
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == PhonePath {
+			tk := r.Header.Get(TicketHeader)
+			seen.Store(tk, true)
+			if tk != "cct_good" {
+				http.Error(w, "no ticket", http.StatusUnauthorized)
+				return
+			}
+		}
+		f.srv.ServeHTTP(w, r)
+	}))
+	defer gate.Close()
+	s, err := DialTicket(ctx10(t), gate.URL, f.link.Room(), "cct_good", f.link.Key.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	if _, ok := seen.Load("cct_good"); !ok {
+		t.Fatal("the ticket did not reach the relay")
+	}
+	if _, err := DialTicket(ctx10(t), gate.URL, f.link.Room(), "cct_bad", f.link.Key.Public); err == nil || !strings.Contains(err.Error(), "refused the ticket") {
+		t.Fatalf("a bad ticket: %v", err)
+	}
+	// conch's own relay takes a ticket it has no use for.
+	s, err = DialTicket(ctx10(t), f.relay.URL, f.link.Room(), "cct_any", f.link.Key.Public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+}
