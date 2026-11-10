@@ -81,6 +81,8 @@ func runCloudAgent(args []string) error {
 		}
 		opts.User = u
 	}
+	flags, prefix := log.Flags(), log.Prefix()
+	defer func() { log.SetFlags(flags); log.SetPrefix(prefix) }()
 	log.SetFlags(log.LstdFlags | log.LUTC)
 	log.SetPrefix("conch-cloud-agent ")
 	a, err := cloudagent.New(opts)

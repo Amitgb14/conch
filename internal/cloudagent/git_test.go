@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -122,8 +123,9 @@ func TestGitCredentialHelper(t *testing.T) {
 	if err := GitCredential([]string{"-socket", r.opts.AgentSocket, "store"}, strings.NewReader("password=x\n\n"), &out); err != nil || out.Len() != 0 {
 		t.Fatalf("store: %q %v", out.String(), err)
 	}
-	if err := GitCredential([]string{"get"}, strings.NewReader(""), &out); err == nil {
-		t.Fatal("no agent at the default socket, and no error")
+	// Never the default socket: on a cloud machine that is the real agent.
+	if err := GitCredential([]string{"-socket", filepath.Join(t.TempDir(), "none.sock"), "get"}, strings.NewReader(""), &out); err == nil {
+		t.Fatal("no agent on the socket, and no error")
 	}
 	if err := GitCredential(nil, strings.NewReader(""), &out); err == nil {
 		t.Fatal("no operation: no error")
