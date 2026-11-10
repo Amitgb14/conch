@@ -107,6 +107,27 @@ func encryptPush(payload []byte, keys PushKeys, asKey *ecdh.PrivateKey, salt []b
 	return body.Bytes(), nil
 }
 
+// EncryptPush encrypts payload for one subscription (RFC 8291 aes128gcm, one
+// record) with a key and salt of its own: what the gateway sends a push
+// service, and what a Conch Cloud machine hands the control plane to
+// deliver (cloudagent; PROTOCOL §8). The body is 103 bytes longer than
+// payload.
+func EncryptPush(payload []byte, keys PushKeys) ([]byte, error) {
+	asKey, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	return encryptPush(payload, keys, asKey, salt)
+}
+
+// PushOverhead is what EncryptPush adds to a payload: the salt, record
+// size and key in the header, the record's delimiter and its tag.
+const PushOverhead = 16 + 4 + 1 + 65 + 1 + 16
+
 // vapidSubject is who the push service can reach about this sender. There
 // is no one person behind every conch, so it names the project; Apple
 // requires one to be given.
@@ -191,15 +212,7 @@ func sendPush(ctx context.Context, hc *http.Client, key *ecdh.PrivateKey, sub Pu
 	if err != nil {
 		return err
 	}
-	asKey, err := ecdh.P256().GenerateKey(rand.Reader)
-	if err != nil {
-		return err
-	}
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		return err
-	}
-	body, err := encryptPush(payload, sub.Keys, asKey, salt)
+	body, err := EncryptPush(payload, sub.Keys)
 	if err != nil {
 		return err
 	}
