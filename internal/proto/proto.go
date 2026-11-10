@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -132,7 +132,7 @@ const CapWorktreeWatch = "worktree.watch.v1"
 // make the server look old: that server was shown as needing a reload for
 // ever, and reloading it changes nothing. A client that relies on one asks
 // for it by name, as it would any other.
-var OptionalCapabilities = []string{CapWorktreeWatch, CapLibraryKeychain}
+var OptionalCapabilities = []string{CapWorktreeWatch, CapLibraryKeychain, CapCloudAgent}
 
 // BuildCapabilities is what every server of this build announces: Capabilities
 // without the optional ones. A server lacking any of these is from an older
@@ -308,6 +308,14 @@ const CapGroupTask = "group.task.v1"
 // CONCH-TASK.md.
 const CapGroupTaskMerge = "group.task.merge.v1"
 
+// CapCloudAgent says the server runs inside a Conch Cloud machine, with
+// `conch cloud agent` beside it (cloud.agent.register): an agent it starts
+// is given the account's env-mode secrets, which the cloud agent fetches
+// for that start and nobody writes down. Only a server with a cloud agent
+// registered announces it, so it is optional: every other server of this
+// build leaves it out.
+const CapCloudAgent = "cloud.agent.v1"
+
 // CapReviewSendTo is review.send's Pane and New: the notes handed to the
 // agent picked, or to a new one, rather than whichever is first on the
 // branch — a branch like the base can have a dozen.
@@ -381,12 +389,17 @@ const (
 	// MethodGroupTaskMerge arms (or with Stop, disarms) Merge All When
 	// Green on a task (CapGroupTaskMerge): GroupTaskMergeParams → GroupTask.
 	MethodGroupTaskMerge = "group.task.merge"
-	MethodProjectList    = "project.list"
-	MethodProjectAdd     = "project.add"
-	MethodProjectRemove  = "project.remove"
-	MethodProjectRefresh = "project.refresh"
-	MethodProjectChanges = "project.changes"
-	MethodProjectDiff    = "project.diff"
+	// MethodCloudAgentRegister is conch cloud agent telling the server
+	// where to ask for an agent's secrets (CapCloudAgent):
+	// CloudAgentRegisterParams → CloudAgentRegisterResult. It lasts as long
+	// as the connection that made it.
+	MethodCloudAgentRegister = "cloud.agent.register"
+	MethodProjectList        = "project.list"
+	MethodProjectAdd         = "project.add"
+	MethodProjectRemove      = "project.remove"
+	MethodProjectRefresh     = "project.refresh"
+	MethodProjectChanges     = "project.changes"
+	MethodProjectDiff        = "project.diff"
 	// MethodProjectLog is a project's history for a commit graph
 	// (CapProjectLog).
 	MethodProjectLog = "project.log"
@@ -2842,4 +2855,39 @@ func Marshal(v any) json.RawMessage {
 		panic(fmt.Sprintf("proto: marshal %T: %v", v, err))
 	}
 	return b
+}
+
+// CloudAgentRegisterParams names the cloud agent's own socket, where the
+// server asks for secrets with a CloudAgentAsk.
+type CloudAgentRegisterParams struct {
+	Socket string `json:"socket"`
+}
+
+// CloudAgentRegisterResult is the server's capabilities once the cloud
+// agent is registered, which the agent reports to the control plane.
+type CloudAgentRegisterResult struct {
+	Capabilities []string `json:"capabilities"`
+}
+
+// CloudAgentAsk is one line asked of the cloud agent's socket, answered by
+// one CloudAgentAnswer line.
+type CloudAgentAsk struct {
+	// Op is "env" (the env-mode secrets, for an agent being started) or
+	// "git-credential" (the machine token, for git's credential helper).
+	Op string `json:"op"`
+}
+
+// What a CloudAgentAsk may ask.
+const (
+	CloudAskEnv           = "env"
+	CloudAskGitCredential = "git-credential"
+)
+
+// CloudAgentAnswer is the cloud agent's answer: Env for env, Username and
+// Password for git-credential, Error when it has none to give.
+type CloudAgentAnswer struct {
+	Env      map[string]string `json:"env,omitempty"`
+	Username string            `json:"username,omitempty"`
+	Password string            `json:"password,omitempty"`
+	Error    string            `json:"error,omitempty"`
 }

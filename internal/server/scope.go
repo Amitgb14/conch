@@ -121,6 +121,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
+	// The cloud agent decides what every agent's environment is given.
+	proto.MethodCloudAgentRegister: scopeServer,
 
 	proto.MethodAgentSkill: scopeHome,
 	// Downloading into the person's library is theirs to do.
@@ -353,7 +355,8 @@ var verbs = map[string]string{
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
-	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
+	proto.MethodCloudAgentRegister: "register a cloud agent with",
+	proto.MethodProjectRemove:      "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
