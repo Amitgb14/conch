@@ -264,8 +264,9 @@ Usage:
                                 runs inside a Conch Cloud machine, started by its host (the
                                 conch-cloud-agent systemd unit): reads boot.json (root-only,
                                 0600), says hello to the control plane, starts this machine's
-                                conch server as -user (conch when root), and reports what its
-                                agents do so the machine sleeps when idle.
+                                conch server as -user (conch when root), reports what its
+                                agents do so the machine sleeps when idle, and joins the relay
+                                so clients reach the server through an end-to-end tunnel.
                                 Exits 3 when the control plane refuses its token
   conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code

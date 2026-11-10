@@ -57,6 +57,7 @@ type Agent struct {
 	busy      bool
 	link      *relay.Link
 	linkStop  context.CancelFunc
+	linkDone  chan struct{}
 	linkKey   string
 	gitProxy  string
 	helloMu   sync.Mutex
