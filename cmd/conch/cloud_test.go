@@ -18,6 +18,7 @@ func TestCloudCommandRefuses(t *testing.T) {
 		{[]string{"nope"}, `unknown cloud subcommand "nope"`},
 		{[]string{"agent", "extra"}, "takes no arguments"},
 		{[]string{"agent", "-user", "no-such-user-here"}, "the machine's user no-such-user-here"},
+		{[]string{"git-credential"}, "usage: conch cloud git-credential"},
 	} {
 		err := runCloud(c.args)
 		if err == nil || !strings.Contains(err.Error(), c.want) {

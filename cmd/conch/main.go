@@ -268,6 +268,9 @@ Usage:
                                 agents do so the machine sleeps when idle, and joins the relay
                                 so clients reach the server through an end-to-end tunnel.
                                 Exits 3 when the control plane refuses its token
+  conch cloud git-credential [-socket PATH] get
+                                git's credential helper on a Conch Cloud machine: the machine
+                                token for the git proxy, asked of the cloud agent
   conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or

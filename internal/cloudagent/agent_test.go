@@ -35,6 +35,14 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
+	// git runs this binary as its credential helper.
+	if len(os.Args) > 2 && os.Args[1] == "cloud" && os.Args[2] == "git-credential" {
+		if err := GitCredential(os.Args[3:], os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if os.Getenv("CLOUDAGENT_HELPER") == "keys" {
 		keysHelper()
 		os.Exit(0)

@@ -20,13 +20,15 @@ import (
 // unit, or the inject script without systemd).
 func runCloud(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: conch cloud agent [flags]")
+		return errors.New("usage: conch cloud agent [flags] | conch cloud git-credential get")
 	}
 	switch args[0] {
 	case "agent":
 		return runCloudAgent(args[1:])
+	case "git-credential":
+		return cloudagent.GitCredential(args[1:], os.Stdin, os.Stdout)
 	}
-	return fmt.Errorf("unknown cloud subcommand %q (agent)", args[0])
+	return fmt.Errorf("unknown cloud subcommand %q (agent, git-credential)", args[0])
 }
 
 // cloudAgentExit is the agent's exit, a variable so a test can see it.
