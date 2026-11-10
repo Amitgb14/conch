@@ -1199,10 +1199,8 @@ struct NodeView: View {
         case .files(let pk): store.openFiles(project: pk)
         case .more(let pk, _): store.toggleAllBranches(pk)
         case .savedHost(let h): store.connectSaved(h)
-        // A task across repos: its agent, when there is one to show.
-        case .groupTask(let m, let g, let b):
-            if let p = store.groupTask(m, g, b)?.panes?.first(where: { store.pane(key(m, $0)) != nil }) { store.open(key(m, p)) }
-            else { withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) } }
+        // A task across repos: its page, every repo on it.
+        case .groupTask(let m, let g, let b): store.openTask(m, g, b)
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
@@ -1649,6 +1647,7 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let t = parseTaskKey(tab.focused) { return "\(t.branch) · \(t.group)" }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
             if !t.isEmpty { return t }
@@ -1680,6 +1679,8 @@ struct TabButton: View {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
                     LucideIcon(name: .globe, color: Theme.accent, size: 12)
+                } else if parseTaskKey(tab.focused) != nil {
+                    LucideIcon("layout-grid", color: Theme.accent, size: 12)
                 } else if changes == nil {
                     LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
                 } else {
@@ -1813,6 +1814,8 @@ struct SplitArea: View {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
                 BrowserView(model: store.browser(for: id)).id(id)
+            } else if parseTaskKey(id) != nil {
+                TaskPageView(store: store, key: id).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.

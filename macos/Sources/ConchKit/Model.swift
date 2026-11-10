@@ -673,7 +673,7 @@ extension Snapshot {
         }
         let mine = shown.filter { ids.contains($0.id) || ($0.projectID.map(t.projects.contains) ?? false) && $0.branch == t.branch }
         return TreeNode(id: "gt:\(machine):\(group):\(t.branch)", kind: .groupTask(machine: machine, group: group, branch: t.branch),
-                        title: t.branch, detail: "\(t.projects.count) repos", badge: attention(mine), children: agents + repos,
+                        title: t.branch, detail: t.merge?.state == "merged" ? "merged" : "\(t.projects.count) repos", badge: attention(mine), children: agents + repos,
                         fold: "gt:\(machine):\(group):\(t.branch)")
     }
 

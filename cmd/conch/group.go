@@ -26,6 +26,11 @@ const groupUsage = `usage: conch group [ls [-json]]
        conch group tasks NAME                 its tasks, their repos, folder and agents
        conch group task-rm NAME BRANCH        forget a task and remove its folder; the worktrees
                                               and branches stay
+       conch group merge [-order P,P] [-remove] NAME BRANCH
+                                              merge every pull request of a task once all are green,
+                                              in that order (-remove: then the task, its worktrees and
+                                              branches); the server waits, with no client open
+       conch group merge -stop NAME BRANCH    stop waiting to merge them
 A PROJECT is its ID, its name or its folder, as conch project ls lists them.`
 
 // runGroup is conch group: projects the person keeps together because
@@ -37,7 +42,7 @@ func runGroup(args []string) error {
 		args = []string{"ls"}
 	}
 	switch args[0] {
-	case "ls", "list", "add", "rm", "remove", "rename", "notes", "task", "tasks", "task-rm":
+	case "ls", "list", "add", "rm", "remove", "rename", "notes", "task", "tasks", "task-rm", "merge":
 	default:
 		return unknownSubcommand("group", args[0])
 	}
@@ -165,11 +170,15 @@ func runGroup(args []string) error {
 			return nil
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "BRANCH\tREPOS\tAGENTS\tFOLDER")
+		fmt.Fprintln(tw, "BRANCH\tREPOS\tAGENTS\tMERGE\tFOLDER")
 		for _, t := range g.Tasks {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", t.Branch, strings.Join(projectNames(t.Projects, projects.Projects), ", "), strings.Join(t.Panes, ","), t.Folder)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.Branch, strings.Join(projectNames(t.Projects, projects.Projects), ", "), strings.Join(t.Panes, ","),
+				mergeWord(t.Merge), t.Folder)
 		}
 		return tw.Flush()
+
+	case "merge":
+		return runGroupMerge(c, args[1:], projects.Projects)
 
 	case "task-rm":
 		if len(args) != 3 {
@@ -290,4 +299,63 @@ func runGroupTask(c *client.Client, args []string, projects []proto.ProjectInfo)
 		fmt.Println(pane.ID)
 	}
 	return nil
+}
+
+// runGroupMerge is conch group merge: Merge All When Green on a task.
+func runGroupMerge(c *client.Client, args []string, projects []proto.ProjectInfo) error {
+	fs := flag.NewFlagSet("group merge", flag.ContinueOnError)
+	order := fs.String("order", "", "the order to merge in, every repo of the task by name, folder or ID, comma-separated (default: the task's)")
+	remove := fs.Bool("remove", false, "once all are merged, remove the task, its worktrees and branches")
+	stop := fs.Bool("stop", false, "stop waiting to merge")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New(groupUsage)
+	}
+	if len(c.MissingCapabilities([]string{proto.CapGroupTaskMerge})) > 0 {
+		return errors.New("this server predates merging a task's pull requests (group.task.merge.v1): reload it with conch server reload")
+	}
+	p := proto.GroupTaskMergeParams{Group: fs.Arg(0), Branch: fs.Arg(1), RemoveTask: *remove, Stop: *stop}
+	if *order != "" {
+		for _, w := range strings.Split(*order, ",") {
+			id, err := pickProject(strings.TrimSpace(w), projects)
+			if err != nil {
+				return err
+			}
+			p.Order = append(p.Order, id)
+		}
+	}
+	var t proto.GroupTask
+	if err := call(c, proto.MethodGroupTaskMerge, p, &t); err != nil {
+		return err
+	}
+	if *stop {
+		fmt.Printf("%s: no longer waiting to merge\n", t.Branch)
+		return nil
+	}
+	fmt.Printf("%s: merges %s once every pull request is green\n", t.Branch, strings.Join(projectNames(mergeOrder(t), projects), ", then "))
+	return nil
+}
+
+func mergeOrder(t proto.GroupTask) []string {
+	if t.Merge != nil && len(t.Merge.Order) > 0 {
+		return t.Merge.Order
+	}
+	return t.Projects
+}
+
+// mergeWord is where a task's Merge All stands, for conch group tasks.
+func mergeWord(m *proto.GroupTaskMerge) string {
+	if m == nil {
+		return "-"
+	}
+	w := m.State
+	if m.State == proto.MergeWaiting || m.State == proto.MergeMerging {
+		w += fmt.Sprintf(" (%d of %d merged)", len(m.Merged), len(m.Order))
+	}
+	if m.Why != "" {
+		w += ": " + m.Why
+	}
+	return w
 }

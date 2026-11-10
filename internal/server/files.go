@@ -132,6 +132,12 @@ func (s *Server) checkoutRoot(root string) (string, *proto.Error) {
 			}
 		}
 	}
+	// A task's folder too, so its brief can be read and edited: its links
+	// lead out of it, which confine refuses, so CONCH-TASK.md is all of it
+	// that is reached this way.
+	if s.groups != nil && s.groups.isTaskFolder(root, real) {
+		return root, nil
+	}
 	return "", proto.Errorf(proto.ErrBadRequest, "%s is not a project or one of its worktrees", root)
 }
 

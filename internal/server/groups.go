@@ -39,6 +39,9 @@ type groupBook struct {
 
 	mu     sync.Mutex
 	groups []savedGroup
+	// merging is the tasks whose pull request is being merged now
+	// (group\x00branch), so a tick does not start a second merge.
+	merging map[string]bool
 }
 
 type savedGroup struct {
@@ -50,12 +53,13 @@ type savedGroup struct {
 
 // savedTask is a task across the group's repos, its projects by folder.
 type savedTask struct {
-	Branch   string    `json:"branch"`
-	Folder   string    `json:"folder"`
-	Projects []string  `json:"projects"`
-	Panes    []string  `json:"panes,omitempty"`
-	Each     bool      `json:"each,omitempty"`
-	Created  time.Time `json:"created"`
+	Branch   string      `json:"branch"`
+	Folder   string      `json:"folder"`
+	Projects []string    `json:"projects"`
+	Panes    []string    `json:"panes,omitempty"`
+	Each     bool        `json:"each,omitempty"`
+	Created  time.Time   `json:"created"`
+	Merge    *savedMerge `json:"merge,omitempty"`
 }
 
 type groupsFile struct {
@@ -107,8 +111,7 @@ func (g *groupBook) list() proto.GroupList {
 	for _, sg := range g.groups {
 		info := proto.GroupInfo{Name: sg.Name, Notes: sg.Notes, Projects: g.ids(sg.Projects)}
 		for _, t := range sg.Tasks {
-			info.Tasks = append(info.Tasks, proto.GroupTask{Branch: t.Branch, Folder: t.Folder, Projects: g.ids(t.Projects),
-				Panes: t.Panes, Each: t.Each, Created: t.Created})
+			info.Tasks = append(info.Tasks, g.taskInfo(t))
 		}
 		if len(info.Projects) > 0 {
 			out.Groups = append(out.Groups, info)
@@ -459,7 +462,11 @@ func taskBrief(tp proto.GroupTaskParams, notes string, projects []*project, name
 	fmt.Fprintf(&b, "# %s — a task across %s\n\n%s\n\n## Repos\n\n", tp.Branch, tp.Group, strings.TrimSpace(tp.Prompt))
 	for i, p := range projects {
 		info := p.snapshot()
-		fmt.Fprintf(&b, "- `%s/` — %s, branch `%s` from `%s`; its worktree is %s\n", names[i], info.Name, tp.Branch, info.Base, paths[i])
+		from := "" // not read yet when the project was added a moment ago
+		if info.Base != "" {
+			from = fmt.Sprintf(" from `%s`", info.Base)
+		}
+		fmt.Fprintf(&b, "- `%s/` — %s, branch `%s`%s; its worktree is %s\n", names[i], info.Name, tp.Branch, from, paths[i])
 	}
 	if strings.TrimSpace(notes) != "" {
 		fmt.Fprintf(&b, "\n## Notes for the agents\n\n%s\n", strings.TrimSpace(notes))

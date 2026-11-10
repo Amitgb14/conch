@@ -20,6 +20,7 @@ type groupFake struct {
 	gone     []string
 	tasks    []proto.GroupTaskParams
 	taskGone []proto.GroupTaskRef
+	merges   []proto.GroupTaskMergeParams
 }
 
 func startGroupFake(t *testing.T, groups ...proto.GroupInfo) *groupFake {
@@ -56,6 +57,15 @@ func startGroupFake(t *testing.T, groups ...proto.GroupInfo) *groupFake {
 			}
 			return proto.GroupTaskResult{Task: proto.GroupTask{Branch: "add-search", Folder: "/h/tasks/clinic/add-search", Projects: ids, Panes: []string{"p7"}},
 				Panes: []proto.PaneInfo{{ID: "p7"}}}, nil
+		case proto.MethodGroupTaskMerge:
+			var p proto.GroupTaskMergeParams
+			json.Unmarshal(msg.Params, &p)
+			f.merges = append(f.merges, p)
+			order := p.Order
+			if len(order) == 0 {
+				order = []string{"r1", "r2"}
+			}
+			return proto.GroupTask{Branch: p.Branch, Projects: []string{"r1", "r2"}, Merge: &proto.GroupTaskMerge{Order: order, State: proto.MergeWaiting}}, nil
 		case proto.MethodGroupTaskRemove:
 			var r proto.GroupTaskRef
 			json.Unmarshal(msg.Params, &r)
@@ -227,5 +237,46 @@ func TestGroupTask(t *testing.T) {
 	out, _ = a4Capture(t, "", func() { err = runGroup([]string{"task-rm", "clinic", "add-search"}) })
 	if err != nil || !strings.Contains(out, "keeps its worktree") || len(f.taskGone) != 1 || f.taskGone[0] != (proto.GroupTaskRef{Group: "clinic", Branch: "add-search"}) {
 		t.Fatalf("%v %q %+v", err, out, f.taskGone)
+	}
+}
+
+// group merge arms Merge All When Green with the order given by name, or
+// the task's own, says the order, and -stop disarms it; tasks says where
+// it stands.
+func TestGroupMerge(t *testing.T) {
+	f := startGroupFake(t, proto.GroupInfo{Name: "clinic", Projects: []string{"r1", "r2"},
+		Tasks: []proto.GroupTask{{Branch: "add-search", Projects: []string{"r1", "r2"},
+			Merge: &proto.GroupTaskMerge{Order: []string{"r2", "r1"}, Merged: []string{"r2"}, State: proto.MergeWaiting, Why: "spring #4 is waiting on its checks"}}}})
+	var err error
+	out, _ := a4Capture(t, "", func() {
+		err = runGroup([]string{"merge", "-order", "angular-clinic,spring", "-remove", "clinic", "add-search"})
+	})
+	if err != nil || !strings.Contains(out, "add-search: merges angular-clinic, then spring once every pull request is green") {
+		t.Fatalf("%v %q", err, out)
+	}
+	out, _ = a4Capture(t, "", func() { err = runGroup([]string{"merge", "clinic", "add-search"}) })
+	if err != nil || !strings.Contains(out, "merges spring, then angular-clinic") {
+		t.Fatalf("the task's own order: %v %q", err, out)
+	}
+	out, _ = a4Capture(t, "", func() { err = runGroup([]string{"merge", "-stop", "clinic", "add-search"}) })
+	if err != nil || !strings.Contains(out, "no longer waiting") {
+		t.Fatalf("%v %q", err, out)
+	}
+	f.mu.Lock()
+	got := slices.Clone(f.merges)
+	f.mu.Unlock()
+	if len(got) != 3 || !slices.Equal(got[0].Order, []string{"r2", "r1"}) || !got[0].RemoveTask || got[0].Group != "clinic" || got[0].Branch != "add-search" ||
+		len(got[1].Order) != 0 || got[1].RemoveTask || !got[2].Stop {
+		t.Fatalf("%+v", got)
+	}
+	if err := runGroup([]string{"merge", "clinic"}); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("no branch: %v", err)
+	}
+	if err := runGroup([]string{"merge", "-order", "nope", "clinic", "add-search"}); err == nil {
+		t.Fatal("an unknown repo was taken")
+	}
+	out, _ = a4Capture(t, "", func() { err = runGroup([]string{"tasks", "clinic"}) })
+	if err != nil || !strings.Contains(out, "waiting (1 of 2 merged): spring #4 is waiting on its checks") {
+		t.Fatalf("%v %q", err, out)
 	}
 }

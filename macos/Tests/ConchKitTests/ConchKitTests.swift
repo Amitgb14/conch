@@ -3235,9 +3235,10 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(s.groupTask(of: "p9")?.task.branch == "add-search" && s.groupTask(of: "p3") == nil)
 
     let tm = s.menu(for: t, machine: "box")
-    #expect(tm.map(\.title) == ["Open Its Agent", "Push add-search in Every Repo", "Open Pull Requests in Every Repo…", "",
+    #expect(tm.map(\.title) == ["Open Task Page", "Open Its Agent", "Push add-search in Every Repo", "Open Pull Requests in Every Repo…", "",
                                 "Copy Task Folder", "", "Remove Task (Branches Stay)…"])
-    #expect(tm[1].action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(tm[0].action == .openGroupTask(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(tm[2].action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search"))
     #expect(tm.last?.action == .removeGroupTask(machine: "box", group: "clinic", branch: "add-search"))
     #expect(s.menu(for: t, machine: "local").contains { $0.action == .reveal("/h/tasks/clinic/add-search") })
     #expect(!s.menu(for: t, machine: "box", machineOnline: false).contains { $0.action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search") })
@@ -3249,4 +3250,109 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
 @Test func groupTaskDecodes() throws {
     let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"c","projects":["r1"],"tasks":[{"branch":"b","folder":"/f","projects":["r1"],"panes":["p1"],"created":"2026-11-10T00:00:00Z"}]}]}"#.utf8))
     #expect(l.groups?.first?.tasks == [GroupTask(branch: "b", folder: "/f", projects: ["r1"], panes: ["p1"])])
+}
+
+
+// A task page's key carries its machine, group and branch, either of which
+// may hold a "|" or a "%"; it is a page, not a pane, on its machine, and
+// the sidebar follows it to the task's row.
+@Test func taskPageKeys() {
+    for (g, b) in [("clinic", "add-search"), ("a|b", "feat/x|y"), ("50%", "%7C")] {
+        let k = taskKey("box", g, b)
+        let back = parseTaskKey(k)
+        #expect(back?.machine == "box" && back?.group == g && back?.branch == b)
+        #expect(!isPaneKey(k) && !isTerminalKey(k) && machine(ofKey: k) == "box")
+    }
+    #expect(treeRow(forTab: taskKey("box", "clinic", "add-search")) == "gt:box:clinic:add-search")
+    for bad in ["task|box|clinic", "task||clinic|b", "task|box||b", "task|box|g|", "changes|box|r1|b", "box|p1"] {
+        #expect(parseTaskKey(bad) == nil, "\(bad)")
+    }
+}
+
+// Each repo of a task as its card says it — base and how far ahead,
+// uncommitted, pull request, pushing — in Merge All's order once armed,
+// a repo the order leaves out last and one no longer here left out; and
+// the line under the task's name.
+@Test func taskReposAndHeadline() {
+    func repo(_ id: String, _ name: String, pr: PRInfo?, ahead: Int, files: Int = 0, upstream: Bool = true, unpushed: Int = 0, checkedOut: Bool = true) -> ProjectInfo {
+        var p = ProjectInfo(id: id, name: name, path: "/" + name)
+        p.base = "main"
+        var b = BranchInfo(name: "feat", baseAhead: ahead)
+        b.pr = pr
+        if upstream { b.upstream = "origin/feat"; b.ahead = unpushed }
+        p.branches = [BranchInfo(name: "main"), b]
+        var wt = WorktreeInfo(path: "/\(name)-feat", branch: "feat")
+        wt.status = GitStatus(files: files, added: files * 10, deleted: files)
+        p.worktrees = [WorktreeInfo(path: "/" + name, branch: "main", main: true)] + (checkedOut ? [wt] : [])
+        return p
+    }
+    var green = PRInfo(number: 88, state: "OPEN", checks: "pass")
+    green.review = "APPROVED"
+    let s = Snapshot(projects: [repo("r1", "spring", pr: green, ahead: 4),
+                                repo("r2", "web", pr: PRInfo(number: 41, state: "OPEN", checks: "pending"), ahead: 3, files: 2, unpushed: 1),
+                                repo("r3", "specs", pr: nil, ahead: 1, upstream: false)])
+    let t = GroupTask(branch: "feat", folder: "/t", projects: ["r1", "r2", "r3", "gone"])
+    let rs = s.taskRepos(t)
+    #expect(rs.map(\.name) == ["spring", "web", "specs"])
+    #expect(rs[0].line == "into main · ↑4 · clean" && rs[0].pushLine == "up to date with its upstream" && rs[0].pr?.number == 88)
+    #expect(rs[1].line == "into main · ↑3 · 2 uncommitted" && rs[1].pushLine == "1 commit not pushed" && rs[1].added == 20 && rs[1].deleted == 2)
+    #expect(rs[2].line == "into main · ↑1 · clean" && rs[2].pushLine == "not pushed" && rs[2].unpushed == nil)
+    #expect(taskHeadline(rs) == "2 of 3 pull requests open · checks: 1 passed, 1 running · 2 files uncommitted")
+
+    // Armed in another order, specs merged: specs first, web left out of
+    // the order comes last, and the headline counts what merged.
+    var armed = t
+    armed.merge = GroupTaskMerge(order: ["r3", "r1"], merged: ["r3"], state: "merging")
+    let ordered = s.taskRepos(armed)
+    #expect(ordered.map(\.name) == ["specs", "spring", "web"] && ordered[0].merged && ordered[0].line == "into main · ↑1 · merged")
+    #expect(taskHeadline(ordered) == "2 of 3 pull requests open · 1 merged · checks: 1 passed, 1 running · 2 files uncommitted")
+    #expect(mergeBanner(armed.merge, repos: ordered)! == ("Merging — 1 of 3 merged; spring #88 next.", .merging))
+
+    // A pull request GitHub says is merged counts, merged by hand or not.
+    var byHand = s
+    byHand.projects[1].branches![1].pr = PRInfo(number: 41, state: "MERGED", checks: "pass")
+    #expect(byHand.taskRepos(t)[1].merged && byHand.taskRepos(t)[1].pushLine == "merged")
+
+    // Not checked out; nothing here; everything merged.
+    let away = Snapshot(projects: [repo("r1", "spring", pr: nil, ahead: 0, upstream: false, checkedOut: false)])
+    let one = away.taskRepos(GroupTask(branch: "feat", folder: "/t", projects: ["r1"]))
+    #expect(one[0].line == "into main · not checked out" && taskHeadline(one) == "no pull requests yet")
+    #expect(taskHeadline([]) == "none of its repos are here")
+    var done = rs
+    for i in done.indices { done[i].merged = true }
+    #expect(taskHeadline(done) == "all 3 merged")
+    var failing = rs
+    failing[1].pr?.checks = "fail"
+    #expect(taskHeadline(failing).contains("checks: 1 passed, 1 failed"))
+}
+
+// What the banner says of Merge All in each state, and nothing when it
+// was never armed.
+@Test func mergeBanners() {
+    let rs = [TaskRepo(id: "r1", name: "spring"), TaskRepo(id: "r2", name: "web")]
+    #expect(mergeBanner(nil, repos: rs) == nil)
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "waiting"), repos: rs)! == ("Armed: merges all 2 in order once every pull request is green.", .waiting))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "waiting", why: "web #2 has a failing check"), repos: rs)!
+        == ("Waiting: web #2 has a failing check, so nothing is merged yet.", .held))
+    var one = rs
+    one[0].merged = true
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "merging", why: "web: its pull request is a draft"), repos: one)!
+        == ("Merging, 1 of 2 merged — waiting: web: its pull request is a draft.", .held))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "merging"), repos: one)! == ("Merging — 1 of 2 merged; web next.", .merging))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "stopped", why: "GitHub would not merge web #9: no"), repos: one)!
+        == ("Merge All stopped: GitHub would not merge web #9: no.", .stopped))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "merged"), repos: rs)! == ("All 2 merged.", .merged))
+    #expect(GroupTaskMerge(order: [], state: "waiting").armed && GroupTaskMerge(order: [], state: "merging").armed)
+    #expect(!GroupTaskMerge(order: [], state: "stopped").armed && !GroupTaskMerge(order: [], state: "merged").armed)
+}
+
+// A task's Merge All decodes from the server, and a task without one (an
+// older server) still does; the sidebar says a task all merged is merged.
+@Test func groupTaskMergeDecodes() throws {
+    let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"c","projects":["r1"],"tasks":[{"branch":"b","folder":"/f","projects":["r1"],"created":"2026-11-10T00:00:00Z","merge":{"order":["r1"],"merged":["r1"],"state":"merged","remove_task":true,"armed":"2026-11-10T00:00:00Z"}}]}]}"#.utf8))
+    let t = try #require(l.groups?.first?.tasks?.first)
+    #expect(t.merge == GroupTaskMerge(order: ["r1"], merged: ["r1"], state: "merged", removeTask: true))
+    let s = Snapshot(projects: [ProjectInfo(id: "r1", name: "spring", path: "/s")], groups: [GroupInfo(name: "c", projects: ["r1"], tasks: [t])])
+    let task = s.tree(machine: "local").children!.first { $0.kind == .workspace("local") }!.children![0].children![0]
+    #expect(task.kind == .groupTask(machine: "local", group: "c", branch: "b") && task.detail == "merged")
 }
