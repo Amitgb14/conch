@@ -72,6 +72,19 @@ func (a *Agent) stopLink() {
 	}
 }
 
+// TunnelHandler is what a machine serves inside the tunnel — /bridge to
+// the conch server at opts.ServerSocket, /exec as opts.User — without the
+// rest of an agent. conch's client side (internal/cloud) tests itself
+// against it, so the gateway it is checked against is the machine's own
+// and not a copy that could drift from it.
+func TunnelHandler(opts Options) (http.Handler, error) {
+	a, err := New(opts)
+	if err != nil {
+		return nil, err
+	}
+	return a.tunnelHandler(), nil
+}
+
 // tunnelHandler is what the tunnel's sockets reach.
 func (a *Agent) tunnelHandler() http.Handler {
 	mux := http.NewServeMux()
