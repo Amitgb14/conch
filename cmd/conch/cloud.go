@@ -14,15 +14,16 @@ import (
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
-// conch cloud: what runs inside a Conch Cloud machine. The commands for
-// using Conch Cloud from a laptop (login, machines) come later; `agent` is
-// the machine's side, started by its host (systemd's conch-cloud-agent
-// unit, or the inject script without systemd).
+// conch cloud: Conch Cloud's machines from this device (machine, bridge,
+// exec), and what runs inside one (agent, install, git-credential), which
+// its host starts.
 func runCloud(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: conch cloud agent [flags] | conch cloud install [-user NAME] | conch cloud git-credential get")
+		return errors.New("usage: conch cloud machine ls|new|rm|wake|sleep|forget-key … | conch cloud agent [flags] | conch cloud install [-user NAME] | conch cloud git-credential get")
 	}
 	switch args[0] {
+	case "machine", "machines":
+		return runCloudMachine(args[1:])
 	case "agent":
 		return runCloudAgent(args[1:])
 	case "install":
@@ -30,7 +31,7 @@ func runCloud(args []string) error {
 	case "git-credential":
 		return cloudagent.GitCredential(args[1:], os.Stdin, os.Stdout)
 	}
-	return fmt.Errorf("unknown cloud subcommand %q (agent, install, git-credential)", args[0])
+	return fmt.Errorf("unknown cloud subcommand %q (machine, agent, install, git-credential)", args[0])
 }
 
 // runCloudInstall readies a machine image: the agent's systemd unit,

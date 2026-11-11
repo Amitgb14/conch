@@ -260,6 +260,20 @@ Usage:
                                 phones and computers to meet at; it forwards what it can't
                                 read and stores nothing, but serves the phone's app, so
                                 use only a relay you trust as you trust the computer
+  conch login [-no-browser] [-json] [-api URL]
+                                sign this device in to Conch Cloud: prints a code, opens
+                                the page to approve it, and waits. The server is
+                                CONCH_CLOUD_URL, else [cloud] api in config.toml, else
+                                Conch Cloud; -json says each step as a line of JSON
+  conch logout                  sign this device out of Conch Cloud (revokes its sign-in)
+  conch account [-json]         who is signed in, the plan, this month's hours and
+                                storage, and the account's devices
+  conch cloud machine ls [-json] | new NAME [-size S] [-region R] [-provider ID] [-wait]
+                                the account's cloud machines, or make one
+  conch cloud machine wake|sleep NAME [-force] | rm NAME [-y] | forget-key NAME
+                                wake one or put it to sleep (-force while agents work),
+                                destroy one, or forget the key pinned for it so the next
+                                connection pins the one Conch Cloud gives
   conch cloud agent [-boot FILE] [-state DIR] [-user NAME] [-socket PATH] [-server-socket PATH]
                                 runs inside a Conch Cloud machine, started by its host (the
                                 conch-cloud-agent systemd unit): reads boot.json (root-only,
@@ -432,6 +446,12 @@ func main() {
 		err = runRelay(args)
 	case "cloud":
 		err = runCloud(args)
+	case "login":
+		err = runLogin(args)
+	case "logout":
+		err = runLogout(args)
+	case "account":
+		err = runAccount(args)
 	case "config":
 		err = runConfig(args)
 	case "mcp":

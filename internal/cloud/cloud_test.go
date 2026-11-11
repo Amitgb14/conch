@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/cloud/cloudtest"
 )
 
 func ctxT(t *testing.T) context.Context {
@@ -20,14 +22,14 @@ func ctxT(t *testing.T) context.Context {
 }
 
 // login signs in through the fake, approving at once.
-func login(t *testing.T, f *fake) *Client {
+func login(t *testing.T, f *cloudtest.Fake) *Client {
 	t.Helper()
 	ctx := ctxT(t)
 	da, err := StartLogin(ctx, f.URL(), ClientCLI, "test laptop", "0.0.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.approve("approved")
+	f.Approve("approved")
 	c, err := FinishLogin(ctx, f.URL(), da)
 	if err != nil {
 		t.Fatal(err)
@@ -37,15 +39,15 @@ func login(t *testing.T, f *fake) *Client {
 
 func TestNoAccountNoRequest(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
-	f.forbidden = true
+	f := cloudtest.New(t)
+	f.Forbidden = true
 	if SignedIn() {
 		t.Fatal("signed in with an empty CONCH_HOME")
 	}
 	if _, err := Open(); !errors.Is(err, ErrNotSignedIn) {
 		t.Fatalf("Open: %v", err)
 	}
-	if n := f.total(); n != 0 {
+	if n := f.Total(); n != 0 {
 		t.Fatalf("%d requests with no account", n)
 	}
 }
@@ -63,7 +65,7 @@ func TestDefaultURL(t *testing.T) {
 
 func TestLoginPendingThenApproved(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	ctx := ctxT(t)
 	da, err := StartLogin(ctx, f.URL(), ClientCLI, "test laptop", "")
 	if err != nil {
@@ -73,16 +75,16 @@ func TestLoginPendingThenApproved(t *testing.T) {
 		t.Fatalf("device auth %+v", da)
 	}
 	go func() {
-		for f.count("POST /v1/auth/token") < 3 {
+		for f.Count("POST /v1/auth/token") < 3 {
 			time.Sleep(time.Millisecond)
 		}
-		f.approve("approved")
+		f.Approve("approved")
 	}()
 	c, err := FinishLogin(ctx, f.URL(), da)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := f.count("POST /v1/auth/token"); n < 4 {
+	if n := f.Count("POST /v1/auth/token"); n < 4 {
 		t.Fatalf("polled %d times; pending should have been polled through", n)
 	}
 	if !SignedIn() || c.Account().DeviceID == "" {
@@ -101,13 +103,13 @@ func TestLoginPendingThenApproved(t *testing.T) {
 
 func TestLoginSlowDown(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	ctx := ctxT(t)
 	da, _ := StartLogin(ctx, f.URL(), ClientCLI, "x", "")
-	f.mu.Lock()
-	f.codes[da.DeviceCode].slowDown = 2
-	f.codes[da.DeviceCode].state = "approved"
-	f.mu.Unlock()
+	f.Mu.Lock()
+	f.Codes[da.DeviceCode].SlowDown = 2
+	f.Codes[da.DeviceCode].State = "approved"
+	f.Mu.Unlock()
 	start := time.Now()
 	if _, err := FinishLogin(ctx, f.URL(), da); err != nil {
 		t.Fatal(err)
@@ -124,10 +126,10 @@ func TestLoginDeniedExpiredSuspended(t *testing.T) {
 		want  error
 	}{{"denied", ErrLoginDenied}, {"suspended", ErrSuspended}} {
 		isolate(t)
-		f := newFake(t)
+		f := cloudtest.New(t)
 		ctx := ctxT(t)
 		da, _ := StartLogin(ctx, f.URL(), ClientCLI, "x", "")
-		f.approve(c.state)
+		f.Approve(c.state)
 		if _, err := FinishLogin(ctx, f.URL(), da); !errors.Is(err, c.want) {
 			t.Fatalf("%s: %v", c.state, err)
 		}
@@ -137,21 +139,21 @@ func TestLoginDeniedExpiredSuspended(t *testing.T) {
 	}
 	// A code the server no longer knows.
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	ctx := ctxT(t)
 	da, _ := StartLogin(ctx, f.URL(), ClientCLI, "x", "")
-	f.mu.Lock()
-	delete(f.codes, da.DeviceCode)
-	f.mu.Unlock()
+	f.Mu.Lock()
+	delete(f.Codes, da.DeviceCode)
+	f.Mu.Unlock()
 	if _, err := FinishLogin(ctx, f.URL(), da); !errors.Is(err, ErrLoginExpired) {
 		t.Fatalf("expired: %v", err)
 	}
 	// And one that runs out while nobody approves it.
 	da.ExpiresIn = 5
 	da.DeviceCode = "unknown-but-pending"
-	f.mu.Lock()
-	f.codes[da.DeviceCode] = &deviceCode{state: "pending"}
-	f.mu.Unlock()
+	f.Mu.Lock()
+	f.Codes[da.DeviceCode] = &cloudtest.DeviceCode{State: "pending"}
+	f.Mu.Unlock()
 	if _, err := FinishLogin(ctx, f.URL(), da); !errors.Is(err, ErrLoginExpired) {
 		t.Fatalf("ran out: %v", err)
 	}
@@ -159,8 +161,8 @@ func TestLoginDeniedExpiredSuspended(t *testing.T) {
 
 func TestRefreshRotates(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
-	f.accessTTL = 30 // under refreshEarly: every call refreshes first
+	f := cloudtest.New(t)
+	f.AccessTTL = 30 // under refreshEarly: every call refreshes first
 	c := login(t, f)
 	ctx := ctxT(t)
 	first, _ := LoadAccount()
@@ -174,7 +176,7 @@ func TestRefreshRotates(t *testing.T) {
 	if _, err := c.Machines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := f.count("POST /v1/auth/token"); n < 3 {
+	if n := f.Count("POST /v1/auth/token"); n < 3 {
 		t.Fatalf("%d token calls", n)
 	}
 }
@@ -183,11 +185,11 @@ func TestRefreshRotates(t *testing.T) {
 // once and the call made again.
 func TestRefreshOn401(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
-	f.mu.Lock()
-	f.access = map[string]accessTok{}
-	f.mu.Unlock()
+	f.Mu.Lock()
+	f.Access = map[string]cloudtest.AccessTok{}
+	f.Mu.Unlock()
 	if _, err := c.Me(ctxT(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -198,8 +200,8 @@ func TestRefreshOn401(t *testing.T) {
 // the second use is reuse, which signs the device out.
 func TestTwoProcessesRefreshOnce(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
-	f.accessTTL = 30
+	f := cloudtest.New(t)
+	f.AccessTTL = 30
 	login(t, f)
 	a, err := Open()
 	if err != nil {
@@ -209,7 +211,7 @@ func TestTwoProcessesRefreshOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.accessTTL = 3600
+	f.AccessTTL = 3600
 	ctx := ctxT(t)
 	var wg sync.WaitGroup
 	errs := make([]error, 2)
@@ -224,7 +226,7 @@ func TestTwoProcessesRefreshOnce(t *testing.T) {
 	if !SignedIn() {
 		t.Fatal("signed out")
 	}
-	if n := f.count("POST /v1/auth/token"); n != 2 { // the login, and one refresh
+	if n := f.Count("POST /v1/auth/token"); n != 2 { // the login, and one refresh
 		t.Fatalf("%d token calls", n)
 	}
 }
@@ -233,13 +235,13 @@ func TestTwoProcessesRefreshOnce(t *testing.T) {
 // this conch signed out, cleanly, and says so.
 func TestRevokedRefreshSignsOut(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
-	f.accessTTL = 30
+	f := cloudtest.New(t)
+	f.AccessTTL = 30
 	c := login(t, f)
 	acc, _ := LoadAccount()
-	f.mu.Lock()
-	f.revoked[acc.DeviceID] = true
-	f.mu.Unlock()
+	f.Mu.Lock()
+	f.Revoked[acc.DeviceID] = true
+	f.Mu.Unlock()
 	_, err := c.Machines(ctxT(t))
 	if !errors.Is(err, ErrSignedOut) {
 		t.Fatalf("err %v", err)
@@ -254,13 +256,13 @@ func TestRevokedRefreshSignsOut(t *testing.T) {
 
 func TestLogoutRevokes(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
 	if err := c.Logout(ctxT(t)); err != nil {
 		t.Fatal(err)
 	}
-	if SignedIn() || f.count("POST /v1/auth/revoke") != 1 {
-		t.Fatalf("signed in %v, revokes %d", SignedIn(), f.count("POST /v1/auth/revoke"))
+	if SignedIn() || f.Count("POST /v1/auth/revoke") != 1 {
+		t.Fatalf("signed in %v, revokes %d", SignedIn(), f.Count("POST /v1/auth/revoke"))
 	}
 }
 
@@ -268,9 +270,9 @@ func TestLogoutRevokes(t *testing.T) {
 // forgotten here.
 func TestLogoutOffline(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
-	f.srv.Close()
+	f.Srv.Close()
 	err := c.Logout(ctxT(t))
 	if err == nil || !strings.Contains(err.Error(), "could not be told") {
 		t.Fatalf("err %v", err)
@@ -285,7 +287,7 @@ func TestKeychainStore(t *testing.T) {
 	k := &memKeychain{}
 	old := SetKeychain(k)
 	t.Cleanup(func() { SetKeychain(old) })
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
 	b, _ := os.ReadFile(AccountPath())
 	if strings.Contains(string(b), "cca_") || strings.Contains(string(b), "ccr_") || !strings.Contains(string(b), `"keychain"`) {
@@ -307,7 +309,7 @@ func TestKeychainStore(t *testing.T) {
 
 func TestFileStoreRefusedWhenOthersCanRead(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	login(t, f)
 	st, _ := os.Stat(AccountPath())
 	if st.Mode().Perm() != 0o600 {
@@ -334,7 +336,7 @@ func TestBadAccountFile(t *testing.T) {
 
 func TestProblemsAreTyped(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
 	ctx := ctxT(t)
 	for i := range 3 {
@@ -353,9 +355,9 @@ func TestProblemsAreTyped(t *testing.T) {
 		t.Fatalf("not found: %v", err)
 	}
 	ms, _ := c.Machines(ctx)
-	f.setMachine(ms[0].ID, func(m *Machine) {
+	f.SetMachine(ms[0].ID, func(m *cloudtest.Machine) {
 		m.State = StateRunning
-		m.Activity = &Activity{Agents: []AgentActivity{{Agent: "claude", State: "working"}}, ReportedAt: time.Now().UTC()}
+		m.Activity = &cloudtest.Activity{Agents: []cloudtest.AgentActivity{{Agent: "claude", State: "working"}}, ReportedAt: time.Now().UTC()}
 	})
 	if _, err := c.Sleep(ctx, ms[0].ID, false); !errors.Is(err, ErrAgentsWorking) {
 		t.Fatalf("sleep: %v", err)
@@ -389,14 +391,14 @@ func TestProblemCodes(t *testing.T) {
 // lasts is given back.
 func TestRetryAfter(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
 	n := 0
-	inner := f.srv.Config.Handler
-	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	inner := f.Srv.Config.Handler
+	f.Srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/me" && n < 1 {
 			n++
-			writeProblem(w, 429, "rate_limited", "Slow down.")
+			cloudtest.WriteProblem(w, 429, "rate_limited", "Slow down.")
 			return
 		}
 		inner.ServeHTTP(w, r)
@@ -404,8 +406,8 @@ func TestRetryAfter(t *testing.T) {
 	if _, err := c.Me(ctxT(t)); err != nil {
 		t.Fatal(err)
 	}
-	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, 503, "unavailable", "Down for a moment.")
+	f.Srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cloudtest.WriteProblem(w, 503, "unavailable", "Down for a moment.")
 	})
 	if _, err := c.Me(ctxT(t)); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("503: %v", err)
@@ -414,19 +416,19 @@ func TestRetryAfter(t *testing.T) {
 
 func TestEventsResume(t *testing.T) {
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
 	var mu sync.Mutex
 	var lastIDs []string
 	streams := 0
-	f.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.Srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		streams++
 		n := streams
 		lastIDs = append(lastIDs, r.Header.Get("Last-Event-ID"))
 		mu.Unlock()
-		if f.spec != nil {
-			for _, e := range f.spec.CheckRequest(r.Method, r.URL.Path, r.Header, nil) {
+		if f.Spec != nil {
+			for _, e := range f.Spec.CheckRequest(r.Method, r.URL.Path, r.Header, nil) {
 				t.Errorf("request breaks the contract: %s", e)
 			}
 		}
@@ -438,10 +440,10 @@ func TestEventsResume(t *testing.T) {
 			body += "id: 8\ndata: {\"type\":\"made.up\",\"at\":\"2026-11-10T10:00:01Z\"}\n\n" +
 				"id: 9\ndata: {\"type\":\"machine.state\",\"at\":\"2026-11-10T10:00:02Z\",\"machine_id\":\"m_0000000000000001\",\"data\":{\"state\":\"running\"}}\n\n"
 		}
-		if f.spec != nil {
+		if f.Spec != nil {
 			rec := httptest.NewRecorder()
 			rec.Header().Set("Content-Type", "text/event-stream")
-			for _, e := range f.spec.CheckResponse("GET", "/v1/events", 200, rec.Header(), []byte(body)) {
+			for _, e := range f.Spec.CheckResponse("GET", "/v1/events", 200, rec.Header(), []byte(body)) {
 				if !strings.Contains(body, "made.up") || !strings.Contains(e, "made.up") {
 					t.Errorf("the fake's events break the contract: %s", e)
 				}

@@ -11,6 +11,8 @@ package cloud
 
 import (
 	"os"
+
+	"github.com/Amitgb14/conch/internal/config"
 	"strings"
 	"time"
 )
@@ -25,10 +27,18 @@ const DefaultURL = "https://api.cloud.conch.dev"
 // URLEnv overrides the API's address: a development server, or a test's.
 const URLEnv = "CONCH_CLOUD_URL"
 
-// APIURL is the control plane this conch signs in to.
+// APIURL is the control plane this conch signs in to: CONCH_CLOUD_URL,
+// else config.toml's [cloud] api, else production. A signed-in device
+// keeps using the server it signed in to (cloud.json), whatever this
+// says later.
 func APIURL() string {
 	if u := strings.TrimRight(os.Getenv(URLEnv), "/"); u != "" {
 		return u
+	}
+	if cfg, err := config.Load(); err == nil {
+		if u := strings.TrimRight(strings.TrimSpace(cfg.Cloud.API), "/"); u != "" {
+			return u
+		}
 	}
 	return DefaultURL
 }

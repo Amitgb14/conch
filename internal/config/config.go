@@ -30,6 +30,7 @@ type Config struct {
 	Sandbox SandboxCfg `toml:"sandbox"`
 	Web     WebCfg     `toml:"web"`
 	App     AppCfg     `toml:"app"`
+	Cloud   CloudCfg   `toml:"cloud"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
@@ -50,6 +51,14 @@ type WebCfg struct {
 	// from any network without Tailscale: wss://relay.example.com, one
 	// `conch relay` serves. "" is none.
 	Relay string `toml:"relay,omitempty"`
+}
+
+// CloudCfg is Conch Cloud. API is the control plane to sign in to: ""
+// is the production server; CONCH_CLOUD_URL overrides it. A device keeps
+// the server it signed in to with its sign-in, so changing this takes
+// effect at the next conch login.
+type CloudCfg struct {
+	API string `toml:"api,omitempty"`
 }
 
 // AppCfg is how Conch.app (macos/) draws its window. The TUI reads none of

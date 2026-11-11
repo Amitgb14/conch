@@ -222,6 +222,11 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
+		{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
+			Fields: []Field{
+				{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
+					Help: "The Conch Cloud server conch login signs in to. Empty is Conch Cloud itself; CONCH_CLOUD_URL overrides it. Takes effect at the next sign-in."},
+			}},
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{
 				{Key: "tabs", Label: "Tabs", Kind: KindSelect, Options: []Option{{"", "Above the panes"}, {"left", "Left, grouped by machine"}, {"right", "Right"}},

@@ -17,22 +17,24 @@ import (
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/relay"
 	"github.com/Amitgb14/conch/internal/server"
+
+	"github.com/Amitgb14/conch/internal/cloud/cloudtest"
 )
 
 // tunnelRig is a signed-in client, a fake control plane, its relay, and a
 // machine whose gateway (cloudagent's) fronts a real conch server.
 type tunnelRig struct {
-	f    *fake
+	f    *cloudtest.Fake
 	c    *Client
-	gw   *gateway
-	m    *Machine
+	gw   *cloudtest.Gateway
+	m    *cloudtest.Machine
 	sock string
 }
 
 func newTunnelRig(t *testing.T) *tunnelRig {
 	t.Helper()
 	isolate(t)
-	f := newFake(t)
+	f := cloudtest.New(t)
 	c := login(t, f)
 	dir, err := os.MkdirTemp("", "cc")
 	if err != nil {
@@ -49,8 +51,8 @@ func newTunnelRig(t *testing.T) *tunnelRig {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	gw := f.startGateway(t, sock)
-	m := f.addMachine("box", StateRunning, gw.key, gw.room)
+	gw := f.StartGateway(t, sock)
+	m := f.AddMachine("box", StateRunning, gw.Key, gw.Room)
 	return &tunnelRig{f: f, c: c, gw: gw, m: m, sock: sock}
 }
 
@@ -154,8 +156,8 @@ func TestDroppedMidStream(t *testing.T) {
 		res <- err
 	}()
 	<-got
-	r.f.relay.CloseClientConnections()
-	r.gw.stop()
+	r.f.Relay.CloseClientConnections()
+	r.gw.Stop()
 	select {
 	case err := <-res:
 		if !errors.Is(err, ErrDropped) {
@@ -176,7 +178,7 @@ func TestDroppedMidStream(t *testing.T) {
 	bres := make(chan error, 1)
 	go func() { bres <- Bridge(ctx, s2, inR, io.Discard) }()
 	time.Sleep(100 * time.Millisecond)
-	r2.gw.stop()
+	r2.gw.Stop()
 	select {
 	case err := <-bres:
 		if !errors.Is(err, ErrDropped) {
@@ -206,14 +208,14 @@ func TestRefusedTicket(t *testing.T) {
 	r := newTunnelRig(t)
 	ctx := ctxT(t)
 	// The relay takes no ticket the fake hands out: every one is wrong.
-	r.f.mu.Lock()
-	r.f.badTickets = true
-	r.f.mu.Unlock()
+	r.f.Mu.Lock()
+	r.f.BadTickets = true
+	r.f.Mu.Unlock()
 	_, err := r.c.Dial(ctx, r.m.ID, nil)
 	if !errors.Is(err, relay.ErrTicketRefused) {
 		t.Fatalf("err %v", err)
 	}
-	if n := r.f.count("POST /v1/machines/" + r.m.ID + "/connect"); n != 2 {
+	if n := r.f.Count("POST /v1/machines/" + r.m.ID + "/connect"); n != 2 {
 		t.Fatalf("%d connects; want the first and one more", n)
 	}
 }
@@ -223,13 +225,13 @@ func TestRefusedTicket(t *testing.T) {
 func TestWakesAndWaits(t *testing.T) {
 	r := newTunnelRig(t)
 	ctx := ctxT(t)
-	r.f.setMachine(r.m.ID, func(m *Machine) { m.State = StateAsleep })
+	r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State = StateAsleep })
 	go func() {
-		for r.f.count("POST /v1/machines/"+r.m.ID+"/wake") == 0 {
+		for r.f.Count("POST /v1/machines/"+r.m.ID+"/wake") == 0 {
 			time.Sleep(5 * time.Millisecond)
 		}
 		time.Sleep(50 * time.Millisecond)
-		r.f.setMachine(r.m.ID, func(m *Machine) { m.State = StateRunning })
+		r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State = StateRunning })
 	}()
 	var said []string
 	s, err := r.c.Dial(ctx, r.m.ID, func(m string) { said = append(said, m) })
@@ -241,7 +243,7 @@ func TestWakesAndWaits(t *testing.T) {
 		t.Fatalf("said %q", said)
 	}
 	// A machine in error is said, with why.
-	r.f.setMachine(r.m.ID, func(m *Machine) { m.State, m.StateDetail = StateError, "its VM never said hello" })
+	r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State, m.StateDetail = StateError, "its VM never said hello" })
 	if _, err := r.c.Dial(ctx, r.m.ID, nil); err == nil || !strings.Contains(err.Error(), "never said hello") {
 		t.Fatalf("error state: %v", err)
 	}
@@ -252,12 +254,12 @@ func TestWakesAndWaits(t *testing.T) {
 func TestNoGatewayYet(t *testing.T) {
 	r := newTunnelRig(t)
 	ctx := ctxT(t)
-	r.gw.stop()
+	r.gw.Stop()
 	go func() {
-		for r.f.count("POST /v1/machines/"+r.m.ID+"/connect") < 2 {
+		for r.f.Count("POST /v1/machines/"+r.m.ID+"/connect") < 2 {
 			time.Sleep(5 * time.Millisecond)
 		}
-		r.f.joinGateway(t, r.sock, r.gw.dh, r.gw.secret)
+		r.f.JoinGateway(t, r.sock, r.gw.DH, r.gw.Secret)
 	}()
 	var said []string
 	s, err := r.c.Dial(ctx, r.m.ID, func(m string) { said = append(said, m) })
@@ -323,9 +325,9 @@ func TestDialRefusesAChangedKey(t *testing.T) {
 	}
 	s.Close()
 	other, _ := relay.NewKey()
-	r.f.mu.Lock()
-	r.f.keys[r.m.ID] = relay.EncodeKey(other.Public)
-	r.f.mu.Unlock()
+	r.f.Mu.Lock()
+	r.f.Keys[r.m.ID] = relay.EncodeKey(other.Public)
+	r.f.Mu.Unlock()
 	var kc *KeyChangedError
 	if _, err := r.c.Dial(ctx, r.m.ID, nil); !errors.As(err, &kc) {
 		t.Fatalf("err %v", err)
