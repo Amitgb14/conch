@@ -51,7 +51,7 @@ func sayHello(ctx context.Context, api *API, h VMHello, logf func(string, ...any
 				return VMConfig{}, fmt.Errorf("%w: %v", ErrFatal, p)
 			}
 			if p.RetryAfter > 0 {
-				next = time.Duration(p.RetryAfter) * time.Second
+				next = retryAfter(p.RetryAfter)
 			}
 		}
 		logf("cloud: hello failed (attempt %d): %v; trying again in %s", attempt, err, next.Round(time.Millisecond))
@@ -62,6 +62,16 @@ func sayHello(ctx context.Context, api *API, h VMHello, logf func(string, ...any
 		}
 		wait = min(wait*2, helloMaxWait)
 	}
+}
+
+// retryAfterMax is the longest Retry-After taken as given: one of a day
+// would leave the machine saying nothing — and hello held, so nothing
+// else could say it either — for that long.
+var retryAfterMax = 5 * time.Minute
+
+// retryAfter is a control plane's Retry-After in seconds, capped.
+func retryAfter(secs int) time.Duration {
+	return min(time.Duration(secs)*time.Second, retryAfterMax)
 }
 
 // jitter is d less up to a half of it, so machines a control plane outage

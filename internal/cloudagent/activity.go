@@ -153,6 +153,10 @@ func (a *Agent) reportLoop(ctx context.Context) error {
 	var last *VMActivity
 	var sent time.Time
 	retry := (<-chan time.Time)(nil)
+	// holdUntil is the end of a wait the control plane asked for (or the
+	// retry after a failure): changes and heartbeats until then wait for
+	// the retry, which reports them all at once.
+	var holdUntil time.Time
 	for {
 		force := false
 		select {
@@ -174,6 +178,9 @@ func (a *Agent) reportLoop(ctx context.Context) error {
 				continue
 			}
 		}
+		if retry != nil && time.Now().Before(holdUntil) {
+			continue
+		}
 		act := a.activity()
 		if !force && last != nil && sameActivity(*last, act) {
 			continue
@@ -187,13 +194,14 @@ func (a *Agent) reportLoop(ctx context.Context) error {
 			act = a.activity()
 		}
 		sent = time.Now()
+		token := a.api.Token()
 		cmds, err := a.api.Activity(ctx, act)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
 			if errors.Is(err, ErrUnauthorized) {
-				switch a.awaitNewToken(ctx) {
+				switch a.awaitNewToken(ctx, token) {
 				case tokenNone:
 					return err
 				case tokenTaken:
@@ -206,8 +214,14 @@ func (a *Agent) reportLoop(ctx context.Context) error {
 				}
 				continue
 			}
-			a.logf("cloud: activity report: %v", err)
-			retry = time.After(reportRetry)
+			wait := reportRetry
+			var p *Problem
+			if errors.As(err, &p) && p.RetryAfter > 0 {
+				wait = retryAfter(p.RetryAfter)
+			}
+			a.logf("cloud: activity report: %v; again in %s", err, wait)
+			retry = time.After(wait)
+			holdUntil = time.Now().Add(wait)
 			continue
 		}
 		last = &act
@@ -316,19 +330,16 @@ const (
 
 // awaitNewToken is what a refused token waits for: an inject's new token in
 // boot.json, which the control plane writes after it stores the token.
-func (a *Agent) awaitNewToken(ctx context.Context) tokenChange {
-	a.mu.Lock()
-	was := a.boot.MachineToken
-	a.mu.Unlock()
+// sent is the token the refused request carried — not the one in use when
+// the refusal came back, which another loop may already have replaced, so
+// that this would wait for a newer one that never comes.
+func (a *Agent) awaitNewToken(ctx context.Context, sent string) tokenChange {
 	deadline := time.Now().Add(refusedGrace)
 	for {
 		if a.newToken() {
 			return tokenNew
 		}
-		a.mu.Lock()
-		now := a.boot.MachineToken
-		a.mu.Unlock()
-		if now != was {
+		if a.api.Token() != sent {
 			return tokenTaken
 		}
 		if time.Now().After(deadline) {

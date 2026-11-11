@@ -132,6 +132,9 @@ var bootWait = 2 * time.Second
 func (a *Agent) Run(ctx context.Context) error {
 	boot, err := a.waitBoot(ctx)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil // stopped while waiting: not a failure
+		}
 		return err
 	}
 	a.mu.Lock()
@@ -172,6 +175,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err := a.connectServer(ctx); errors.Is(err, errServerHeld) {
 		a.logf("cloud: %v", err) // serverLoop tries again
 	} else if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 	defer func() {
@@ -183,6 +189,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	a.logf("cloud: machine %s, saying hello to %s (woke from %s)", boot.MachineID, boot.API, woke)
 	if err := a.hello(ctx, woke); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 	defer a.stopLink()
@@ -233,9 +242,17 @@ func (a *Agent) hello(ctx context.Context, woke string) error {
 	a.helloMu.Lock()
 	defer a.helloMu.Unlock()
 	h := VMHello{ConchVersion: proto.Version, Capabilities: a.capabilities(), ServerKey: relay.EncodeKey(a.key.Public), WokeFrom: woke}
-	cfg, err := sayHello(ctx, a.api, h, a.logf)
-	if errors.Is(err, ErrUnauthorized) && a.newToken() {
+	var cfg VMConfig
+	var err error
+	for {
+		sent := a.api.Token()
 		cfg, err = sayHello(ctx, a.api, h, a.logf)
+		// A refused token waits for an inject's new one, however hello
+		// came to be said: at start, after a pause, for a new boot.json,
+		// or for the control plane's own hello command.
+		if !errors.Is(err, ErrUnauthorized) || a.awaitNewToken(ctx, sent) == tokenNone {
+			break
+		}
 	}
 	if err != nil {
 		return err
@@ -401,7 +418,8 @@ func (a *Agent) serverLoop(ctx context.Context) {
 			}
 			c = a.server()
 			a.logf("cloud: connected to the conch server again")
-			go a.rehelloForCaps(ctx)
+			a.bg.Add(1) // Run waits for it, so nothing it does comes after Run
+			go func() { defer a.bg.Done(); a.rehelloForCaps(ctx) }()
 		}
 		a.follow(ctx, c)
 		c.Close()

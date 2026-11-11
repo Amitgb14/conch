@@ -27,6 +27,9 @@ type User struct {
 	GID   int
 	Home  string
 	Shell string
+	// Groups are the user's supplementary groups (docker, say), which a
+	// process started as it keeps: without them Go clears them all.
+	Groups []uint32
 }
 
 // passwdPath is where a user's login shell is read from; a variable so a
@@ -47,7 +50,15 @@ func LookupUser(name string) (*User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("user %s: gid %q", name, u.Gid)
 	}
-	return &User{Name: u.Username, UID: uid, GID: gid, Home: u.HomeDir, Shell: loginShell(u.Username)}, nil
+	var groups []uint32
+	if ids, err := u.GroupIds(); err == nil {
+		for _, id := range ids {
+			if g, err := strconv.ParseUint(id, 10, 32); err == nil {
+				groups = append(groups, uint32(g))
+			}
+		}
+	}
+	return &User{Name: u.Username, UID: uid, GID: gid, Home: u.HomeDir, Shell: loginShell(u.Username), Groups: groups}, nil
 }
 
 // CurrentUser is the user this process runs as.
@@ -96,7 +107,7 @@ func (u *User) credential() *syscall.SysProcAttr {
 	if u.isMe() {
 		return nil
 	}
-	return &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(u.UID), Gid: uint32(u.GID)}}
+	return &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(u.UID), Gid: uint32(u.GID), Groups: u.Groups}}
 }
 
 // env is a login environment for u: what ssh would give it, plus extra.

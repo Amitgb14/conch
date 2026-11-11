@@ -219,6 +219,7 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 	var stdin io.WriteCloser
 	var term *os.File
 	var outputs sync.WaitGroup
+	var pipes []io.Closer // a script's stdout and stderr, without a terminal
 	if start.TTY {
 		term, err = pty.StartWithAttrs(cmd, &pty.Winsize{Cols: 80, Rows: 24}, withSession(attrs, true))
 		if err != nil {
@@ -238,6 +239,7 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 		}
 		stdout, _ := cmd.StdoutPipe()
 		stderr, _ := cmd.StderrPipe()
+		pipes = []io.Closer{stdout, stderr}
 		if err := cmd.Start(); err != nil {
 			a.execFailed(ws, err)
 			return
@@ -247,16 +249,38 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 		go pump(stderr, false, &outputs)
 	}
 	exited := make(chan struct{})
+	gone := make(chan struct{})
+	go func() {
+		// The client went: so does the script — told by SIGHUP, as a
+		// terminal closing tells it, then killed if it ignores that. And
+		// what still holds its output open (a child that left its process
+		// group) no longer keeps this handler, its terminal or the tunnel's
+		// stream: the output is closed under the readers.
+		select {
+		case <-exited:
+			return
+		case <-gone:
+		}
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGHUP)
+		select {
+		case <-exited:
+			return
+		case <-time.After(execKillAfter):
+		}
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if term != nil {
+			term.Close()
+		}
+		for _, p := range pipes {
+			p.Close()
+		}
+	}()
 	go func() {
 		// What the client sends, until it ends stdin or goes.
 		for {
 			_, msg, err := ws.Read(ctx)
 			if err != nil {
-				select {
-				case <-exited:
-				default:
-					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGHUP) // the client went: so does the script
-				}
+				close(gone)
 				return
 			}
 			var in execIn
@@ -301,6 +325,10 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 	_ = send(execOut{Exit: &code})
 	ws.Close(websocket.StatusNormalClosure, "")
 }
+
+// execKillAfter is how long a script whose client went has to end on its
+// SIGHUP before it is killed.
+var execKillAfter = 5 * time.Second
 
 // withSession is attrs with a session of the script's own, so the whole
 // of it can be ended together, and for a terminal that terminal as its
