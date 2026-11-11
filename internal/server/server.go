@@ -69,9 +69,10 @@ type Server struct {
 	rulesOn  bool
 	runs     *runLog // agents running in panes, for resuming after a restart
 	uploads  *uploads
-	packs    *packs     // worktrees packed for another machine
-	sshFiles *sshFiles  // the hosts terminals are logged in to (sshfiles.go)
-	files    fileStates // git status of checkouts being browsed
+	packs    *packs      // worktrees packed for another machine
+	sshFiles *sshFiles   // the hosts terminals are logged in to (sshfiles.go)
+	files    fileStates  // git status of checkouts being browsed
+	lineIdx  lineIndexes // where the lines of big files being read start
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent
@@ -424,6 +425,8 @@ var slowMethods = map[string]bool{
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
+	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
+	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -842,7 +845,51 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		if mp.Root != "" {
+			return s.mkdirIn(c, mp)
+		}
 		return s.mkdir(mp)
+
+	case proto.MethodFSSearch:
+		sp, perr := decode[proto.FSSearchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.searchFiles(sp)
+
+	case proto.MethodFSReplace:
+		rp, perr := decode[proto.FSReplaceParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.replaceFiles(c, rp)
+
+	case proto.MethodFSRename, proto.MethodFSCopy, proto.MethodFSDelete:
+		pp, perr := decode[proto.FSPathParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		switch msg.Method {
+		case proto.MethodFSRename:
+			return s.renamePath(c, pp)
+		case proto.MethodFSCopy:
+			return s.copyPath(c, pp)
+		}
+		return s.deletePath(c, pp)
+
+	case proto.MethodFSLines:
+		lp, perr := decode[proto.FSLinesParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.readLines(lp)
+
+	case proto.MethodFSWriteRange:
+		wp, perr := decode[proto.FSWriteRangeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.writeRange(c, wp)
 
 	case proto.MethodFSUpload:
 		up, perr := decode[proto.FSUploadParams](msg)

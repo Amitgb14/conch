@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -181,6 +181,25 @@ const CapFSWrite = "fs.write.v1"
 // letters, for a search box — git's list of them, so what it ignores stays
 // out, as the files view leaves it out.
 const CapFSFind = "fs.find.v1"
+
+// CapFSSearch is fs.search: a checkout searched for text in its files and
+// for files by name, or one file searched from an offset, a piece at a
+// time, which is how a file too big to open whole is searched.
+const CapFSSearch = "fs.search.v1"
+
+// CapFSReplace is fs.replace: what fs.search found, replaced file by file,
+// each checked against the content it was searched in.
+const CapFSReplace = "fs.replace.v1"
+
+// CapFSOps is fs.rename, fs.copy and fs.delete in a checkout, and fs.mkdir
+// taking Root. An older server takes fs.mkdir's Path from the home folder
+// and ignores Root, so a client asks first.
+const CapFSOps = "fs.ops.v1"
+
+// CapFSLines is a big file read by its lines (fs.lines) and edited a range
+// at a time (fs.write_range), and fs.read taking Whole: a file up to
+// FSWriteMax read in one piece, so it can be edited and saved.
+const CapFSLines = "fs.lines.v1"
 
 // CapFSTransfer is copying files and folders to and from the machine, and
 // browsing all of it: fs.list with Files and fs.read without a Root reach
@@ -422,6 +441,13 @@ const (
 	MethodFSRead         = "fs.read"
 	MethodFSWrite        = "fs.write"
 	MethodFSFind         = "fs.find"
+	MethodFSSearch       = "fs.search"
+	MethodFSReplace      = "fs.replace"
+	MethodFSRename       = "fs.rename"
+	MethodFSCopy         = "fs.copy"
+	MethodFSDelete       = "fs.delete"
+	MethodFSLines        = "fs.lines"
+	MethodFSWriteRange   = "fs.write_range"
 	// Copying a file or folder off the machine (CapFSTransfer).
 	MethodFSDownload     = "fs.download"
 	MethodFSDownloadRead = "fs.download_read"
@@ -1102,6 +1128,9 @@ type FSReadParams struct {
 	Offset int64  `json:"offset,omitempty"`
 	Max    int    `json:"max,omitempty"`
 	SSH    string `json:"ssh,omitempty"` // as in FSListParams
+	// Whole raises Max's cap to FSWriteMax, so a file that can be saved
+	// can be read in one piece (fs.lines.v1).
+	Whole bool `json:"whole,omitempty"`
 }
 
 // FSReadResult is the result of fs.read. A binary file has no Data: it is
@@ -1145,10 +1174,200 @@ type FSWriteResult struct {
 	Hash    string    `json:"hash"`
 }
 
-// FSMkdirParams creates one folder.
+// FSMkdirParams creates one folder. With Root (fs.ops.v1) Path is inside
+// that checkout, as in FSListParams, and the folders on the way are made.
 type FSMkdirParams struct {
 	Path string `json:"path"`
 	SSH  string `json:"ssh,omitempty"` // as in FSListParams
+	Root string `json:"root,omitempty"`
+}
+
+// FSPattern is what fs.search looks for and fs.replace replaces: Query as
+// written, or a regular expression (Go's syntax) with Regex; letter case
+// ignored unless Case; with Word, only where it is a whole word. A
+// pattern matches within a line, never across one.
+type FSPattern struct {
+	Query string `json:"query"`
+	Regex bool   `json:"regex,omitempty"`
+	Case  bool   `json:"case,omitempty"`
+	Word  bool   `json:"word,omitempty"`
+}
+
+// FSSearchParams searches the checkout Root (as fs.list's): with Text, the
+// lines of its files that match; with Names, the files whose path holds
+// Query's letters, as fs.find finds them. Include and Exclude are globs
+// (`*.go`, `internal/`, `cmd/**/main.go`), a path taken when it matches any
+// Include (or there are none) and no Exclude. What git ignores is left out
+// unless Ignored. Limit counts lines, at most FSSearchMax.
+//
+// With Path, that one file alone is searched, from byte Offset — the
+// start of line Line — for FSSearchBudget at most, and the
+// result says where to go on from: a big file searched a piece at a time.
+type FSSearchParams struct {
+	Root string `json:"root"`
+	FSPattern
+	Names   bool     `json:"names,omitempty"`
+	Text    bool     `json:"text,omitempty"`
+	Include []string `json:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty"`
+	Ignored bool     `json:"ignored,omitempty"`
+	Limit   int      `json:"limit,omitempty"`
+	Path    string   `json:"path,omitempty"`
+	Offset  int64    `json:"offset,omitempty"`
+	Line    int      `json:"line,omitempty"`
+}
+
+const (
+	FSSearchDefault = 500
+	FSSearchMax     = 5000
+	// FSSearchFileMax is the biggest file a search of a whole checkout
+	// reads; a bigger one is counted in Skipped and searched by its Path.
+	FSSearchFileMax = 8 << 20
+	// FSSearchLineMax is how much of a matching line comes back: the part
+	// around its first match.
+	FSSearchLineMax = 400
+)
+
+// FSSearchBudget is how long a search of one Path goes on before it
+// answers with what it has and where it got to.
+const FSSearchBudget = time.Second
+
+// FSSearchResult is what fs.search found. Names are paths relative to
+// Root; Files hold the matching lines, in path order. Searched counts
+// the files read, Skipped those left out as binary or too big.
+type FSSearchResult struct {
+	Root      string         `json:"root"`
+	Names     []string       `json:"names,omitempty"`
+	Files     []FSSearchFile `json:"files,omitempty"`
+	Searched  int            `json:"searched,omitempty"`
+	Skipped   int            `json:"skipped,omitempty"`
+	Truncated bool           `json:"truncated,omitempty"`
+	// For a search of one Path: the file's size, where to go on from
+	// (Next, the start of line NextLine), and Done once it reached the end.
+	Size     int64 `json:"size,omitempty"`
+	Next     int64 `json:"next,omitempty"`
+	NextLine int   `json:"next_line,omitempty"`
+	Done     bool  `json:"done,omitempty"`
+}
+
+// FSSearchFile is one file's matching lines, and its content's Hash
+// (as fs.read's) that an fs.replace of them is checked against.
+type FSSearchFile struct {
+	Path  string         `json:"path"`
+	Hash  string         `json:"hash,omitempty"`
+	Lines []FSSearchLine `json:"lines"`
+}
+
+// FSSearchLine is a matching line: its number (from 1), where it starts in
+// the file, Text — the line, or FSSearchLineMax of it from byte Col — and
+// the matches in Text as byte ranges [start, end).
+type FSSearchLine struct {
+	Line   int      `json:"line"`
+	Offset int64    `json:"offset"`
+	Col    int      `json:"col,omitempty"`
+	Text   string   `json:"text"`
+	Ranges [][2]int `json:"ranges"`
+}
+
+// FSReplaceParams replaces the pattern with Replace in each of Files of
+// the checkout Root — on the Lines listed, or every line when none are —
+// where the file is still the Hash it was searched as. With Regex, $1 and
+// ${name} in Replace are the groups matched.
+type FSReplaceParams struct {
+	Root string `json:"root"`
+	FSPattern
+	Replace string          `json:"replace"`
+	Files   []FSReplaceFile `json:"files"`
+}
+
+type FSReplaceFile struct {
+	Path  string `json:"path"`
+	Hash  string `json:"hash"`
+	Lines []int  `json:"lines,omitempty"`
+}
+
+// FSReplaceResult says what was replaced, and what was left and why: a
+// file changed since the search is skipped, never written over.
+type FSReplaceResult struct {
+	Files   []FSReplaced `json:"files,omitempty"`
+	Skipped []FSSkipped  `json:"skipped,omitempty"`
+}
+
+type FSReplaced struct {
+	Path  string `json:"path"`
+	Count int    `json:"count"`
+	Hash  string `json:"hash"`
+}
+
+type FSSkipped struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// FSPathParams names a file or folder in the checkout Root, and for
+// fs.rename and fs.copy where it goes (To, also inside Root). Neither
+// writes over something already there. fs.delete takes a folder whole.
+type FSPathParams struct {
+	Root string `json:"root"`
+	Path string `json:"path"`
+	To   string `json:"to,omitempty"`
+}
+
+// FSPathResult is the path the file or folder now has, absolute.
+type FSPathResult struct {
+	Path string `json:"path"`
+}
+
+// FSLinesParams reads lines of a file in the checkout Root: Count of them
+// (at most FSLinesMax; 0 means FSLinesDefault) from line Line (from 1),
+// or with Tail the last Count. Lines are found through an index of the
+// file kept by the server, so line ten million is no slower than line ten.
+type FSLinesParams struct {
+	Root  string `json:"root"`
+	Path  string `json:"path"`
+	Line  int    `json:"line,omitempty"`
+	Count int    `json:"count,omitempty"`
+	Tail  bool   `json:"tail,omitempty"`
+}
+
+const (
+	FSLinesDefault = 200
+	FSLinesMax     = 5000
+	// FSLinesBytesMax bounds what one fs.lines returns, however long its
+	// lines are.
+	FSLinesBytesMax = 1 << 20
+)
+
+// FSLinesResult is the lines read: Data from byte Offset, Length bytes,
+// starting at line Line; Lines is how many the file has. Hash is the
+// fingerprint of those bytes, what an fs.write_range of them is checked
+// against; it is left out when they are not UTF-8 (Lossy: shown with
+// replacement characters, so they cannot be saved back) or Binary.
+type FSLinesResult struct {
+	Path    string    `json:"path"` // absolute
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time,omitzero"`
+	Line    int       `json:"line"`
+	Lines   int       `json:"lines"`
+	Offset  int64     `json:"offset"`
+	Length  int64     `json:"length"`
+	Data    string    `json:"data,omitempty"`
+	Hash    string    `json:"hash,omitempty"`
+	Lossy   bool      `json:"lossy,omitempty"`
+	Binary  bool      `json:"binary,omitempty"`
+}
+
+// FSWriteRangeParams replaces Length bytes from Offset of a file in the
+// checkout Root with Data, if those bytes still have the fingerprint Base
+// (FSLinesResult.Hash): a big file edited a few lines at a time. The rest
+// of the file is kept as it is, the new file put in place in one step.
+type FSWriteRangeParams struct {
+	Root   string `json:"root"`
+	Path   string `json:"path"`
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
+	Base   string `json:"base"`
+	Data   string `json:"data"`
 }
 
 // UploadChunkSize is how much of a file one fs.upload request carries. Small
