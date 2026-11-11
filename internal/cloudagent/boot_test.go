@@ -3,8 +3,11 @@ package cloudagent
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/relay"
 )
@@ -131,5 +134,72 @@ func TestLoadKeyRefuses(t *testing.T) {
 	os.WriteFile(file, nil, 0o600)
 	if _, _, err := LoadKey(filepath.Join(file, "noise.key")); err == nil {
 		t.Fatal("under a file: want an error")
+	}
+}
+
+// TestBootAndKeyAreTheFilesThemselves: boot.json and the key are read
+// only as files of their own — a symlink is refused, and a FIFO is refused
+// at once rather than waited on for ever.
+func TestBootAndKeyAreTheFilesThemselves(t *testing.T) {
+	dir := t.TempDir()
+	real := writeBoot(t, dir, `{"machine_id":"`+testMachine+`","api":"https://cp.example","machine_token":"t"}`, 0o600)
+	if _, err := ReadBoot(real); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.json")
+	os.Symlink(real, link)
+	if _, err := ReadBoot(link); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("boot.json through a symlink: %v", err)
+	}
+	fifo := filepath.Join(dir, "fifo.json")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := ReadBoot(fifo); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "not a file") {
+			t.Fatalf("a FIFO: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading a FIFO hung")
+	}
+
+	key := filepath.Join(dir, "noise.key")
+	if _, _, err := LoadKey(key); err != nil {
+		t.Fatal(err)
+	}
+	klink := filepath.Join(dir, "link.key")
+	os.Symlink(key, klink)
+	if _, _, err := LoadKey(klink); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("the key through a symlink: %v", err)
+	}
+	// A dangling symlink is not made through, either.
+	dangling := filepath.Join(dir, "dangling.key")
+	os.Symlink(filepath.Join(dir, "elsewhere"), dangling)
+	if _, _, err := LoadKey(dangling); err == nil {
+		t.Fatal("a key made through a dangling symlink")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "elsewhere")); err == nil {
+		t.Fatal("the symlink's target was written")
+	}
+}
+
+// TestCredentialKeepsGroups: a process started as the user keeps its
+// supplementary groups, which Go would otherwise clear.
+func TestCredentialKeepsGroups(t *testing.T) {
+	me, err := CurrentUser()
+	if err != nil {
+		t.Skip(err)
+	}
+	if len(me.Groups) == 0 {
+		t.Fatalf("no groups for %s", me.Name)
+	}
+	other := *me
+	other.UID = os.Geteuid() + 1
+	attrs := other.credential()
+	if attrs == nil || !slices.Equal(attrs.Credential.Groups, me.Groups) {
+		t.Fatalf("credential %+v, want groups %v", attrs, me.Groups)
 	}
 }

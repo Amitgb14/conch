@@ -3,9 +3,11 @@ package cloudagent
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/flynn/noise"
 
@@ -22,15 +24,23 @@ import (
 // could read it could have answered as this machine, so it is no longer
 // this machine's alone, and making a new one would fail the pin anyway.
 func LoadKey(path string) (key noise.DHKey, made bool, err error) {
-	b, err := os.ReadFile(path)
+	f, err := openPlain(path)
 	switch {
 	case err == nil:
-		st, err := os.Stat(path)
+		defer f.Close()
+		st, err := f.Stat()
 		if err != nil {
 			return noise.DHKey{}, false, err
 		}
 		if perm := st.Mode().Perm(); perm&0o077 != 0 {
 			return noise.DHKey{}, false, fmt.Errorf("%s is readable by others (mode %04o): this machine's key may have leaked; it must be 0600", path, perm)
+		}
+		if sys, ok := st.Sys().(*syscall.Stat_t); ok && int(sys.Uid) != os.Geteuid() {
+			return noise.DHKey{}, false, fmt.Errorf("%s belongs to uid %d, not to this process (uid %d)", path, sys.Uid, os.Geteuid())
+		}
+		b, err := io.ReadAll(io.LimitReader(f, 4096))
+		if err != nil {
+			return noise.DHKey{}, false, err
 		}
 		key, err := relay.KeyFromPrivate(strings.TrimSpace(string(b)))
 		if err != nil {
@@ -49,7 +59,7 @@ func LoadKey(path string) (key noise.DHKey, made bool, err error) {
 	}
 	// O_EXCL: two agents starting at once must not each make a key and
 	// say hello with different ones; the loser reads the winner's.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
 		return LoadKey(path)
 	}

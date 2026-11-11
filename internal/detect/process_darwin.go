@@ -67,8 +67,25 @@ func TerminalForeground(pid int) (Process, error) {
 	if kp.Proc.P_pid != int32(pid) {
 		return Process{}, os.ErrNotExist
 	}
-	if kp.Eproc.Tpgid <= 0 {
+	pgid := int(kp.Eproc.Tpgid)
+	if pgid <= 0 {
 		return Process{}, errNoTerminal
 	}
-	return processInfo(int(kp.Eproc.Tpgid))
+	// The group's leader can be gone while the rest of it runs on (`a | b`
+	// once a has finished), and the group is still what is in front.
+	members, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
+	if err != nil {
+		return Process{}, err
+	}
+	for _, m := range members {
+		if int(m.Proc.P_pid) == pgid {
+			return processInfo(pgid)
+		}
+	}
+	for _, m := range members {
+		if m.Proc.P_pid > 0 {
+			return processInfo(int(m.Proc.P_pid))
+		}
+	}
+	return Process{}, os.ErrNotExist
 }

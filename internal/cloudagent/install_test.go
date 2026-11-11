@@ -14,7 +14,7 @@ func TestUnit(t *testing.T) {
 	u := Unit("/usr/local/bin/conch")
 	for _, want := range []string{
 		"ExecStart=/usr/local/bin/conch cloud agent\n", "KillMode=process\n", "Restart=on-failure\n",
-		"RestartPreventExitStatus=3 4\n", "User=root\n", "WantedBy=multi-user.target\n",
+		"RestartPreventExitStatus=3 4\n", "RestartMaxDelaySec=300\n", "User=root\n", "WantedBy=multi-user.target\n",
 	} {
 		if !strings.Contains(u, want) {
 			t.Errorf("the unit lacks %q:\n%s", want, u)

@@ -131,3 +131,40 @@ func TestGitCredentialHelper(t *testing.T) {
 		t.Fatal("no operation: no error")
 	}
 }
+
+// TestGitProxyWithAPath: a proxy whose URL has a path is still given the
+// token (git matches a credential URL by its path as a prefix), a git:// name goes through it too, and a helper an earlier agent left for
+// a proxy that has since moved is taken away.
+func TestGitProxyWithAPath(t *testing.T) {
+	r := newRig(t)
+	proxy := newFakeGitProxy(t)
+	exe, _ := os.Executable()
+	r.opts.GitConfig = nil
+	r.opts.Executable = exe
+	r.cloud.handle("POST /v1/vm/hello", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, 200, map[string]any{"machine_id": testMachine, "relay_url": "ws://127.0.0.1:1", "room_secret": "s",
+			"sleep": map[string]any{}, "git_proxy": proxy.URL + "/gp"})
+	})
+	sys := os.Getenv("GIT_CONFIG_SYSTEM")
+	os.WriteFile(sys, []byte("[credential \"http://old.example\"]\n\thelper = \n\thelper = !'/usr/bin/conch' cloud git-credential -socket '/run/x'\n[credential \"https://mine.example\"]\n\thelper = store\n"), 0o644)
+	r.startServer()
+	r.run()
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(r.log.String(), "git reaches github.com") {
+		if time.Now().After(deadline) {
+			t.Fatalf("git not configured: %s", r.log)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	conf, _ := os.ReadFile(sys)
+	if bytes.Contains(conf, []byte("old.example")) || !bytes.Contains(conf, []byte("helper = store")) {
+		t.Fatalf("system config:\n%s", conf)
+	}
+	for _, remote := range []string{"https://github.com/acme/api.git", "git://github.com/acme/old.git"} {
+		out, _ := git(t, r.home, "ls-remote", remote)
+		want := "/gp/github.com/acme/" + remote[strings.LastIndex(remote, "/")+1:] + "/info/refs"
+		if pass, ok := proxy.password(want); !ok || pass != "ccm_first" {
+			t.Errorf("%s: the proxy was given %q at %s (%v); git said:\n%s", remote, pass, want, ok, out)
+		}
+	}
+}

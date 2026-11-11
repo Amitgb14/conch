@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -63,17 +64,23 @@ func listenLocal(path string, u *User) (net.Listener, error) {
 
 // serveLocal answers on ln until it is closed.
 func (a *Agent) serveLocal(ctx context.Context, ln net.Listener) {
+	// Its answers end with it, so none outlives Run.
+	var answers sync.WaitGroup
+	defer answers.Wait()
 	for {
 		nc, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		go a.answerLocal(ctx, nc)
+		answers.Add(1)
+		go func() { defer answers.Done(); a.answerLocal(ctx, nc) }()
 	}
 }
 
 func (a *Agent) answerLocal(ctx context.Context, nc net.Conn) {
 	defer nc.Close()
+	stop := context.AfterFunc(ctx, func() { nc.Close() }) // the agent stopping ends a question being asked
+	defer stop()
 	_ = nc.SetDeadline(time.Now().Add(localAskWait + time.Second))
 	r := bufio.NewReader(nc)
 	for {

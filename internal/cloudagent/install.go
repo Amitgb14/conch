@@ -25,6 +25,9 @@ const UnitName = "conch-cloud-agent.service"
 // machine was) are not restarted, since restarting cannot change them and
 // the next inject restarts the unit anyway; a missing boot.json is waited
 // for, so the unit can be enabled at boot, before the host has injected one.
+// Anything else (a boot.json it refuses, say) is restarted, 5 s apart at
+// first and up to 5 minutes apart (systemd 254 and later; an older one
+// warns about the two keys and keeps 5 s).
 func Unit(exe string) string {
 	return `[Unit]
 Description=Conch Cloud agent: this machine's side of Conch Cloud
@@ -38,6 +41,8 @@ User=root
 ExecStart=` + exe + ` cloud agent
 Restart=on-failure
 RestartSec=5
+RestartSteps=6
+RestartMaxDelaySec=300
 RestartPreventExitStatus=3 4
 KillMode=process
 

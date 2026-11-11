@@ -57,7 +57,7 @@ var errBootMissing = errors.New("boot.json is not there yet")
 // used: the host writes it root-only, 0600, and anything wider means
 // something other than the host made it.
 func ReadBoot(path string) (Boot, error) {
-	f, err := os.Open(path)
+	f, err := openPlain(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Boot{}, fmt.Errorf("%s: %w", path, errBootMissing)
 	}
@@ -93,6 +93,30 @@ func ReadBoot(path string) (Boot, error) {
 		return Boot{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return boot, nil
+}
+
+// openPlain opens path for reading only if it is a file of its own: not
+// through a symlink, and without waiting on a FIFO, which would hang the
+// agent's every look at boot.json (the type is checked after, on what was
+// opened).
+func openPlain(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("%s is a symlink; it must be the file itself", path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !st.Mode().IsRegular() {
+		f.Close()
+		return nil, fmt.Errorf("%s is not a file", path)
+	}
+	return f, nil
 }
 
 func (b Boot) check() error {

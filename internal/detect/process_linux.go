@@ -45,5 +45,34 @@ func TerminalForeground(pid int) (Process, error) {
 	if pgid <= 0 {
 		return Process{}, errNoTerminal
 	}
-	return processInfo(pgid)
+	if p, err := processInfo(pgid); err == nil {
+		return p, nil
+	}
+	return groupMember(pgid)
+}
+
+// groupMember is a process of group pgid: the group's leader can be gone
+// while the rest of it runs on (`a | b` once a has finished), and the
+// group is still what is in front of the terminal.
+func groupMember(pgid int) (Process, error) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return Process{}, err
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		stat, err := os.ReadFile("/proc/" + e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		if g, err := statPGRP(stat); err == nil && g == pgid {
+			if p, err := processInfo(pid); err == nil {
+				return p, nil
+			}
+		}
+	}
+	return Process{}, os.ErrNotExist
 }

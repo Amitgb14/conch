@@ -13,6 +13,9 @@ import (
 // is tested everywhere.
 func statParent(stat []byte) (int, error) { return statField(stat, 1) }
 
+// statPGRP reads the process's group.
+func statPGRP(stat []byte) (int, error) { return statField(stat, 2) }
+
 // statTPGID reads the foreground process group of the process's
 // controlling terminal (tpgid), -1 when it has none.
 func statTPGID(stat []byte) (int, error) { return statField(stat, 5) }

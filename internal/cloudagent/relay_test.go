@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -210,5 +212,51 @@ func TestTunnelRoutesOnlyThroughTheTunnel(t *testing.T) {
 		if res.StatusCode != http.StatusForbidden {
 			t.Errorf("%s over the network: %d", p, res.StatusCode)
 		}
+	}
+}
+
+// TestExecScriptIgnoringHangupIsKilled: a client that goes ends its script
+// even when the script ignores SIGHUP — with or without a terminal — so
+// the handler, its terminal and the tunnel's stream are not held for ever.
+func TestExecScriptIgnoringHangupIsKilled(t *testing.T) {
+	was := execKillAfter
+	execKillAfter = 200 * time.Millisecond
+	t.Cleanup(func() { execKillAfter = was })
+	r, rs, secret := relayRig(t)
+	s := dialMachine(t, r, rs, secret)
+	for _, tty := range []bool{false, true} {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		k, err := s.Socket(ctx, "/exec", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start, _ := json.Marshal(map[string]any{"script": `trap '' HUP; echo "pid=$$."; sleep 60`, "tty": tty})
+		k.Send(ctx, string(start))
+		var out string
+		pid := 0
+		for pid == 0 {
+			m, err := k.Recv(ctx)
+			if err != nil {
+				t.Fatalf("tty %v: %v (%q)", tty, err, out)
+			}
+			var o struct{ Out string }
+			json.Unmarshal([]byte(m), &o)
+			b, _ := base64.StdEncoding.DecodeString(o.Out)
+			out += string(b)
+			if i := strings.Index(out, "pid="); i >= 0 {
+				if j := strings.Index(out[i:], "."); j > 0 {
+					pid, _ = strconv.Atoi(out[i+4 : i+j])
+				}
+			}
+		}
+		k.Close()
+		deadline := time.Now().Add(5 * time.Second)
+		for syscall.Kill(pid, 0) == nil { // reaped only once the handler has waited for it
+			if time.Now().After(deadline) {
+				t.Fatalf("tty %v: the script (pid %d) outlived its client", tty, pid)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		cancel()
 	}
 }

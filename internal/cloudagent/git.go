@@ -25,7 +25,7 @@ import (
 
 // githubForms are the ways a repository on github.com is named, each sent
 // to the proxy.
-var githubForms = []string{"https://github.com/", "git@github.com:", "ssh://git@github.com/"}
+var githubForms = []string{"https://github.com/", "git@github.com:", "ssh://git@github.com/", "git://github.com/"}
 
 // configureGit points github.com at proxy, with the agent as the proxy's
 // credential helper. It replaces what an earlier agent set, for this
@@ -53,6 +53,20 @@ func (a *Agent) configureGit(ctx context.Context, proxy string) error {
 	for _, form := range githubForms {
 		if err := set(ctx, "--add", key, form); err != nil {
 			return err
+		}
+	}
+	// Helpers an earlier agent left, for this proxy or another: a proxy
+	// that moved must not still be offered the machine token.
+	if old, err := gitGetRegexp(ctx, `^credential\..*\.helper$`); err == nil {
+		for key, vals := range old {
+			for _, v := range vals {
+				if strings.Contains(v, " cloud git-credential ") {
+					if err := set(ctx, "--unset-all", key); err != nil {
+						return err
+					}
+					break
+				}
+			}
 		}
 	}
 	helper := "credential." + strings.TrimRight(proxy, "/") + ".helper"
