@@ -137,8 +137,7 @@ struct AgentEditPanel: View {
 
     var body: some View {
         let _ = look
-        let agents = store.startable(on: model.machine).filter(\.installed)
-        let names = agents.isEmpty ? ["claude"] : agents.map(\.name)
+        let choices = agentEditChoices(store.startable(on: model.machine))
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").foregroundStyle(Theme.color(agentColor(agent) ?? Theme.current.line))
@@ -151,20 +150,8 @@ struct AgentEditPanel: View {
             Rectangle().fill(Theme.line).frame(height: 1)
             VStack(alignment: .leading, spacing: 10) {
                 label("AGENT")
-                FlowRow(spacing: 6) {
-                    ForEach(names, id: \.self) { n in
-                        Button { agent = n } label: {
-                            HStack(spacing: 6) {
-                                Circle().fill(Theme.color(agentColor(n) ?? Theme.current.muted)).frame(width: 7, height: 7)
-                                Text(n).font(.ui(size: 12, weight: agent == n ? .medium : .regular))
-                            }
-                            .padding(.horizontal, 10).frame(height: 26)
-                            .background(agent == n ? Theme.raise : .clear, in: RoundedRectangle(cornerRadius: 6))
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(agent == n ? Theme.text2 : Theme.line))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                // Each agent by its own logo and name, as Settings offers them.
+                RichMenu(options: choices, value: $agent, agents: true, width: nil)
                 label("WHAT IT SEES")
                 Picker("", selection: $wholeFile) {
                     Text(selectionLabel).tag(false)
@@ -180,7 +167,7 @@ struct AgentEditPanel: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
                     .overlay(alignment: .topLeading) {
                         if ask.isEmpty {
-                            Text("Ask \(agent) to change this…").font(.ui(size: 12.5)).foregroundStyle(Theme.muted)
+                            Text("Ask \(choices.first { $0.value == agent }?.label ?? agent) to change this…").font(.ui(size: 12.5)).foregroundStyle(Theme.muted)
                                 .padding(.horizontal, 9).padding(.vertical, 4).allowsHitTesting(false)
                         }
                     }
@@ -215,7 +202,7 @@ struct AgentEditPanel: View {
         }
         .background(Theme.paneHeader)
         .onAppear {
-            if agent.isEmpty { agent = names.first ?? "claude" }
+            if agent.isEmpty { agent = choices.first?.value ?? "claude" }
             focused = true
         }
     }

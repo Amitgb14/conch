@@ -549,3 +549,11 @@ public func editorLines(_ text: String) -> Int {
 public func gutterWidth(lines: Int, digit: CGFloat) -> CGFloat {
     max(36, (CGFloat(String(max(lines, 1)).count) * digit + 18).rounded(.up))
 }
+
+/// The agents Edit with Agent offers: those installed on the file's
+/// machine, each by its full name (Claude Code), or Claude Code alone when
+/// none is known to be installed yet.
+public func agentEditChoices(_ agents: [AgentAvailability]) -> [SettingsOption] {
+    let have = agents.filter(\.installed).map { SettingsOption(value: $0.name, label: ($0.label ?? "").isEmpty ? $0.name : $0.label!) }
+    return have.isEmpty ? [SettingsOption(value: "claude", label: "Claude Code")] : have
+}

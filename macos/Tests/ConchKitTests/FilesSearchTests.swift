@@ -252,3 +252,32 @@ import Testing
     #expect(!draw.contains("ruleThickness ="), "drawHashMarksAndLabels sets the gutter's width")
     #expect(src.contains("func fit()"), "the gutter fits itself outside drawing")
 }
+
+// Edit with Agent offers the agents installed on the file's machine, each
+// by its full name, the way the agent menu names them.
+@Test func agentEditChoicesAreInstalledAgentsByName() throws {
+    let list = try JSONDecoder().decode([AgentAvailability].self, from: Data(#"""
+    [{"name":"claude","label":"Claude Code","installed":true},
+     {"name":"codex","label":"Codex","installed":false},
+     {"name":"gemini","installed":true},
+     {"name":"pi","label":"","installed":true}]
+    """#.utf8))
+    #expect(agentEditChoices(list) == [
+        SettingsOption(value: "claude", label: "Claude Code"),
+        SettingsOption(value: "gemini", label: "gemini"),
+        SettingsOption(value: "pi", label: "pi"),
+    ], "not installed left out; no label says its name")
+    #expect(agentEditChoices([]) == [SettingsOption(value: "claude", label: "Claude Code")],
+            "a server that has not said yet: Claude Code, as before")
+    #expect(agentEditChoices(list.filter { !$0.installed }) == [SettingsOption(value: "claude", label: "Claude Code")])
+}
+
+// The agent is picked from a dropdown with each agent's own logo, not a row
+// of buttons with a dot.
+@Test func editWithAgentPicksFromTheAgentMenu() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    let src = try String(contentsOfFile: dir + "/AgentEditView.swift", encoding: .utf8)
+    #expect(src.contains("agentEditChoices(store.startable("))
+    #expect(src.contains("RichMenu(options: choices"))
+    #expect(src.contains("agents: true"))
+}
