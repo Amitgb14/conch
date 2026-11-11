@@ -55,7 +55,10 @@ type Server struct {
 	projects  *projectManager
 	groups    *groupBook
 	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
-	secrets   secretCache
+	secrets secretCache
+	// cloud is the cloud agent beside this server, on a Conch Cloud
+	// machine (cloud.go).
+	cloud     cloudAgent
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
 	reviews   *reviewBook
@@ -98,6 +101,9 @@ type client struct {
 	// pane is the pane the connection comes from, as the kernel says; ""
 	// from outside the panes. See scope.go.
 	pane string
+	// root says the connection is root's, as the kernel says: the cloud
+	// agent's, on a cloud machine, where nothing in a pane is (cloud.go).
+	root bool
 	// actFor is the agent on another machine the connection is held to
 	// (scope.act_for), guarded by mu.
 	actFor proto.ActForParams
@@ -364,7 +370,7 @@ func (s *Server) shutdown() {
 func (s *Server) serve(nc net.Conn) {
 	pid := peerPID(nc)
 	s.noteCaller(pid) // CONCH_LOG_CALLER=1; see scope.go
-	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid)}
+	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid), root: peerUID(nc) == 0}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -374,6 +380,7 @@ func (s *Server) serve(nc net.Conn) {
 		delete(s.clients, c)
 		s.mu.Unlock()
 		s.views.forget(c) // a layout nobody is looking at is not an answer
+		s.cloud.forget(c)
 		s.sizes.forget(c)
 		s.unsubscribeAll(c)
 		s.uploads.dropClient(c)
@@ -511,6 +518,16 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 
 	case proto.MethodPaneCaller:
 		return s.callerInfo(c), nil
+
+	case proto.MethodCloudAgentRegister:
+		rp, perr := decode[proto.CloudAgentRegisterParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		if perr := s.cloud.register(c, rp); perr != nil {
+			return nil, perr
+		}
+		return proto.CloudAgentRegisterResult{Capabilities: s.capabilities()}, nil
 
 	case proto.MethodActFor:
 		ap, perr := decode[proto.ActForParams](msg)
@@ -1510,8 +1527,13 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	id := "p" + strconv.Itoa(s.nextID)
 	s.mu.Unlock()
 
-	// The library's tokens first, so anything the caller set wins.
-	env := append(append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...), cp.Env...)
+	// The library's tokens first, then a cloud machine's secrets for an
+	// agent, so anything the caller set wins.
+	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...)
+	if cp.Agent != "" {
+		env = append(env, s.cloud.env()...)
+	}
+	env = append(env, cp.Env...)
 	p, err := pane.Start(pane.Options{
 		ID: id, Name: cp.Name, Command: cp.Command, Cwd: cp.Cwd,
 		BaseEnv: adapter.SanitizeEnv(os.Environ()), Env: env,
@@ -1667,14 +1689,17 @@ func (s *Server) alive(e *entry) bool {
 // capabilities is what this server can actually do. Watching worktrees is
 // the machine's to give: without it clients must keep polling, so it is not
 // claimed.
-// A machine with no Keychain does not claim to keep tokens in one.
+// A machine with no Keychain does not claim to keep tokens in one, and only
+// a server with a cloud agent beside it claims cloud.agent.v1.
 func (s *Server) capabilities() []string {
 	keychain := keychainHas()
-	if s.watcher != nil && keychain {
+	cloud := s.cloud.registered()
+	if s.watcher != nil && keychain && cloud {
 		return proto.Capabilities
 	}
 	return slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool {
-		return c == proto.CapWorktreeWatch && s.watcher == nil || c == proto.CapLibraryKeychain && !keychain
+		return c == proto.CapWorktreeWatch && s.watcher == nil || c == proto.CapLibraryKeychain && !keychain ||
+			c == proto.CapCloudAgent && !cloud
 	})
 }
 

@@ -23,3 +23,23 @@ func peerPID(nc net.Conn) int {
 	})
 	return pid
 }
+
+// peerUID is the user at the other end of a unix socket connection, or -1
+// when the kernel won't say.
+func peerUID(nc net.Conn) int {
+	uc, ok := nc.(*net.UnixConn)
+	if !ok {
+		return -1
+	}
+	raw, err := uc.SyscallConn()
+	if err != nil {
+		return -1
+	}
+	uid := -1
+	raw.Control(func(fd uintptr) {
+		if x, err := unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED); err == nil {
+			uid = int(x.Uid)
+		}
+	})
+	return uid
+}

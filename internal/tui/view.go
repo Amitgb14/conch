@@ -236,6 +236,11 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			return "?", styleMuted, r.machine, labelStyle, ""
 		}
 		badge := joinRight(m.costChip(m.machineUsage(mach.id)), m.attentionBadge(mach.id, ""))
+		if _, isCloud := mach.cloudID(); isCloud {
+			if g, gs, l, ls, rt, ok := m.cloudRow(mach, badge); ok {
+				return g, gs, l, ls, rt
+			}
+		}
 		switch {
 		case mach.busy != "":
 			return spinner[m.spin%len(spinner)], styleWork, mach.label, styleMuted, styleMuted.Render(mach.busy)
@@ -1248,6 +1253,11 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 	case stateConnecting:
 		lines = append(lines, styleWork.Render("connecting…"))
 	case stateAttention:
+		if _, isCloud := mach.cloudID(); isCloud && mach.sandboxState != "" {
+			lines = append(lines, styleMuted.Render(mach.err+": its disk is kept; waking it counts toward the plan's hours"), "",
+				styleMuted.Render("m → Wake   (or run: conch cloud machine wake "+mach.label+")"))
+			break
+		}
 		if mach.sandboxState != "" {
 			provider, _, _ := mach.sandbox()
 			lines = append(lines, styleMuted.Render(mach.err+": its files are kept, nothing runs there"), "",

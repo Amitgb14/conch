@@ -1,0 +1,37 @@
+export const metadata = { title: "Conch Cloud", description: "Cloud machines that keep your agents working with the laptop closed: sign in, and they are machines like any other." }
+
+# Conch Cloud
+
+Conch Cloud runs machines with conch in them for you. Your agents keep working on one with the laptop closed; it sleeps when nothing is happening and wakes when you come back. To conch — the TUI, Conch.app, the commands — a cloud machine is one more machine.
+
+Nothing of it is there until you sign in. A conch that has never signed in asks nothing of Conch Cloud, shows no new rows, and behaves exactly as it did.
+
+## Sign in
+
+```sh
+conch login        # prints a code and opens the page to approve it
+conch account      # who you are, the plan, this month's hours and storage, your devices
+conch logout       # revoke this device's sign-in
+```
+
+In Conch.app it is **Settings → Conch Cloud → Sign in**, which runs the same `conch login`. The device's tokens are kept in the macOS Keychain; on Linux in `cloud.json` in conch's folder, readable by you alone (conch refuses the file if anyone else can read it). To use another server — your own, or a development one — set `[cloud] api` in `config.toml` (or `CONCH_CLOUD_URL`) before signing in.
+
+## Machines
+
+```sh
+conch cloud machine ls
+conch cloud machine new box -size standard -wait
+conch cloud machine wake box
+conch cloud machine sleep box      # refused while agents work; -force does it anyway
+conch cloud machine rm box
+```
+
+A cloud machine joins conch's machines on its own once you are signed in: it shows in the TUI's tree and in Conch.app's sidebar with its state — running, asleep, waking, creating, or error with why — and opening one that is asleep wakes it. `conch -m box …` reaches it like any machine.
+
+## What we can and cannot see
+
+Your terminal traffic goes through Conch Cloud's relay end to end encrypted, between conch on your device and the conch server inside the machine (the Noise protocol, the same tunnel conch's phone relay uses). The relay and the control plane cannot read or change it.
+
+The control plane does hand out each machine's key, so it could, in principle, hand out a key of its own. conch keeps the key it was given the first time it connected to a machine and refuses a different one later unless the machine was recreated — so a substituted key is caught after the first connection, though not on it. If you know why a key changed, `conch cloud machine forget-key NAME` lets the next connection keep the new one.
+
+The host that runs the machine can read its memory and disk, as any cloud provider can; administrative access to a machine is logged. Agent sign-ins (`claude /login` and the others) are made by you, inside the machine, and are never copied in or out.

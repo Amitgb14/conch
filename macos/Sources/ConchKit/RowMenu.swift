@@ -88,6 +88,9 @@ public enum RowAction: Equatable, Sendable {
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
+    /// A Conch Cloud machine woken or put to sleep (conch cloud machine
+    /// VERB), by its machine.
+    case cloud(machine: String, verb: String)
     /// A folder of your own made in a section of a machine's CLI, renamed,
     /// or taken away (what is in it stays, nothing closes).
     case newFolder(machine: String, section: FolderSection)
