@@ -1106,6 +1106,12 @@ final class FakeServer: @unchecked Sendable {
     let json = #"{"panes":[{"id":"p1","name":"ssh","state":"running","command":["/usr/bin/ssh","-t","--","me@box"]},{"id":"p2","name":"zsh","state":"running","command":["/bin/zsh","-l"]},{"id":"p3","name":"claude","state":"running","command":["ssh"],"agent":{"name":"claude","state":"idle"}},{"id":"p4","name":"x","state":"running"}]}"#
     let panes = try conchDecoder().decode(PaneList.self, from: Data(json.utf8)).panes
     #expect(panes.map(\.isSSH) == [true, false, false, false])
+    // A session to a host, and a host saved, draw a screen: the globe is
+    // the browser's, and the server a machine's row, and an ssh row in
+    // the CLI group read as either (#154).
+    #expect(panes.map(\.iconName) == ["monitor", "terminal", "terminal", "terminal"])
+    #expect(sshHostIcon == "monitor" && sshHostIcon != browserIcon && sshHostIcon != "server")
+    #expect(LucideIcons.all[sshHostIcon] != nil && sfSymbols[sshHostIcon] != nil && tileColors[sshHostIcon] != nil)
 }
 
 // The Workspace row: its machine, and a new task in each of its projects.

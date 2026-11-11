@@ -64,7 +64,7 @@ struct SideTabRow: View {
             if let a = p?.agent {
                 Mark(agent: a.name)
             } else {
-                LucideIcon(name: parseChangesKey(tab.focused) != nil ? .gitBranch : p?.isSSH == true ? .globe : .terminal,
+                LucideIcon(parseChangesKey(tab.focused) != nil ? "git-branch" : p?.iconName ?? "terminal",
                            color: Theme.muted, size: 12)
             }
             Text(TabButton(store: store, index: index, tab: tab).title(changes: parseChangesKey(tab.focused), pane: p))

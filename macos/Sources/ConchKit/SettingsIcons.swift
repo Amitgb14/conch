@@ -83,7 +83,7 @@ let sfSymbols: [String: String] = [
     // The window's sidebar: machines, a workspace, projects and what is
     // in them.
     "cloud": "cloud", "layers": "square.stack.3d.up", "folder": "folder", "folder-open": "folder",
-    "globe": "globe", "git-branch": "arrow.triangle.branch", "history": "clock.arrow.circlepath",
+    "globe": "globe", "monitor": "display", "git-branch": "arrow.triangle.branch", "history": "clock.arrow.circlepath",
 ]
 
 /// A section's tile colour, by its Lucide icon: a hue each, close to the
@@ -105,5 +105,5 @@ let tileColors: [String: String] = [
     "terminal": "#636366", "square-terminal": "#64748b", "laptop": "#0a84ff", "server": "#0a84ff",
     "smartphone": "#32ade6", "box": "#ac8e68", "refresh-cw": "#30b0a6", "zap": "#e6b800", "lock": "#8e8e93",
     "cloud": "#64d2ff", "layers": "#5e5ce6", "folder": "#3a8ee6", "folder-open": "#3a8ee6",
-    "globe": "#32ade6", "git-branch": "#f05033", "history": "#a2845e",
+    "globe": "#32ade6", "monitor": "#5e8ebf", "git-branch": "#f05033", "history": "#a2845e",
 ]
