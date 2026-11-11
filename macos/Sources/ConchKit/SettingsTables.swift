@@ -17,9 +17,10 @@ public enum SettingsPlace: Hashable, Sendable {
 }
 
 extension SettingsField {
-    /// Whether the window draws it: the simple kinds, and tables and keyed
-    /// tables as lists. A map is still left to config.toml.
-    public var drawn: Bool { simple || kind == "tables" || kind == "keyed" }
+    /// Whether the window draws it: the simple kinds, tables and keyed
+    /// tables as lists, and a map (a project's check, a key rebound) as
+    /// pairs.
+    public var drawn: Bool { simple || kind == "tables" || kind == "keyed" || kind == "map" }
 }
 
 extension SettingsForm {
@@ -98,6 +99,29 @@ extension SettingsForm {
         var t = keyedTable(s, f)
         t[name] = nil
         setKeyedTable(s, f, t)
+    }
+
+    // MARK: maps
+
+    /// A map's pairs, by key: [verify] commands by project, [keys.bind]
+    /// by what the key does. A value that is not text is shown as none.
+    public func mapEntries(_ s: SettingsSection, _ f: SettingsField) -> [(key: String, value: String)] {
+        (value(s, f)?.object ?? [:]).map { (key: $0.key, value: $0.value.string ?? "") }.sorted { $0.key < $1.key }
+    }
+
+    /// Sets one pair of a map; nil takes it out, and a map left empty is
+    /// taken out of the file rather than written as an empty table. A
+    /// blank key sets nothing. It says whether it changed anything.
+    @discardableResult
+    public mutating func setMapEntry(_ s: SettingsSection, _ f: SettingsField, _ key: String, _ v: String?) -> Bool {
+        let k = key.trimmingCharacters(in: .whitespaces)
+        guard !k.isEmpty else { return false }
+        var m = value(s, f)?.object ?? [:]
+        let next = v.map(JSONValue.string)
+        guard m[k] != next else { return false }
+        m[k] = next
+        set(s, f, m.isEmpty ? nil : .object(m))
+        return true
     }
 
     // MARK: a field wherever it is

@@ -55,7 +55,9 @@ public func settingsChangedShown(_ f: SettingsForm, _ s: SettingsSection) -> Int
         let app = f.payload.schema.first { $0.key == "app" }
         return changed(s) { _ in true } + (app.map { changed($0) { SettingsIconKeys.contains($0.key) } } ?? 0)
     default:
-        return settingsChanged(f, s)
+        // A page also counts the sections drawn on it: Git, [verify]'s.
+        let guests = f.payload.schema.filter { SettingsNav.mergedInto[$0.id] == s.id }
+        return settingsChanged(f, s) + guests.reduce(0) { $0 + settingsChanged(f, $1) }
     }
 }
 

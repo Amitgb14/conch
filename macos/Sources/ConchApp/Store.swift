@@ -47,7 +47,7 @@ final class Store: ObservableObject {
     @Published var machines: [MachineLink] = [MachineLink(id: "local", label: "local")]
     /// Every machine in machines.json, disabled ones too, as last read:
     /// what conch's commands look a name up in, for paneRef.
-    var catalog: [MachineEntry] = []
+    @Published var catalog: [MachineEntry] = []
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
@@ -1443,6 +1443,20 @@ final class Store: ObservableObject {
         job("Removing \(name)", done: "Removed \(name)") {
             _ = try await runConch(b, ["machine", "rm", machine])
             self.connect() // machines.json changed: let it go now
+        }
+    }
+
+    /// Gives a machine another label, as `conch machine rename` does; the
+    /// sidebar and Settings take it at once.
+    func renameMachine(_ machine: String, to name: String) {
+        guard let b = binary else { return }
+        job("Renaming \(label(machine))", done: "Renamed to \(name)") {
+            _ = try await runConch(b, ["machine", "rename", machine, name])
+            if let i = self.machines.firstIndex(where: { $0.id == machine }) {
+                let sandbox = self.catalog.first { $0.id == machine }?.sandboxProvider
+                self.machines[i].label = sandbox.map { "\(name) · \($0)" } ?? name
+            }
+            self.connect() // machines.json changed: the catalog read again
         }
     }
 

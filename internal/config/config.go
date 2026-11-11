@@ -17,7 +17,6 @@ import (
 // Config is the user configuration read from config.toml.
 type Config struct {
 	Keys    Keys       `toml:"keys"`
-	Pane    PaneCfg    `toml:"pane"`
 	Notify  NotifyCfg  `toml:"notify"`
 	UI      UICfg      `toml:"ui"`
 	Shell   ShellCfg   `toml:"shell"`
@@ -529,12 +528,6 @@ type Keys struct {
 	// field each because the set belongs to keymap, which the TUI, the
 	// doctor and that command all read; config only carries the file.
 	Bind map[string]string `toml:"bind"`
-}
-
-// PaneCfg holds defaults for new panes.
-type PaneCfg struct {
-	// DefaultCommand is the command a new pane runs; empty means $SHELL.
-	DefaultCommand string `toml:"default_command"`
 }
 
 // Default returns the built-in configuration.
