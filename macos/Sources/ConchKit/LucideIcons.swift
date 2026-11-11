@@ -4,6 +4,13 @@ import Foundation
 /// each a path `d` — circles, rects and lines written as paths — keyed by
 /// Lucide's names, so the settings page's section icons (configweb's
 /// Section.Icon) and the tree's are the same family, drawn one way.
+/// A host reached by ssh — a session to one, or one saved — is a machine,
+/// so it is drawn as one. The globe is the browser's: an ssh row in the
+/// CLI group drew it, and read as a web page (#154).
+public let sshHostIcon = "server"
+/// A browser tab's.
+public let browserIcon = "globe"
+
 public enum LucideIcons {
     public static let all: [String: [String]] = [
         "folder": ["M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"],

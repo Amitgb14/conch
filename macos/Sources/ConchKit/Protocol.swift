@@ -127,6 +127,9 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var isSSH: Bool {
         agent == nil && (command?.first.map { ($0 as NSString).lastPathComponent == "ssh" } ?? false)
     }
+    /// The Lucide icon it is drawn with where no agent's mark is: a
+    /// machine for an ssh session, a prompt for any other.
+    public var iconName: String { isSSH ? sshHostIcon : "terminal" }
     /// What happened since someone last looked: "activity" or "silence".
     public var alert: String?
     /// How it is watched for those (pane.monitor.v1).

@@ -900,7 +900,7 @@ struct NodeView: View {
         case .cli: TreeIcon(name: .squareTerminal, look: store.appLook)
         case .workspace: TreeIcon(name: .layers, look: store.appLook)
         case .agent(let id): Mark(agent: store.pane(id)?.agent?.name)
-        case .terminal(let id): TreeIcon(name: store.pane(id)?.isSSH == true ? .globe : .terminal, look: store.appLook, color: Theme.muted, size: 12)
+        case .terminal(let id): TreeIcon(store.pane(id)?.iconName ?? "terminal", look: store.appLook, color: Theme.muted, size: 12)
         case .branch(_, _, let checkedOut):
             // shadcn's way: the outline in the muted foreground, a shade
             // brighter for a branch checked out in a worktree of its own —
@@ -916,7 +916,7 @@ struct NodeView: View {
             }
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
-        case .savedHost: TreeIcon(name: .globe, look: store.appLook, color: Theme.muted, size: 12)
+        case .savedHost: TreeIcon(sshHostIcon, look: store.appLook, color: Theme.muted, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -1376,9 +1376,9 @@ struct TabButton: View {
                 } else if parseFilesKey(tab.focused) != nil {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
-                    LucideIcon(name: .globe, color: Theme.accent, size: 12)
+                    LucideIcon(browserIcon, color: Theme.accent, size: 12)
                 } else if changes == nil {
-                    LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12)
+                    LucideIcon(p?.iconName ?? "terminal", color: Theme.muted, size: 12)
                 } else {
                     LucideIcon(name: .gitBranch, color: Theme.muted, size: 12)
                 }
@@ -1603,7 +1603,7 @@ struct PaneCard: View {
         let focused = store.layout.focused == pane
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                if let a = p?.agent { Mark(agent: a.name) } else { LucideIcon(name: p?.isSSH == true ? .globe : .terminal, color: Theme.muted, size: 12) }
+                if let a = p?.agent { Mark(agent: a.name) } else { LucideIcon(p?.iconName ?? "terminal", color: Theme.muted, size: 12) }
                 Text(p?.agent?.name ?? p?.name ?? pane).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
                 if let b = p?.branch, !b.isEmpty {
                     Text(b).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
