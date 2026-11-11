@@ -4,10 +4,11 @@ import Foundation
 /// each a path `d` — circles, rects and lines written as paths — keyed by
 /// Lucide's names, so the settings page's section icons (configweb's
 /// Section.Icon) and the tree's are the same family, drawn one way.
-/// A host reached by ssh — a session to one, or one saved — is a machine,
-/// so it is drawn as one. The globe is the browser's: an ssh row in the
-/// CLI group drew it, and read as a web page (#154).
-public let sshHostIcon = "server"
+/// A host reached by ssh — a session to one, or one saved — is a screen
+/// somebody is logged in to. Not the globe, which is the browser's, nor
+/// the server, which is a machine's row: an ssh row in the CLI group read
+/// as one and then the other (#154).
+public let sshHostIcon = "monitor"
 /// A browser tab's.
 public let browserIcon = "globe"
 
@@ -23,6 +24,7 @@ public enum LucideIcons {
         "laptop": ["M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"],
         "server": [svgRect(2, 2, 20, 8, 2), svgRect(2, 14, 20, 8, 2), svgLine(6, 6, 6.01, 6), svgLine(6, 18, 6.01, 18)],
         "cloud": ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
+        "monitor": [svgRect(2, 3, 20, 14, 2), svgLine(8, 21, 16, 21), svgLine(12, 17, 12, 21)],
         "globe": [svgCircle(12, 12, 10), "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", "M2 12h20"],
         "layers": ["m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
                    "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"],
