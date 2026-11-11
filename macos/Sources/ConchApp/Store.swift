@@ -1972,6 +1972,12 @@ final class Store: ObservableObject {
         terminalHasKeyboard = false
     }
 
+    /// The Files tab in front, if that is what is focused.
+    var focusedFiles: FilesModel? {
+        guard let k = layout.focused, parseFilesKey(k) != nil else { return nil }
+        return fileViews[k]
+    }
+
     func files(for k: String) -> FilesModel {
         if let m = fileViews[k] { return m }
         let m = FilesModel(key: k, store: self)
@@ -2206,7 +2212,15 @@ final class Store: ObservableObject {
         case "splitDown": newTerminal(split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
-        case "find": openFind()
+        case "find": if let f = focusedFiles { f.findInFile(replace: false) } else { openFind() }
+        case "replaceInFile": if let f = focusedFiles { f.findInFile(replace: true) } else { NSSound.beep() }
+        case "goToFile": if let f = focusedFiles { f.quickOpen = true } else { NSSound.beep() }
+        case "searchFiles":
+            if let f = focusedFiles {
+                f.side = .search
+                f.search.focus &+= 1
+            } else { NSSound.beep() }
+        case "editWithAgent": if let f = focusedFiles { f.showAgentPanel() } else { NSSound.beep() }
         case "shortcuts": helpOpen = true
         case "welcome": welcomeOpen = true
         case "doctor": doctorOpen = true
@@ -2612,6 +2626,13 @@ final class Store: ObservableObject {
             if let p = groupTask(m, g, b)?.panes?.first(where: { pane(key(m, $0)) != nil }) { open(key(m, p)) }
         default: break
         }
+    }
+
+    /// A pane started from somewhere else (the Files tab's agent), into the
+    /// sidebar and the workspace without being put in front.
+    func added(machine: String, pane p: PaneInfo) {
+        snapshots[machine, default: Snapshot()].upsert(p)
+        joinWorkspace(machine: machine, pane: p)
     }
 
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
