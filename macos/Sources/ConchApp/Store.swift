@@ -230,6 +230,16 @@ final class Store: ObservableObject {
     private var phonesStamp = ""
     private var phonesTick = 0
     private var phonesFile: String { (conchDir as NSString).appendingPathComponent("phone.json") }
+    /// Conch Cloud (Settings → Conch Cloud, CloudSettings.swift): the
+    /// account as conch last said it, nil until asked — and never asked
+    /// while there is no sign-in — its machines, and a sign-in under way.
+    @Published var cloud: CloudAccount?
+    @Published var cloudMachines: [CloudMachine] = []
+    @Published var cloudLogin: CloudLoginState = .idle
+    @Published var cloudError = ""
+    var cloudLoginRun: CloudLoginRun?
+    var cloudAsking = false
+
     /// The paired phones, which are on now, and conch web's relay: for the
     /// phone icon and its list. nil until conch first answers.
     @Published var phones: PhonesInfo?
