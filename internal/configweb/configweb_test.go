@@ -18,6 +18,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/nodetest"
 )
 
@@ -817,5 +818,34 @@ func TestZshPromptRoute(t *testing.T) {
 	code, a = call(s.Token(), http.MethodGet, "theme=")
 	if code != 200 || a.Prompt == nil || a.Prompt.Theme != "bira" || dirs[len(dirs)-1] != filepath.Join(h, "omz") {
 		t.Fatalf(".zshrc's theme: %d %+v %v", code, a, dirs)
+	}
+}
+
+// Rebinding a key offers every action by name — the names `conch keys`
+// lists — so none has to be typed from memory, and [pane] is gone from
+// the page: it named a command no pane ever ran.
+func TestSchemaKeysBindSuggestsActions(t *testing.T) {
+	var bind *Field
+	for _, s := range Schema(Choices{}) {
+		if s.ID == "pane" {
+			t.Errorf("the page still has the [pane] section")
+		}
+		for i := range s.Fields {
+			if s.Key == "keys" && s.Fields[i].Key == "bind" {
+				bind = &s.Fields[i]
+			}
+		}
+	}
+	if bind == nil {
+		t.Fatal("no keys.bind field")
+	}
+	want := keymap.Actions()
+	if len(bind.Suggest) != len(want) || len(want) == 0 {
+		t.Fatalf("suggests %d actions, keymap has %d", len(bind.Suggest), len(want))
+	}
+	for i, a := range want {
+		if bind.Suggest[i] != string(a) {
+			t.Errorf("suggestion %d is %q, want %q", i, bind.Suggest[i], a)
+		}
 	}
 }

@@ -204,7 +204,6 @@ func TestA3SaveFullRoundTrip(t *testing.T) {
 
 	cfg := Config{
 		Keys:   Keys{Prefix: "ctrl+space"},
-		Pane:   PaneCfg{DefaultCommand: "fish -l"},
 		Notify: NotifyCfg{Enabled: true, Desktop: false, Sound: true, Bell: true, Waiting: false, Done: true, QuietStart: "23:00", QuietEnd: "06:00", Limits: false, LimitAt: []int{50, 90}},
 		UI:     UICfg{Mouse: false, Theme: "tokyo-night", Accent: "#ff00aa", Icons: "nerd"},
 		Shell:  ShellCfg{OMZTheme: "robbyrussell"},
@@ -563,5 +562,42 @@ func TestLightThemeRoundTrips(t *testing.T) {
 	got, err := Load()
 	if err != nil || got.UI.Theme != "nord" || got.UI.LightTheme != "github-light" {
 		t.Errorf("loaded %q/%q, %v", got.UI.Theme, got.UI.LightTheme, err)
+	}
+}
+
+// [pane] default_command was offered in Settings but never read by
+// anything, so it was removed. A file that still has it must load as it
+// did, and saving it back drops the section rather than keeping a setting
+// that does nothing.
+func TestA3LoadDroppedPaneSection(t *testing.T) {
+	_, conchHome := a3Isolate(t)
+	a3WriteConfig(t, conchHome, `
+[pane]
+default_command = "fish -l"
+
+[ui]
+theme = "dracula"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Default()
+	want.UI.Theme = "dracula"
+	if !reflect.DeepEqual(cfg, want) {
+		t.Fatalf("got  %+v\nwant %+v", cfg, want)
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(conchHome, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "[pane]") || strings.Contains(string(b), "default_command") {
+		t.Fatalf("saved file still has the pane section:\n%s", b)
+	}
+	if !strings.Contains(string(b), `theme = "dracula"`) {
+		t.Fatalf("saved file lost the theme:\n%s", b)
 	}
 }
