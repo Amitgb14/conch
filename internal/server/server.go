@@ -53,6 +53,9 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
+	groups    *groupBook
+	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
+	secrets   secretCache
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
 	reviews   *reviewBook
@@ -63,9 +66,10 @@ type Server struct {
 	rulesOn  bool
 	runs     *runLog // agents running in panes, for resuming after a restart
 	uploads  *uploads
-	packs    *packs     // worktrees packed for another machine
-	sshFiles *sshFiles  // the hosts terminals are logged in to (sshfiles.go)
-	files    fileStates // git status of checkouts being browsed
+	packs    *packs      // worktrees packed for another machine
+	sshFiles *sshFiles   // the hosts terminals are logged in to (sshfiles.go)
+	files    fileStates  // git status of checkouts being browsed
+	lineIdx  lineIndexes // where the lines of big files being read start
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent
@@ -124,6 +128,7 @@ func New(sockPath, configDir string) *Server {
 		ran:       make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.groups = loadGroups(s, configDir)
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
@@ -400,7 +405,7 @@ func (s *Server) serve(nc net.Conn) {
 
 var slowMethods = map[string]bool{
 	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true, proto.MethodProjectLog: true,
-	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true,
+	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true, proto.MethodGroupTask: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true, proto.MethodFSWrite: true, proto.MethodFSFind: true,
@@ -413,6 +418,8 @@ var slowMethods = map[string]bool{
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
+	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
+	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -698,6 +705,48 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodProjectList:
 		return proto.ProjectList{Projects: s.projects.list()}, nil
 
+	case proto.MethodGroupList:
+		return s.groups.list(), nil
+
+	case proto.MethodGroupSave:
+		gp, perr := decode[proto.GroupSaveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.groups.save(gp)
+
+	case proto.MethodGroupTask:
+		tp, perr := decode[proto.GroupTaskParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		res, perr := s.groups.task(tp)
+		for _, p := range res.Panes {
+			s.madeBy(c, p.ID)
+		}
+		return res, perr
+
+	case proto.MethodGroupTaskRemove:
+		ref, perr := decode[proto.GroupTaskRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.groups.removeTask(ref)
+
+	case proto.MethodGroupTaskMerge:
+		mp, perr := decode[proto.GroupTaskMergeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.groups.armMerge(mp)
+
+	case proto.MethodGroupRemove:
+		ref, perr := decode[proto.GroupRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.groups.remove(ref.Name)
+
 	case proto.MethodProjectAdd:
 		ap, perr := decode[proto.ProjectAddParams](msg)
 		if perr != nil {
@@ -779,7 +828,51 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		if mp.Root != "" {
+			return s.mkdirIn(c, mp)
+		}
 		return s.mkdir(mp)
+
+	case proto.MethodFSSearch:
+		sp, perr := decode[proto.FSSearchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.searchFiles(sp)
+
+	case proto.MethodFSReplace:
+		rp, perr := decode[proto.FSReplaceParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.replaceFiles(c, rp)
+
+	case proto.MethodFSRename, proto.MethodFSCopy, proto.MethodFSDelete:
+		pp, perr := decode[proto.FSPathParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		switch msg.Method {
+		case proto.MethodFSRename:
+			return s.renamePath(c, pp)
+		case proto.MethodFSCopy:
+			return s.copyPath(c, pp)
+		}
+		return s.deletePath(c, pp)
+
+	case proto.MethodFSLines:
+		lp, perr := decode[proto.FSLinesParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.readLines(lp)
+
+	case proto.MethodFSWriteRange:
+		wp, perr := decode[proto.FSWriteRangeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.writeRange(c, wp)
 
 	case proto.MethodFSUpload:
 		up, perr := decode[proto.FSUploadParams](msg)
@@ -1417,7 +1510,8 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	id := "p" + strconv.Itoa(s.nextID)
 	s.mu.Unlock()
 
-	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, cp.Env...)
+	// The library's tokens first, so anything the caller set wins.
+	env := append(append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...), cp.Env...)
 	p, err := pane.Start(pane.Options{
 		ID: id, Name: cp.Name, Command: cp.Command, Cwd: cp.Cwd,
 		BaseEnv: adapter.SanitizeEnv(os.Environ()), Env: env,
@@ -1573,12 +1667,14 @@ func (s *Server) alive(e *entry) bool {
 // capabilities is what this server can actually do. Watching worktrees is
 // the machine's to give: without it clients must keep polling, so it is not
 // claimed.
+// A machine with no Keychain does not claim to keep tokens in one.
 func (s *Server) capabilities() []string {
-	if s.watcher != nil {
+	keychain := keychainHas()
+	if s.watcher != nil && keychain {
 		return proto.Capabilities
 	}
 	return slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool {
-		return c == proto.CapWorktreeWatch
+		return c == proto.CapWorktreeWatch && s.watcher == nil || c == proto.CapLibraryKeychain && !keychain
 	})
 }
 

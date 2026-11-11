@@ -6,11 +6,17 @@ import Foundation
 public struct Snapshot: Equatable, Sendable {
     public var panes: [PaneInfo] = []
     public var projects: [ProjectInfo] = []
+    /// Its server's project groups (group.list), empty for one too old.
+    public var groups: [GroupInfo] = []
 
-    public init(panes: [PaneInfo] = [], projects: [ProjectInfo] = []) {
+    public init(panes: [PaneInfo] = [], projects: [ProjectInfo] = [], groups: [GroupInfo] = []) {
         self.panes = panes
         self.projects = projects
+        self.groups = groups
     }
+
+    /// The groups a project is in, in their order.
+    public func groups(of project: String) -> [GroupInfo] { groups.filter { $0.projects.contains(project) } }
 
     public func pane(_ id: String) -> PaneInfo? { panes.first { $0.id == id } }
     public func project(_ id: String) -> ProjectInfo? { projects.first { $0.id == id } }
@@ -86,6 +92,21 @@ public struct Snapshot: Equatable, Sendable {
             }
         }
         return (waiting, done)
+    }
+
+    /// What a workspace holds that is running, for its tab: agents,
+    /// terminals, and the agents waiting for you.
+    public func summary(in ws: Workspace?, machine: String = "local") -> WorkspaceSummary {
+        var out = WorkspaceSummary()
+        for p in shown(in: ws, machine: machine) where p.running {
+            if let a = p.agent {
+                out.agents += 1
+                if a.state == .blocked { out.waiting += 1 }
+            } else {
+                out.terminals += 1
+            }
+        }
+        return out
     }
 
     /// The agent to go to next: waiting ones first, then finished ones, each
@@ -200,6 +221,10 @@ public struct Workspace: Equatable, Sendable {
     /// For the first, what the later ones have between them.
     public var claimedProjects: Set<String> = []
     public var claimedPanes: Set<String> = []
+    /// The folders made in it, as spaceFolder names them (key, a newline,
+    /// the name); for the first, those the later ones made between them.
+    public var folders: Set<String> = []
+    public var claimedFolders: Set<String> = []
 
     public init(id: String = "first", name: String, projects: Set<String> = [], panes: Set<String> = [], first: Bool = false) {
         self.id = id
@@ -230,6 +255,7 @@ public struct Workspace: Equatable, Sendable {
             var name: String?
             var projects: [String]?
             var panes: [String]?
+            var folders: [String]?
         }
         struct UI: Decodable {
             var spaces: [Saved]?
@@ -237,16 +263,20 @@ public struct Workspace: Equatable, Sendable {
         }
         let ui = data.flatMap { try? JSONDecoder().decode(UI.self, from: $0) }
         let later = (ui?.spaces ?? []).enumerated().map { i, s in
-            Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
-                      projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
+            var w = Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
+                              projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
+            w.folders = Set(s.folders ?? [])
+            return w
         }
         var first = Workspace(name: ui?.first_space?.name ?? "", first: true)
+        if let f = ui?.first_space { first.folders = Set(f.folders ?? []) }
         if !later.isEmpty, let f = ui?.first_space {
             first.projects = Set(f.projects ?? [])
             first.panes = Set(f.panes ?? [])
         }
         first.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
         first.claimedPanes = later.reduce(into: []) { $0.formUnion($1.panes) }
+        first.claimedFolders = later.reduce(into: []) { $0.formUnion($1.folders) }
         return [first] + later
     }
 
@@ -435,6 +465,14 @@ public enum NodeKind: Equatable, Sendable {
     case more(project: String, count: Int)
     /// A saved ssh host with no session open to it (this computer's CLI).
     case savedHost(String)
+    /// The CLI's Agents, Terminals or SSH, on a machine.
+    case cliSection(machine: String, section: FolderSection)
+    /// A folder of your own in one of those (Folders.swift).
+    case folder(machine: String, section: FolderSection, name: String)
+    /// A project group under Workspace, its projects under it.
+    case group(machine: String, name: String)
+    /// A task across a group's repos: its agents, then its branch in each.
+    case groupTask(machine: String, group: String, branch: String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -482,7 +520,8 @@ extension Snapshot {
     /// no project — the TUI's tree. sessions counts each project's saved
     /// conversations, when they have been read.
     public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
-                     sessions: [String: Int] = [:], allBranches: Set<String> = [], savedHosts: [SavedHost] = [], now: Date = Date()) -> TreeNode {
+                     sessions: [String: Int] = [:], allBranches: Set<String> = [], savedHosts: [SavedHost] = [],
+                     folders: [String: [Folder]] = [:], now: Date = Date()) -> TreeNode {
         let shown = self.shown(in: ws, machine: machine)
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
@@ -529,26 +568,189 @@ extension Snapshot {
                                          badge: attention(mine),
                                          children: sections, fold: tui, foldDefault: !mine.isEmpty))
         }
-        let loose = shown.filter { $0.projectID == nil || project($0.projectID!) == nil }
+        // A group task's agent works at the task's folder, in no project,
+        // and is listed under its task rather than in CLI.
+        let taskPanes = Set(groups.flatMap { ($0.tasks ?? []).flatMap { $0.panes ?? [] } })
+        let loose = shown.filter { ($0.projectID == nil || project($0.projectID!) == nil) && !taskPanes.contains($0.id) }
         // The projects under a Workspace row, the CLI group beside it: the
         // TUI's tree (kindWorkspace, open unless folded).
         var top: [TreeNode] = []
-        if !projectNodes.isEmpty {
+        let workspaceRows = grouped(projectNodes, machine: machine, shown: shown)
+        if !workspaceRows.isEmpty {
             top.append(TreeNode(id: "ws:\(machine)", kind: .workspace(machine), title: "Workspace", badge: "\(projectNodes.count)",
-                                children: projectNodes, fold: "m:\(machine)/workspace"))
+                                children: workspaceRows, fold: "m:\(machine)/workspace"))
         }
         // This computer's saved ssh hosts with no session open, after its
         // own terminals, as the TUI lists them under CLI → SSH.
         let idle = machine == "local" ? idleSavedHosts(savedHosts, panes: panes) : []
-        if !loose.isEmpty || !idle.isEmpty {
-            let hosts = idle.map { TreeNode(id: "host:\($0.host)", kind: .savedHost($0.host), title: $0.title, detail: $0.host, badge: "saved") }
-            // Its count is what it lists: terminals and saved hosts both.
+        let cli = cliSections(loose: loose, idle: idle, saved: machine == "local" ? Set(savedHosts.map(\.host)) : [],
+                              machine: machine, ws: ws, shown: shown, folders: folders)
+        if !cli.isEmpty {
+            // Its count is what it lists: panes and saved hosts both.
             top.append(TreeNode(id: "cli:\(machine)", kind: .cli(machine), title: "CLI", badge: "\(loose.count + idle.count)",
-                                children: paneForest(loose, machine) + hosts, fold: "m:\(machine)/cli"))
+                                children: cli, fold: "m:\(machine)/cli"))
         }
         return TreeNode(id: "m:\(machine)", kind: .machine(machine), title: label ?? machine,
                         badge: attention(shown),
                         children: top, fold: "m:\(machine)")
+    }
+
+    /// Workspace's rows: each group with its projects under it, in the
+    /// group's order, then the projects in none, in their own. A project in
+    /// two groups is listed under both, its row's id made its own the
+    /// second time so the tree can tell them apart. A group none of whose
+    /// projects the workspace shows is left out.
+    func grouped(_ projectNodes: [TreeNode], machine: String, shown: [PaneInfo]) -> [TreeNode] {
+        let byKey = Dictionary(projectNodes.compactMap { n -> (String, TreeNode)? in
+            if case .project(let pk) = n.kind { return (pk, n) }
+            return nil
+        }, uniquingKeysWith: { a, _ in a })
+        var out: [TreeNode] = [], placed: Set<String> = []
+        for g in groups {
+            var kids: [TreeNode] = []
+            for id in g.projects {
+                let pk = key(machine, id)
+                guard var n = byKey[pk] else { continue }
+                if placed.contains(pk) { n.id += "@" + g.name }
+                placed.insert(pk)
+                kids.append(n)
+            }
+            guard !kids.isEmpty else { continue }
+            let repoCount = kids.count
+            kids = (g.tasks ?? []).map { taskNode($0, group: g.name, machine: machine, shown: shown) } + kids
+            let taskPanes = Set((g.tasks ?? []).flatMap { $0.panes ?? [] })
+            let mine = shown.filter { ($0.projectID.map(g.projects.contains) ?? false) || taskPanes.contains($0.id) }
+            out.append(TreeNode(id: "grp:\(machine):\(g.name)", kind: .group(machine: machine, name: g.name), title: g.name,
+                                detail: "\(repoCount) repos", badge: attention(mine), children: kids, fold: "grp:\(machine):\(g.name)"))
+        }
+        return out + projectNodes.filter { n in
+            if case .project(let pk) = n.kind { return !placed.contains(pk) }
+            return true
+        }
+    }
+
+    /// Each repo of a group as its row's tooltip says it: its agents by
+    /// state, its checkouts beside the main one, and what is uncommitted
+    /// across its worktrees — for the panes the workspace shows.
+    public func repoSummaries(_ g: GroupInfo, in ws: Workspace? = nil, machine: String = "local") -> [RepoSummary] {
+        let shown = self.shown(in: ws, machine: machine)
+        return g.projects.compactMap { id -> RepoSummary? in
+            guard let pr = project(id) else { return nil }
+            var r = RepoSummary(name: pr.name)
+            for p in shown where p.projectID == id && p.running {
+                switch p.agent?.state {
+                case .working: r.working += 1
+                case .blocked: r.waiting += 1
+                case .done: r.done += 1
+                default: break
+                }
+            }
+            for w in pr.worktrees ?? [] {
+                if w.main != true { r.checkouts += 1 }
+                r.files += w.status?.files ?? 0
+                r.added += w.status?.added ?? 0
+                r.deleted += w.status?.deleted ?? 0
+            }
+            return r
+        }
+    }
+
+    /// A task across a group's repos: its agents (those still listed),
+    /// then the task's branch in each repo — the project's own branch, so
+    /// a click opens that repo's changes and its badge says its pull
+    /// request — and its counts.
+    func taskNode(_ t: GroupTask, group: String, machine: String, shown: [PaneInfo]) -> TreeNode {
+        let ids = Set(t.panes ?? [])
+        let agents = paneForest(shown.filter { ids.contains($0.id) }, machine)
+        let repos = t.projects.compactMap { id -> TreeNode? in
+            guard let pr = project(id) else { return nil }
+            let pk = key(machine, id)
+            let b = pr.branches?.first { $0.name == t.branch } ?? BranchInfo(name: t.branch)
+            return TreeNode(id: "gtb:\(machine):\(group):\(t.branch):\(id)", kind: .branch(project: pk, name: t.branch, checkedOut: true),
+                            title: pr.name, badge: branchBadge(b),
+                            parts: branchBadgeParts(b, worktree: pr.worktrees?.first { $0.branch == t.branch }, isBase: false,
+                                                    agents: shown.filter { $0.projectID == id && $0.branch == t.branch && $0.running }.compactMap { $0.agent?.state }))
+        }
+        let mine = shown.filter { ids.contains($0.id) || ($0.projectID.map(t.projects.contains) ?? false) && $0.branch == t.branch }
+        return TreeNode(id: "gt:\(machine):\(group):\(t.branch)", kind: .groupTask(machine: machine, group: group, branch: t.branch),
+                        title: t.branch, detail: t.merge?.state == "merged" ? "merged" : "\(t.projects.count) repos", badge: attention(mine), children: agents + repos,
+                        fold: "gt:\(machine):\(group):\(t.branch)")
+    }
+
+    /// The group task a pane belongs to, by its group and branch.
+    public func groupTask(of pane: String) -> (group: String, task: GroupTask)? {
+        for g in groups {
+            if let t = (g.tasks ?? []).first(where: { ($0.panes ?? []).contains(pane) }) { return (g.name, t) }
+        }
+        return nil
+    }
+
+    /// The CLI's sections, as the TUI splits it (tree.go): Agents,
+    /// Terminals and SSH, each holding its folders — those the workspace
+    /// shows, folded until opened — and then what is in none. An SSH folder
+    /// holds saved hosts as well as sessions: a host's sessions are listed
+    /// in its folder, and the host itself while none is open, and a host's
+    /// place is settled before any session's (sshSectionRows). A section
+    /// with nothing in it, not even an empty folder, is left out.
+    func cliSections(loose: [PaneInfo], idle: [SavedHost], saved: Set<String>, machine: String, ws: Workspace?, shown: [PaneInfo],
+                     folders: [String: [Folder]]) -> [TreeNode] {
+        let agents = loose.filter { $0.agent != nil }
+        let ssh = loose.filter { $0.agent == nil && $0.isSSH }
+        let terms = loose.filter { $0.agent == nil && !$0.isSSH }
+        func listed(_ sec: FolderSection) -> [Folder] {
+            let k = folderKey(machine: machine, section: sec)
+            return (folders[k] ?? []).filter { ws?.shows(folder: $0, key: k, panes: shown) ?? true }
+        }
+        func folderNode(_ sec: FolderSection, _ f: Folder, _ kids: [TreeNode], count: Int) -> TreeNode {
+            let k = folderKey(machine: machine, section: sec)
+            return TreeNode(id: "folder:\(machine):\(sec.rawValue):\(f.name)", kind: .folder(machine: machine, section: sec, name: f.name),
+                            title: f.name, badge: count > 0 ? "\(count)" : "", children: kids,
+                            fold: folderFold(k, f.name), foldDefault: false)
+        }
+        func hostNode(_ h: SavedHost) -> TreeNode {
+            TreeNode(id: "host:\(h.host)", kind: .savedHost(h.host), title: h.title, detail: h.host, badge: "saved")
+        }
+        var out: [TreeNode] = []
+        func section(_ sec: FolderSection, _ kids: [TreeNode], count: Int) {
+            guard !kids.isEmpty else { return }
+            let word = sec == .ssh ? "ssh" : sec == .agents ? "agents" : "terminals"
+            out.append(TreeNode(id: "cs:\(machine):\(sec.rawValue)", kind: .cliSection(machine: machine, section: sec), title: sec.title,
+                                badge: count > 0 ? "\(count)" : "", children: kids, fold: "m:\(machine)/\(word)"))
+        }
+        for (sec, panes) in [(FolderSection.agents, agents), (.terminals, terms)] {
+            var taken: Set<String> = []
+            var kids: [TreeNode] = []
+            for f in listed(sec) {
+                let mine = f.claim(panes, taken: &taken)
+                kids.append(folderNode(sec, f, paneForest(mine, machine), count: mine.count))
+            }
+            kids += paneForest(panes.filter { !taken.contains($0.id) }, machine)
+            section(sec, kids, count: panes.count)
+        }
+        // SSH: a saved host's folder first, then each folder's own panes.
+        let fs = listed(.ssh)
+        var folderOf: [String: Int] = [:]
+        for (i, f) in fs.enumerated() {
+            for h in f.hosts where folderOf[h] == nil && saved.contains(h) { folderOf[h] = i }
+        }
+        var taken: Set<String> = []
+        var mine = Array(repeating: [PaneInfo](), count: fs.count)
+        for p in ssh {
+            if let t = p.sshTarget, let i = folderOf[t] {
+                mine[i].append(p)
+                taken.insert(p.id)
+            }
+        }
+        for (i, f) in fs.enumerated() { mine[i] += f.claim(ssh, taken: &taken) }
+        var kids: [TreeNode] = []
+        for (i, f) in fs.enumerated() {
+            let hosts = idle.filter { folderOf[$0.host] == i }
+            kids.append(folderNode(.ssh, f, paneForest(mine[i], machine) + hosts.map(hostNode), count: mine[i].count + hosts.count))
+        }
+        kids += paneForest(ssh.filter { !taken.contains($0.id) }, machine)
+        kids += idle.filter { folderOf[$0.host] == nil }.map(hostNode)
+        section(.ssh, kids, count: ssh.count + idle.count)
+        return out
     }
 
     /// A machine or project row's counts, as the TUI's attentionBadge:
@@ -701,23 +903,23 @@ public struct PaletteItem: Equatable, Sendable {
 
 /// The commands the palette lists, by identifier, with their shortcut.
 public let paletteCommands: [(id: String, title: String, keys: String)] = [
-    ("newTask", "New task (branch, worktree and agent)…", "⌘N"),
-    ("startAgent", "Start an agent here", "⇧⌘N"),
-    ("newTab", "New terminal tab", "⌘T"),
-    ("addProject", "Add project…", "⌘O"),
-    ("sshToHost", "SSH to a host…", "⇧⌘H"),
-    ("addMachine", "Add machine…", "⇧⌘M"),
-    ("newSandbox", "New sandbox (a machine in the cloud)…", ""),
-    ("splitRight", "Split right", "⌘D"),
-    ("splitDown", "Split down", "⇧⌘D"),
-    ("closeSplit", "Close split", "⌘W"),
-    ("nextWaiting", "Next agent waiting for you", "⌘."),
-    ("nextTab", "Next tab", "⇧⌘]"),
-    ("previousTab", "Previous tab", "⇧⌘["),
-    ("toggleSidebar", "Show or hide the sidebar", "⌃⌘S"),
-    ("focusSidebar", "Go to the sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
-    ("biggerFont", "Terminal text bigger / smaller / default", "⌘+ ⌘− ⌃⌘0"),
-    ("biggerText", "Window text bigger / smaller / default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
+    ("newTask", "New Task (Branch, Worktree and Agent)…", "⌘N"),
+    ("startAgent", "Start an Agent Here", "⇧⌘N"),
+    ("newTab", "New Terminal Tab", "⌘T"),
+    ("addProject", "Add Project…", "⌘O"),
+    ("sshToHost", "SSH to a Host…", "⇧⌘H"),
+    ("addMachine", "Add Machine…", "⇧⌘M"),
+    ("newSandbox", "New Sandbox (a Machine in the Cloud)…", ""),
+    ("splitRight", "Split Right", "⌘D"),
+    ("splitDown", "Split Down", "⇧⌘D"),
+    ("closeSplit", "Close Split", "⌘W"),
+    ("nextWaiting", "Next Agent Waiting for You", "⌘."),
+    ("nextTab", "Next Tab", "⇧⌘]"),
+    ("previousTab", "Previous Tab", "⇧⌘["),
+    ("toggleSidebar", "Show or Hide the Sidebar", "⌃⌘S"),
+    ("focusSidebar", "Go to the Sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
+    ("biggerFont", "Terminal Text Bigger / Smaller / Default", "⌘+ ⌘− ⌃⌘0"),
+    ("biggerText", "Window Text Bigger / Smaller / Default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
     ("openTUI", "Run in Terminal", ""),
 ]
 
@@ -978,3 +1180,55 @@ public func paneEndBadge(_ p: PaneInfo) -> BadgePart? {
     default: return nil
     }
 }
+
+/// A workspace's running panes, for its tab in the toolbar: its tooltip
+/// says them, and a tab whose agent waits for you carries a dot.
+public struct WorkspaceSummary: Equatable, Sendable {
+    public var agents = 0
+    public var terminals = 0
+    public var waiting = 0
+
+    public init(agents: Int = 0, terminals: Int = 0, waiting: Int = 0) {
+        self.agents = agents
+        self.terminals = terminals
+        self.waiting = waiting
+    }
+
+    public static func + (a: Self, b: Self) -> Self {
+        Self(agents: a.agents + b.agents, terminals: a.terminals + b.terminals, waiting: a.waiting + b.waiting)
+    }
+
+    /// "2 agents, 1 terminal · 1 waiting for you", or "nothing running".
+    public var text: String {
+        func n(_ c: Int, _ w: String) -> String { "\(c) \(w)\(c == 1 ? "" : "s")" }
+        var parts: [String] = []
+        if agents > 0 { parts.append(n(agents, "agent")) }
+        if terminals > 0 { parts.append(n(terminals, "terminal")) }
+        guard !parts.isEmpty else { return "nothing running" }
+        return parts.joined(separator: ", ") + (waiting > 0 ? " · \(waiting) waiting for you" : "")
+    }
+}
+
+/// One repo of a group, for the group row's tooltip.
+public struct RepoSummary: Equatable, Sendable {
+    public var name: String
+    public var working = 0, waiting = 0, done = 0
+    /// Worktrees besides the main checkout: branches being worked on.
+    public var checkouts = 0
+    public var files = 0, added = 0, deleted = 0
+
+    public init(name: String) { self.name = name }
+
+    /// "spring — 2 working, 1 waiting · 1 branch checked out · 3 files changed (+40 −2)".
+    public var line: String {
+        var agents: [String] = []
+        if working > 0 { agents.append("\(working) working") }
+        if waiting > 0 { agents.append("\(waiting) waiting") }
+        if done > 0 { agents.append("\(done) done") }
+        var parts = [agents.isEmpty ? "no agents" : agents.joined(separator: ", ")]
+        if checkouts > 0 { parts.append("\(checkouts) branch\(checkouts == 1 ? "" : "es") checked out") }
+        if files > 0 { parts.append("\(files) file\(files == 1 ? "" : "s") changed (+\(added) −\(deleted))") }
+        return name + " — " + parts.joined(separator: " · ")
+    }
+}
+

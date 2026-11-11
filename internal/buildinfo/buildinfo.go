@@ -119,11 +119,16 @@ type Info struct {
 	BuildID      string   `json:"build_id,omitempty"`
 	Platform     string   `json:"platform"`
 	Capabilities []string `json:"capabilities"`
+	// Optional are those of Capabilities a server of this build may leave
+	// out on a machine that cannot give them (proto.OptionalCapabilities):
+	// a server lacking one is not from an older build.
+	Optional []string `json:"optional,omitempty"`
 }
 
 // Current describes this binary.
 func Current() Info {
-	return Info{Version: proto.Version, Build: Build(), BuildID: ID(), Platform: Platform(), Capabilities: proto.Capabilities}
+	return Info{Version: proto.Version, Build: Build(), BuildID: ID(), Platform: Platform(), Capabilities: proto.Capabilities,
+		Optional: proto.OptionalCapabilities}
 }
 
 // releaseTag is a plain release tag such as v0.1.0: not a pre-release and

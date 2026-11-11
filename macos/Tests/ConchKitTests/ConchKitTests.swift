@@ -87,7 +87,8 @@ func fixture() -> Snapshot {
     #expect(api.children?[1].children?.map(\.title) == ["main", "feat"])
     #expect(api.children?[1].children?.last?.kind == .branch(project: "local|r1", name: "feat", checkedOut: true))
     #expect(api.children?[1].children?.last?.badge == "↑2")
-    #expect(top[1].children?.map(\.title) == ["bash"])
+    #expect(top[1].children?.map(\.title) == ["Terminals"])
+    #expect(top[1].children?[0].children?.map(\.title) == ["bash"])
 }
 
 func agents0(_ project: TreeNode) -> TreeNode? { project.children?.first?.children?.first }
@@ -231,7 +232,8 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let review = s.tree(in: ws[1]).children ?? []
     #expect(review.map(\.title) == ["Workspace", "CLI"])
     #expect(projects(s.tree(in: ws[1])).map(\.title) == ["api"])
-    #expect(review[1].children?.map(\.title) == ["bash"])
+    #expect(review[1].children?.map(\.title) == ["Terminals"])
+    #expect(review[1].children?[0].children?.map(\.title) == ["bash"])
     #expect((s.tree(in: ws[2]).children ?? []).isEmpty)
     // A project of another machine is kept as the TUI writes it.
     #expect(ws[1].shows(ProjectInfo(id: "r9", name: "x", path: "/"), machine: "busybox"))
@@ -265,8 +267,8 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let items = fixture().paletteItems()
     #expect(filterPalette(items, query: "") == items)
     let split = filterPalette(items, query: "split")
-    #expect(split.map(\.title) == ["Split right", "Split down", "Close split"])
-    #expect(filterPalette(items, query: "down split").map(\.title) == ["Split down"])
+    #expect(split.map(\.title) == ["Split Right", "Split Down", "Close Split"])
+    #expect(filterPalette(items, query: "down split").map(\.title) == ["Split Down"])
     #expect(filterPalette(items, query: "HEALTH").first?.title == "Add health check")
     #expect(filterPalette(items, query: "zzqq").isEmpty)
 }
@@ -640,13 +642,13 @@ final class FakeServer: @unchecked Sendable {
     // An agent: open, rename, prompt, start beside it, its branch, close.
     let agent = api.children![0].children![0]
     let am = s.menu(for: agent, machine: "box")
-    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an agent here", "New terminal here", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
+    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an Agent Here", "New Terminal Here", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Redraw", "Close Agent…"])
     #expect(am[4].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[4].picksAgent)
     #expect(am[6].action == .changes(project: "box|r1", branch: "feat"))
     #expect(am.last?.action == .close(pane: "box|p1"))
     // A terminal: no prompt, a plain Close; one in no project starts things outside any.
     let cli = t.children!.first { $0.kind == .cli("box") }!
-    let bm = s.menu(for: cli.children![0], machine: "box")
+    let bm = s.menu(for: cli.children![0].children![0], machine: "box") // CLI → Terminals → bash
     #expect(!titles(bm).contains("Prompt…") && bm.last?.title == "Close")
     #expect(bm.first { $0.picksAgent }?.action == .startAgent(machine: "box", cwd: nil, inProject: false))
     // An exited agent is not prompted, and closes without asking.
@@ -660,23 +662,23 @@ final class FakeServer: @unchecked Sendable {
     // In a worktree of its own: removed (the worktree) or deleted (the branch).
     let feat = api.children![1].children![1]
     let fm = s.menu(for: feat, machine: "box")
-    #expect(titles(fm) == ["View changes", "Start an agent on this branch", "Open terminal on this branch", "New task in project…", "Show in commit graph",
-                           "Agent setup here", "", "Copy branch name", "", "Remove worktree…", "Delete branch…"])
+    #expect(titles(fm) == ["View Changes", "Start an Agent on This Branch", "Open Terminal on This Branch", "New Task in Project…", "Show in Commit Graph",
+                           "Agent Setup Here", "", "Copy Branch Name", "", "Remove Worktree…", "Delete Branch…"])
     #expect(fm[5].action == .agentSetup(project: "box|r1", dir: "/src/api-feat"))
     #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
     #expect(fm[9].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[10].action == .deleteBranch(project: "box|r1", branch: "feat"))
     // Not checked out: deleted only.
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
-    #expect(titles(s.menu(for: old, machine: "box")) == ["View changes", "New task in project…", "Show in commit graph", "", "Copy branch name", "", "Delete branch…"])
+    #expect(titles(s.menu(for: old, machine: "box")) == ["View Changes", "New Task in Project…", "Show in Commit Graph", "", "Copy Branch Name", "", "Delete Branch…"])
     // The main checkout's branch, and the base, are never taken away; offline, nothing is.
     let mainRow = api.children![1].children![0]
-    #expect(!titles(s.menu(for: mainRow, machine: "box")).contains("Delete branch…"))
+    #expect(!titles(s.menu(for: mainRow, machine: "box")).contains("Delete Branch…"))
     var based = s
     var bp = s.project("r1")!
     bp.base = "old"
     based.upsert(bp)
-    #expect(!titles(based.menu(for: old, machine: "box")).contains("Delete branch…"))
+    #expect(!titles(based.menu(for: old, machine: "box")).contains("Delete Branch…"))
     #expect(!titles(s.menu(for: feat, machine: "box", machineOnline: false)).contains { $0.hasPrefix("Remove") || $0.hasPrefix("Delete") })
     // A pull request with a web address opens; one with another scheme does not.
     var withPR = s
@@ -720,12 +722,53 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .newSandbox, .divider, .reconnect(machine: "box"),
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
-    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View changes on feat", "", "Copy Pane ID (box:p1)", "Close agent…"])
+    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Close Agent…"])
     // A section offers a broadcast to those in it, offline nothing; a pane
     // gone from the snapshot has no menu.
     #expect(s.menu(for: api.children![0], machine: "box").map(\.action) == [.broadcast(.section(project: "box|r1", agents: true))])
     #expect(s.menu(for: api.children![0], machine: "box", machineOnline: false).isEmpty)
     #expect(s.menu(for: TreeNode(id: "x", kind: .agent("box|p99"), title: "x"), machine: "box").isEmpty)
+}
+
+// A project's and a machine's buttons: + for what the row is most often
+// for, an agent or a terminal started there, and the menu — each also on
+// the right-click menu; offline, nothing that starts anything.
+@Test func rowButtons() {
+    let s = fixture()
+    let t = s.tree(machine: "box")
+    let api = projects(t)[0]
+    let pb = try! #require(s.rowButtons(for: api, machine: "box"))
+    #expect(pb.primary?.action == .newTask(project: "box|r1") && pb.primary?.title == "New Task…")
+    #expect(pb.start("codex") == .startAgent(machine: "box", cwd: "/src/api", inProject: true))
+    #expect(pb.start(nil) == .newTerminal(machine: "box", cwd: "/src/api", inProject: true))
+    let menu = s.menu(for: api, machine: "box").map(\.action)
+    #expect(menu.contains(pb.primary!.action) && menu.contains(pb.start("codex")!) && menu.contains(pb.start(nil)!))
+    // A folder that is not a repository: its task is an agent with a prompt.
+    var plain = s
+    var np = s.project("r1")!
+    np.git = false
+    plain.upsert(np)
+    #expect(plain.rowButtons(for: api, machine: "box")?.primary?.title == "New Task (an Agent with a Prompt, Here)…")
+    // A machine: a project added there, an agent in its home, outside any project.
+    let mb = try! #require(s.rowButtons(for: t, machine: "box"))
+    #expect(mb.primary?.action == .addProject(machine: "box"))
+    #expect(mb.start("claude") == .startAgent(machine: "box", cwd: nil, inProject: false) && mb.start(nil) == .newTerminal(machine: "box", cwd: nil, inProject: false))
+    let mm = s.menu(for: t, machine: "box").map(\.action)
+    #expect(mm.contains(mb.primary!.action) && mm.contains(mb.start("claude")!))
+    // Offline: a machine keeps only its menu (reconnect, upgrade); a project shows none.
+    #expect(s.rowButtons(for: t, machine: "box", machineOnline: false) == RowButtons())
+    #expect(RowButtons().start(nil) == nil)
+    #expect(s.rowButtons(for: api, machine: "box", machineOnline: false) == nil)
+    // Nothing on other rows, nor on a project gone from the snapshot.
+    #expect(s.rowButtons(for: api.children![0], machine: "box") == nil)
+    #expect(s.rowButtons(for: TreeNode(id: "x", kind: .project("box|r9"), title: "x"), machine: "box") == nil)
+    // Reveal in Finder only for this Mac's folders.
+    #expect(!s.menu(for: api, machine: "box").contains { if case .reveal = $0.action { return true }; return false })
+    let lt = s.tree()
+    let lapi = projects(lt)[0]
+    let lm = s.menu(for: lapi, machine: "local")
+    let copy = try! #require(lm.firstIndex { $0.title == "Copy Path" })
+    #expect(lm[copy + 1] == RowMenuItem("Reveal in Finder", .reveal("/src/api")))
 }
 
 // Every row knows its machine, which is where its menu acts.
@@ -1076,7 +1119,7 @@ final class FakeServer: @unchecked Sendable {
     let s = fixture()
     let w = s.tree(machine: "box").children![0]
     #expect(w.kind == .workspace("box") && w.machine == "box")
-    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .broadcast(.machine("box")), .divider, .newTask(project: "box|r1")])
+    #expect(s.menu(for: w, machine: "box").map(\.action) == [.addProject(machine: "box"), .broadcast(.machine("box")), .divider, .newTask(project: "box|r1"), .divider, .collapseProjects(machine: "box")])
     #expect(s.menu(for: w, machine: "box", machineOnline: false).isEmpty)
     #expect(Snapshot(panes: s.panes).tree().children?.map(\.title) == ["CLI"]) // no projects, no Workspace row
 }
@@ -1117,7 +1160,8 @@ final class FakeServer: @unchecked Sendable {
 // to something to draw; an unknown one draws as the cog.
 @Test func lucideIconsRead() {
     let names = ["folder", "folder-open", "git-branch", "terminal", "square-terminal", "history", "laptop", "server", "cloud", "globe", "layers",
-                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings"]
+                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings",
+                 "plus", "ellipsis", "folder-plus", "key-round", "layout-grid"]
     for n in names {
         #expect(LucideIcons.all[n] != nil, "\(n)")
         let ops = LucideIcons.ops(n)
@@ -1153,15 +1197,19 @@ final class FakeServer: @unchecked Sendable {
     #expect(f.value(ui, ui.fields[2]) == .bool(true)) // absent: its default
     #expect(listText(f.value(notify, notify.fields[0])) == "50\n80")
     #expect(ui.simple && actions.simple && !f.dirty)
-    // A section drawn whole says nothing — tables are lists here now; one
-    // with a map (left to config.toml) sends you there.
+    // A section drawn whole says nothing — tables are lists here, maps
+    // pairs; one with a kind the window cannot draw sends you to the file.
     #expect(ui.tableNote == nil && actions.tableNote == nil)
     let map = SettingsField(key: "checks", label: "Checks", kind: "map")
+    var withMap = ui
+    withMap.fields.append(map)
+    #expect(withMap.tableNote == nil)
+    let odd = SettingsField(key: "later", label: "Later", kind: "matrix")
     var mixed = ui
-    mixed.fields.append(map)
+    mixed.fields.append(odd)
     #expect(mixed.tableNote == "Some of these are tables, edited in config.toml.")
     var maps = actions
-    maps.fields = [map]
+    maps.fields = [odd]
     #expect(maps.tableNote == "These are tables of their own, edited in config.toml.")
     #expect(LucideIcons.all["file-text"] != nil && !LucideIcons.ops("file-text").isEmpty)
     f.set(ui, ui.fields[0], .string("conch"))
@@ -2100,6 +2148,9 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(capabilitiesBehind(server: ["a", "b", "c"], app: ["a", "b"]).isEmpty)
     #expect(capabilitiesBehind(server: ["a"], app: ["a", "b", "c"]) == ["b", "c"])
     #expect(capabilitiesBehind(server: nil, app: ["a"]) == ["a"])
+    // One a server of this build may leave out (no Keychain there) is not behind.
+    #expect(capabilitiesBehind(server: ["a"], app: ["a", "agent.library.keychain.v1", "b"], optional: ["agent.library.keychain.v1"]) == ["b"])
+    #expect((try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"capabilities":["a"],"optional":["x"]}"#.utf8)))?.optional == ["x"])
     #expect(capabilitiesBehind(server: [], app: []).isEmpty)
     let info = try? JSONDecoder().decode(BuildInfo.self, from: Data(#"{"version":"0.1.9","build":"x","capabilities":["fs.v1"]}"#.utf8))
     #expect(info?.capabilities == ["fs.v1"])
@@ -2216,7 +2267,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     s.upsert(t)
     let k = key("box", t.id)
     let titles = s.menu(for: TreeNode(id: "pane:" + k, kind: .terminal(k), title: t.name), machine: "box").map(\.title)
-    #expect(titles.contains("✓ Alert when it goes quiet") && titles.contains("Alert on output"))
+    #expect(titles.contains("✓ Alert When It Goes Quiet") && titles.contains("Alert on Output"))
     #expect(!s.menu(for: TreeNode(id: "x", kind: .terminal(k), title: ""), machine: "box", machineOnline: false).contains { $0.title.contains("Alert") })
     let agent = s.panes.first { $0.agent != nil }!
     #expect(!s.menu(for: TreeNode(id: "a", kind: .agent(key("box", agent.id)), title: ""), machine: "box").contains { $0.title.contains("Alert") })
@@ -2457,18 +2508,42 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 
     let s = Snapshot(panes: [ssh])
     let cli = s.tree(machine: "local", savedHosts: hosts).children?.first { $0.kind == .cli("local") }
-    #expect(cli?.children?.last?.kind == .savedHost("dev@10.0.0.9") && cli?.children?.last?.badge == "saved")
+    // Both under CLI → SSH: the session, then the host it is not open to.
+    #expect(cli?.children?.map(\.kind) == [.cliSection(machine: "local", section: .ssh)])
+    let sshRows = cli?.children?.first?.children ?? []
+    #expect(sshRows.last?.kind == .savedHost("dev@10.0.0.9") && sshRows.last?.badge == "saved")
     #expect(cli?.badge == "2") // the session and the saved host it lists
-    #expect(!(cli?.children ?? []).contains { $0.kind == .savedHost("busybox") }) // a session is open to it
+    #expect(!sshRows.contains { $0.kind == .savedHost("busybox") }) // a session is open to it
     // Only this computer lists them; with none and no terminals, no CLI.
     #expect(Snapshot().tree(machine: "box", savedHosts: hosts).children?.contains { $0.kind == .cli("box") } != true)
     #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.kind == .cli("local"))
     #expect(Snapshot().tree(machine: "local", savedHosts: hosts).children?.first?.badge == "2") // never 0 beside what it lists
     let row = TreeNode(id: "host:dev@10.0.0.9", kind: .savedHost("dev@10.0.0.9"), title: "dev")
-    #expect(s.menu(for: row, machine: "local").map(\.action) == [.connectHost("dev@10.0.0.9"), .divider, .forgetHost("dev@10.0.0.9")])
+    let hm = s.menu(for: row, machine: "local", savedHosts: hosts)
+    #expect(hm.map(\.title) == ["Connect", "Copy ssh Command", "", "Move to Folder", "Edit Host (Name, Folder, Options)…",
+                                "Set Up Login Without a Password…", "Add as a Machine (conch There Too)…", "", "Forget This Host"])
+    #expect(hm[1].action == .copy("ssh dev@10.0.0.9") && hm.last?.action == .forgetHost("dev@10.0.0.9"))
+    #expect(hm[3].children.map(\.action) == [.moveToNewFolder(.host("dev@10.0.0.9"))]) // no folders yet
     #expect(row.machine == "local")
     let sessionRow = TreeNode(id: "pane:local|p7", kind: .terminal("local|p7"), title: "ssh")
-    #expect(s.menu(for: sessionRow, machine: "local").contains { $0.action == .saveHost(pane: "local|p7") })
+    // A session to a host not saved offers to save it, with what it was
+    // started with; one to a saved host edits that host.
+    let sm = s.menu(for: sessionRow, machine: "local")
+    #expect(sm.contains { $0.action == .editHost(host: "busybox", args: ["-p", "2222"]) && $0.title == "Save This Host…" })
+    #expect(sm.contains { $0.action == .anotherSession(pane: "local|p7") })
+    #expect(sm.contains { $0.action == .copyKey(host: "busybox", args: ["-p", "2222"]) })
+    #expect(sm.contains { $0.action == .copy("ssh -p 2222 busybox") })
+    let smMove: RowAction? = sm.first { $0.title == "Move to Folder" }?.children.last?.action
+    #expect(smMove == .moveToNewFolder(.pane("local|p7")))
+    let savedMenu = s.menu(for: sessionRow, machine: "local", savedHosts: hosts)
+    #expect(savedMenu.contains { $0.title == "Edit Host (Name, Folder, Options)…" && $0.action == .editHost(host: "busybox", args: ["-p", "2222"]) })
+    #expect(savedMenu.contains { $0.title == "Another Session to Busybox" })
+    // In a folder as its host: the host is what moves.
+    let savedMove: RowAction? = savedMenu.first { $0.title == "Move to Folder" }?.children.last?.action
+    #expect(savedMove == .moveToNewFolder(.host("busybox")))
+    // Offline, nothing new is started there.
+    let offline = s.menu(for: sessionRow, machine: "local", machineOnline: false).map(\.action)
+    #expect(!offline.contains(.anotherSession(pane: "local|p7")))
 }
 
 // A sandbox's menu: start one not running, stop one that is, its cost and
@@ -2647,7 +2722,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
     let i = snap.projects.firstIndex { $0.id == "r1" }!
     snap.projects[i].git = true
-    #expect(snap.menu(for: node, machine: "local").contains(RowMenuItem("Move to another machine…", .moveProject(project: "local|r1"))))
+    #expect(snap.menu(for: node, machine: "local").contains(RowMenuItem("Move to Another Machine…", .moveProject(project: "local|r1"))))
     snap.projects[i].git = false
     #expect(!snap.menu(for: node, machine: "local").contains { if case .moveProject = $0.action { return true }; return false })
 }
@@ -2807,4 +2882,565 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(!String(decoding: try JSONEncoder().encode(back.skills.first { $0.name == "mine" }!), as: UTF8.self).contains("source"))
     let several = try JSONDecoder().decode(LibraryFetchResult.self, from: Data(#"{"source":"acme/many","found":["acme/many/skills/pdf","acme/many/skills/xlsx"]}"#.utf8))
     #expect(several.found?.count == 2 && several.path == nil)
+}
+
+// MARK: - CLI folders
+
+/// A pane started by `conch ssh host`, as the server lists one.
+func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
+    var p = PaneInfo(id: id, name: host)
+    p.command = ["ssh"] + args + ["--", host]
+    return p
+}
+
+// ui.json's folders as the TUI writes them: by section key, in order,
+// members by id and name or by host; nameless folders and odd shapes
+// dropped rather than failing the rest.
+@Test func foldersLoad() {
+    let ui = #"{"folders":{"/3":[{"name":"research","members":[{"id":"p1","name":"docs"}]},{"name":""}],"/11":[{"name":"prod","members":[{"host":"db-1"}]}],"busybox~/4":[{"name":"logs"}],"bad":7}}"#
+    let fs = loadFolders(uiJSON: Data(ui.utf8))
+    #expect(fs["/3"] == [Folder(name: "research", members: [FolderMember(name: "docs", id: "p1")])])
+    #expect(fs["/11"]?.first?.hosts == ["db-1"])
+    #expect(fs["busybox~/4"] == [Folder(name: "logs")])
+    #expect(fs["bad"] == nil)
+    #expect(loadFolders(uiJSON: nil).isEmpty && loadFolders(uiJSON: Data("[]".utf8)).isEmpty)
+    #expect(folderKey(machine: "local", section: .ssh) == "/11" && folderKey(machine: "busybox", section: .agents) == "busybox~/3")
+    #expect(folderFold("/11", "prod") == "folder:/11/prod")
+}
+
+// A folder holds a pane by id, only while the name written down agrees
+// (an id handed out again to another pane is not it), and a pane is in one
+// folder: the first that claims it.
+@Test func folderClaims() {
+    let a = PaneInfo(id: "p1", name: "zsh"), b = PaneInfo(id: "p2", name: "zsh"), c = PaneInfo(id: "p3", name: "vim")
+    let f = Folder(name: "f", members: [FolderMember(name: "zsh", id: "p2"), FolderMember(name: "other", id: "p3"), FolderMember(id: "p9")])
+    var taken: Set<String> = []
+    #expect(f.claim([a, b, c], taken: &taken).map(\.id) == ["p2"])
+    #expect(Folder(name: "g", members: [FolderMember(id: "p2"), FolderMember(id: "p1")]).claim([a, b], taken: &taken).map(\.id) == ["p1"])
+    #expect(Folder(name: "e").claim([a], taken: &taken).isEmpty)
+}
+
+// Making, renaming and removing folders, and moving things in and out,
+// leave the rest of ui.json alone; a bad name or a clash is refused, and a
+// file that is not conch's is never written over.
+@Test func folderEdits() throws {
+    let ui = #"{"expanded":{"x":true},"spaces":[{"id":"w2","folders":["/3\nold"]}],"first_space":{"name":"Home"}}"#
+    var d = try FolderEdit.adding(" eng ", key: "/3", workspace: "w2", in: Data(ui.utf8))
+    #expect(loadFolders(uiJSON: d)["/3"]?.map(\.name) == ["eng"])
+    #expect(Workspace.load(uiJSON: d)[1].folders == ["/3\nold", "/3\neng"])
+    #expect(loadFolds(uiJSON: d) == ["x": true])
+    #expect(throws: ConchError.self) { try FolderEdit.adding("eng", key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding("", key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding("a\u{7}b", key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding(String(repeating: "x", count: 65), key: "/3", workspace: "w2", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.adding("x", key: "/3", workspace: "first", in: Data("[1]".utf8)) }
+    // Made in the first workspace, it is kept in first_space, beside its name.
+    d = try FolderEdit.adding("ops", key: "/4", workspace: "first", in: d)
+    #expect(Workspace.load(uiJSON: d)[0].folders == ["/4\nops"] && Workspace.load(uiJSON: d)[0].name == "Home")
+    #expect(Workspace.load(uiJSON: d)[0].claimedFolders == ["/3\nold", "/3\neng"])
+
+    // In and out: one of two panes called zsh moves, the other stays.
+    let a = PaneInfo(id: "p1", name: "zsh"), b = PaneInfo(id: "p2", name: "zsh")
+    d = try FolderEdit.moving(a, to: "eng", key: "/3", panes: [a, b], workspace: "w2", in: d)
+    d = try FolderEdit.moving(b, to: "eng", key: "/3", panes: [a, b], workspace: "w2", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.first?.members == [FolderMember(name: "zsh", id: "p1"), FolderMember(name: "zsh", id: "p2")])
+    d = try FolderEdit.moving(b, to: nil, key: "/3", panes: [a, b], workspace: "w2", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.first?.members == [FolderMember(name: "zsh", id: "p1")])
+    // To a folder not there yet: made on the way, in that workspace.
+    d = try FolderEdit.moving(a, to: "new", key: "/3", panes: [a, b], workspace: "w2", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.map(\.name) == ["eng", "new"])
+    #expect(loadFolders(uiJSON: d)["/3"]?.first?.members.isEmpty == true) // moved, not copied
+    #expect(Workspace.load(uiJSON: d)[1].folders.contains("/3\nnew"))
+
+    // Renamed: members and every workspace's list follow.
+    d = try FolderEdit.renaming("new", to: "build", key: "/3", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"]?.last == Folder(name: "build", members: [FolderMember(name: "zsh", id: "p1")]))
+    #expect(Workspace.load(uiJSON: d)[1].folders.contains("/3\nbuild") && !Workspace.load(uiJSON: d)[1].folders.contains("/3\nnew"))
+    #expect(throws: ConchError.self) { try FolderEdit.renaming("build", to: "eng", key: "/3", in: d) }
+    #expect(throws: ConchError.self) { try FolderEdit.renaming("gone", to: "x", key: "/3", in: d) }
+    #expect(try FolderEdit.renaming("build", to: "build", key: "/3", in: d) == d)
+
+    // Removed: gone from the section and from every workspace; the
+    // section's key goes with its last folder.
+    d = try FolderEdit.removing("build", key: "/3", in: d)
+    d = try FolderEdit.removing("eng", key: "/3", in: d)
+    #expect(loadFolders(uiJSON: d)["/3"] == nil && loadFolders(uiJSON: d)["/4"]?.map(\.name) == ["ops"])
+    #expect(Workspace.load(uiJSON: d)[1].folders == ["/3\nold"])
+    #expect(try FolderEdit.removing("none", key: "/9", in: d) == d)
+}
+
+// A saved host goes in an SSH folder as a host, and any session to it held
+// in a folder as a pane comes out of there, since a host's sessions follow it.
+@Test func folderHosts() throws {
+    let s1 = sshPane("p5", "db-1")
+    var d = try FolderEdit.adding("staging", key: "/11", workspace: "first", in: nil)
+    d = try FolderEdit.moving(s1, to: "staging", key: "/11", panes: [s1], workspace: "first", in: d)
+    d = try FolderEdit.movingHost("db-1", to: "prod", key: "/11", sessions: [s1], workspace: "first", in: d)
+    let fs = loadFolders(uiJSON: d)["/11"] ?? []
+    #expect(fs.map(\.name) == ["staging", "prod"])
+    #expect(fs[0].members.isEmpty && fs[1].members == [FolderMember(host: "db-1")])
+    d = try FolderEdit.movingHost("db-1", to: "staging", key: "/11", sessions: [s1], workspace: "first", in: d)
+    #expect(loadFolders(uiJSON: d)["/11"]?.map(\.hosts) == [["db-1"], []])
+    d = try FolderEdit.movingHost("db-1", to: nil, key: "/11", sessions: [s1], workspace: "first", in: d)
+    #expect(loadFolders(uiJSON: d)["/11"]?.allSatisfy { $0.hosts.isEmpty } == true)
+}
+
+// The CLI as the TUI lists it: Agents, Terminals, SSH, each with its
+// folders first (folded until opened) and then what is in none; a saved
+// host's sessions in its folder and the host itself while none is open;
+// an empty folder still shown, a section with nothing at all left out.
+@Test func cliSectionsAndFolders() {
+    var agent = PaneInfo(id: "p1", name: "docs", agent: AgentStatus(name: "claude", state: .done))
+    agent.customName = true
+    let codex = PaneInfo(id: "p2", name: "scratch", agent: AgentStatus(name: "codex", state: .working))
+    let zsh = PaneInfo(id: "p3", name: "zsh")
+    let api = sshPane("p4", "api-1"), other = sshPane("p6", "loose")
+    let s = Snapshot(panes: [agent, codex, zsh, api, other])
+    let hosts = [SavedHost(host: "api-1"), SavedHost(host: "db-1", name: "DB"), SavedHost(host: "free")]
+    let folders: [String: [Folder]] = [
+        "/3": [Folder(name: "research", members: [FolderMember(name: "docs", id: "p1")])],
+        "/11": [Folder(name: "prod", members: [FolderMember(host: "api-1"), FolderMember(host: "db-1"), FolderMember(host: "never-saved")]),
+                Folder(name: "empty")],
+    ]
+    let cli = s.tree(machine: "local", savedHosts: hosts, folders: folders).children!.first { $0.kind == .cli("local") }!
+    #expect(cli.children!.map(\.title) == ["Agents", "Terminals", "SSH"])
+    #expect(cli.children!.map(\.fold) == ["m:local/agents", "m:local/terminals", "m:local/ssh"])
+    let agents = cli.children![0].children!
+    #expect(agents.map(\.title) == ["research", "scratch"])
+    #expect(agents[0].kind == .folder(machine: "local", section: .agents, name: "research"))
+    #expect(agents[0].children!.map(\.id) == ["pane:local|p1"] && agents[0].badge == "1")
+    #expect(agents[0].fold == "folder:/3/research" && agents[0].foldDefault == false)
+    #expect(cli.children![1].children!.map(\.title) == ["zsh"])
+    let ssh = cli.children![2].children!
+    #expect(ssh.map(\.title) == ["prod", "empty", "loose", "free"])
+    #expect(ssh[0].children!.map(\.id) == ["pane:local|p4", "host:db-1"] && ssh[0].badge == "2")
+    #expect(ssh[1].children!.isEmpty && ssh[1].badge == "")
+    #expect(cli.children![2].badge == "4") // two sessions, two idle hosts
+    // Nothing but a folder: the section is there for it, and the CLI too.
+    let bare = Snapshot().tree(machine: "local", folders: ["/4": [Folder(name: "ops")]]).children!
+    #expect(bare.first?.children?.map(\.title) == ["Terminals"])
+    #expect(bare.first?.children?.first?.children?.map(\.title) == ["ops"])
+    #expect(bare.first?.children?.first?.badge == "") // nothing in it yet: no 0
+    // Another machine's folders are its own.
+    #expect(Snapshot(panes: [zsh]).tree(machine: "box", folders: folders).children!.first!.children!.first!.children!.map(\.title) == ["zsh"])
+    #expect(cli.children![2].machine == "local" && ssh[0].machine == "local")
+}
+
+// A workspace shows the folders made in it; the first, those no other
+// made; any workspace, one holding a pane it shows or a saved host.
+@Test func foldersInWorkspaces() {
+    let zsh = PaneInfo(id: "p3", name: "zsh")
+    var w2 = Workspace(id: "w2", name: "b", panes: ["local|p3"])
+    w2.folders = ["/4\nmine"]
+    var first = Workspace(name: "", first: true)
+    first.claimedFolders = ["/4\nmine"]
+    let mine = Folder(name: "mine"), loose = Folder(name: "loose")
+    let holding = Folder(name: "holding", members: [FolderMember(name: "zsh", id: "p3")])
+    let hosting = Folder(name: "hosting", members: [FolderMember(host: "db")])
+    #expect(w2.shows(folder: mine, key: "/4", panes: [zsh]) && !w2.shows(folder: loose, key: "/4", panes: []))
+    #expect(w2.shows(folder: holding, key: "/4", panes: [zsh]) && w2.shows(folder: hosting, key: "/11", panes: []))
+    #expect(!first.shows(folder: mine, key: "/4", panes: []) && first.shows(folder: loose, key: "/4", panes: []))
+}
+
+// Move to Folder ticks where it is now and offers out of it; the CLI's
+// sections and folders have menus of their own.
+@Test func folderMenus() {
+    let zsh = PaneInfo(id: "p3", name: "zsh")
+    let s = Snapshot(panes: [zsh])
+    let folders: [String: [Folder]] = ["/4": [Folder(name: "a"), Folder(name: "b", members: [FolderMember(name: "zsh", id: "p3")])]]
+    let row = TreeNode(id: "pane:local|p3", kind: .terminal("local|p3"), title: "zsh")
+    let move = s.menu(for: row, machine: "local", folders: folders).first { $0.title == "Move to Folder" }!
+    #expect(move.children.map(\.title) == ["a", "✓ b", "", "New Folder…", "Out of Any Folder"])
+    #expect(move.children[0].action == .moveToFolder(.pane("local|p3"), folder: "a"))
+    #expect(move.children.last?.action == .moveToFolder(.pane("local|p3"), folder: nil))
+    // A pane in a project has no folder to go in.
+    var inProject = zsh
+    inProject.projectID = "r1"
+    let ps = Snapshot(panes: [inProject], projects: [ProjectInfo(id: "r1", name: "api", path: "/src/api")])
+    #expect(!ps.menu(for: row, machine: "local", folders: folders).contains { $0.title == "Move to Folder" })
+
+    let sec = TreeNode(id: "cs:local:11", kind: .cliSection(machine: "local", section: .ssh), title: "SSH")
+    #expect(s.menu(for: sec, machine: "local").map(\.action) == [.newFolder(machine: "local", section: .ssh), .sshToHost])
+    #expect(s.menu(for: sec, machine: "local", machineOnline: false).map(\.action) == [.newFolder(machine: "local", section: .ssh)])
+    let agents = TreeNode(id: "cs:box:3", kind: .cliSection(machine: "box", section: .agents), title: "Agents")
+    #expect(s.menu(for: agents, machine: "box").last?.action == .startAgent(machine: "box", cwd: nil, inProject: false))
+    let f = TreeNode(id: "folder:local:4:b", kind: .folder(machine: "local", section: .terminals, name: "b"), title: "b")
+    #expect(s.menu(for: f, machine: "local").map(\.action) == [.renameFolder(machine: "local", section: .terminals, name: "b"),
+                                                               .newFolder(machine: "local", section: .terminals), .divider,
+                                                               .removeFolder(machine: "local", section: .terminals, name: "b")])
+    #expect(f.machine == "local" && agents.machine == "box")
+    // CLI's own menu: a folder in any of its sections.
+    let cli = TreeNode(id: "cli:local", kind: .cli("local"), title: "CLI")
+    let nf = s.menu(for: cli, machine: "local").last!
+    #expect(nf.children.map(\.action) == FolderSection.allCases.map { .newFolder(machine: "local", section: $0) })
+}
+
+// Workspace's buttons: Add Project…, and a new task in each project; CLI's:
+// a folder menu, agents with a terminal and (here) ssh. Offline, Workspace
+// has none and CLI only its folders.
+@Test func workspaceAndCLIButtons() {
+    let s = Snapshot(panes: [PaneInfo(id: "p3", name: "zsh")], projects: [ProjectInfo(id: "r1", name: "api", path: "/src/api")])
+    let ws = TreeNode(id: "ws:local", kind: .workspace("local"), title: "Workspace")
+    let wb = s.rowButtons(for: ws, machine: "local")!
+    #expect(wb.primary?.action == .addProject(machine: "local") && wb.primaryIcon == "plus")
+    #expect(wb.tasks == [RowMenuItem("New Task in api…", .newTask(project: "local|r1"))])
+    #expect(s.rowButtons(for: ws, machine: "local", machineOnline: false) == nil)
+    let cli = TreeNode(id: "cli:local", kind: .cli("local"), title: "CLI")
+    let cb = s.rowButtons(for: cli, machine: "local")!
+    #expect(cb.primaryIcon == "folder-plus" && cb.primary?.children.count == 3 && cb.ssh && cb.agentMachine == "local")
+    #expect(cb.start(nil) == .newTerminal(machine: "local", cwd: nil, inProject: false))
+    #expect(s.rowButtons(for: TreeNode(id: "cli:box", kind: .cli("box"), title: "CLI"), machine: "box")?.ssh == false)
+    let off = s.rowButtons(for: cli, machine: "local", machineOnline: false)!
+    #expect(off.agentMachine == nil && !off.ssh && off.primary != nil)
+}
+
+// A saved host edited keeps its place in the list; the ssh command copied
+// is quoted for a shell where a word needs it.
+@Test func hostEditsAndCommands() throws {
+    let ui = #"{"saved_ssh":["a","b","c"]}"#
+    let d = try savingHost(SavedHost(host: "b", name: "Bee", args: ["-p", "22"]), in: Data(ui.utf8))
+    #expect(loadSavedHosts(uiJSON: d).map(\.host) == ["a", "b", "c"] && loadSavedHosts(uiJSON: d)[1].name == "Bee")
+    #expect(sshCommandLine(host: "me@box", args: ["-p", "2222"]) == "ssh -p 2222 me@box")
+    #expect(sshCommandLine(host: "box", args: ["-o", "ProxyCommand=ssh -W %h:%p jump"]) == "ssh -o 'ProxyCommand=ssh -W %h:%p jump' box")
+    #expect(sshCommandLine(host: "it's", args: []) == #"ssh 'it'\''s'"#)
+}
+
+// A workspace tab's summary: its running agents and terminals, and the
+// agents waiting for you — exited panes and other workspaces' left out.
+@Test func workspaceSummaries() {
+    var gone = PaneInfo(id: "p4", name: "old", agent: AgentStatus(name: "codex", state: .blocked))
+    gone.state = "exited"
+    let s = Snapshot(panes: [
+        PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .blocked)),
+        PaneInfo(id: "p2", name: "codex", agent: AgentStatus(name: "codex", state: .working)),
+        PaneInfo(id: "p3", name: "zsh"),
+        gone,
+    ])
+    #expect(s.summary(in: nil) == WorkspaceSummary(agents: 2, terminals: 1, waiting: 1))
+    let w2 = Workspace(id: "w2", name: "b", panes: ["local|p3"])
+    #expect(s.summary(in: w2) == WorkspaceSummary(terminals: 1))
+    #expect(Snapshot().summary(in: nil) == WorkspaceSummary())
+    #expect(WorkspaceSummary(agents: 2, terminals: 1, waiting: 1).text == "2 agents, 1 terminal · 1 waiting for you")
+    #expect(WorkspaceSummary(agents: 1).text == "1 agent")
+    #expect(WorkspaceSummary(terminals: 3).text == "3 terminals")
+    #expect(WorkspaceSummary().text == "nothing running")
+    #expect(WorkspaceSummary(agents: 1, waiting: 1) + WorkspaceSummary(terminals: 2) == WorkspaceSummary(agents: 1, terminals: 2, waiting: 1))
+}
+
+// MARK: - Project groups
+
+// Workspace lists each group with its projects under it in the group's
+// order, then the projects in none; a project in two groups under both,
+// with an id of its own the second time; a group the workspace shows none
+// of is left out.
+@Test func groupsInTheTree() {
+    var s = Snapshot(panes: [PaneInfo(id: "p1", name: "claude", agent: AgentStatus(name: "claude", state: .blocked), projectID: "r2")],
+                     projects: [ProjectInfo(id: "r1", name: "spring", path: "/s"), ProjectInfo(id: "r2", name: "web", path: "/w"),
+                                ProjectInfo(id: "r3", name: "specs", path: "/x"), ProjectInfo(id: "r4", name: "conch", path: "/c")],
+                     groups: [GroupInfo(name: "clinic", projects: ["r3", "r1", "r2", "r9"]), GroupInfo(name: "api", projects: ["r1"])])
+    let ws = s.tree(machine: "box").children!.first { $0.kind == .workspace("box") }!
+    #expect(ws.children!.map(\.title) == ["clinic", "api", "conch"])
+    let clinic = ws.children![0]
+    #expect(clinic.kind == .group(machine: "box", name: "clinic") && clinic.machine == "box")
+    #expect(clinic.children!.map(\.title) == ["specs", "spring", "web"]) // its order; r9 is not here
+    #expect(clinic.detail == "3 repos" && clinic.badge == "⚑1" && clinic.fold == "grp:box:clinic")
+    #expect(ws.children![1].children!.map(\.id) == ["p:box|r1@api"]) // listed twice, told apart
+    #expect(ws.badge == "4") // projects, not rows
+    #expect(s.groups(of: "r1").map(\.name) == ["clinic", "api"])
+    // In a workspace that shows none of a group's projects, no group.
+    let w2 = Workspace(id: "w2", name: "b", projects: ["r4"])
+    #expect(s.tree(machine: "local", in: w2).children!.first!.children!.map(\.title) == ["conch"])
+    s.groups = []
+    #expect(s.tree(machine: "box").children!.first!.children!.map(\.title) == ["spring", "web", "specs", "conch"])
+}
+
+// A project's menu groups it with another or adds it to a group it is not
+// in, and takes it out of those it is; Workspace makes a group; a group's
+// menu renames it, its notes, adds and takes out projects, and removes it.
+// None of it where the server has no groups.
+@Test func groupMenus() {
+    let s = Snapshot(projects: [ProjectInfo(id: "r1", name: "spring", path: "/s"), ProjectInfo(id: "r2", name: "web", path: "/w"),
+                                ProjectInfo(id: "r3", name: "specs", path: "/x")],
+                     groups: [GroupInfo(name: "clinic", projects: ["r1", "r2"], notes: "API first")])
+    let r3 = TreeNode(id: "p:box|r3", kind: .project("box|r3"), title: "specs")
+    let m3 = s.menu(for: r3, machine: "box")
+    let with = m3.first { $0.title == "Group With" }!
+    #expect(with.children.map(\.title) == ["spring", "web", "", "Add to clinic"])
+    #expect(with.children[0].action == .groupWith(project: "box|r3", other: "box|r1"))
+    #expect(with.children.last?.action == .addToGroup(project: "box|r3", group: "clinic"))
+    #expect(!m3.contains { $0.title.hasPrefix("Take Out of") })
+    let m1 = s.menu(for: TreeNode(id: "p:box|r1", kind: .project("box|r1"), title: "spring"), machine: "box")
+    #expect(m1.contains { $0.action == .takeOutOfGroup(project: "box|r1", group: "clinic") && $0.title == "Take Out of clinic" })
+    #expect(!(m1.first { $0.title == "Group With" }?.children.contains { $0.title == "Add to clinic" } ?? true))
+    #expect(!s.menu(for: r3, machine: "box", canGroup: false).contains { $0.title == "Group With" })
+
+    let ws = TreeNode(id: "ws:box", kind: .workspace("box"), title: "Workspace")
+    #expect(s.menu(for: ws, machine: "box").contains { $0.action == .newGroup(machine: "box") })
+    #expect(!s.menu(for: ws, machine: "box", canGroup: false).contains { $0.action == .newGroup(machine: "box") })
+    #expect(!Snapshot(projects: [ProjectInfo(id: "r1", name: "a", path: "/a")]).menu(for: ws, machine: "box").contains { $0.action == .newGroup(machine: "box") })
+
+    let g = TreeNode(id: "grp:box:clinic", kind: .group(machine: "box", name: "clinic"), title: "clinic")
+    let gm = s.menu(for: g, machine: "box", canGroupTask: false)
+    #expect(s.menu(for: g, machine: "box").first?.action == .newGroupTask(machine: "box", group: "clinic"))
+    #expect(!s.menu(for: g, machine: "box", machineOnline: false).contains { $0.action == .newGroupTask(machine: "box", group: "clinic") })
+    #expect(gm.map(\.title) == ["Rename Group…", "Edit Notes for the Agents…", "Add a Project", "Take a Project Out", "", "Remove Group (Projects Stay)"])
+    #expect(gm[2].children.map(\.action) == [.addToGroup(project: "box|r3", group: "clinic")])
+    #expect(gm[3].children.map(\.action) == [.takeOutOfGroup(project: "box|r1", group: "clinic"), .takeOutOfGroup(project: "box|r2", group: "clinic")])
+    #expect(gm.last?.action == .removeGroup(machine: "box", name: "clinic"))
+    #expect(s.menu(for: TreeNode(id: "grp:box:x", kind: .group(machine: "box", name: "x"), title: "x"), machine: "box").isEmpty)
+}
+
+// A group from the server, notes and all; an older server's answer
+// without a list is no groups.
+@Test func groupListDecodes() throws {
+    let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"clinic","projects":["r1","r2"],"notes":"n"}]}"#.utf8))
+    #expect(l.groups == [GroupInfo(name: "clinic", projects: ["r1", "r2"], notes: "n")])
+    #expect(try JSONDecoder().decode(GroupList.self, from: Data("{}".utf8)).groups == nil)
+}
+
+// A group row's tooltip: each repo with its running agents by state, the
+// branches checked out beside the main one, and what is uncommitted —
+// exited panes and repos not in the snapshot left out.
+@Test func groupRepoSummaries() {
+    var gone = PaneInfo(id: "p4", name: "x", agent: AgentStatus(name: "codex", state: .working), projectID: "r1")
+    gone.state = "exited"
+    var spring = ProjectInfo(id: "r1", name: "spring", path: "/s", worktrees: [WorktreeInfo(path: "/s", branch: "main", main: true),
+                                                                                  WorktreeInfo(path: "/s-feat", branch: "feat")])
+    spring.worktrees![0].status = GitStatus(files: 1, added: 10, deleted: 2)
+    spring.worktrees![1].status = GitStatus(files: 2, added: 30)
+    let s = Snapshot(panes: [PaneInfo(id: "p1", name: "a", agent: AgentStatus(name: "claude", state: .working), projectID: "r1"),
+                             PaneInfo(id: "p2", name: "b", agent: AgentStatus(name: "codex", state: .blocked), projectID: "r1"),
+                             PaneInfo(id: "p3", name: "zsh", projectID: "r2"), gone],
+                     projects: [spring, ProjectInfo(id: "r2", name: "web", path: "/w")])
+    let rs = s.repoSummaries(GroupInfo(name: "clinic", projects: ["r1", "r2", "r9"]))
+    #expect(rs.map(\.name) == ["spring", "web"])
+    #expect(rs[0].working == 1 && rs[0].waiting == 1 && rs[0].checkouts == 1 && rs[0].files == 3 && rs[0].added == 40 && rs[0].deleted == 2)
+    #expect(rs[0].line == "spring — 1 working, 1 waiting · 1 branch checked out · 3 files changed (+40 −2)")
+    #expect(rs[1].line == "web — no agents")
+}
+
+// A group's tasks come first under it: each its agent, then the task's
+// branch in each repo — that project's own branch row, with its badge —
+// and its counts; the task's agent is not listed again in CLI, though it
+// belongs to no project. A task's menu pushes, opens pull requests and
+// removes it; the group's + starts one.
+@Test func groupTasksInTheTree() {
+    var spring = ProjectInfo(id: "r1", name: "spring", path: "/s", worktrees: [WorktreeInfo(path: "/s", branch: "main", main: true),
+                                                                                  WorktreeInfo(path: "/s.worktrees/add-search", branch: "add-search")])
+    spring.branches = [BranchInfo(name: "main"), BranchInfo(name: "add-search", baseAhead: 2)]
+    let task = GroupTask(branch: "add-search", folder: "/h/tasks/clinic/add-search", projects: ["r1", "r2"], panes: ["p9"])
+    let s = Snapshot(panes: [PaneInfo(id: "p9", name: "claude", agent: AgentStatus(name: "claude", state: .working)),
+                             PaneInfo(id: "p3", name: "zsh")],
+                     projects: [spring, ProjectInfo(id: "r2", name: "web", path: "/w")],
+                     groups: [GroupInfo(name: "clinic", projects: ["r1", "r2"], tasks: [task])])
+    let top = s.tree(machine: "box").children!
+    let clinic = top.first { $0.kind == .workspace("box") }!.children![0]
+    #expect(clinic.children!.map(\.title) == ["add-search", "spring", "web"])
+    #expect(clinic.detail == "2 repos" && clinic.badge == "⠋1")
+    let t = clinic.children![0]
+    #expect(t.kind == .groupTask(machine: "box", group: "clinic", branch: "add-search") && t.machine == "box")
+    #expect(t.children!.map(\.id) == ["pane:box|p9", "gtb:box:clinic:add-search:r1", "gtb:box:clinic:add-search:r2"])
+    #expect(t.children![1].kind == .branch(project: "box|r1", name: "add-search", checkedOut: true) && t.children![1].title == "spring")
+    #expect(t.detail == "2 repos" && t.badge == "⠋1")
+    // The task's agent is under its task, not in CLI.
+    let cli = top.first { $0.kind == .cli("box") }!
+    #expect(cli.badge == "1" && !(cli.children ?? []).flatMap { $0.children ?? [] }.contains { $0.id == "pane:box|p9" })
+    #expect(s.groupTask(of: "p9")?.task.branch == "add-search" && s.groupTask(of: "p3") == nil)
+
+    let tm = s.menu(for: t, machine: "box")
+    #expect(tm.map(\.title) == ["Open Task Page", "Open Its Agent", "Push add-search in Every Repo", "Open Pull Requests in Every Repo…", "",
+                                "Copy Task Folder", "", "Remove Task (Branches Stay)…"])
+    #expect(tm[0].action == .openGroupTask(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(tm[2].action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(tm.last?.action == .removeGroupTask(machine: "box", group: "clinic", branch: "add-search"))
+    #expect(s.menu(for: t, machine: "local").contains { $0.action == .reveal("/h/tasks/clinic/add-search") })
+    #expect(!s.menu(for: t, machine: "box", machineOnline: false).contains { $0.action == .groupTaskPush(machine: "box", group: "clinic", branch: "add-search") })
+    #expect(s.menu(for: TreeNode(id: "x", kind: .groupTask(machine: "box", group: "clinic", branch: "gone"), title: "gone"), machine: "box").isEmpty)
+    #expect(s.rowButtons(for: clinic, machine: "box")?.primary?.action == .newGroupTask(machine: "box", group: "clinic"))
+    #expect(s.rowButtons(for: clinic, machine: "box", machineOnline: false) == nil)
+}
+
+@Test func groupTaskDecodes() throws {
+    let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"c","projects":["r1"],"tasks":[{"branch":"b","folder":"/f","projects":["r1"],"panes":["p1"],"created":"2026-11-10T00:00:00Z"}]}]}"#.utf8))
+    #expect(l.groups?.first?.tasks == [GroupTask(branch: "b", folder: "/f", projects: ["r1"], panes: ["p1"])])
+}
+
+
+// A task page's key carries its machine, group and branch, either of which
+// may hold a "|" or a "%"; it is a page, not a pane, on its machine, and
+// the sidebar follows it to the task's row.
+@Test func taskPageKeys() {
+    for (g, b) in [("clinic", "add-search"), ("a|b", "feat/x|y"), ("50%", "%7C")] {
+        let k = taskKey("box", g, b)
+        let back = parseTaskKey(k)
+        #expect(back?.machine == "box" && back?.group == g && back?.branch == b)
+        #expect(!isPaneKey(k) && !isTerminalKey(k) && machine(ofKey: k) == "box")
+    }
+    #expect(treeRow(forTab: taskKey("box", "clinic", "add-search")) == "gt:box:clinic:add-search")
+    for bad in ["task|box|clinic", "task||clinic|b", "task|box||b", "task|box|g|", "changes|box|r1|b", "box|p1"] {
+        #expect(parseTaskKey(bad) == nil, "\(bad)")
+    }
+}
+
+// Each repo of a task as its card says it — base and how far ahead,
+// uncommitted, pull request, pushing — in Merge All's order once armed,
+// a repo the order leaves out last and one no longer here left out; and
+// the line under the task's name.
+@Test func taskReposAndHeadline() {
+    func repo(_ id: String, _ name: String, pr: PRInfo?, ahead: Int, files: Int = 0, upstream: Bool = true, unpushed: Int = 0, checkedOut: Bool = true) -> ProjectInfo {
+        var p = ProjectInfo(id: id, name: name, path: "/" + name)
+        p.base = "main"
+        var b = BranchInfo(name: "feat", baseAhead: ahead)
+        b.pr = pr
+        if upstream { b.upstream = "origin/feat"; b.ahead = unpushed }
+        p.branches = [BranchInfo(name: "main"), b]
+        var wt = WorktreeInfo(path: "/\(name)-feat", branch: "feat")
+        wt.status = GitStatus(files: files, added: files * 10, deleted: files)
+        p.worktrees = [WorktreeInfo(path: "/" + name, branch: "main", main: true)] + (checkedOut ? [wt] : [])
+        return p
+    }
+    var green = PRInfo(number: 88, state: "OPEN", checks: "pass")
+    green.review = "APPROVED"
+    let s = Snapshot(projects: [repo("r1", "spring", pr: green, ahead: 4),
+                                repo("r2", "web", pr: PRInfo(number: 41, state: "OPEN", checks: "pending"), ahead: 3, files: 2, unpushed: 1),
+                                repo("r3", "specs", pr: nil, ahead: 1, upstream: false)])
+    let t = GroupTask(branch: "feat", folder: "/t", projects: ["r1", "r2", "r3", "gone"])
+    let rs = s.taskRepos(t)
+    #expect(rs.map(\.name) == ["spring", "web", "specs"])
+    #expect(rs[0].line == "into main · ↑4 · clean" && rs[0].pushLine == "up to date with its upstream" && rs[0].pr?.number == 88)
+    #expect(rs[1].line == "into main · ↑3 · 2 uncommitted" && rs[1].pushLine == "1 commit not pushed" && rs[1].added == 20 && rs[1].deleted == 2)
+    #expect(rs[2].line == "into main · ↑1 · clean" && rs[2].pushLine == "not pushed" && rs[2].unpushed == nil)
+    #expect(taskHeadline(rs) == "2 of 3 pull requests open · checks: 1 passed, 1 running · 2 files uncommitted")
+
+    // Armed in another order, specs merged: specs first, web left out of
+    // the order comes last, and the headline counts what merged.
+    var armed = t
+    armed.merge = GroupTaskMerge(order: ["r3", "r1"], merged: ["r3"], state: "merging")
+    let ordered = s.taskRepos(armed)
+    #expect(ordered.map(\.name) == ["specs", "spring", "web"] && ordered[0].merged && ordered[0].line == "into main · ↑1 · merged")
+    #expect(taskHeadline(ordered) == "2 of 3 pull requests open · 1 merged · checks: 1 passed, 1 running · 2 files uncommitted")
+    #expect(mergeBanner(armed.merge, repos: ordered)! == ("Merging — 1 of 3 merged; spring #88 next.", .merging))
+
+    // A pull request GitHub says is merged counts, merged by hand or not.
+    var byHand = s
+    byHand.projects[1].branches![1].pr = PRInfo(number: 41, state: "MERGED", checks: "pass")
+    #expect(byHand.taskRepos(t)[1].merged && byHand.taskRepos(t)[1].pushLine == "merged")
+
+    // Not checked out; nothing here; everything merged.
+    let away = Snapshot(projects: [repo("r1", "spring", pr: nil, ahead: 0, upstream: false, checkedOut: false)])
+    let one = away.taskRepos(GroupTask(branch: "feat", folder: "/t", projects: ["r1"]))
+    #expect(one[0].line == "into main · not checked out" && taskHeadline(one) == "no pull requests yet")
+    #expect(taskHeadline([]) == "none of its repos are here")
+    var done = rs
+    for i in done.indices { done[i].merged = true }
+    #expect(taskHeadline(done) == "all 3 merged")
+    var failing = rs
+    failing[1].pr?.checks = "fail"
+    #expect(taskHeadline(failing).contains("checks: 1 passed, 1 failed"))
+}
+
+// What the banner says of Merge All in each state, and nothing when it
+// was never armed.
+@Test func mergeBanners() {
+    let rs = [TaskRepo(id: "r1", name: "spring"), TaskRepo(id: "r2", name: "web")]
+    #expect(mergeBanner(nil, repos: rs) == nil)
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "waiting"), repos: rs)! == ("Armed: merges all 2 in order once every pull request is green.", .waiting))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "waiting", why: "web #2 has a failing check"), repos: rs)!
+        == ("Waiting: web #2 has a failing check, so nothing is merged yet.", .held))
+    var one = rs
+    one[0].merged = true
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "merging", why: "web: its pull request is a draft"), repos: one)!
+        == ("Merging, 1 of 2 merged — waiting: web: its pull request is a draft.", .held))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "merging"), repos: one)! == ("Merging — 1 of 2 merged; web next.", .merging))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "stopped", why: "GitHub would not merge web #9: no"), repos: one)!
+        == ("Merge All stopped: GitHub would not merge web #9: no.", .stopped))
+    #expect(mergeBanner(GroupTaskMerge(order: ["r1", "r2"], state: "merged"), repos: rs)! == ("All 2 merged.", .merged))
+    #expect(GroupTaskMerge(order: [], state: "waiting").armed && GroupTaskMerge(order: [], state: "merging").armed)
+    #expect(!GroupTaskMerge(order: [], state: "stopped").armed && !GroupTaskMerge(order: [], state: "merged").armed)
+}
+
+// A task's Merge All decodes from the server, and a task without one (an
+// older server) still does; the sidebar says a task all merged is merged.
+@Test func groupTaskMergeDecodes() throws {
+    let l = try JSONDecoder().decode(GroupList.self, from: Data(#"{"groups":[{"name":"c","projects":["r1"],"tasks":[{"branch":"b","folder":"/f","projects":["r1"],"created":"2026-11-10T00:00:00Z","merge":{"order":["r1"],"merged":["r1"],"state":"merged","remove_task":true,"armed":"2026-11-10T00:00:00Z"}}]}]}"#.utf8))
+    let t = try #require(l.groups?.first?.tasks?.first)
+    #expect(t.merge == GroupTaskMerge(order: ["r1"], merged: ["r1"], state: "merged", removeTask: true))
+    let s = Snapshot(projects: [ProjectInfo(id: "r1", name: "spring", path: "/s")], groups: [GroupInfo(name: "c", projects: ["r1"], tasks: [t])])
+    let task = s.tree(machine: "local").children!.first { $0.kind == .workspace("local") }!.children![0].children![0]
+    #expect(task.kind == .groupTask(machine: "local", group: "c", branch: "b") && task.detail == "merged")
+}
+
+// A server's token is kept under CONCH_MCP_<NAME>_TOKEN; typed in the
+// Token field or pasted into a header, it leaves the server referring to
+// that variable and nothing else, and a header is never left holding it.
+@Test func tokensKeptForServers() throws {
+    #expect(tokenVariable(for: "wiki") == "CONCH_MCP_WIKI_TOKEN")
+    #expect(tokenVariable(for: "my-docs.v2") == "CONCH_MCP_MY_DOCS_V2_TOKEN")
+
+    // Typed: a URL's Authorization header is made to refer to it.
+    var url = LibraryServer(name: "wiki", url: "https://wiki.example/mcp", agents: ["claude"])
+    var k = try keepingToken(url, token: "  tok-123 \n")
+    #expect(k.token == "tok-123" && k.variable == "CONCH_MCP_WIKI_TOKEN")
+    #expect(k.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"] && k.server.usesKeptToken)
+
+    // Pasted into the header, with a scheme or without one.
+    url.headers = ["Authorization": "Bearer tok-456"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == "tok-456" && k.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"])
+    url.headers = ["X-API-Key": "tok-789"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == "tok-789" && k.server.headers == ["X-API-Key": "${CONCH_MCP_WIKI_TOKEN}"])
+
+    // A header that already names a variable is left alone, and with no
+    // token there is nothing to keep.
+    url.headers = ["Authorization": "Bearer ${OWN_TOKEN}"]
+    k = try keepingToken(url, token: "")
+    #expect(k.token == nil && k.server.headers == ["Authorization": "Bearer ${OWN_TOKEN}"] && !k.server.usesKeptToken)
+    url.headers = ["X-Key": "${CONCH_MCP_WIKI_TOKEN}"]
+    k = try keepingToken(url, token: "new")
+    #expect(k.token == "new" && k.server.headers == ["X-Key": "${CONCH_MCP_WIKI_TOKEN}"])
+
+    // Two tokens, or one pasted and another typed, or one the Keychain is
+    // not handed here, are refused.
+    url.headers = ["A": "one", "B": "two"]
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "") }
+    url.headers = ["Authorization": "Bearer one"]
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "two") }
+    url.headers = nil
+    #expect(throws: LibraryFormError.self) { try keepingToken(url, token: "a\"b") }
+
+    // A command has to say where it reads the token.
+    var cmd = LibraryServer(name: "jira", command: "npx", args: ["jira-mcp"], agents: ["claude"])
+    #expect(throws: LibraryFormError.self) { try keepingToken(cmd, token: "t") }
+    cmd.env = ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"]
+    k = try keepingToken(cmd, token: "t")
+    #expect(k.token == "t" && k.server.env == ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}"] && k.server.usesKeptToken)
+}
+
+// Kept in plain text instead, as the person chose: the token is written in
+// where the variable was, the server says plain, and an edit takes it back
+// out of the header into the Token field rather than showing it.
+@Test func tokensWrittenPlain() throws {
+    let url = LibraryServer(name: "wiki", url: "https://wiki.example/mcp", agents: ["claude"])
+    let p = writingTokenPlain(try keepingToken(url, token: "tok-$1"))
+    #expect(p.plain == true && p.headers == ["Authorization": "Bearer tok-$1"] && !p.usesKeptToken)
+    let back = formOfPlain(p)
+    #expect(back.token == "tok-$1" && back.server.headers == ["Authorization": "Bearer ${CONCH_MCP_WIKI_TOKEN}"])
+    #expect(writingTokenPlain(try keepingToken(back.server, token: back.token ?? "")) == p)
+
+    // A command's: where its environment names the variable.
+    let cmd = LibraryServer(name: "jira", command: "npx", args: ["jira-mcp"], env: ["JIRA_TOKEN": "${CONCH_MCP_JIRA_TOKEN}", "MODE": "ro"], agents: ["codex"])
+    let c = writingTokenPlain(try keepingToken(cmd, token: "t-9"))
+    #expect(c.env == ["JIRA_TOKEN": "t-9", "MODE": "ro"] && c.plain == true && c.args == ["jira-mcp"])
+
+    // No token: nothing written and nothing marked.
+    let none = writingTokenPlain(try keepingToken(url, token: ""))
+    #expect(none.plain == nil && none.headers == nil)
+
+    // On the wire: plain only when it is, so an older server is sent what it knows.
+    let wire = String(decoding: try JSONEncoder().encode(url), as: UTF8.self)
+    #expect(!wire.contains("plain"))
+    #expect(String(decoding: try JSONEncoder().encode(p), as: UTF8.self).contains(#""plain":true"#))
+    let decoded = try JSONDecoder().decode(LibraryServer.self, from: Data(#"{"name":"w","url":"https://w","headers":{"Authorization":"Bearer x"},"agents":[],"plain":true}"#.utf8))
+    #expect(decoded.plain == true)
 }

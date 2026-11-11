@@ -502,6 +502,7 @@ func (s *Server) runAutopilot(quit <-chan struct{}) {
 			return
 		case <-t.C:
 			s.autopilotMerges()
+			s.groups.merges() // a task's Merge All When Green
 			s.autopilotPendingCI()
 			go s.autopilotResolves() // a fetch can take a while; merges must not wait for it
 		}

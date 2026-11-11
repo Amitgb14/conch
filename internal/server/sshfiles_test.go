@@ -18,6 +18,9 @@ import (
 
 func TestMain(m *testing.M) {
 	sshtest.Main()
+	// No test reaches the developer's Keychain (secrets.go): one that
+	// wants a token gives a security of its own.
+	os.Setenv("CONCH_SECURITY", "/nonexistent/security")
 	os.Exit(m.Run())
 }
 

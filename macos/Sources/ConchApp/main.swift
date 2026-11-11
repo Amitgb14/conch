@@ -40,7 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         // never applied.
         PaneTerminal.fontSize = look.fontSize
         for t in store.terminals.values { t.setFontSize(look.fontSize) }
-        ScratchHotKey.shared.set(look.scratchKey)
+        // Not for a -background run: the key is global, so a scripted copy
+        // beside the person's own Conch would take their ⌥Space — and come
+        // to the front with it, taking the keys typed next.
+        ScratchHotKey.shared.set(look.scratchKey && !UserDefaults.standard.bool(forKey: "background"))
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -210,12 +213,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
             NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
             .separator(),
-            item("Find in Pane…", "f", .command, "find"),
+            item("Find…", "f", .command, "find"),
+            item("Find and Replace in File…", "f", [.command, .option], "replaceInFile"),
             item("Find Older", "g", .command, "findOlder"),
             item("Find Newer", "g", [.command, .shift], "findNewer"),
         ])
         var go = [
             item("Search…", "k", .command, "palette"),
+            item("Go to File…", "p", .command, "goToFile"),
+            item("Search in Files…", "f", [.command, .shift], "searchFiles"),
+            item("Edit with Agent…", "i", .command, "editWithAgent"),
             item("Sidebar", "0", .command, "focusSidebar"),
             item("Next Agent Waiting", ".", .command, "nextWaiting"),
             .separator(),
@@ -265,7 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         main.addItem(wtop)
         NSApp.windowsMenu = windowMenu
         let help = NSMenu(title: "Help")
-        [item("Keyboard Shortcuts", "/", .command, "shortcuts"), item("Check conch…", "", [], "doctor")].forEach(help.addItem)
+        [item("Welcome to Conch", "", [], "welcome"), item("Keyboard Shortcuts", "/", .command, "shortcuts"), item("Check conch…", "", [], "doctor")].forEach(help.addItem)
         let helpTop = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
         helpTop.submenu = help
         main.addItem(helpTop)

@@ -145,6 +145,7 @@ func (s *Server) agentLibrary(lp proto.AgentLibraryParams) (proto.AgentLibraryRe
 		if err := agentsetup.SaveLibrary(*lp.Set); err != nil {
 			return out, proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
+		s.secrets.forget() // a token saved with it is read afresh
 	case lp.Import != "":
 		ir, err := agentsetup.ImportLibrary(env, lp.Import)
 		if err != nil {

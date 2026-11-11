@@ -45,7 +45,7 @@ final class Store: ObservableObject {
     @Published var machines: [MachineLink] = [MachineLink(id: "local", label: "local")]
     /// Every machine in machines.json, disabled ones too, as last read:
     /// what conch's commands look a name up in, for paneRef.
-    var catalog: [MachineEntry] = []
+    @Published var catalog: [MachineEntry] = []
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
@@ -81,6 +81,12 @@ final class Store: ObservableObject {
     /// The TUI's folds (ui.json), and the ones chosen here, which are kept
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
+    /// The CLI's folders (ui.json's, Folders.swift), by section.
+    @Published var folders: [String: [Folder]] = [:]
+    /// Whether each ssh host logs in with this computer's key, as far as
+    /// the app has asked (checkKeys); and the hosts it has asked.
+    @Published var keyLogin: [String: Bool] = [:]
+    var keyAsked: Set<String> = []
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
     @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
     /// Plan limit alerts already raised (limitCrossings), kept with the
@@ -90,6 +96,15 @@ final class Store: ObservableObject {
     @Published var paletteOpen = false
     /// Help → Keyboard Shortcuts and Help → Check conch… on screen.
     @Published var helpOpen = false
+    /// The welcome (WelcomeSheet): shown when the app opens until it has
+    /// been seen, and from Help → Welcome to Conch.
+    @Published var welcomeOpen = shouldShowWelcome(seen: UserDefaults.standard.integer(forKey: Store.welcomeKey))
+    static let welcomeKey = "conch.welcomeSeen"
+
+    /// The welcome has been seen: it is not shown again when the app opens.
+    func welcomeSeen() {
+        UserDefaults.standard.set(welcomeVersion, forKey: Store.welcomeKey)
+    }
     /// The status bar's ✦ Ask, open (its button, or the prefix and :).
     @Published var askOpen = false
     @Published var doctorOpen = false
@@ -307,6 +322,13 @@ final class Store: ObservableObject {
 
     var ws: Workspace? { workspaces.indices.contains(workspace) ? workspaces[workspace] : nil }
 
+    /// What workspace i holds that runs, across every machine, for its tab.
+    func workspaceSummary(_ i: Int) -> WorkspaceSummary {
+        guard workspaces.indices.contains(i) else { return WorkspaceSummary() }
+        let w = workspaces.count > 1 ? workspaces[i] : nil
+        return machines.reduce(WorkspaceSummary()) { sum, m in sum + (snapshots[m.id] ?? Snapshot()).summary(in: w, machine: m.id) }
+    }
+
     /// This computer's server answers: the window has something to show.
     var connected: Bool { machines.first?.online == true }
     var serverVersion: String { machines.first?.version ?? "" }
@@ -329,6 +351,7 @@ final class Store: ObservableObject {
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
         if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
+        if let t = parseTaskKey(k) { return [t.group, label(t.machine)].joined(separator: " · ") }
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
@@ -411,7 +434,7 @@ final class Store: ObservableObject {
     var tree: [TreeNode] {
         machines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
-                                                            savedHosts: savedHosts)
+                                                            savedHosts: savedHosts, folders: folders)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -1093,7 +1116,10 @@ final class Store: ObservableObject {
             try await c.handshake()
             let panes = try await c.call("pane.list", as: PaneList.self)
             let projects = try await c.call("project.list", as: ProjectList.self)
-            snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects)
+            // Groups from a server that has them; an older one has none.
+            let groups = c.hello?.capabilities?.contains("project.groups.v1") == true
+                ? (try? await c.call("group.list", as: GroupList.self))?.groups ?? [] : []
+            snapshots[machine] = Snapshot(panes: panes.panes, projects: projects.projects, groups: groups)
             setState(machine, "", version: c.hello?.version ?? "")
             await noteBehind(machine, c)
             localRetries = 0
@@ -1134,6 +1160,8 @@ final class Store: ObservableObject {
                     if c.machine == machine { layout.open(o) } // a branch's changes
                 } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
+                } else if let t = parseTaskKey(o) {
+                    if t.machine == machine { openTask(t.machine, t.group, t.branch) } // a task's page
                 } else {
                     let k = o.contains("|") ? o : key("local", o)
                     if unkey(k).machine == machine, pane(k) != nil { layout.open(k) }
@@ -1182,14 +1210,18 @@ final class Store: ObservableObject {
 
     /// The capabilities of this app's own conch, asked once.
     private var appCapabilities: [String]?
+    private var appOptional: [String] = []
 
     /// Whether a server is behind this app's conch, said on its row.
     private func noteBehind(_ machine: String, _ c: Connection) async {
         if appCapabilities == nil, let b = binary, let out = try? await runConch(b, ["version", "--json"]) {
-            appCapabilities = (try? JSONDecoder().decode(BuildInfo.self, from: out))?.capabilities ?? []
+            let info = try? JSONDecoder().decode(BuildInfo.self, from: out)
+            appCapabilities = info?.capabilities ?? []
+            // An older conch says nothing of these; it knew only file watching.
+            appOptional = info?.optional ?? ["worktree.watch.v1"]
         }
         guard let i = machines.firstIndex(where: { $0.id == machine }) else { return }
-        machines[i].behind = capabilitiesBehind(server: c.hello?.capabilities, app: appCapabilities ?? [])
+        machines[i].behind = capabilitiesBehind(server: c.hello?.capabilities, app: appCapabilities ?? [], optional: appOptional)
     }
 
     /// Machines reloading: their connection is tried again at once when it
@@ -1401,6 +1433,20 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Gives a machine another label, as `conch machine rename` does; the
+    /// sidebar and Settings take it at once.
+    func renameMachine(_ machine: String, to name: String) {
+        guard let b = binary else { return }
+        job("Renaming \(label(machine))", done: "Renamed to \(name)") {
+            _ = try await runConch(b, ["machine", "rename", machine, name])
+            if let i = self.machines.firstIndex(where: { $0.id == machine }) {
+                let sandbox = self.catalog.first { $0.id == machine }?.sandboxProvider
+                self.machines[i].label = sandbox.map { "\(name) · \($0)" } ?? name
+            }
+            self.connect() // machines.json changed: the catalog read again
+        }
+    }
+
     /// A machine's connection went: said on its row, and tried again —
     /// this computer's soon and then less often (a reload is back in a
     /// moment), one elsewhere in a while.
@@ -1498,6 +1544,8 @@ final class Store: ObservableObject {
                 // And an open commit graph, unless it is already reading.
                 for v in commitViews.values where v.machine == machine && v.project == p.id && !v.loading && layout.tab(showing: v.key) != nil { v.load() }
             }
+        case "group.changed":
+            if let l = try? dec.decode(GroupList.self, from: data) { snap.groups = l.groups ?? [] }
         case "project.removed":
             struct Ref: Decodable { var id: String }
             if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
@@ -1586,6 +1634,8 @@ final class Store: ObservableObject {
                 for (m, s) in self.snapshots where self.conns[m] != nil {
                     for p in s.panes where p.running && p.agent?.state == .blocked { self.ask(key(m, p.id)) }
                 }
+                // A new ssh session's host asked once whether it takes the key.
+                self.checkKeys()
             }
         }
     }
@@ -1691,10 +1741,11 @@ final class Store: ObservableObject {
     var rawSearched: String?
 
     /// The usage chip for a row's panes ("" with none, or cost turned off).
-    func costChip(machine m: String, project: String? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
+    func costChip(machine m: String, project: String? = nil, projects: [String]? = nil, agentsOnly: Bool = false, pane: String? = nil) -> String {
         guard showCost, let s = snapshots[m] else { return "" }
         var panes = s.shown(in: ws, machine: m)
         if let project { panes = panes.filter { $0.projectID == project } }
+        if let projects { panes = panes.filter { $0.projectID.map(projects.contains) ?? false } }
         if agentsOnly { panes = panes.filter { $0.agent != nil } }
         if let pane { panes = panes.filter { $0.id == pane } }
         return usage(of: panes).chip
@@ -1919,6 +1970,12 @@ final class Store: ObservableObject {
         }
         layout.open(k)
         terminalHasKeyboard = false
+    }
+
+    /// The Files tab in front, if that is what is focused.
+    var focusedFiles: FilesModel? {
+        guard let k = layout.focused, parseFilesKey(k) != nil else { return nil }
+        return fileViews[k]
     }
 
     func files(for k: String) -> FilesModel {
@@ -2155,8 +2212,17 @@ final class Store: ObservableObject {
         case "splitDown": newTerminal(split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
-        case "find": openFind()
+        case "find": if let f = focusedFiles { f.findInFile(replace: false) } else { openFind() }
+        case "replaceInFile": if let f = focusedFiles { f.findInFile(replace: true) } else { NSSound.beep() }
+        case "goToFile": if let f = focusedFiles { f.quickOpen = true } else { NSSound.beep() }
+        case "searchFiles":
+            if let f = focusedFiles {
+                f.side = .search
+                f.search.focus &+= 1
+            } else { NSSound.beep() }
+        case "editWithAgent": if let f = focusedFiles { f.showAgentPanel() } else { NSSound.beep() }
         case "shortcuts": helpOpen = true
+        case "welcome": welcomeOpen = true
         case "doctor": doctorOpen = true
         case "skillsSettings": openSkillsSettings("local")
         case "findOlder": findNext(back: true)
@@ -2200,7 +2266,9 @@ final class Store: ObservableObject {
         guard let m = node.machine else { return [] }
         let online = machines.first { $0.id == m }?.online ?? false
         let s = snapshots[m] ?? Snapshot()
-        var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog)
+        var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
+                           folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
+                           canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true)
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2258,6 +2326,12 @@ final class Store: ObservableObject {
     /// The agents to offer on a machine: those installed there, else the
     /// supported ones by name, so the menu is never empty while the list
     /// is still being asked for.
+    func rowButtons(for node: TreeNode) -> RowButtons? {
+        guard let m = node.machine else { return nil }
+        let online = machines.first { $0.id == m }?.online ?? false
+        return (snapshots[m] ?? Snapshot()).rowButtons(for: node, machine: m, machineOnline: online)
+    }
+
     func startable(on machine: String) -> [AgentAvailability] {
         let have = agents[machine] ?? []
         return have.isEmpty ? ["claude", "codex", "gemini", "opencode", "devin"].map { AgentAvailability(name: $0) } : have
@@ -2279,6 +2353,7 @@ final class Store: ObservableObject {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
             say("Copied \(text.count > 60 ? String(text.prefix(57)) + "…" : text)")
+        case .reveal(let path): NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()
@@ -2307,6 +2382,29 @@ final class Store: ObservableObject {
         case .forgetHost(let h): saveHost(SavedHost(host: h), save: false)
         case .saveHost(let k):
             if let p = pane(k), let h = p.sshTarget { saveHost(SavedHost(host: h, args: p.sshArgs)) }
+        case .newFolder(let m, let sec): newFolder(m, sec)
+        case .renameFolder(let m, let sec, let name): renameFolder(m, sec, name)
+        case .removeFolder(let m, let sec, let name): removeFolder(m, sec, name)
+        case .moveToFolder(let item, let folder): move(item, to: folder)
+        case .moveToNewFolder(let item): moveToNewFolder(item)
+        case .anotherSession(let k): anotherSession(k)
+        case .editHost(let h, let args): editHost(h, args)
+        case .copyKey(let h, let args): copyKey(h, args)
+        case .addAsMachine(let h): addAsMachine(h)
+        case .redraw(let k): redraw(k)
+        case .collapseProjects(let m): collapseProjects(m)
+        case .newGroup(let m): newGroup(m)
+        case .groupWith(let pk, let other): groupWith(pk, other)
+        case .addToGroup(let pk, let g): addToGroup(pk, g)
+        case .takeOutOfGroup(let pk, let g): takeOutOfGroup(pk, g)
+        case .renameGroup(let m, let g): renameGroup(m, g)
+        case .groupNotes(let m, let g): groupNotes(m, g)
+        case .removeGroup(let m, let g): removeGroup(m, g)
+        case .newGroupTask(let m, let g): newGroupTask(m, g)
+        case .openGroupTask(let m, let g, let b): openTask(m, g, b)
+        case .groupTaskPush(let m, let g, let b): groupTaskEach(m, g, b, pr: false)
+        case .groupTaskPRs(let m, let g, let b): groupTaskEach(m, g, b, pr: true)
+        case .removeGroupTask(let m, let g, let b): removeGroupTask(m, g, b)
         }
     }
 
@@ -2427,37 +2525,14 @@ final class Store: ObservableObject {
         say(save ? "Saved \(h.host): it stays under CLI to connect again" : "Forgot \(h.host)")
     }
 
-    func sshToHost() {
-        guard let b = binary,
-              let (host, options) = askTwo("SSH from this computer", info: "Opens a terminal here logged in to the host, with your ssh config and keys. Nothing is installed there.",
-                                           first: ("Host", "user@host, a host alias or ssh://user@host:port"),
-                                           second: ("SSH options", "optional, e.g. -p 2222 -o KexAlgorithms=+diffie-hellman-group14-sha1"),
-                                           button: "Connect") else { return }
-        let target = host.trimmingCharacters(in: .whitespaces)
-        guard !target.isEmpty else { return }
-        let args = ["ssh", target] + options.split(separator: " ").map(String.init)
-        Task {
-            do {
-                let out = try await runConch(b, args)
-                let id = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !id.isEmpty else { return }
-                layout.open(key("local", id))
-                if let p = pane(key("local", id)) { joinWorkspace(machine: "local", pane: p) }
-                focusTerminal()
-            } catch {
-                self.error = "\(error)"
-            }
-        }
-    }
-
     /// Another machine, as the TUI's M: `conch machine add` in a terminal of
     /// its own, so the install is watched; the machine shows in the sidebar
     /// when machines.json has it.
-    func addMachine() {
+    func addMachine(target: String = "") {
         guard let b = binary, let c = conns["local"],
               let (host, label) = askTwo("Add a machine", info: "conch is installed there over ssh, and runs agents there that keep running when you close this.",
                                          first: ("SSH target", "user@host or a host alias"), second: ("Label", "optional, how the sidebar names it"),
-                                         button: "Add") else { return }
+                                         button: "Add", firstValue: target) else { return }
         let target = host.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
         var command = [b, "machine", "add"]
@@ -2516,7 +2591,8 @@ final class Store: ObservableObject {
     }
 
     /// Two lines from a small dialog, or nil when cancelled.
-    private func askTwo(_ title: String, info: String, first: (String, String), second: (String, String), button: String) -> (String, String)? {
+    private func askTwo(_ title: String, info: String, first: (String, String), second: (String, String), button: String,
+                        firstValue: String = "") -> (String, String)? {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = info
@@ -2534,6 +2610,7 @@ final class Store: ObservableObject {
             return f
         }
         let one = field(first.0, first.1), two = field(second.0, second.1)
+        one.stringValue = firstValue
         a.accessoryView = box
         a.addButton(withTitle: button)
         a.addButton(withTitle: "Cancel")
@@ -2545,8 +2622,17 @@ final class Store: ObservableObject {
     func activate(_ node: TreeNode) {
         switch node.kind {
         case .agent(let id), .terminal(let id): open(id)
+        case .groupTask(let m, let g, let b):
+            if let p = groupTask(m, g, b)?.panes?.first(where: { pane(key(m, $0)) != nil }) { open(key(m, p)) }
         default: break
         }
+    }
+
+    /// A pane started from somewhere else (the Files tab's agent), into the
+    /// sidebar and the workspace without being put in front.
+    func added(machine: String, pane p: PaneInfo) {
+        snapshots[machine, default: Snapshot()].upsert(p)
+        joinWorkspace(machine: machine, pane: p)
     }
 
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
@@ -2651,6 +2737,16 @@ final class Store: ObservableObject {
             } catch {
                 self.error = "Could not start the task: \(error)"
             }
+        }
+    }
+
+    /// A pane's program asked to draw its screen again, as the TUI's Redraw.
+    func redraw(_ k: String) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m] else { return }
+        struct Params: Encodable { var id: String }
+        Task {
+            do { try await c.call("pane.redraw", Params(id: id)) } catch { self.error = "\(error)" }
         }
     }
 
@@ -2806,8 +2902,11 @@ final class Store: ObservableObject {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("ui.json"))
         workspaces = Workspace.load(uiJSON: data)
         tuiFolds = loadFolds(uiJSON: data)
+        let fs = loadFolders(uiJSON: data)
+        if fs != folders { folders = fs }
         let hosts = loadSavedHosts(uiJSON: data)
         if hosts != savedHosts { savedHosts = hosts }
+        checkKeys()
         let dismissed = loadQueueDismissed(uiJSON: data)
         if dismissed != queueDismissed { queueDismissed = dismissed }
         let active = activeWorkspace(uiJSON: data)
@@ -2871,3 +2970,359 @@ private struct PaneRefParams: Encodable { var id: String }
 final class ShownTheme: ObservableObject {
     @Published var theme = ConchTheme.conch
 }
+
+// MARK: project groups
+
+/// Project groups (project.groups.v1): projects kept together because
+/// they change together. The server keeps them, so each change here is a
+/// group.save or group.remove, and its group.changed redraws the tree.
+extension Store {
+    /// A group row's tooltip: a line for each of its repos.
+    func groupTip(_ machine: String, _ name: String) -> String {
+        guard let g = group(machine, name), let s = snapshots[machine] else { return name }
+        return ([name + " · \(g.projects.count) repos"] + s.repoSummaries(g, in: ws, machine: machine).map(\.line)).joined(separator: "\n")
+    }
+
+    func canGroup(_ machine: String) -> Bool {
+        conns[machine]?.hello?.capabilities?.contains("project.groups.v1") == true
+    }
+
+    private struct GroupSave: Encodable {
+        var name: String
+        var old: String?
+        var projects: [String]
+        var notes: String?
+    }
+
+    /// group.save, with what the server refused said.
+    func saveGroup(_ machine: String, name: String, old: String? = nil, projects: [String], notes: String?, done: String) {
+        guard let c = conns[machine] else { return }
+        Task {
+            do {
+                try await c.call("group.save", GroupSave(name: name, old: old, projects: projects, notes: notes))
+                say(done)
+            } catch {
+                say("Could not save the group: \(error)", .err)
+            }
+        }
+    }
+
+    func group(_ machine: String, _ name: String) -> GroupInfo? {
+        snapshots[machine]?.groups.first { $0.name == name }
+    }
+
+    private func projectName(_ pk: String) -> String {
+        let (m, id) = unkey(pk)
+        return snapshots[m]?.project(id)?.name ?? id
+    }
+
+    /// New Project Group…: a name, the projects in it ticked off a list
+    /// (two at least), and notes for the agents.
+    func newGroup(_ machine: String) {
+        let projects = snapshots[machine]?.projects ?? []
+        let a = NSAlert()
+        a.messageText = "New project group"
+        a.informativeText = "Projects that change together. Each stays a project of its own, with its own git, branches and pull requests."
+        let box = NSStackView(frame: NSRect(x: 0, y: 0, width: 340, height: CGFloat(110 + 22 * projects.count)))
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 6
+        box.addArrangedSubview(NSTextField(labelWithString: "Name"))
+        let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        name.placeholderString = "clinic"
+        box.addArrangedSubview(name)
+        box.addArrangedSubview(NSTextField(labelWithString: "Projects"))
+        let ticks = projects.map { p -> NSButton in
+            let b = NSButton(checkboxWithTitle: "\(p.name)  —  \(p.path)", target: nil, action: nil)
+            box.addArrangedSubview(b)
+            return b
+        }
+        box.addArrangedSubview(NSTextField(labelWithString: "Notes for the agents (optional)"))
+        let notes = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        notes.placeholderString = "API in spring, UI in angular-clinic; change the spec first"
+        box.addArrangedSubview(notes)
+        a.accessoryView = box
+        a.addButton(withTitle: "Make Group")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = name
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let picked = zip(projects, ticks).filter { $0.1.state == .on }.map(\.0.id)
+        let n = name.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { say("A group needs a name", .err); return }
+        guard picked.count >= 2 else { say("A group needs two projects at least", .err); return }
+        saveGroup(machine, name: n, projects: picked, notes: notes.stringValue, done: "Made the group \(n)")
+    }
+
+    /// One project grouped with another, asked first: dropped one onto
+    /// the other, or Group With ▸. The group is named after the one it was
+    /// dropped on, which can be changed here.
+    func groupWith(_ pk: String, _ other: String) {
+        let (m, id) = unkey(pk), (om, oid) = unkey(other)
+        guard m == om, id != oid else { return }
+        let a = NSAlert()
+        a.messageText = "Group \(projectName(pk)) with \(projectName(other))?"
+        a.informativeText = "They stay two projects, each with its own git, branches and pull requests. The group lets one task make the same branch in both, with one agent working in both."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+        field.stringValue = projectName(other)
+        field.placeholderString = "Group name"
+        a.accessoryView = field
+        a.addButton(withTitle: "Make Group")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = field
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let n = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { say("A group needs a name", .err); return }
+        if group(m, n) != nil { say("There is a group called \(n) already: drop it on that group instead", .err); return }
+        saveGroup(m, name: n, projects: [oid, id], notes: nil, done: "Grouped \(projectName(pk)) with \(projectName(other)) as \(n)")
+    }
+
+    func addToGroup(_ pk: String, _ name: String, ask: Bool = false) {
+        let (m, id) = unkey(pk)
+        guard let g = group(m, name), !g.projects.contains(id) else { return }
+        if ask {
+            let a = NSAlert()
+            a.messageText = "Add \(projectName(pk)) to \(name)?"
+            a.informativeText = "It stays a project of its own; tasks across \(name) will include it."
+            a.addButton(withTitle: "Add")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        saveGroup(m, name: name, old: name, projects: g.projects + [id], notes: g.notes, done: "Added \(projectName(pk)) to \(name)")
+    }
+
+    /// Out of a group; the last one out takes the group with it, after
+    /// asking, since a group of none is no group.
+    func takeOutOfGroup(_ pk: String, _ name: String) {
+        let (m, id) = unkey(pk)
+        guard let g = group(m, name) else { return }
+        let rest = g.projects.filter { $0 != id }
+        if rest.isEmpty { removeGroup(m, name); return }
+        saveGroup(m, name: name, old: name, projects: rest, notes: g.notes, done: "Took \(projectName(pk)) out of \(name)")
+    }
+
+    func renameGroup(_ machine: String, _ name: String) {
+        guard let g = group(machine, name),
+              let n = ask("Rename \(name)", info: "Its projects stay in it.", value: name, button: "Rename")?.trimmingCharacters(in: .whitespaces),
+              !n.isEmpty, n != name else { return }
+        saveGroup(machine, name: n, old: name, projects: g.projects, notes: g.notes, done: "Renamed \(name) to \(n)")
+    }
+
+    func groupNotes(_ machine: String, _ name: String) {
+        guard let g = group(machine, name),
+              let n = ask("Notes for the agents · \(name)", info: "What an agent working across \(name) should know: which repo holds what, what to change first.", value: g.notes ?? "", button: "Save") else { return }
+        saveGroup(machine, name: name, old: name, projects: g.projects, notes: n, done: "Saved the notes of \(name)")
+    }
+
+    func removeGroup(_ machine: String, _ name: String) {
+        guard let c = conns[machine] else { return }
+        let a = NSAlert()
+        a.messageText = "Remove the group \(name)?"
+        a.informativeText = "Its projects stay, in conch and on disk; only the group goes."
+        a.addButton(withTitle: "Remove Group")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        struct Ref: Encodable { var name: String }
+        Task {
+            do {
+                try await c.call("group.remove", Ref(name: name))
+                say("Removed the group \(name): its projects stay")
+            } catch {
+                say("Could not remove \(name): \(error)", .err)
+            }
+        }
+    }
+}
+
+// MARK: tasks across a group's repos
+
+extension Store {
+    func groupTask(_ machine: String, _ group: String, _ branch: String) -> GroupTask? {
+        self.group(machine, group)?.tasks?.first { $0.branch == branch }
+    }
+
+    /// New Task Across Repos…: what to do, the branch made in each repo,
+    /// which repos, one agent across them or one each, and which agent.
+    func newGroupTask(_ machine: String, _ name: String) {
+        guard let g = group(machine, name), let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains("group.task.v1") == true else {
+            say("The server on \(label(machine)) predates tasks across a group: reload it", .err)
+            return
+        }
+        let repos = g.projects.compactMap { snapshots[machine]?.project($0) }
+        let a = NSAlert()
+        a.messageText = "New task in \(name)"
+        a.informativeText = "The same branch in a worktree of each repo ticked, gathered in one task folder."
+        let box = NSStackView(frame: NSRect(x: 0, y: 0, width: 380, height: CGFloat(250 + 22 * repos.count)))
+        box.orientation = .vertical
+        box.alignment = .leading
+        box.spacing = 6
+        box.addArrangedSubview(NSTextField(labelWithString: "What to do"))
+        let prompt = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 60))
+        prompt.placeholderString = "Add patient search: an endpoint in the API, a search box in the UI, the contract in the specs"
+        prompt.translatesAutoresizingMaskIntoConstraints = false
+        prompt.widthAnchor.constraint(equalToConstant: 380).isActive = true
+        prompt.heightAnchor.constraint(equalToConstant: 60).isActive = true
+        box.addArrangedSubview(prompt)
+        box.addArrangedSubview(NSTextField(labelWithString: "Branch (the same in each repo; empty: named from what to do)"))
+        let branch = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+        branch.placeholderString = "add-patient-search"
+        box.addArrangedSubview(branch)
+        box.addArrangedSubview(NSTextField(labelWithString: "Repos"))
+        let ticks = repos.map { p -> NSButton in
+            let b = NSButton(checkboxWithTitle: p.name + (p.base.map { "  from \($0)" } ?? ""), target: nil, action: nil)
+            b.state = .on
+            box.addArrangedSubview(b)
+            return b
+        }
+        let one = NSButton(radioButtonWithTitle: "One agent for the whole task, with every repo", target: nil, action: nil)
+        let each = NSButton(radioButtonWithTitle: "An agent per repo, each told about the others", target: nil, action: nil)
+        one.state = .on
+        box.addArrangedSubview(one)
+        box.addArrangedSubview(each)
+        let pick = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 26), pullsDown: false)
+        let agents = startable(on: machine)
+        pick.addItems(withTitles: agents.map(\.title))
+        box.addArrangedSubview(pick)
+        a.accessoryView = box
+        a.addButton(withTitle: "Start Task")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = prompt
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        let what = prompt.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !what.isEmpty else { say("A task needs something to do", .err); return }
+        let picked = zip(repos, ticks).filter { $0.1.state == .on }.map(\.0.id)
+        guard !picked.isEmpty else { say("Tick a repo at least", .err); return }
+        struct Params: Encodable {
+            var group: String, prompt: String, branch: String?, agent: String?, projects: [String], each: Bool, cols: Int, rows: Int
+        }
+        let agent = agents.indices.contains(pick.indexOfSelectedItem) ? agents[pick.indexOfSelectedItem].name : nil
+        let b = branch.stringValue.trimmingCharacters(in: .whitespaces)
+        struct Result: Decodable { var panes: [PaneInfo]? }
+        say("Starting the task across \(picked.count) repos…", .info)
+        Task {
+            do {
+                let res = try await c.call("group.task", Params(group: name, prompt: what, branch: b.isEmpty ? nil : b, agent: agent,
+                                                                 projects: picked.count == repos.count ? [] : picked, each: each.state == .on, cols: 120, rows: 40),
+                                           as: Result.self)
+                for p in res.panes ?? [] {
+                    snapshots[machine, default: Snapshot()].upsert(p)
+                    layout.open(key(machine, p.id))
+                }
+                focusTerminal()
+            } catch {
+                say("Could not start the task: \(error)", .err)
+            }
+        }
+    }
+
+    /// The task's branch pushed, or its pull request opened, in each of its
+    /// repos, one after another; what each said, said.
+    func groupTaskEach(_ machine: String, _ group: String, _ branch: String, pr: Bool) {
+        guard let t = groupTask(machine, group, branch), let c = conns[machine] else { return }
+        let names = t.projects.map { snapshots[machine]?.project($0)?.name ?? $0 }
+        struct Push: Encodable { var project_id: String; var branch: String }
+        struct PR: Encodable { var project_id: String; var branch: String; var title: String; var body: String }
+        Task {
+            var done: [String] = [], failed: [String] = []
+            for (id, name) in zip(t.projects, names) {
+                do {
+                    if pr {
+                        let others = names.filter { $0 != name }
+                        let body = "Part of `\(branch)` across \(group): the same branch in " + (others.isEmpty ? "no other repo." : others.joined(separator: ", ") + ".")
+                        try await c.call("branch.pr", PR(project_id: id, branch: branch, title: branch, body: body))
+                    } else {
+                        try await c.call("branch.push", Push(project_id: id, branch: branch))
+                    }
+                    done.append(name)
+                } catch {
+                    failed.append("\(name): \(error)")
+                }
+            }
+            let verb = pr ? "Opened pull requests for" : "Pushed \(branch) in"
+            if failed.isEmpty { say("\(verb) \(done.joined(separator: ", "))") } else {
+                say((done.isEmpty ? "" : "\(verb) \(done.joined(separator: ", ")); ") + failed.joined(separator: "; "), .err)
+            }
+        }
+    }
+
+    /// The task's page, in a tab of its own: what its row opens.
+    func openTask(_ machine: String, _ group: String, _ branch: String) {
+        let k = taskKey(machine, group, branch)
+        // Each repo's branch read afresh, its pull request as GitHub has it now.
+        for id in groupTask(machine, group, branch)?.projects ?? [] {
+            let ck = changesKey(machine, id, branch)
+            if let m = changeViews[ck] { Task { await m.load() } } else { _ = changes(for: ck) }
+        }
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
+    /// Merge All When Green armed on a task, its order given (and, after,
+    /// the task removed or not), or with stop disarmed.
+    func groupTaskMerge(_ machine: String, _ group: String, _ branch: String, order: [String] = [], removeTask: Bool = false, stop: Bool = false) {
+        guard let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains("group.task.merge.v1") == true else {
+            say("The server on \(label(machine)) predates Merge All: reload it", .err)
+            return
+        }
+        struct P: Encodable { var group: String; var branch: String; var order: [String]?; var remove_task: Bool?; var stop: Bool? }
+        Task {
+            do {
+                try await c.call("group.task.merge", P(group: group, branch: branch, order: order.isEmpty ? nil : order,
+                                                        remove_task: removeTask ? true : nil, stop: stop ? true : nil))
+                say(stop ? "Stopped Merge All on \(branch)" : "Merge All armed on \(branch): it merges once every pull request is green")
+            } catch {
+                say("Could not \(stop ? "stop" : "arm") Merge All: \(error)", .err)
+            }
+        }
+    }
+
+    /// The same words to every agent of a task, as if typed and submitted.
+    func sendTaskAgents(_ machine: String, _ panes: [String], text: String) {
+        guard let c = conns[machine], !panes.isEmpty else { return }
+        struct P: Encodable { var id: String; var text: String }
+        Task {
+            var failed: [String] = []
+            for id in panes {
+                do { try await c.call("agent.prompt", P(id: id, text: text)) } catch { failed.append("\(pane(key(machine, id))?.displayName ?? id): \(error)") }
+            }
+            if failed.isEmpty { say("Told \(panes.count) agent\(panes.count == 1 ? "" : "s")") } else { say(failed.joined(separator: "; "), .err) }
+        }
+    }
+
+    /// Commit Each…'s one question: the message for every repo's commit,
+    /// "" to use each repo's own box; nil when cancelled.
+    func askCommitMessage(_ repos: [String]) -> String? {
+        ask("Commit in \(repos.joined(separator: ", "))", info: "One message for every repo's commit. Left empty, each repo's own message box is used.",
+            value: "", button: "Commit Each")
+    }
+
+    /// Message Every Agent…: asked for, then sent to each.
+    func messageTaskAgents(_ machine: String, _ panes: [String], what: String) {
+        let agents = panes.filter { pane(key(machine, $0))?.agent != nil }
+        guard !agents.isEmpty else { return }
+        guard let text = ask(what, info: "Sent to each of its \(agents.count) agents as if typed and submitted.", value: "", button: "Send"),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sendTaskAgents(machine, agents, text: text)
+    }
+
+    func removeGroupTask(_ machine: String, _ group: String, _ branch: String) {
+        guard let c = conns[machine] else { return }
+        let a = NSAlert()
+        a.messageText = "Remove the task \(branch)?"
+        a.informativeText = "Its folder of links goes. Each repo keeps its worktree and the branch \(branch), to merge or delete as any branch; its agents keep running."
+        a.addButton(withTitle: "Remove Task")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        struct Ref: Encodable { var group: String; var branch: String }
+        Task {
+            do {
+                try await c.call("group.task.remove", Ref(group: group, branch: branch))
+                say("Removed the task \(branch); its branches stay")
+            } catch {
+                say("Could not remove the task: \(error)", .err)
+            }
+        }
+    }
+}
+

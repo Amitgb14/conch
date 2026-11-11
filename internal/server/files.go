@@ -132,6 +132,12 @@ func (s *Server) checkoutRoot(root string) (string, *proto.Error) {
 			}
 		}
 	}
+	// A task's folder too, so its brief can be read and edited: its links
+	// lead out of it, which confine refuses, so CONCH-TASK.md is all of it
+	// that is reached this way.
+	if s.groups != nil && s.groups.isTaskFolder(root, real) {
+		return root, nil
+	}
 	return "", proto.Errorf(proto.ErrBadRequest, "%s is not a project or one of its worktrees", root)
 }
 
@@ -338,9 +344,13 @@ func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Err
 	if rp.Offset < 0 {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "negative offset")
 	}
+	limit := proto.FSReadMax
+	if rp.Whole {
+		limit = proto.FSWriteMax
+	}
 	max := rp.Max
-	if max <= 0 || max > proto.FSReadMax {
-		max = proto.FSReadMax
+	if max <= 0 || max > limit {
+		max = limit
 	}
 	// A folder has nothing to read, and a fifo or device would block — even
 	// opening a fifo does — so the file is looked at before it is opened,

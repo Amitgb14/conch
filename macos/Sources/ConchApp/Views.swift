@@ -299,6 +299,10 @@ struct Dot: View {
 /// this which workspace the pointer is on (WorkspacesHost).
 @MainActor final class WorkspaceHits {
     static let shared = WorkspaceHits()
+    /// The switcher's own coordinates, whose origin is its hosting view's:
+    /// `.global` is not that view's in a toolbar, so a right-click found
+    /// no workspace under it and the switcher's menu never opened.
+    static let space = "workspaces"
     var frames: [Int: CGRect] = [:]
 
     func index(at p: CGPoint) -> Int? { frames.first { $0.value.contains(p) }?.key }
@@ -306,11 +310,28 @@ struct Dot: View {
 
 /// The toolbar's view of the workspaces: a right-click on one is its menu
 /// (rename, close), as the TUI has, in place of the toolbar's own.
+///
+/// Its width follows the workspaces: one added, closed or named arrives
+/// after the toolbar has laid the control out, and a frame fixed at that
+/// first size squeezed the names into it — "1 work" became "…" beside a
+/// "2" and a "3" — so the toolbar sizes it by its intrinsic size instead.
 final class WorkspacesHost: NSHostingView<WorkspacesControl> {
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let p = convert(event.locationInWindow, from: nil)
+    required init(rootView: WorkspacesControl) {
+        super.init(rootView: rootView)
+        sizingOptions = .intrinsicContentSize
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// The workspace's menu for a click at a point of the window, or nil
+    /// when no workspace is under it.
+    func workspaceMenu(at locationInWindow: CGPoint) -> NSMenu? {
+        let p = convert(locationInWindow, from: nil)
+        guard bounds.contains(p) else { return nil }
         let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
-        guard let i = WorkspaceHits.shared.index(at: point) else { return super.menu(for: event) }
+        guard let i = WorkspaceHits.shared.index(at: point) else { return nil }
         let store = rootView.store
         let m = NSMenu()
         m.addItem(ClosureItem("Rename…") { store.renameWorkspace(i) })
@@ -321,8 +342,28 @@ final class WorkspacesHost: NSHostingView<WorkspacesControl> {
         return m
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        if let m = menu(for: event) { NSMenu.popUpContextMenu(m, with: event, for: self) } else { super.rightMouseDown(with: event) }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        workspaceMenu(at: event.locationInWindow) ?? super.menu(for: event)
+    }
+
+    /// A right-click (or a control-click) on a workspace, caught before it
+    /// is dispatched: in the toolbar, the toolbar takes it first and shows
+    /// its own Icon and Text / Icon Only menu, so neither menu(for:) nor
+    /// rightMouseDown here ever saw a real one — only an event handed to
+    /// the window directly did, which is how a test said it worked.
+    private var monitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
+        guard window != nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { [weak self] e in
+            guard let self, e.window === self.window,
+                  e.type == .rightMouseDown || e.modifierFlags.contains(.control),
+                  let m = self.workspaceMenu(at: e.locationInWindow) else { return e }
+            NSMenu.popUpContextMenu(m, with: e, for: self)
+            return nil
+        }
     }
 }
 
@@ -340,64 +381,102 @@ final class ClosureItem: NSMenuItem {
 
 struct WorkspacesControl: View {
     @ObservedObject var store: Store
-    @State private var hovered: Int?
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
     var body: some View { content.environment(\.conchTheme, store.themeLook) }
 
     @ViewBuilder var content: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
-                let on = i == store.workspace
-                HStack(spacing: 4) {
-                    Text(Workspace.label(i, ws)).font(.ui(size: 12, weight: Theme.ink ? .bold : .regular))
-                        .foregroundStyle(Theme.ink && on ? Theme.window : on ? Theme.text : Theme.text2)
-                    // Closing one is a click away, as a browser's tab: ×
-                    // on the pointer's workspace, any but the first.
-                    if i > 0 && hovered == i {
-                        Text("×").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.muted)
-                            .contentShape(Rectangle())
-                            .onTapGesture { store.closeWorkspace(i) }
-                            .help("Close workspace \(i + 1)")
-                    }
-                }
-                    .padding(.horizontal, 10).padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: Theme.corner(5, meadow: 20)).fill(on ? (Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise) : .clear))
-                    .contentShape(Rectangle())
-                    .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
-                    .background(GeometryReader { g in
-                        Color.clear
-                            .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .global) }
-                            .onChange(of: g.frame(in: .global)) { WorkspaceHits.shared.frames[i] = $0 }
-                    })
-                    .onDisappear { WorkspaceHits.shared.frames[i] = nil }
-                    .onTapGesture(count: 2) { store.renameWorkspace(i) }
-                    .onTapGesture { store.workspace = i }
-                    // A button to VoiceOver (and a script): pressed, it switches.
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { store.workspace = i }
-                    .contextMenu {
-                        Button("Rename…") { store.renameWorkspace(i) }
-                        if i > 0 { Button("Close Workspace…") { store.closeWorkspace(i) } }
-                    }
-                    .help(i > 0 ? "Workspace \(i + 1) — double-click to name it; right-click or × to close it" : "Workspace 1 — double-click or right-click to name it")
+                WorkspaceTab(store: store, index: i, ws: ws)
             }
-            // A new workspace, shared with the TUI through ui.json.
-            Text("+").font(.ui(size: 12)).foregroundStyle(Theme.muted)
-                .padding(.horizontal, 9).padding(.vertical, 3)
+            // A new workspace, shared with the TUI through ui.json, set
+            // apart from the tabs by a line.
+            Rectangle().fill(Theme.line).frame(width: 1, height: 14).padding(.horizontal, 1)
+            Text("+").font(.ui(size: 13)).foregroundStyle(Theme.muted)
+                .frame(minWidth: 24, minHeight: 24)
                 .contentShape(Rectangle())
                 .onTapGesture { store.newWorkspace() }
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel("New workspace")
+                .accessibilityLabel("New Workspace")
                 .accessibilityAction { store.newWorkspace() }
                 .help("New workspace — conch's TUI has it too")
         }
-        .padding(Theme.ink ? 0 : 2)
-        .background(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
-        .overlay(RoundedRectangle(cornerRadius: Theme.corner(7, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
-        .help("Workspaces, shared with conch's TUI")
+        .padding(Theme.ink ? 1 : 3)
+        .background(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
+        .overlay(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
+        // Every name whole: the toolbar gives the control the room it asks
+        // for (WorkspacesHost), rather than squeezing a name to "…".
+        .fixedSize()
+        .coordinateSpace(name: WorkspaceHits.space)
+    }
+}
+
+/// One workspace's tab. It switches on the press itself: a tap gesture
+/// that also listened for a double-click held every single click back
+/// until a double-click could no longer come — a third of a second, which
+/// was the switcher's slowness. A double-click still names it, on top. The
+/// pointer over it lights it, and a dot says an agent in it waits for you.
+struct WorkspaceTab: View {
+    @ObservedObject var store: Store
+    let index: Int
+    let ws: Workspace
+    @State private var hovering = false
+    @State private var pressed = false
+
+    var body: some View {
+        let i = index
+        let on = i == store.workspace
+        let summary = store.workspaceSummary(i)
+        HStack(spacing: 5) {
+            Text("\(i + 1)").font(.ui(size: 12.5, weight: Theme.ink || on ? .bold : .semibold))
+            if !ws.name.isEmpty { Text(ws.name).font(.ui(size: 12.5, weight: Theme.ink ? .bold : .regular)) }
+        }
+        .foregroundStyle(Theme.ink && on ? Theme.window : on || hovering ? Theme.text : Theme.text2)
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .frame(minWidth: 30, minHeight: 24)
+        .background(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 20)).fill(fill(on)))
+        // An agent here waits for you: said on every tab but the one on
+        // screen, whose Needs you list already says it.
+        .overlay(alignment: .topTrailing) {
+            if summary.waiting > 0 && !on {
+                Circle().fill(Theme.warn).frame(width: 6, height: 6).offset(x: -3, y: 3)
+                    .accessibilityHidden(true)
+            }
+        }
+        .scaleEffect(pressed ? 0.96 : 1)
+        .animation(.easeOut(duration: 0.08), value: pressed)
+        .animation(.easeOut(duration: 0.08), value: hovering)
+        .contentShape(Rectangle())
+        .background(GeometryReader { g in
+            Color.clear
+                .onAppear { WorkspaceHits.shared.frames[i] = g.frame(in: .named(WorkspaceHits.space)) }
+                .onChange(of: g.frame(in: .named(WorkspaceHits.space))) { WorkspaceHits.shared.frames[i] = $0 }
+        })
+        .onDisappear { WorkspaceHits.shared.frames[i] = nil }
+        .onHover { hovering = $0 }
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard !pressed else { return }
+                pressed = true
+                if store.workspace != i { store.workspace = i }
+            }
+            .onEnded { _ in pressed = false })
+        .simultaneousGesture(TapGesture(count: 2).onEnded { store.renameWorkspace(i) })
+        // A button to VoiceOver (and a script): pressed, it switches.
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(Workspace.label(i, ws))
+        .accessibilityAction { store.workspace = i }
+        .help("Workspace \(i + 1) · \(summary.text) — " + (i > 0 ? "double-click to name it; right-click to rename or close it" : "double-click or right-click to name it"))
+    }
+
+    func fill(_ on: Bool) -> Color {
+        if on { return Theme.ink ? Theme.inkLine : Theme.meadow ? Theme.window : Theme.raise }
+        if pressed { return Theme.raise }
+        return hovering ? Theme.raise.opacity(0.55) : .clear
     }
 }
 
@@ -512,7 +591,7 @@ struct ReviewPopover: View {
                         }
                         .contextMenu {
                             Button("Open") { open(it) }
-                            if it.canFix && !it.branch.isEmpty { Button("Send CI's failure to its agent") { store.fixCI(it) } }
+                            if it.canFix && !it.branch.isEmpty { Button("Send CI's Failure to Its Agent") { store.fixCI(it) } }
                             Button("Dismiss") { store.dismiss(it) }
                         }
                     }
@@ -615,6 +694,7 @@ struct MainView: View {
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id) }
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
+        .sheet(isPresented: $store.welcomeOpen) { WelcomeSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
         .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
@@ -806,6 +886,15 @@ struct NodeView: View {
     }
     /// The keyboard's row, while the sidebar has the keyboard.
     var cursor: Bool { !store.terminalHasKeyboard && store.treeCursor == node.id }
+    /// A project's or machine's buttons, in place of its counts, while the
+    /// pointer is on it or it is the keyboard's row — never on every row at
+    /// once, so the tree stays as quiet as it was.
+    var showButtons: Bool {
+        switch node.kind {
+        case .project, .machine, .workspace, .cli, .group: return hovering || cursor
+        default: return false
+        }
+    }
 
     /// A row as the mock draws it: a fold arrow, what it is (a machine's
     /// state, an agent's colour), its name, and at the right its state or
@@ -828,7 +917,11 @@ struct NodeView: View {
                 Text(node.title).font(isBranch ? .tree(size: 12, design: .monospaced) : .tree(size: 13, weight: inverted ? .semibold : .regular))
                     .foregroundStyle(inverted ? Theme.window : solid ? Theme.selectedText : isMore ? Theme.muted : isSection || isSessions ? Theme.text2 : Theme.text)
                     .lineLimit(1).truncationMode(.tail)
-                badge
+                if showButtons, let b = store.rowButtons(for: node) {
+                    RowButtonsView(store: store, node: node, buttons: b, color: solid ? Theme.selectedText : cursor ? Theme.text : Theme.text2)
+                } else {
+                    badge
+                }
             }
         }
         .padding(.leading, CGFloat(depth) * 14 + 8).padding(.trailing, 8).frame(height: Theme.meadow ? 28 : 26)
@@ -844,6 +937,21 @@ struct NodeView: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { activateRow() }
         .contextMenu { RowMenu(store: store, node: node) }
+        .modifier(FolderDragDrop(store: store, node: node, dragID: dragID))
+    }
+
+    /// What dragging this row carries, for a folder to take: a pane outside
+    /// every project, or a saved host. nil for a row that goes in none.
+    var dragID: String? {
+        switch node.kind {
+        case .agent(let k), .terminal(let k):
+            guard let p = store.pane(k), p.projectID == nil || store.snapshots[unkey(k).machine]?.project(p.projectID!) == nil else { return nil }
+            return k
+        case .savedHost(let h): return "host:" + h
+        // A project dropped on another groups them, on a group joins it.
+        case .project(let pk): return "project:" + pk
+        default: return nil
+        }
     }
 
     /// A badge part's colour in the theme.
@@ -873,7 +981,12 @@ struct NodeView: View {
         }
     }
 
-    var isSection: Bool { if case .section = node.kind { return true }; return false }
+    var isSection: Bool {
+        switch node.kind {
+        case .section, .cliSection: return true
+        default: return false
+        }
+    }
     var isMore: Bool { if case .more = node.kind { return true }; return false }
 
     /// A section row's project, from its id ("s:machine|project:agents").
@@ -917,6 +1030,12 @@ struct NodeView: View {
             .frame(width: 16)
         case .more: Color.clear.frame(width: 14, height: 12) // the names line up with the branches'
         case .savedHost: TreeIcon(sshHostIcon, look: store.appLook, color: Theme.muted, size: 12)
+        case .cliSection(_, let sec):
+            TreeIcon(sec == .agents ? "bot" : sec == .ssh ? sshHostIcon : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
+        case .folder:
+            TreeIcon(open ? "folder-open" : "folder", look: store.appLook, color: Theme.text2, size: 12)
+        case .group: TreeIcon("layout-grid", look: store.appLook)
+        case .groupTask: TreeIcon("git-branch", look: store.appLook, color: Theme.text2, size: 12)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -931,7 +1050,10 @@ struct NodeView: View {
                 if part.hasPrefix("⚑") {
                     Pill(text: String(part.dropFirst()), fg: Theme.onWarn, bg: Theme.warn)
                 } else if part.hasPrefix("⠋") {
-                    Pill(text: String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
+                    // Turning while they work, as an agent's own row does.
+                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                        Pill(text: spinnerFrame(at: ctx.date) + " " + String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
+                    }
                 } else if part.hasPrefix("✓") {
                     Pill(text: String(part.dropFirst()), fg: Theme.ok, bg: Theme.ok.opacity(0.16))
                 }
@@ -944,7 +1066,38 @@ struct NodeView: View {
     }
 
     /// The row's right side, as the mock has it.
+    /// Whether an ssh row's host logs in with a key (a green key) or asks
+    /// for a password each time (an amber lock) — once the app has asked it
+    /// (Store.keyLogin). Icons, so a saved host's "saved" still fits.
+    @ViewBuilder var keyMark: some View {
+        let host: String? = {
+            switch node.kind {
+            case .savedHost(let h): return h
+            case .terminal(let id): return store.pane(id)?.sshTarget
+            default: return nil
+            }
+        }()
+        if let host, let key = store.keyLogin[host] {
+            if key {
+                LucideIcon("key-round", color: solid ? Theme.selectedText : Theme.ok, size: 11)
+                    .frame(width: 11, height: 11)
+                    .help("Logs in with your ssh key")
+            } else {
+                LucideIcon("lock", color: solid ? Theme.selectedText : Theme.warn, size: 11)
+                    .frame(width: 11, height: 11)
+                    .help("Asks for a password each time: right-click → Set Up Login Without a Password…")
+            }
+        }
+    }
+
     @ViewBuilder var badge: some View {
+        HStack(spacing: 6) {
+            badgeOnly
+            keyMark
+        }
+    }
+
+    @ViewBuilder var badgeOnly: some View {
         switch node.kind {
         case .agent(let id), .terminal(let id):
             if let p = store.pane(id) {
@@ -1001,6 +1154,23 @@ struct NodeView: View {
                 if !c.isEmpty { muted(c) }
                 counts(node.badge)
             }.fixedSize()
+        case .groupTask:
+            HStack(spacing: 6) {
+                muted(node.detail)
+                counts(node.badge)
+            }.fixedSize()
+        case .group(let m, let name):
+            // How many repos, what they have cost, then what their agents
+            // are doing; each repo said in full in the tooltip.
+            HStack(spacing: 6) {
+                muted(node.detail)
+                let ids = store.group(m, name)?.projects ?? []
+                let c = store.costChip(machine: m, projects: ids)
+                if !c.isEmpty { muted(c) }
+                counts(node.badge)
+            }
+            .fixedSize()
+            .help(store.groupTip(m, name))
         case .section(let name) where name == "Agents":
             HStack(spacing: 6) {
                 if let pk = sectionProject(node.id) {
@@ -1029,9 +1199,130 @@ struct NodeView: View {
         case .files(let pk): store.openFiles(project: pk)
         case .more(let pk, _): store.toggleAllBranches(pk)
         case .savedHost(let h): store.connectSaved(h)
+        // A task across repos: its page, every repo on it.
+        case .groupTask(let m, let g, let b): store.openTask(m, g, b)
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
         default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
+        }
+    }
+}
+
+/// A project's or machine's buttons, as Orca's project row has them: + (a
+/// new task in a project, a project on a machine), an agent or a terminal
+/// started there, and ⋯, the row's whole menu — the one right-click opens.
+struct RowButtonsView: View {
+    @ObservedObject var store: Store
+    let node: TreeNode
+    let buttons: RowButtons
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 1) {
+            if let p = buttons.primary, !p.children.isEmpty {
+                Menu { RowMenuItems(store: store, node: node, items: p.children) } label: { glyph(buttons.primaryIcon) }
+                    .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                    .help(p.title + "…")
+                    .accessibilityLabel(p.title)
+            } else if let p = buttons.primary {
+                Button { store.perform(p.action, on: node) } label: { glyph(buttons.primaryIcon) }
+                    .buttonStyle(RowButtonStyle())
+                    .help(p.title)
+                    .accessibilityLabel(p.title)
+            }
+            if !buttons.tasks.isEmpty {
+                Menu { RowMenuItems(store: store, node: node, items: buttons.tasks) } label: { glyph("bot") }
+                    .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                    .help("New Task in a Project")
+                    .accessibilityLabel("New Task in a Project")
+            } else if let m = buttons.agentMachine {
+                Menu {
+                    ForEach(store.startable(on: m), id: \.name) { a in
+                        Button(a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
+                    }
+                    Divider()
+                    Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
+                    if buttons.ssh { Button("SSH to a Host…") { store.perform(.sshToHost, on: node) } }
+                } label: { glyph("bot") }
+                    .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                    .help("Start an Agent")
+                    .accessibilityLabel("Start an Agent")
+            }
+            Menu { RowMenu(store: store, node: node) } label: { glyph("ellipsis") }
+                .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
+                .help("More")
+                .accessibilityLabel("More")
+        }
+        .fixedSize()
+    }
+
+    func glyph(_ name: String) -> some View {
+        LucideIcon(name, color: color, size: 13).frame(width: 20, height: 18).contentShape(Rectangle())
+    }
+}
+
+/// A tree row dragged onto a folder goes in it, and onto its section comes
+/// out of its folder (Store.drop). Only those rows take a drop, and only
+/// panes outside projects and saved hosts are dragged.
+struct FolderDragDrop: ViewModifier {
+    static let prefix = "conch-row:"
+    @ObservedObject var store: Store
+    let node: TreeNode
+    let dragID: String?
+    @State private var over = false
+
+    var target: Bool {
+        switch node.kind {
+        case .folder, .cliSection, .group, .project: return true
+        default: return false
+        }
+    }
+
+    func body(content: Content) -> some View {
+        dropping(dragging(content))
+    }
+
+    @ViewBuilder func dragging(_ content: Content) -> some View {
+        if let id = dragID {
+            content.onDrag { NSItemProvider(object: (Self.prefix + id) as NSString) }
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder func dropping(_ content: some View) -> some View {
+        if target {
+            content
+                .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(over ? Theme.accent : .clear, lineWidth: 1.5))
+                .onDrop(of: [.text], isTargeted: $over) { items in
+                    guard let item = items.first else { return false }
+                    _ = item.loadObject(ofClass: NSString.self) { obj, _ in
+                        guard let s = obj as? String, s.hasPrefix(Self.prefix) else { return }
+                        let id = String(s.dropFirst(Self.prefix.count))
+                        DispatchQueue.main.async { _ = store.drop(id, on: node) }
+                    }
+                    return true
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// A row button's look: nothing until the pointer is on it, then a shade.
+struct RowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View { Shaded(pressed: configuration.isPressed) { configuration.label } }
+
+    /// A view of its own, so the pointer's being on it is state a view
+    /// holds: a style's own state is not kept between bodies.
+    struct Shaded<Label: View>: View {
+        let pressed: Bool
+        @ViewBuilder let label: Label
+        @State private var over = false
+        var body: some View {
+            label
+                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.text.opacity(pressed ? 0.16 : over ? 0.08 : 0)))
+                .onHover { over = $0 }
         }
     }
 }
@@ -1042,10 +1333,20 @@ struct RowMenu: View {
     @ObservedObject var store: Store
     let node: TreeNode
 
+    var body: some View { RowMenuItems(store: store, node: node, items: store.menu(for: node)) }
+}
+
+/// A menu's items, a submenu for one that has its own.
+struct RowMenuItems: View {
+    @ObservedObject var store: Store
+    let node: TreeNode
+    let items: [RowMenuItem]
+
     var body: some View {
-        let items = store.menu(for: node)
         ForEach(Array(items.enumerated()), id: \.offset) { _, it in
-            if it.action == .divider {
+            if !it.children.isEmpty {
+                Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children) }
+            } else if it.action == .divider {
                 Divider()
             } else if it.picksAgent, let m = node.machine {
                 Menu(it.title) {
@@ -1346,6 +1647,7 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let t = parseTaskKey(tab.focused) { return "\(t.branch) · \(t.group)" }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
             if !t.isEmpty { return t }
@@ -1377,6 +1679,8 @@ struct TabButton: View {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
                     LucideIcon(browserIcon, color: Theme.accent, size: 12)
+                } else if parseTaskKey(tab.focused) != nil {
+                    LucideIcon("layout-grid", color: Theme.accent, size: 12)
                 } else if changes == nil {
                     LucideIcon(p?.iconName ?? "terminal", color: Theme.muted, size: 12)
                 } else {
@@ -1510,6 +1814,8 @@ struct SplitArea: View {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
                 BrowserView(model: store.browser(for: id)).id(id)
+            } else if parseTaskKey(id) != nil {
+                TaskPageView(store: store, key: id).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.

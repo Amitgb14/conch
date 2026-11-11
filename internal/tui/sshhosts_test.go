@@ -1003,8 +1003,12 @@ func TestDuplicateSSHSession(t *testing.T) {
 	m.sshInfo = map[string]sshHostInfo{"box": {Args: []string{"-p", "9999"}}}
 	m.rebuild()
 	a2Run(a1Key(t, m, a2Key("d")))
+	// Told apart by the command's own words, not the whole request: its
+	// paths are under a temporary folder named with a random number, and
+	// one containing 2200 hid the second copy (failed in CI, now and then).
 	create = peer.waitFor(t, "second pane.create", func(msg proto.Message) bool {
-		return msg.Method == proto.MethodPaneCreate && !strings.Contains(string(msg.Params), "2200")
+		var p proto.PaneCreateParams
+		return msg.Method == proto.MethodPaneCreate && json.Unmarshal(msg.Params, &p) == nil && !slices.Contains(p.Command, "2200")
 	})
 	json.Unmarshal(create.Params, &params)
 	if slices.Contains(params.Command, "9999") {

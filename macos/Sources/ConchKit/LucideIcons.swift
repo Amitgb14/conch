@@ -26,6 +26,7 @@ public enum LucideIcons {
         "cloud": ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
         "monitor": [svgRect(2, 3, 20, 14, 2), svgLine(8, 21, 16, 21), svgLine(12, 17, 12, 21)],
         "globe": [svgCircle(12, 12, 10), "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20", "M2 12h20"],
+        "layout-grid": [svgRect(3, 3, 7, 7, 1), svgRect(14, 3, 7, 7, 1), svgRect(14, 14, 7, 7, 1), svgRect(3, 14, 7, 7, 1)],
         "layers": ["m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z",
                    "m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65", "m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"],
         // The settings page's sections (internal/configweb/schema.go).
@@ -50,6 +51,11 @@ public enum LucideIcons {
         "chevron-up": ["m18 15-6-6-6 6"],
         "chevron-down": ["m6 9 6 6 6-6"],
         "x": ["M18 6 6 18", "m6 6 12 12"],
+        // A project or machine row's buttons: new, and its menu.
+        "plus": ["M5 12h14", "M12 5v14"],
+        "folder-plus": ["M12 10v6", "M9 13h6", "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"],
+        "key-round": ["M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z", svgCircle(16.5, 7.5, 0.5)],
+        "ellipsis": [svgCircle(12, 12, 1), svgCircle(19, 12, 1), svgCircle(5, 12, 1)],
         "pencil": ["M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z", "m15 5 4 4"],
         "trash-2": ["M3 6h18", "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6", "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2", "M10 11v6", "M14 11v6"],
         "git-commit-horizontal": [svgCircle(12, 12, 3), svgLine(3, 12, 9, 12), svgLine(15, 12, 21, 12)],

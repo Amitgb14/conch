@@ -18,9 +18,14 @@ public struct LibraryServer: Codable, Equatable, Sendable {
     /// "sse", or nil for streamable HTTP.
     public var transport: String?
     public var agents: [String]
+    /// true when the person chose to keep its token in plain text rather
+    /// than the Keychain: env and headers may hold it as it is, and it is
+    /// written into each agent's file (agent.library.plain.v1).
+    public var plain: Bool?
 
     public init(name: String, command: String? = nil, args: [String]? = nil, env: [String: String]? = nil,
-                url: String? = nil, headers: [String: String]? = nil, transport: String? = nil, agents: [String]) {
+                url: String? = nil, headers: [String: String]? = nil, transport: String? = nil, agents: [String],
+                plain: Bool? = nil) {
         self.name = name
         self.command = command
         self.args = args
@@ -29,6 +34,22 @@ public struct LibraryServer: Codable, Equatable, Sendable {
         self.headers = headers
         self.transport = transport
         self.agents = agents
+        self.plain = plain
+    }
+
+    // An older server writes "agents": null for a server given to no agent
+    // (#166), which failed the whole library: none is an empty list.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        command = try c.decodeIfPresent(String.self, forKey: .command)
+        args = try c.decodeIfPresent([String].self, forKey: .args)
+        env = try c.decodeIfPresent([String: String].self, forKey: .env)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
+        headers = try c.decodeIfPresent([String: String].self, forKey: .headers)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+        plain = try c.decodeIfPresent(Bool.self, forKey: .plain)
     }
 
     /// What it is in a word or two: http, sse, or the command it runs.
@@ -59,6 +80,15 @@ public struct LibrarySkill: Codable, Equatable, Sendable {
         self.path = path
         self.agents = agents
         self.source = source
+    }
+
+    // Null or missing agents, as for a server: none.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        agents = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+        source = try c.decodeIfPresent(String.self, forKey: .source)
     }
 }
 
@@ -391,4 +421,89 @@ public func splitArgs(_ s: String) -> [String] {
 /// splitArgs the other way: a word with a space is quoted.
 public func joinArgs(_ words: [String]) -> String {
     words.map { $0.isEmpty || $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+}
+
+// MARK: tokens kept in the Keychain (agent.library.keychain.v1)
+
+/// The variable a server's token is kept under, in the Keychain and in the
+/// environment of the agents conch starts: CONCH_MCP_<NAME>_TOKEN.
+public func tokenVariable(for server: String) -> String {
+    let name = server.uppercased().map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "_" }.joined()
+    return "CONCH_MCP_\(name)_TOKEN"
+}
+
+/// A server and the token to keep for it: the token typed in the form, or
+/// one pasted into a header, which is taken out of the header and its place
+/// given to the variable — conch never writes a token into an agent's file.
+public struct ServerWithToken: Equatable, Sendable {
+    public var server: LibraryServer
+    /// What to keep in the Keychain under variable; nil when nothing is.
+    public var token: String?
+    public var variable: String
+}
+
+public func keepingToken(_ s: LibraryServer, token typed: String) throws -> ServerWithToken {
+    var s = s
+    let variable = tokenVariable(for: s.name)
+    var token = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    func isRef(_ v: String) -> Bool { v.range(of: #"^(?:[A-Za-z]+ )?\$\{[A-Za-z_][A-Za-z0-9_]*\}$"#, options: .regularExpression) != nil }
+    // A token pasted where a reference goes: Authorization=Bearer abc…, or
+    // X-API-Key=abc…. One is taken; two are more than one token.
+    var headers = s.headers ?? [:]
+    let literal = headers.filter { !$0.value.trimmingCharacters(in: .whitespaces).isEmpty && !isRef($0.value.trimmingCharacters(in: .whitespaces)) }
+    if literal.count > 1 {
+        throw LibraryFormError("\(literal.keys.sorted().joined(separator: " and ")) both hold a value: put the token in the Token field, and refer to it as ${\(variable)}")
+    }
+    if let (k, v) = literal.first {
+        let parts = v.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1).map(String.init)
+        let scheme = parts.count == 2 && ["bearer", "token", "basic"].contains(parts[0].lowercased()) ? parts[0] : nil
+        let pasted = scheme == nil ? v.trimmingCharacters(in: .whitespaces) : parts[1]
+        if !token.isEmpty && token != pasted {
+            throw LibraryFormError("\(k) holds a token and the Token field another: keep one")
+        }
+        token = pasted
+        headers[k] = (scheme.map { $0 + " " } ?? "") + "${\(variable)}"
+    }
+    guard !token.isEmpty else { return ServerWithToken(server: s, token: nil, variable: variable) }
+    guard !token.contains(where: { $0 == "\"" || $0 == "\\" || $0.isNewline }) else {
+        throw LibraryFormError("the token has a quote, a backslash or a line break in it, which the Keychain is not given here")
+    }
+    let named = "${\(variable)}"
+    if s.url != nil {
+        // A URL's token goes in its Authorization header unless a header
+        // already names it.
+        if !headers.values.contains(where: { $0.contains(named) }) { headers["Authorization"] = "Bearer " + named }
+        s.headers = headers
+    } else if !(s.env ?? [:]).values.contains(where: { $0.contains(named) }) && !(s.args ?? []).contains(where: { $0.contains(named) }) {
+        throw LibraryFormError("say where the command reads the token: in Environment, e.g. API_KEY=\(named)")
+    }
+    return ServerWithToken(server: s, token: token, variable: variable)
+}
+
+/// The server with its token written in where the variable was, as the
+/// person chose rather than the Keychain: what agents' files will hold.
+public func writingTokenPlain(_ kept: ServerWithToken) -> LibraryServer {
+    var s = kept.server
+    guard let token = kept.token else { return s }
+    let named = "${\(kept.variable)}"
+    s.headers = s.headers?.mapValues { $0.replacingOccurrences(of: named, with: token) }
+    s.env = s.env?.mapValues { $0.replacingOccurrences(of: named, with: token) }
+    s.args = s.args?.map { $0.replacingOccurrences(of: named, with: token) }
+    s.plain = true
+    return s
+}
+
+/// A plain server as the form shows it: the token taken back out of its
+/// header into the Token field, never shown in the clear.
+public func formOfPlain(_ s: LibraryServer) -> ServerWithToken {
+    (try? keepingToken(s, token: "")) ?? ServerWithToken(server: s, token: nil, variable: tokenVariable(for: s.name))
+}
+
+extension LibraryServer {
+    /// Whether it refers to the variable conch keeps its token under.
+    public var usesKeptToken: Bool {
+        let named = "${\(tokenVariable(for: name))}"
+        return (headers ?? [:]).values.contains { $0.contains(named) } || (env ?? [:]).values.contains { $0.contains(named) }
+            || (args ?? []).contains { $0.contains(named) }
+    }
 }

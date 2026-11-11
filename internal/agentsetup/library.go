@@ -72,6 +72,19 @@ func LoadLibrary() (Library, error) {
 	if err := json.Unmarshal(b, &lib); err != nil {
 		return lib, fmt.Errorf("%s cannot be read: %v", libraryPath(), err)
 	}
+	// A server or skill given to no agent was once saved as "agents": null
+	// (an add without -to, #166), which Conch.app could not read: the whole
+	// library failed. It is handed out as an empty list.
+	for i := range lib.Servers {
+		if lib.Servers[i].Agents == nil {
+			lib.Servers[i].Agents = []string{}
+		}
+	}
+	for i := range lib.Skills {
+		if lib.Skills[i].Agents == nil {
+			lib.Skills[i].Agents = []string{}
+		}
+	}
 	return lib, nil
 }
 
@@ -103,14 +116,16 @@ func CheckLibrary(lib Library) error {
 		case s.Transport != "" && s.Transport != "sse":
 			return fmt.Errorf("server %s: the transport is sse or nothing, not %q", s.Name, s.Transport)
 		}
+		// A plain server's values are the person's to write out: they
+		// chose that over the Keychain.
 		for k, v := range s.Env {
-			if !safeValue(v) {
-				return fmt.Errorf("server %s: %s holds a value; write ${%s} and set it in your environment — conch does not keep secrets in agents' files", s.Name, k, k)
+			if !s.Plain && !safeValue(v) {
+				return fmt.Errorf("server %s: %s holds a value; write ${%s} and set it in your environment — conch does not keep secrets in agents' files unless the server is marked plain", s.Name, k, k)
 			}
 		}
 		for k, v := range s.Headers {
-			if !safeValue(v) {
-				return fmt.Errorf("server %s: the %s header holds a value; refer to a variable, e.g. Bearer ${TOKEN}", s.Name, k)
+			if !s.Plain && !safeValue(v) {
+				return fmt.Errorf("server %s: the %s header holds a value; refer to a variable, e.g. Bearer ${TOKEN}, or mark it plain to write the value out", s.Name, k)
 			}
 		}
 		if err := agents("server "+s.Name, s.Agents); err != nil {
@@ -144,7 +159,11 @@ func SaveLibrary(lib Library) error {
 		for j := range s.Args {
 			s.Args[j] = neutral(s.Args[j])
 		}
-		s.Env, s.Headers = neutralMap(s.Env), neutralMap(s.Headers)
+		// A plain server's values are tokens as they are, and a token may
+		// hold a $ that is not a reference.
+		if !s.Plain {
+			s.Env, s.Headers = neutralMap(s.Env), neutralMap(s.Headers)
+		}
 		s.Agents = agentOrder(s.Agents)
 	}
 	for i := range lib.Skills {
@@ -178,8 +197,13 @@ func writeJSONFile(path string, v any) error {
 }
 
 // agentOrder puts agents in the order conch lists them, once each.
+// agentOrder is never nil: none is an empty list, not a null, in the file
+// and on the wire.
 func agentOrder(list []string) []string {
 	out := uniq(list...)
+	if out == nil {
+		out = []string{}
+	}
 	sort.SliceStable(out, func(i, j int) bool { return rankAgent(out[i]) < rankAgent(out[j]) })
 	return out
 }
@@ -320,8 +344,12 @@ func sameServer(a, b mcpServer) bool {
 		if len(x) != len(y) {
 			return false
 		}
+		// An agent's file is read with its references in one form, so a
+		// plain token holding a $ is compared in that form too; anything
+		// else is already in it.
 		for k, v := range x {
-			if y[k] != v {
+			w, ok := y[k]
+			if !ok || neutral(w) != neutral(v) {
 				return false
 			}
 		}

@@ -167,13 +167,13 @@ public func keyCaps(_ notation: String) -> [String] {
 extension SettingsNav {
     /// The sidebar's groups, each section in the first that names it; one
     /// the list does not know goes in the last, so a new section in the
-    /// schema still shows.
+    /// schema still shows. Checks & autopilot is listed under Workspace
+    /// for a schema without Git; with one, it is on Git's page.
     public static let groups: [(String, [String])] = [
-        ("General", ["ui", "keys", "notify"]),
-        ("Agents", ["agents", skills, "verify", "brain"]),
-        ("Workspace", ["git", "shell", "pane", "app"]),
-        ("Machines", ["remote", "web", "sandbox"]),
-        ("Advanced", ["update", "actions", "permissions"]),
+        ("General", ["ui", "app", "keys", "notify", "update"]),
+        ("Agents", ["agents", skills, "permissions", "brain"]),
+        ("Workspace", ["git", "verify", "shell", "actions"]),
+        ("Machines", ["remote", "sandbox", "web"]),
     ]
 
     /// ids grouped for the sidebar, in the groups' order, empty groups left out.
@@ -199,14 +199,17 @@ extension SettingsNav {
         let all = sidebar(schema.map(\.id))
         let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
         if words.isEmpty { return all }
+        func hay(_ s: SettingsSection) -> [String] { [s.title, s.description] + s.fields.flatMap { [$0.label, $0.help ?? "", $0.key] } }
         return all.filter { id in
-            let hay: String
+            let text: String
             if let s = schema.first(where: { $0.id == id }) {
-                hay = ([s.title, s.description] + s.fields.flatMap { [$0.label, $0.help ?? "", $0.key] }).joined(separator: " ").lowercased()
+                // A page finds what is shown on it: Git, Checks & autopilot's.
+                let guests = schema.filter { mergedInto[$0.id] == id }
+                text = ([s] + guests).flatMap(hay).joined(separator: " ").lowercased()
             } else {
-                hay = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot".lowercased()
+                text = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot".lowercased()
             }
-            return words.allSatisfy { hay.contains($0) }
+            return words.allSatisfy { text.contains($0) }
         }
     }
 }
@@ -214,7 +217,19 @@ extension SettingsNav {
 /// How many settings of a section differ from what was saved.
 public func settingsChanged(_ f: SettingsForm, _ s: SettingsSection) -> Int {
     let saved = SettingsForm(f.payload)
-    return s.fields.filter { f.value(s, $0) != saved.value(s, $0) }.count
+    return s.fields.filter { fieldChanged(f, saved, s, $0) }.count
+}
+
+/// Whether one field differs from what was saved. Keyed tables that are
+/// the section itself — a sandbox provider's card each, key "" — have no
+/// value of their own to compare, so their tables are compared: read as a
+/// field they were nothing before and after, a provider added or its key
+/// typed in counted as no change, and the Save bar never came up.
+func fieldChanged(_ f: SettingsForm, _ saved: SettingsForm, _ s: SettingsSection, _ field: SettingsField) -> Bool {
+    if field.kind == "keyed" && field.key.isEmpty {
+        return f.keyedTable(s, field) != saved.keyedTable(s, field)
+    }
+    return f.value(s, field) != saved.value(s, field)
 }
 
 /// How many settings differ from what was saved, across every section.

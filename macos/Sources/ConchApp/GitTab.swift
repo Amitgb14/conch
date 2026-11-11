@@ -70,7 +70,7 @@ struct ChangesView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 250)
             Menu {
-                Button("Agent or terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
+                Button("Agent or Terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
                 Button("Push") { model.push() }
                 if model.changes?.canMerge == true {
                     Button("Merge into \(model.changes?.base ?? "base")…") { confirmMerge() }
@@ -78,7 +78,7 @@ struct ChangesView: View {
                 Button(info?.pr == nil ? "Open pull request" : "Update pull request") { model.openPR() }
                 if let ch = model.changes, ch.branch != ch.base {
                     Divider()
-                    Button("Delete branch…") { store.deleteBranch(project: key(model.machine, model.project), branch: model.branch) }
+                    Button("Delete Branch…") { store.deleteBranch(project: key(model.machine, model.project), branch: model.branch) }
                 }
             } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(model.busy != nil)
@@ -377,7 +377,7 @@ struct GitOverview: View {
             HStack(spacing: 8) {
                 if files > 0 { Button("Review changes") { model.chosen = .changes }.buttonStyle(.borderedProminent) }
                 if (info?.ahead ?? 0) > 0 { Button("Push \(info!.ahead!)") { model.push() } }
-                Button("Agent or terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
+                Button("Agent or Terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
                 Button("Open graph") { model.chosen = .graph }
             }
             .controlSize(.regular)

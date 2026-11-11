@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -186,5 +189,62 @@ esac
 	s.projects.fetchPRs(p)
 	if !running(s, open) || !running(s, closed) {
 		t.Fatal("a second read closed more")
+	}
+}
+
+// A branch merged and then committed to again is work again: its finished
+// reviewer has a report nobody has read, and stays. One still at the
+// commit that was merged is done with, and its reviewer goes.
+func TestMergedThenMovedOnKeepsTheReviewer(t *testing.T) {
+	s, p := afterFixture(t)
+	done := agentOn(t, s, p, "feat", proto.ReviewerPrefix+"feat")
+	finish(s, done)
+	again := agentOn(t, s, p, "again", proto.ReviewerPrefix+"again")
+	finish(s, again)
+
+	ctx := context.Background()
+	featHead, err := gitx.BranchHead(ctx, p.root, "feat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "again" was merged at the commit it was on, and has one more since.
+	mergedAt, err := gitx.BranchHead(ctx, p.root, "again")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, _ := p.branchWorktree("again")
+	os.WriteFile(filepath.Join(wt.Path, "more.txt"), []byte("more\n"), 0o644)
+	for _, args := range [][]string{{"add", "."}, {"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "more"}} {
+		if out, err := exec.Command("git", append([]string{"-C", wt.Path}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+
+	gh := filepath.Join(t.TempDir(), "gh")
+	os.WriteFile(gh, []byte(`#!/bin/sh
+case "$1 $2" in
+"pr list") cat <<'JSON'
+[{"number":7,"title":"Feat","state":"MERGED","isDraft":false,"url":"https://x/7","headRefName":"feat","headRefOid":"`+featHead+`","reviewDecision":"","updatedAt":"2026-11-07T10:00:00Z","statusCheckRollup":[]},
+ {"number":8,"title":"Again","state":"MERGED","isDraft":false,"url":"https://x/8","headRefName":"again","headRefOid":"`+mergedAt+`","reviewDecision":"","updatedAt":"2026-11-07T10:00:00Z","statusCheckRollup":[]}]
+JSON
+;;
+*) echo '{}' ;;
+esac
+`), 0o755)
+	t.Setenv("CONCH_GH", gh)
+	s.projects.fetchPRs(p)
+	if running(s, done) {
+		t.Fatal("the reviewer of a branch still at its merge is running")
+	}
+	if !running(s, again) {
+		t.Fatal("closed the reviewer of a branch committed to since its merge")
+	}
+
+	// The moves the rule rests on.
+	if movedSinceMerge(ctx, p.root, "feat", featHead) || !movedSinceMerge(ctx, p.root, "again", mergedAt) {
+		t.Fatal("moved since merge")
+	}
+	if movedSinceMerge(ctx, p.root, "again", "") || movedSinceMerge(ctx, p.root, "deleted-here", mergedAt) {
+		t.Fatal("an unknown head, or a branch gone here, is as done as it was")
 	}
 }

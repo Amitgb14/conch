@@ -283,6 +283,74 @@ public struct ProjectInfo: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// A project group (project.groups.v1): projects kept together because
+/// they change together, each still a project of its own, in the order
+/// the person gave them.
+public struct GroupInfo: Decodable, Equatable, Sendable {
+    public var name: String
+    public var projects: [String]
+    public var notes: String?
+    /// Tasks across its repos (group.task.v1), the newest last.
+    public var tasks: [GroupTask]?
+
+    public init(name: String, projects: [String], notes: String? = nil, tasks: [GroupTask]? = nil) {
+        self.name = name
+        self.projects = projects
+        self.notes = notes
+        self.tasks = tasks
+    }
+}
+
+/// A task across a group's repos: the branch in each of its projects, the
+/// folder linking their worktrees, and the panes it started.
+public struct GroupTask: Decodable, Equatable, Sendable {
+    public var branch: String
+    public var folder: String
+    public var projects: [String]
+    public var panes: [String]?
+    public var each: Bool?
+    /// Merge All When Green, once armed (group.task.merge.v1).
+    public var merge: GroupTaskMerge?
+
+    public init(branch: String, folder: String, projects: [String], panes: [String]? = nil, each: Bool? = nil, merge: GroupTaskMerge? = nil) {
+        self.branch = branch
+        self.folder = folder
+        self.projects = projects
+        self.panes = panes
+        self.each = each
+        self.merge = merge
+    }
+}
+
+/// Where a task's Merge All When Green stands: its repos in the order they
+/// merge, those merged, its state (waiting, merging, merged, stopped) and
+/// why it waits or stopped.
+public struct GroupTaskMerge: Decodable, Equatable, Sendable {
+    public var order: [String]
+    public var merged: [String]?
+    public var state: String
+    public var why: String?
+    public var removeTask: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case order, merged, state, why
+        case removeTask = "remove_task"
+    }
+
+    public init(order: [String], merged: [String]? = nil, state: String, why: String? = nil, removeTask: Bool? = nil) {
+        self.order = order
+        self.merged = merged
+        self.state = state
+        self.why = why
+        self.removeTask = removeTask
+    }
+
+    /// Armed: waiting for every pull request to be green, or merging them.
+    public var armed: Bool { state == "waiting" || state == "merging" }
+}
+
+public struct GroupList: Decodable { public var groups: [GroupInfo]? }
+
 public struct PaneList: Decodable { public var panes: [PaneInfo] }
 public struct ProjectList: Decodable { public var projects: [ProjectInfo] }
 

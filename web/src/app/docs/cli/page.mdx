@@ -78,6 +78,8 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
 | `conch ssh TARGET [SSH OPTION...]` | a terminal on this computer logged in to a host with ssh, outside every project — the session the TUI's `H` opens, built the same way (conch's ssh config, a connection of its own), so the tree, the files view and `-ssh` on `upload` and `download` know it as one; options after the target are ssh's (`-p 2222`, `-o Setting=value`); prints its pane ID. Not with `-m`: the session starts here |
+| `conch ssh -copy-key TARGET [SSH OPTION...]` | a terminal that puts this computer's public key on the host (making `~/.ssh/id_ed25519` first when there is none), so later logins need no password — the TUI's `K`. ssh asks for the host's password in that terminal, once; prints the pane's ID |
+| `conch ssh -check-key TARGET [SSH OPTION...]` | whether the host takes this computer's key, by one batch-mode login that never asks: prints `key`, `password` (every key refused) or `unreachable`, the last two with what ssh said, and exits 0 for all three |
 | `conch send [-keys] ID TEXT...` | type text into a pane; with `-keys`, the arguments are key names (e.g. `enter`, `ctrl+c`) |
 | `conch read ID` | print a pane's visible screen |
 | `conch close ID` | close a pane |
@@ -168,6 +170,20 @@ conch tells who is asking from the operating system — the process at the other
 | `conch project rm ID` | remove a project from the sidebar |
 | `conch project files ID [-reset \| -none \| PATTERN...]` | set the [local file patterns](/docs/tasks#local-files-in-worktrees) copied into new worktrees; `-reset` restores the defaults, `-none` copies nothing |
 | `conch project setup ID [-none \| COMMAND]` | show or set the [setup command](/docs/tasks#setup-and-ports-in-worktrees) run in each new worktree; `-none` runs nothing |
+
+### group
+
+Projects kept together because they change together — an API, its web app, their specs. Each stays a project of its own, with its own git, branches and pull requests; the server keeps the groups (`groups.json`), so Conch.app shows the same ones.
+
+| Command | Description |
+| --- | --- |
+| `conch group [ls [-json]]` | the project groups: projects kept together because they change together — an API, its web app, their specs — each still a project of its own |
+| `conch group add NAME PROJECT...` | make a group of projects already added, or add projects to one; a project is named by its ID, its folder, or its name when only one project has it |
+| `conch group rm NAME [PROJECT...]` | take projects out of a group, or with none named take the group away — its projects stay |
+| `conch group rename OLD NEW` / `conch group notes NAME [TEXT]` | rename a group; give it notes for the agents working across it (`""` clears them) |
+| `conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...` | one task across a group's repos: the branch (named from the prompt unless given) in a worktree of each — or of those `-only` names — gathered in a task folder (`$CONCH_HOME/tasks/GROUP/BRANCH`) with a link to each worktree and `CONCH-TASK.md`; one agent works there with every worktree added (Claude's and Codex's `--add-dir`), or with `-each` an agent in each worktree, told about the others. Refused before anything is made when a repo is not a git repository or already has the branch checked out; prints the folder and the agents' pane IDs |
+| `conch group tasks NAME` / `conch group task-rm NAME BRANCH` | a group's tasks, with their repos, folder and agents; forget one and remove its folder — each repo keeps its worktree and branch, to merge or delete as any branch |
+| `conch group merge [-order P,P] [-remove] NAME BRANCH` | Merge All When Green: once every pull request of the task is open, green and held back by nothing the autopilot would hold one for, they merge one by one in that order (default the task's), each after the one before has landed; one GitHub refuses stops it there. The server waits, so it carries on with nothing open. `-remove` then takes the task away with each repo's worktree and branch; `-stop` stops waiting. `conch group tasks` says where it stands |
 
 ### task
 

@@ -130,6 +130,43 @@ func TestLibraryEmpty(t *testing.T) {
 	}
 }
 
+// A server or skill given to no agent is saved as an empty list, not a
+// null (#166: an add without -to wrote null and Conch.app could not read
+// the library), and a file that already holds null loads as empty.
+func TestLibraryNoAgentsIsAnEmptyList(t *testing.T) {
+	libHome(t)
+	lib := Library{
+		Servers: []LibServer{{Name: "jira", URL: "https://jira.example/mcp", Headers: map[string]string{"Authorization": "Bearer ${CONCH_MCP_JIRA_TOKEN}"}}},
+		Skills:  []LibSkill{{Name: "review", Path: "~/skills/review"}},
+	}
+	if err := SaveLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(libraryPath())
+	if strings.Contains(string(b), "null") || strings.Count(string(b), `"agents": []`) != 2 {
+		t.Fatalf("saved:\n%s", b)
+	}
+
+	// What an older conch wrote: null, and agents left out altogether.
+	os.WriteFile(libraryPath(), []byte(`{"servers":[{"name":"jira","url":"https://jira.example/mcp","agents":null},{"name":"wiki","url":"https://wiki.example/mcp"},{"name":"gh","command":"gh","agents":["claude"]}],"skills":[{"name":"review","path":"~/r","agents":null}]}`), 0o600)
+	got, err := LoadLibrary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got.Servers {
+		if s.Agents == nil {
+			t.Errorf("server %s: agents nil", s.Name)
+		}
+	}
+	if got.Skills[0].Agents == nil || len(got.Servers[2].Agents) != 1 {
+		t.Fatalf("loaded %+v", got)
+	}
+	out, _ := json.Marshal(got)
+	if strings.Contains(string(out), "null") {
+		t.Fatalf("handed out %s", out)
+	}
+}
+
 // A server goes to the agents chosen, each in its own format; turning one
 // off takes conch's copy back out and leaves the rest of the file alone.
 func TestLibraryServers(t *testing.T) {
@@ -237,6 +274,62 @@ func TestLibraryServers(t *testing.T) {
 	}
 	if got := LibraryUndos(); len(got) != 3 {
 		t.Fatalf("undos %v", got)
+	}
+}
+
+// A server marked plain is one whose token somebody chose to keep in plain
+// text rather than the Keychain: its values are written into each agent's
+// file as they are — a $ in the token included — and conch still knows the
+// copy as its own. Without plain the same value is refused.
+func TestLibraryPlainServer(t *testing.T) {
+	home, e := libHome(t)
+	const tok = "tok-$abc-123"
+	wiki := LibServer{Name: "wiki", URL: "https://wiki.example/mcp", Headers: map[string]string{"Authorization": "Bearer " + tok},
+		Agents: []string{"codex", "gemini", "opencode"}}
+	if err := SaveLibrary(Library{Servers: []LibServer{wiki}}); err == nil || !strings.Contains(err.Error(), "mark it plain") {
+		t.Fatalf("a token written out, not plain: %v", err)
+	}
+	// (A refused save has already put the header's references in one form,
+	// in place, so it is given again.)
+	wiki.Plain, wiki.Headers = true, map[string]string{"Authorization": "Bearer " + tok}
+	mustSave(t, Library{Servers: []LibServer{wiki}})
+	lib, _ := LoadLibrary()
+	if !lib.Servers[0].Plain || lib.Servers[0].Headers["Authorization"] != "Bearer "+tok {
+		t.Fatalf("saved %+v", lib.Servers[0])
+	}
+
+	mustApply(t, e)
+	codex := read(t, filepath.Join(home, ".codex", "config.toml"))
+	if !strings.Contains(codex, `"Authorization" = "Bearer `+tok+`"`) && !strings.Contains(codex, `Authorization = "Bearer `+tok+`"`) {
+		t.Fatalf("codex:\n%s", codex)
+	}
+	for _, f := range []string{filepath.Join(home, ".gemini", "settings.json"), filepath.Join(home, ".config", "opencode", "opencode.json")} {
+		if got := read(t, f); !strings.Contains(got, "Bearer "+tok) {
+			t.Fatalf("%s:\n%s", f, got)
+		}
+	}
+	_, cs, _ := LibraryStatus(e)
+	// Devin reads OpenCode's servers, so it has this one already.
+	if got := cells(cs, SyncMCP, "wiki"); got != "claude=off codex=on gemini=on opencode=on devin=theirs" {
+		t.Fatalf("after apply: %s", got)
+	}
+	if res, _ := ApplyLibrary(e, false); res.Writes() != 0 {
+		t.Fatalf("again:\n%s", changeLines(res))
+	}
+	// A new token replaces the old where conch wrote it, and taking it out
+	// of the library takes it out of the files.
+	wiki.Headers["Authorization"] = "Bearer tok-2"
+	mustSave(t, Library{Servers: []LibServer{wiki}})
+	mustApply(t, e)
+	if got := read(t, filepath.Join(home, ".gemini", "settings.json")); !strings.Contains(got, "tok-2") || strings.Contains(got, tok) {
+		t.Fatalf("gemini after a new token:\n%s", got)
+	}
+	mustSave(t, Library{})
+	mustApply(t, e)
+	for _, f := range []string{filepath.Join(home, ".codex", "config.toml"), filepath.Join(home, ".gemini", "settings.json"), filepath.Join(home, ".config", "opencode", "opencode.json")} {
+		if got := read(t, f); strings.Contains(got, "tok-2") {
+			t.Fatalf("%s still holds the token:\n%s", f, got)
+		}
 	}
 }
 
