@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/cloud"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/doctor"
 	"github.com/Amitgb14/conch/internal/keymap"
@@ -226,6 +227,9 @@ type Model struct {
 	// catalogStamp is machines.json's modification time and size when last
 	// read, to notice machines added or removed with conch machine.
 	catalogStamp string
+	// cloudState is what Conch Cloud last said of each of the account's
+	// machines, by machine id (cloud.go); nil while not signed in.
+	cloudState map[string]cloud.Machine
 	// catalog is machines.json as last read, disabled machines and all:
 	// what the commands look a machine name up in (paneRef).
 	catalog []remote.Machine
@@ -362,7 +366,7 @@ func (m Model) Init() tea.Cmd {
 			cmds = append(cmds, mach.connect(false))
 		}
 	}
-	cmds = append(cmds, catalogTick())
+	cmds = append(cmds, catalogTick(), cloudTick(), askCloud())
 	if m.uiSync != nil && m.statePath != "" {
 		cmds = append(cmds, uiSyncTick(m.statePath, m.uiSync))
 	}
@@ -827,6 +831,15 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case catalogTickMsg:
 		return m, tea.Batch(catalogTick(), m.syncCatalog())
+
+	case cloudTickMsg:
+		return m, tea.Batch(cloudTick(), askCloud())
+
+	case cloudMachinesMsg:
+		return m, m.cloudMachines(msg)
+
+	case cloudOpDoneMsg:
+		return m, m.cloudOpDone(msg)
 
 	case numbersDoneMsg:
 		if msg.gen == m.numbersGen {
