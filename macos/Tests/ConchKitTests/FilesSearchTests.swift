@@ -222,3 +222,33 @@ import Testing
     #expect(lineRange(ns, line: 0) == NSRange(location: 0, length: 3))
     #expect(lineRange("" as NSString, line: 1) == NSRange(location: 0, length: 0))
 }
+
+// The gutter is as wide as the last line's number, in digits, and no wider:
+// it was sized by the font's widest glyph, so a file of ten lines asked for
+// 70 points where 36 do.
+@Test func gutterFitsTheLastLineNumber() {
+    #expect(editorLines("") == 1)
+    #expect(editorLines("a") == 1)
+    #expect(editorLines("a\n") == 2, "the empty line after a final newline is numbered too")
+    #expect(editorLines("a\r\nb") == 2)
+    #expect(gutterWidth(lines: 1, digit: 7) == 36, "never narrower than the least")
+    #expect(gutterWidth(lines: 9, digit: 7) == 36)
+    #expect(gutterWidth(lines: 10, digit: 7) == 36)
+    #expect(gutterWidth(lines: 99_999, digit: 7) == 53)
+    #expect(gutterWidth(lines: 100_000, digit: 7.5) == 63)
+    #expect(gutterWidth(lines: 0, digit: 7) == 36)
+}
+
+// The gutter's width is settled before it is drawn, never while: changed
+// in the middle of drawing, the scroll view could keep the text where the
+// old width put it, the start of every line under the numbers (seen after
+// Keep or Undo It on an agent's change, until the window was resized).
+@Test func gutterWidthIsNotChangedWhileDrawing() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    let src = try String(contentsOfFile: dir + "/CodeEditor.swift", encoding: .utf8)
+    let start = try #require(src.range(of: "override func drawHashMarksAndLabels"))
+    let body = src[start.upperBound...]
+    let draw = body[..<(body.range(of: "\n    }\n")?.lowerBound ?? body.endIndex)]
+    #expect(!draw.contains("ruleThickness ="), "drawHashMarksAndLabels sets the gutter's width")
+    #expect(src.contains("func fit()"), "the gutter fits itself outside drawing")
+}

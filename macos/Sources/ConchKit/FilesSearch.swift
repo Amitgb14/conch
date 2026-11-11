@@ -537,3 +537,15 @@ public func lineRange(_ ns: NSString, line n: Int) -> NSRange {
     while r.length > 0, [10, 13].contains(ns.character(at: NSMaxRange(r) - 1)) { r.length -= 1 }
     return r
 }
+
+/// The lines an editor numbers in a text: one more than its line breaks,
+/// so the empty line after a final newline has a number too.
+public func editorLines(_ text: String) -> Int {
+    text.utf8.reduce(1) { $1 == 10 ? $0 + 1 : $0 }
+}
+
+/// How wide the editor's gutter is for numbers up to `lines`, each digit
+/// `digit` points wide: the digits and a margin, never under 36 points.
+public func gutterWidth(lines: Int, digit: CGFloat) -> CGFloat {
+    max(36, (CGFloat(String(max(lines, 1)).count) * digit + 18).rounded(.up))
+}

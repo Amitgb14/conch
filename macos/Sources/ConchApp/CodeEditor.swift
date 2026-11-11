@@ -83,6 +83,7 @@ struct CodeEditor: NSViewRepresentable {
             tv.string = text
             tv.setSelectedRange(NSRange(location: min(sel.location, (text as NSString).length), length: 0))
             c.recolour()
+            (scroll.verticalRulerView as? LineNumberRuler)?.fit()
         }
         if c.drawn != look + "|\(fontSize)|\(language.rawValue)" {
             c.style(scroll)
@@ -142,6 +143,7 @@ struct CodeEditor: NSViewRepresentable {
                 r.current = Theme.ns(t.fg).withAlphaComponent(0.85)
                 r.background = Theme.ns(t.sidebar)
                 r.rule = Theme.ns(t.border)
+                r.fit()
                 r.needsDisplay = true
             }
             tv.needsDisplay = true
@@ -177,6 +179,7 @@ struct CodeEditor: NSViewRepresentable {
             let work = DispatchWorkItem { [weak self] in self?.recolour() }
             pending = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+            (tv.enclosingScrollView?.verticalRulerView as? LineNumberRuler)?.fit()
             tv.enclosingScrollView?.verticalRulerView?.needsDisplay = true
         }
 
@@ -248,6 +251,21 @@ final class LineNumberRuler: NSRulerView {
 
     @objc private func redraw() { needsDisplay = true }
 
+    /// Wide enough for the last line's number, settled here rather than
+    /// while drawing: a width changed in the middle of drawing could leave
+    /// the text where the old width put it, its first letters under the
+    /// numbers until the window was resized. The scroll view is laid out
+    /// again at once so the text moves with it.
+    func fit() {
+        guard let tv = clientView as? NSTextView else { return }
+        let digit = ("8" as NSString).size(withAttributes: [.font: font]).width
+        let want = gutterWidth(lines: editorLines(tv.string), digit: digit)
+        guard abs(ruleThickness - want) > 0.5 else { return }
+        ruleThickness = want
+        scrollView?.tile()
+        needsDisplay = true
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let tv = clientView as? NSTextView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
         let area = rect.intersection(visibleRect)
@@ -256,11 +274,6 @@ final class LineNumberRuler: NSRulerView {
         rule.setFill()
         NSRect(x: bounds.maxX - 1, y: area.minY, width: 1, height: area.height).fill()
         let ns = tv.string as NSString
-        // Wide enough for the last line's number.
-        var lines = 1
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byLines, .substringNotRequired]) { _, _, _, _ in lines += 1 }
-        let want = CGFloat(String(lines).count) * font.maximumAdvancement.width + 18
-        if abs(ruleThickness - want) > 1 { ruleThickness = max(36, want) }
         let visible = tv.visibleRect
         let glyphs = lm.glyphRange(forBoundingRect: visible, in: tc)
         let firstChar = lm.characterIndexForGlyph(at: glyphs.location)
