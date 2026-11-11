@@ -17,6 +17,8 @@ struct MachineLink: Identifiable, Equatable {
     var sandbox = false
     /// Its provider (daytona, boat, devin), for conch sandbox.
     var provider: String?
+    /// A Conch Cloud machine: asleep is a state of its own, not a fault.
+    var cloud = false
     var version = ""
     /// Capabilities this app's conch has that the server lacks: it is from
     /// an older build, and a reload (or an upgrade, elsewhere) brings them.
@@ -45,7 +47,7 @@ final class Store: ObservableObject {
     @Published var machines: [MachineLink] = [MachineLink(id: "local", label: "local")]
     /// Every machine in machines.json, disabled ones too, as last read:
     /// what conch's commands look a name up in, for paneRef.
-    var catalog: [MachineEntry] = []
+    @Published var catalog: [MachineEntry] = []
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
@@ -230,6 +232,16 @@ final class Store: ObservableObject {
     private var phonesStamp = ""
     private var phonesTick = 0
     private var phonesFile: String { (conchDir as NSString).appendingPathComponent("phone.json") }
+    /// Conch Cloud (Settings → Conch Cloud, CloudSettings.swift): the
+    /// account as conch last said it, nil until asked — and never asked
+    /// while there is no sign-in — its machines, and a sign-in under way.
+    @Published var cloud: CloudAccount?
+    @Published var cloudMachines: [CloudMachine] = []
+    @Published var cloudLogin: CloudLoginState = .idle
+    @Published var cloudError = ""
+    var cloudLoginRun: CloudLoginRun?
+    var cloudAsking = false
+
     /// The paired phones, which are on now, and conch web's relay: for the
     /// phone icon and its list. nil until conch first answers.
     @Published var phones: PhonesInfo?
@@ -1067,6 +1079,7 @@ final class Store: ObservableObject {
             var link = machines.first { $0.id == e.id } ?? MachineLink(id: e.id, label: e.displayLabel)
             link.sandbox = e.sandboxProvider != nil
             link.provider = e.sandboxProvider
+            link.cloud = e.cloudID != nil
             next.append(link)
         }
         // A machine taken out of machines.json is let go: its connection,
@@ -1433,6 +1446,20 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Gives a machine another label, as `conch machine rename` does; the
+    /// sidebar and Settings take it at once.
+    func renameMachine(_ machine: String, to name: String) {
+        guard let b = binary else { return }
+        job("Renaming \(label(machine))", done: "Renamed to \(name)") {
+            _ = try await runConch(b, ["machine", "rename", machine, name])
+            if let i = self.machines.firstIndex(where: { $0.id == machine }) {
+                let sandbox = self.catalog.first { $0.id == machine }?.sandboxProvider
+                self.machines[i].label = sandbox.map { "\(name) · \($0)" } ?? name
+            }
+            self.connect() // machines.json changed: the catalog read again
+        }
+    }
+
     /// A machine's connection went: said on its row, and tried again —
     /// this computer's soon and then less often (a reload is back in a
     /// moment), one elsewhere in a while.
@@ -1448,6 +1475,9 @@ final class Store: ObservableObject {
         if link?.sandbox == true, let r = reason.range(of: #"sandbox .* is (\w+)"#, options: .regularExpression) {
             state = String(reason[r].split(separator: " ").last ?? "stopped")
         }
+        // A cloud machine asleep says so too: the bridge does not wake it
+        // (that uses the plan's hours); Wake on its menu does.
+        if link?.cloud == true, let s = MachineEntry.cloudState(fromReason: reason) { state = s }
         setState(machine, state)
         if let i = machines.firstIndex(where: { $0.id == machine }) { machines[i].why = reason }
         if reloading.contains(machine) {
@@ -2245,6 +2275,10 @@ final class Store: ObservableObject {
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
         }
+        if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.cloud {
+            items += [RowMenuItem("", .divider), link.online ? RowMenuItem("Sleep", .cloud(machine: m, verb: "sleep"))
+                                                           : RowMenuItem("Wake", .cloud(machine: m, verb: "wake"))]
+        }
         // The actions of your own that belong on this kind of row.
         if online, let (place, _) = s.actionPlace(node, machine: m, home: conns[m]?.hello?.home) {
             let mine = actions.filter { $0.offers(place) }
@@ -2345,6 +2379,7 @@ final class Store: ObservableObject {
         case .runAction(let name): runCustomAction(name, on: node)
         case .connectHost(let h): connectSaved(h)
         case .sandbox(let m, let verb): sandbox(m, verb)
+        case .cloud(let m, let verb): cloudVerb(m, verb)
         case .agentSetup(let pk, let dir):
             let (m, pid) = unkey(pk)
             let k = setupKey(m, pid, dir: dir)
@@ -2431,6 +2466,22 @@ final class Store: ObservableObject {
     /// which builds the session the TUI does.
     /// ui.json's saved ssh hosts, as the TUI keeps them.
     @Published private(set) var savedHosts: [SavedHost] = []
+
+    /// A cloud machine woken or put to sleep; woken, it is connected to
+    /// again, the bridge waiting while it comes up.
+    func cloudVerb(_ m: String, _ verb: String) {
+        guard let b = binary else { return }
+        let label = machines.first { $0.id == m }?.label ?? m
+        job(verb == "wake" ? "Waking \(label)" : "Putting \(label) to sleep", done: verb == "wake" ? "\(label) is awake" : "\(label) is going to sleep") {
+            let id = self.catalog.first { $0.id == m }?.cloudID ?? m
+            _ = try await runConch(b, ["cloud", "machine", verb, id])
+            if verb == "wake" {
+                self.setState(m, "connecting")
+                await self.connect(m)
+            }
+            self.refreshCloud()
+        }
+    }
 
     /// A sandbox started, stopped or deleted (after asking), or what it has
     /// cost shown — conch sandbox, which talks to its provider.

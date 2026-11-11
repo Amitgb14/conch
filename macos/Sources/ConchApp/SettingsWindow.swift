@@ -435,6 +435,44 @@ struct SectionForm: View {
     var fields: [SettingsField] { section.fields.filter(\.simple) }
     /// Its tables, drawn as lists after the rest.
     var tables: [SettingsField] { section.fields.filter { $0.kind == "tables" || $0.kind == "keyed" } }
+    /// Its maps, drawn as pairs: [keys.bind]. [verify]'s commands are
+    /// drawn with the rest of Checks & autopilot.
+    var maps: [SettingsField] { section.fields.filter { $0.kind == "map" } }
+
+    /// The section another's page draws: Checks & autopilot on Git's.
+    func guest(_ id: String) -> SettingsSection? { model.form?.payload.schema.first { $0.id == id } }
+
+    /// Keys a map offers: the projects on this computer for a check, the
+    /// actions conch's keys do for a rebinding.
+    func offer(_ s: SettingsSection, _ f: SettingsField) -> [(key: String, label: String)] {
+        if s.key == "verify" && f.key == "commands" {
+            return (model.store.snapshots["local"]?.projects ?? []).map { (key: $0.id, label: $0.name) }.sorted { $0.label < $1.label }
+        }
+        return (f.suggest ?? []).map { (key: $0, label: $0) }
+    }
+
+    /// Checks & autopilot: the line a finished branch takes, the check
+    /// each project runs, then what happens after it.
+    static let checkKeys = ["auto_fix", "require_tests", "max_diff"]
+
+    @ViewBuilder func verifyCards(_ v: SettingsSection) -> some View {
+        let simple = v.fields.filter(\.simple)
+        let checks = Self.checkKeys
+        let checkFields = simple.filter { checks.contains($0.key) }
+        SettingsCard(title: "The line a finished branch takes") {
+            AutopilotLine(steps: autopilotSteps(model.form?.config["verify"]?.object ?? [:])) { step in
+                guard let f = v.fields.first(where: { $0.key == step.key }) else { return }
+                if step.key == "reviewer", step.on { model.lastReviewer = model.form?.value(v, f)?.string }
+                if let val = autopilotToggle(step, lastReviewer: model.lastReviewer) { model.form?.set(v, f, val) }
+            }
+        }
+        ForEach(v.fields.filter { $0.kind == "map" }, id: \.key) { m in
+            MapList(model: model, section: v, field: m, offer: offer(v, m))
+        }
+        if !checkFields.isEmpty { card("Checks", checkFields, in: v) }
+        let rest = simple.filter { !checks.contains($0.key) }
+        if !rest.isEmpty { card("Autopilot", rest, in: v) }
+    }
 
     func pick(_ keys: [String]) -> [SettingsField] { fields.filter { keys.contains($0.key) } }
     func rest(_ keys: [String]) -> [SettingsField] { fields.filter { !keys.contains($0.key) } }
@@ -486,15 +524,27 @@ struct SectionForm: View {
                 card(nil, rest(["theme", "light_theme"]))
             case "app":
                 card(nil, rest(SettingsIconKeys))
-            case "verify":
-                SettingsCard(title: "The line a finished branch takes") {
-                    AutopilotLine(steps: autopilotSteps(model.form?.config["verify"]?.object ?? [:])) { step in
-                        guard let f = section.fields.first(where: { $0.key == step.key }) else { return }
-                        if step.key == "reviewer", step.on { model.lastReviewer = model.form?.value(section, f)?.string }
-                        if let v = autopilotToggle(step, lastReviewer: model.lastReviewer) { model.form?.set(section, f, v) }
+            case "git":
+                // Git's own, then Checks & autopilot: what a finished
+                // branch passes, its pull request and its merge.
+                if !fields.isEmpty { card("Merging", fields) }
+                if let v = guest("verify") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(v.title).font(.ui(size: 15, weight: .semibold))
+                        Text(v.description).font(.ui(size: 12)).foregroundStyle(Theme.text2)
                     }
+                    .padding(.top, 10)
+                    verifyCards(v)
                 }
+            case "verify":
+                // Its own page only for a schema with no Git to put it on.
+                verifyCards(section)
+            case "remote":
                 card(nil, fields)
+                SettingsCard(title: "Machines", trailing: AnyView(
+                    Button("Add a Machine…") { model.store.addMachine() }.controlSize(.small))) {
+                    MachinesList(store: model.store).padding(12)
+                }
             case "notify":
                 let quiet = ["quiet_start", "quiet_end"]
                 card(nil, rest(quiet))
@@ -536,6 +586,11 @@ struct SectionForm: View {
                     Button("Pair a phone…") { model.store.openPair() }.controlSize(.small))) {
                     PhonesList(store: model.store).padding(12)
                 }
+            case "cloud":
+                // The server to sign in to, then the account and its
+                // machines (CloudSettings.swift).
+                card(nil, fields)
+                CloudCard(store: model.store)
             case "sandbox":
                 // Which providers there are, built in and adapted, and the
                 // way to add one conch does not know.
@@ -551,6 +606,11 @@ struct SectionForm: View {
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }
+            if section.key != "verify" {
+                ForEach(maps, id: \.key) { m in
+                    MapList(model: model, section: section, field: m, offer: offer(section, m))
+                }
+            }
             ForEach(tables, id: \.key) { t in
                 if t.kind == "tables" {
                     TableList(model: model, section: section, field: t)
@@ -562,10 +622,10 @@ struct SectionForm: View {
         .frame(maxWidth: 760, alignment: .leading)
     }
 
-    func card(_ title: String?, _ fs: [SettingsField]) -> some View {
+    func card(_ title: String?, _ fs: [SettingsField], in s: SettingsSection? = nil) -> some View {
         SettingsCard(title: title) {
             ForEach(Array(fs.enumerated()), id: \.element.key) { i, f in
-                FieldRow(model: model, section: section, field: f, first: i == 0 && title == nil)
+                FieldRow(model: model, section: s ?? section, field: f, first: i == 0 && title == nil)
             }
         }
     }
@@ -838,7 +898,9 @@ final class SettingsWindow {
     init(store: Store) { model = SettingsModel(store: store) }
 
     func show(section: String? = nil) {
-        if let section { model.section = section }
+        if let section {
+            model.section = SettingsNav.page(section, in: model.form?.payload.schema.map(\.id) ?? ["git"])
+        }
         if window == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)

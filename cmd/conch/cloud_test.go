@@ -14,7 +14,7 @@ func TestCloudCommandRefuses(t *testing.T) {
 		args []string
 		want string
 	}{
-		{nil, "usage: conch cloud agent"},
+		{nil, "usage: conch cloud machine"},
 		{[]string{"nope"}, `unknown cloud subcommand "nope"`},
 		{[]string{"agent", "extra"}, "takes no arguments"},
 		{[]string{"agent", "-user", "no-such-user-here"}, "the machine's user no-such-user-here"},

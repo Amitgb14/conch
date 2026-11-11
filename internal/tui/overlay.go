@@ -278,7 +278,12 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		title = mach.label
 		mid := mach.id
 		_, _, isSandbox := mach.sandbox()
+		_, isCloud := mach.cloudID()
 		switch {
+		case isCloud && mach.busy != "":
+			return &menu{title: title, x: x, y: y, items: []menuItem{{"", mach.busy + "…", func(*Model) tea.Cmd { return nil }}}}
+		case isCloud && mach.sandboxState != "" && mach.state != stateOnline:
+			items = append(items, menuItem{"w", "Wake", func(m *Model) tea.Cmd { return m.cloudOp(mid, "wake", false) }})
 		case isSandbox && mach.busy != "":
 			return &menu{title: title, x: x, y: y, items: []menuItem{{"", mach.busy + "…", func(*Model) tea.Cmd { return nil }}}}
 		case isSandbox && mach.sandboxState != "":
@@ -324,8 +329,14 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			items = append(items, menuItem{"$", "What it has cost…", func(m *Model) tea.Cmd { return m.openSandboxUsage(mid) }})
 			items = append(items, menuItem{"D", "Delete sandbox…", func(m *Model) tea.Cmd { m.confirmDeleteSandbox(mid); return nil }})
 		}
+		if isCloud && mach.state == stateOnline {
+			items = append(items, menuItem{"S", "Sleep", func(m *Model) tea.Cmd { return m.cloudOp(mid, "sleep", false) }})
+		}
 		items = append(items, menuItem{"M", "Add machine…", act("M")})
 		switch {
+		case isCloud:
+			// It is the account's: conch cloud machine rm destroys it, and
+			// removing it here would only last until the next sync.
 		case isSandbox:
 			items = append(items, menuItem{"x", "Remove machine (the sandbox keeps running)", act("x")})
 		case mid != localMachine:
