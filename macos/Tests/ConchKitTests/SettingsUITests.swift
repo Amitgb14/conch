@@ -37,7 +37,7 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
     #expect(settingsControl(section("brain", []), try field("api_key_env", "string")) == .envVar)
     #expect(settingsControl(section("sandbox", []), try field("api_key", "secret")) == .secret)
     #expect(settingsControl(section("notify", []), try field("command", "text")) == .multiline)
-    #expect(settingsControl(section("pane", []), try field("default_command", "string")) == .text)
+    #expect(settingsControl(section("git", []), try field("anything", "string")) == .text)
 }
 
 @Test func settingsProblems() throws {
@@ -88,11 +88,22 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
 }
 
 @Test func sidebarGroupsAndSearch() throws {
-    let ids = ["ui", "keys", "notify", "agents", "verify", "git", "brain", "shell", "pane", "remote", "update", "web", "app", "sandbox", "actions", "permissions"]
-    let g = SettingsNav.grouped(SettingsNav.sidebar(ids))
-    #expect(g.map(\.0) == ["General", "Agents", "Workspace", "Machines", "Advanced"])
-    #expect(g[1].1 == ["agents", "skills", "verify", "brain"])
-    #expect(g.flatMap(\.1).count == ids.count + 1) // every section once, Skills & MCP added
+    let ids = ["ui", "keys", "notify", "agents", "verify", "git", "brain", "shell", "remote", "update", "web", "app", "sandbox", "actions", "permissions"]
+    let side = SettingsNav.sidebar(ids)
+    #expect(!side.contains("verify")) // on Git's page
+    let g = SettingsNav.grouped(side)
+    #expect(g.map(\.0) == ["General", "Agents", "Workspace", "Machines"])
+    #expect(g[0].1 == ["ui", "app", "keys", "notify", "update"])
+    #expect(g[1].1 == ["agents", "skills", "permissions", "brain"])
+    #expect(g[2].1 == ["git", "shell", "actions"])
+    #expect(g[3].1 == ["remote", "sandbox", "web"])
+    #expect(g.flatMap(\.1).count == ids.count) // every section once: Skills & MCP added, Checks on Git's page
+    // Without a Git, Checks & autopilot keeps a row of its own.
+    #expect(SettingsNav.sidebar(["ui", "verify"]) == ["ui", "verify", "skills"])
+    #expect(SettingsNav.grouped(["verify"]).map(\.0) == ["Workspace"])
+    // Asked for by id, it opens on Git's page — when there is one.
+    #expect(SettingsNav.page("verify", in: ids) == "git" && SettingsNav.page("verify", in: ["verify"]) == "verify")
+    #expect(SettingsNav.page("web", in: ids) == "web" && SettingsNav.page("nothing", in: []) == "nothing")
     // A section the groups don't know still shows, at the end.
     #expect(SettingsNav.grouped(["ui", "newthing"]).last!.1.last == "newthing")
     #expect(SettingsNav.grouped(["newthing"]).map(\.1) == [["newthing"]])
@@ -100,11 +111,12 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
 
     let schema = [
         section("ui", [try field("mouse", "bool")], title: "Appearance", description: "Theme and mouse"),
-        section("verify", [try field("auto_merge", "bool")], title: "Checks & autopilot"),
+        section("verify", [try field("auto_merge", "bool"), try field("reviewer", "select")], title: "Checks & autopilot"),
         section("git", [try field("squash", "bool")], title: "Git", description: "How a merge commit looks"),
     ]
-    #expect(SettingsNav.search("", in: schema) == ["ui", "verify", "git", "skills"])
-    #expect(SettingsNav.search("merge", in: schema) == ["verify", "git"]) // a key, and a description
+    #expect(SettingsNav.search("", in: schema) == ["ui", "git", "skills"])
+    #expect(SettingsNav.search("merge", in: schema) == ["git"]) // its own description, and Checks' key
+    #expect(SettingsNav.search("reviewer", in: schema) == ["git"]) // only Checks has it: found on Git's page
     #expect(SettingsNav.search("MOUSE", in: schema) == ["ui"])
     #expect(SettingsNav.search("mcp", in: schema) == ["skills"])
     #expect(SettingsNav.search("factory", in: schema) == ["skills"])

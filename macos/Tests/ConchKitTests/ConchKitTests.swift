@@ -1191,15 +1191,19 @@ final class FakeServer: @unchecked Sendable {
     #expect(f.value(ui, ui.fields[2]) == .bool(true)) // absent: its default
     #expect(listText(f.value(notify, notify.fields[0])) == "50\n80")
     #expect(ui.simple && actions.simple && !f.dirty)
-    // A section drawn whole says nothing — tables are lists here now; one
-    // with a map (left to config.toml) sends you there.
+    // A section drawn whole says nothing — tables are lists here, maps
+    // pairs; one with a kind the window cannot draw sends you to the file.
     #expect(ui.tableNote == nil && actions.tableNote == nil)
     let map = SettingsField(key: "checks", label: "Checks", kind: "map")
+    var withMap = ui
+    withMap.fields.append(map)
+    #expect(withMap.tableNote == nil)
+    let odd = SettingsField(key: "later", label: "Later", kind: "matrix")
     var mixed = ui
-    mixed.fields.append(map)
+    mixed.fields.append(odd)
     #expect(mixed.tableNote == "Some of these are tables, edited in config.toml.")
     var maps = actions
-    maps.fields = [map]
+    maps.fields = [odd]
     #expect(maps.tableNote == "These are tables of their own, edited in config.toml.")
     #expect(LucideIcons.all["file-text"] != nil && !LucideIcons.ops("file-text").isEmpty)
     f.set(ui, ui.fields[0], .string("conch"))
