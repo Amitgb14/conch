@@ -11,6 +11,8 @@ docs/plans/closing-the-gaps.md
 docs/plans/phone.md
 docs/plans/phone-api.md
 docs/plans/plugins.md
+docs/plans/cloud.md
+docs/plans/cloud-client.md
 .aider*
 macos/.build/
 macos/build/
