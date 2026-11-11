@@ -17,9 +17,12 @@ import (
 )
 
 // relayRig is a rig whose hello names a real relay, run here.
-func relayRig(t *testing.T) (*rig, *httptest.Server, string) {
+func relayRig(t *testing.T, opts ...func(*Options)) (*rig, *httptest.Server, string) {
 	t.Helper()
 	r := newRig(t)
+	for _, o := range opts {
+		o(&r.opts) // before the agent starts: its handlers read them unsynchronised
+	}
 	rs := httptest.NewServer(&relay.Server{})
 	t.Cleanup(rs.Close)
 	secret, _ := relay.NewSecret()
@@ -219,10 +222,7 @@ func TestTunnelRoutesOnlyThroughTheTunnel(t *testing.T) {
 // even when the script ignores SIGHUP — with or without a terminal — so
 // the handler, its terminal and the tunnel's stream are not held for ever.
 func TestExecScriptIgnoringHangupIsKilled(t *testing.T) {
-	was := execKillAfter
-	execKillAfter = 200 * time.Millisecond
-	t.Cleanup(func() { execKillAfter = was })
-	r, rs, secret := relayRig(t)
+	r, rs, secret := relayRig(t, func(o *Options) { o.ExecKillAfter = 200 * time.Millisecond })
 	s := dialMachine(t, r, rs, secret)
 	for _, tty := range []bool{false, true} {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

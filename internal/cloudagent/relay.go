@@ -265,7 +265,7 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-exited:
 			return
-		case <-time.After(execKillAfter):
+		case <-time.After(a.opts.ExecKillAfter):
 		}
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		if term != nil {
@@ -327,8 +327,8 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 }
 
 // execKillAfter is how long a script whose client went has to end on its
-// SIGHUP before it is killed.
-var execKillAfter = 5 * time.Second
+// SIGHUP before it is killed (Options.ExecKillAfter).
+const execKillAfter = 5 * time.Second
 
 // withSession is attrs with a session of the script's own, so the whole
 // of it can be ended together, and for a terminal that terminal as its
