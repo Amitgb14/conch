@@ -581,6 +581,9 @@ const (
 	// ErrOutOfScope is a change an agent asked for, from inside its pane,
 	// to a pane or project that isn't its own.
 	ErrOutOfScope = "out_of_scope"
+	// ErrCloudAgentHeld: cloud.agent.register while another connection
+	// holds the registration.
+	ErrCloudAgentHeld = "cloud_agent_held"
 	// ErrFileChanged is fs.write refusing to write over a file that changed
 	// on disk since it was read (fs.write.v1).
 	ErrFileChanged = "file_changed"
@@ -2871,6 +2874,9 @@ func Marshal(v any) json.RawMessage {
 // server asks for secrets with a CloudAgentAsk.
 type CloudAgentRegisterParams struct {
 	Socket string `json:"socket"`
+	// Key is what the server sends back with each CloudAgentAsk for env,
+	// so the agent's socket gives secrets to this server alone.
+	Key string `json:"key,omitempty"`
 }
 
 // CloudAgentRegisterResult is the server's capabilities once the cloud
@@ -2885,6 +2891,9 @@ type CloudAgentAsk struct {
 	// Op is "env" (the env-mode secrets, for an agent being started) or
 	// "git-credential" (the machine token, for git's credential helper).
 	Op string `json:"op"`
+	// Key is the registration's (CloudAgentRegisterParams.Key), which env
+	// needs.
+	Key string `json:"key,omitempty"`
 }
 
 // What a CloudAgentAsk may ask.
