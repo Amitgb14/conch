@@ -219,7 +219,11 @@ func runAccount(args []string) error {
 	if !a.PeriodEnd.IsZero() {
 		fmt.Fprintf(cloudOut, " (until %s)", a.PeriodEnd.Local().Format("2 Jan"))
 	}
-	fmt.Fprintf(cloudOut, "\nStorage: %.1f of %d GB · up to %d machines\n\nDevices:\n", a.StorageGBUsed, a.StorageGB, a.MaxMachines)
+	plural := "s"
+	if a.MaxMachines == 1 {
+		plural = ""
+	}
+	fmt.Fprintf(cloudOut, "\nStorage: %.1f of %d GB · up to %d machine%s\n\nDevices:\n", a.StorageGBUsed, a.StorageGB, a.MaxMachines, plural)
 	tw := tabwriter.NewWriter(cloudOut, 0, 4, 2, ' ', 0)
 	for _, d := range devices {
 		mark := ""

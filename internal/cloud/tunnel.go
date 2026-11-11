@@ -37,6 +37,7 @@ func (c *Client) Dial(ctx context.Context, id string, say func(string)) (*relay.
 	if say == nil {
 		say = func(string) {}
 	}
+	say = sayOnce(say)
 	refused := 0
 	for gatewayTries := 0; ; {
 		m, err := c.waitRunning(ctx, id, say)
@@ -119,6 +120,17 @@ func (c *Client) waitRunning(ctx context.Context, id string, say func(string)) (
 		}
 		if err := sleepCtx(ctx, waitPoll); err != nil {
 			return m, err
+		}
+	}
+}
+
+// sayOnce passes on what changed, not the same words every poll.
+func sayOnce(say func(string)) func(string) {
+	last := ""
+	return func(msg string) {
+		if msg != last {
+			last = msg
+			say(msg)
 		}
 	}
 }

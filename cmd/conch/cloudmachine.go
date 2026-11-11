@@ -201,7 +201,7 @@ func cloudMachineWakeSleep(ctx context.Context, c *cloud.Client, args []string, 
 	} else {
 		m, err = c.Sleep(ctx, m.ID, *force)
 		if errors.Is(err, cloud.ErrAgentsWorking) {
-			return fmt.Errorf("%w — sleeping now would stop them; -force does it anyway", err)
+			return fmt.Errorf("%w (with -force)", err)
 		}
 	}
 	if err != nil {
