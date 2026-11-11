@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/cloud"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/relocate"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -20,6 +21,29 @@ import (
 // connectMoveTarget reaches the machine a project moves to; tests point it
 // at a server of their own.
 var connectMoveTarget = connectMachine
+
+// wakeMoveTarget readies the machine a project moves to: a Conch Cloud
+// machine asleep is woken and waited for. A connection nobody asked for
+// never wakes one (remote.CloudAsleepError) — its hours are the
+// person's — but moving a project there is asking for it.
+var wakeMoveTarget = func(ref string) error {
+	m, ok := remote.LookupMachine(ref)
+	if !ok {
+		return nil
+	}
+	id, ok := remote.ParseCloudTarget(m.Target)
+	if !ok {
+		return nil
+	}
+	c, err := cloud.Open()
+	if err != nil {
+		return fmt.Errorf("%s is a Conch Cloud machine: %w", m.Label, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cloudMakeWait)
+	defer cancel()
+	_, err = c.WaitRunning(ctx, id, cloudSay)
+	return err
+}
 
 const projectMoveUsage = "usage: conch project move [-plan] [-into DIR] [-y] [-json] PROJECT -to MACHINE"
 
@@ -64,6 +88,12 @@ func projectMove(c *client.Client, args []string) error {
 	}
 	if *to == machineFlag || (*to == "local" && !onRemoteMachine()) {
 		return fmt.Errorf("%s is already on %s", rest[0], fromLabel)
+	}
+	if err := wakeMoveTarget(*to); err != nil {
+		if *asJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]string{"error": err.Error()})
+		}
+		return err
 	}
 	dst, err := connectMoveTarget(*to)
 	if err != nil {

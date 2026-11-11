@@ -55,6 +55,7 @@ func TestNoAccountNoRequest(t *testing.T) {
 }
 
 func TestDefaultURL(t *testing.T) {
+	isolate(t)
 	t.Setenv(cloud.URLEnv, "")
 	if cloud.APIURL() != cloud.DefaultURL || cloud.DefaultURL != "https://api.cloud.conch.dev" {
 		t.Fatalf("APIURL %q", cloud.APIURL())

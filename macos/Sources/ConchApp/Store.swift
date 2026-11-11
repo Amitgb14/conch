@@ -239,6 +239,9 @@ final class Store: ObservableObject {
     @Published var cloudMachines: [CloudMachine] = []
     @Published var cloudLogin: CloudLoginState = .idle
     @Published var cloudError = ""
+    /// The sizes a new cloud machine can be (`conch cloud machine sizes`),
+    /// read when a sheet first offers one.
+    @Published var cloudSizes: [CloudSize] = []
     var cloudLoginRun: CloudLoginRun?
     var cloudAsking = false
 
@@ -2387,6 +2390,9 @@ final class Store: ObservableObject {
         case .removeWorktree(let pk, let path): removeWorktree(project: pk, path: path)
         case .removeProject(let pk): removeProject(pk)
         case .moveProject(let pk): moveProjectTarget = MoveProjectTarget(id: pk)
+        case .moveToCloud(let pk):
+            moveProjectTarget = MoveProjectTarget(id: pk, cloud: true)
+            refreshCloud()
         case .deleteBranch(let pk, let b): deleteBranch(project: pk, branch: b)
         case .monitor(let k, let quiet): toggleMonitor(k, quiet: quiet)
         case .broadcast(let scope): startBroadcast(scope, title: node.title)
@@ -2438,6 +2444,12 @@ final class Store: ObservableObject {
     /// Add project…: a sheet to open a folder, clone a repository or make
     /// a new one (AddProjectSheet), for that machine.
     func addProject(on machine: String = "local") {
+        // A cloud machine asleep is readied by the sheet itself.
+        if conns[machine] == nil, let id = catalog.first(where: { $0.id == machine })?.cloudID {
+            addProjectTarget = AddProjectTarget(id: machine, cloud: id)
+            refreshCloud()
+            return
+        }
         guard conns[machine] != nil else {
             error = "\(label(machine)) is not connected"
             return
@@ -2458,6 +2470,7 @@ final class Store: ObservableObject {
         case .folder: info = try await c.call("project.add", Add(path: path), as: ProjectInfo.self)
         case .clone: info = try await c.call("project.clone", Clone(url: url, path: path), as: ProjectInfo.self)
         case .create: info = try await c.call("project.create", Create(path: path, git: true), as: ProjectInfo.self)
+        case .fromMac: throw ConchError(code: "move", message: "a project from this Mac is moved there, not added")
         }
         joinWorkspace(machine: machine, project: info.id)
         status = mode == .clone ? "Cloned and added \(info.name)" : "Added \(info.name)"
@@ -2494,6 +2507,78 @@ final class Store: ObservableObject {
                 await self.connect(m)
             }
             self.refreshCloud()
+        }
+    }
+
+    /// A cloud machine readied for a project to go to: made (`conch cloud
+    /// machine new -wait`) or woken, then connected to — the window's own
+    /// connection, which a project added there goes through and a moved
+    /// one is shown by. say is told each step as it starts. Answers the
+    /// machine's id in machines.json.
+    func readyCloud(_ pick: CloudPick, say: @escaping (CloudPrep) -> Void) async throws -> String {
+        guard let b = binary else { throw ConchError(code: "conch", message: "no conch to reach Conch Cloud with") }
+        let id: String, name: String
+        switch pick {
+        case .new(let n, let size):
+            name = n
+            say(.making(n))
+            _ = try await runConch(b, ["cloud", "machine", "new", n, "-size", size, "-wait"])
+            guard let m = try await readCloudMachines(b).first(where: { $0.name == n }) else {
+                throw ConchError(code: "cloud", message: "\(n) was made, but Conch Cloud does not list it")
+            }
+            id = m.id
+        case .existing(let cid):
+            id = cid
+            name = cloudMachines.first { $0.id == cid }?.name ?? cid
+            if cloudPrep(pick, machines: cloudMachines).contains(.waking(name)) {
+                say(.waking(name))
+                _ = try await runConch(b, ["cloud", "machine", "wake", cid])
+            }
+        }
+        say(.connecting(name))
+        // conch's machines follow the account's at each ls: one just made
+        // is in machines.json once that has run.
+        if catalogMachine(forCloud: id, in: catalog) == nil {
+            _ = try await readCloudMachines(b)
+            connect() // machines.json read again, and the new machine reached
+        }
+        guard let m = catalogMachine(forCloud: id, in: catalog) else {
+            throw ConchError(code: "cloud", message: "\(name) is not among conch's machines yet; try again in a moment")
+        }
+        // The bridge waits while it comes up, but not for ever: asked again
+        // until it answers, for as long as a machine takes to wake.
+        let deadline = Date().addingTimeInterval(300)
+        while machines.first(where: { $0.id == m })?.online != true {
+            if Date() > deadline {
+                let why = machines.first { $0.id == m }?.why ?? ""
+                throw ConchError(code: "cloud", message: "\(name) did not answer" + (why.isEmpty ? "" : ": \(why)"))
+            }
+            if conns[m] == nil, machines.first(where: { $0.id == m })?.state != "connecting" {
+                await connect(m)
+                if machines.first(where: { $0.id == m })?.online == true { break }
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        refreshCloud()
+        return m
+    }
+
+    /// The account's cloud machines, read again (which also brings conch's
+    /// machines.json up to date with them).
+    private func readCloudMachines(_ b: String) async throws -> [CloudMachine] {
+        let out = try await runConch(b, ["cloud", "machine", "ls", "-json"])
+        let list = try conchDecoder().decode(CloudMachines.self, from: out).machines
+        if list != cloudMachines { cloudMachines = list }
+        return list
+    }
+
+    /// Reads the sizes a new cloud machine can be, once.
+    func refreshCloudSizes() {
+        guard cloudSignedIn, cloudSizes.isEmpty, let b = binary else { return }
+        Task {
+            guard let out = try? await runConch(b, ["cloud", "machine", "sizes", "-json"]),
+                  let s = try? conchDecoder().decode(CloudSizes.self, from: out) else { return }
+            cloudSizes = s.sizes
         }
     }
 

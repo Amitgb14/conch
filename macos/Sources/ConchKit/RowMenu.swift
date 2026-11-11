@@ -70,6 +70,8 @@ public enum RowAction: Equatable, Sendable {
     /// The whole project moved to another machine, with its branches,
     /// worktrees and agents.
     case moveProject(project: String)
+    /// The same, with Conch Cloud chosen as where it goes.
+    case moveToCloud(project: String)
     /// A branch deleted, with its worktree — after saying what that loses.
     case deleteBranch(project: String, branch: String)
     /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
@@ -279,7 +281,11 @@ extension Snapshot {
             // Only this Mac's folders are the Finder's to show.
             if machine == "local" { out.append(RowMenuItem("Reveal in Finder", .reveal(pr.path))) }
             if canGroup { out += [.divider] + groupItems(pk, machine: machine) }
-            if pr.git != false { out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))] }
+            if pr.git != false {
+                out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))]
+                // This Mac's project, before the lid closes.
+                if machine == "local" { out.append(RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: pk))) }
+            }
             out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
             let isMachine: Bool = { if case .machine = node.kind { return true }; return false }()

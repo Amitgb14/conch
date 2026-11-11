@@ -44,5 +44,5 @@ import Testing
     #expect(projectPath(parent: "~", name: "a/b") == nil && projectPath(parent: "~", name: "..") == nil)
     #expect(defaultProjectParent(home: "/Users/a", exists: { $0 == "/Users/a/workspace" }) == "~/workspace")
     #expect(defaultProjectParent(home: "/Users/a", exists: { _ in false }) == "~")
-    #expect(AddProjectMode.allCases.map(\.title) == ["Open a folder", "Clone a repository", "New repository"])
+    #expect(AddProjectMode.allCases.map(\.title) == ["Open a folder", "Clone a repository", "New repository", "From this Mac"])
 }

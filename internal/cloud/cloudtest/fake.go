@@ -299,6 +299,16 @@ func (f *Fake) handle(w http.ResponseWriter, r *http.Request) {
 			WriteJSON(w, 200, map[string]any{"devices": []any{map[string]any{"id": dev, "name": "laptop", "client": "cli",
 				"created_at": "2026-11-10T10:00:00Z", "last_seen_at": "2026-11-10T11:00:00Z", "current": true}}})
 		}
+	case r.Method == "GET" && path == "/v1/sizes":
+		if f.device(w, r) != "" {
+			size := func(id, name string, vcpu, mem, disk int, plans ...string) map[string]any {
+				return map[string]any{"id": id, "name": name, "vcpu": vcpu, "memory_gb": mem, "disk_gb": disk, "plans": plans}
+			}
+			WriteJSON(w, 200, map[string]any{
+				"sizes": []any{size("small", "Small", 2, 4, 30, "free", "pro"), size("standard", "Standard", 4, 8, 60, "free", "pro"),
+					size("large", "Large", 8, 16, 120, "pro"), size("xl", "XL", 16, 32, 240, "pro")},
+				"regions": []any{map[string]any{"id": "us-west", "name": "US West"}}})
+		}
 	case r.Method == "GET" && path == "/v1/machines":
 		if f.device(w, r) != "" {
 			list := []any{}
