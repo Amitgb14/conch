@@ -45,6 +45,8 @@ func runCloudMachine(args []string) error {
 		return cloudMachineWakeSleep(ctx, c, args[1:], true)
 	case "sleep", "stop":
 		return cloudMachineWakeSleep(ctx, c, args[1:], false)
+	case "sizes":
+		return cloudMachineSizes(ctx, c, args[1:])
 	case "forget-key":
 		if len(args) != 2 {
 			return errors.New("usage: conch cloud machine forget-key NAME")
@@ -59,8 +61,12 @@ func runCloudMachine(args []string) error {
 		fmt.Fprintf(cloudOut, "Forgot %s's key; the next connection pins the one Conch Cloud gives.\n", m.Name)
 		return nil
 	}
-	return fmt.Errorf("unknown cloud machine subcommand %q (ls, new, rm, wake, sleep, forget-key)", args[0])
+	return fmt.Errorf("unknown cloud machine subcommand %q (ls, new, rm, wake, sleep, sizes, forget-key)", args[0])
 }
+
+// cloudMakeWait is how long `new -wait` waits for a machine to run: it
+// can take longer to come up than one request is given.
+const cloudMakeWait = 10 * time.Minute
 
 // webURL is where the web UI shows machine id: the API serves it.
 func webURL(api, id string) string { return strings.TrimRight(api, "/") + "/machines/" + id }
@@ -101,6 +107,39 @@ func cloudMachineList(ctx context.Context, c *cloud.Client, args []string) error
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, state, m.Size, m.Region, prov, m.ID)
 	}
 	return tw.Flush()
+}
+
+// cloudMachineSizes says the sizes and regions the account may make a
+// machine in: what `new -size` and `-region` take.
+func cloudMachineSizes(ctx context.Context, c *cloud.Client, args []string) error {
+	fs := flag.NewFlagSet("cloud machine sizes", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print them as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	s, err := c.Sizes(ctx)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		return writeJSONOut(s)
+	}
+	tw := tabwriter.NewWriter(cloudOut, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "SIZE\tMACHINE\tPLANS")
+	for _, z := range s.Sizes {
+		fmt.Fprintf(tw, "%s\t%d vCPU · %d GB · %d GB disk\t%s\n", z.ID, z.VCPU, z.MemoryGB, z.DiskGB, strings.Join(z.Plans, ", "))
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	var regions []string
+	for _, r := range s.Regions {
+		regions = append(regions, r.ID)
+	}
+	if len(regions) > 0 {
+		fmt.Fprintf(cloudOut, "Regions: %s\n", strings.Join(regions, ", "))
+	}
+	return nil
 }
 
 // findCloudMachine is the account's machine by id or name.
@@ -144,6 +183,8 @@ func cloudMachineNew(ctx context.Context, c *cloud.Client, args []string) error 
 	syncCatalog(ctx, c)
 	fmt.Fprintf(cloudOut, "Creating %s (%s, %s).\n", m.Name, m.ID, m.Size)
 	if *wait {
+		ctx, cancel := context.WithTimeout(context.Background(), cloudMakeWait)
+		defer cancel()
 		for m.State != cloud.StateRunning {
 			if m.State == cloud.StateError {
 				return fmt.Errorf("%s failed: %s", m.Name, m.StateDetail)

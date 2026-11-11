@@ -19,7 +19,7 @@ import (
 // its host starts.
 func runCloud(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: conch cloud machine ls|new|rm|wake|sleep|forget-key … | conch cloud agent [flags] | conch cloud install [-user NAME] | conch cloud git-credential get")
+		return errors.New("usage: conch cloud machine ls|new|rm|wake|sleep|sizes|forget-key … | conch cloud agent [flags] | conch cloud install [-user NAME] | conch cloud git-credential get")
 	}
 	switch args[0] {
 	case "machine", "machines":

@@ -86,6 +86,15 @@ func (c *Client) Dial(ctx context.Context, id string, say func(string)) (*relay.
 	}
 }
 
+// WaitRunning returns the machine once it is running, waking it if it
+// sleeps: for a command that was asked to go there, as a move is.
+func (c *Client) WaitRunning(ctx context.Context, id string, say func(string)) (Machine, error) {
+	if say == nil {
+		say = func(string) {}
+	}
+	return c.waitRunning(ctx, id, sayOnce(say))
+}
+
 // waitRunning returns the machine once it is running, waking it if it
 // sleeps, and an error for one that will not come up.
 func (c *Client) waitRunning(ctx context.Context, id string, say func(string)) (Machine, error) {
