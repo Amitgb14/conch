@@ -180,10 +180,29 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
         return p
     }
 
+    /// Its Conch Cloud machine id when it is a cloud machine (target
+    /// "conch:m_…", as remote.ParseCloudTarget reads it), else nil. It is
+    /// reached like any machine, through `conch machine bridge`.
+    public var cloudID: String? {
+        guard let t = target, t.hasPrefix("conch:") else { return nil }
+        let id = String(t.dropFirst("conch:".count))
+        guard id.hasPrefix("m_"), id.count == 18, id.dropFirst(2).allSatisfy({ ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") }) else { return nil }
+        return id
+    }
+
     /// What the sidebar calls it: a sandbox says which provider's it is,
-    /// as the mock's "sandbox · daytona".
+    /// as the mock's "sandbox · daytona", and a cloud machine that it is.
     public var displayLabel: String {
-        sandboxProvider.map { "\(label) · \($0)" } ?? label
+        if cloudID != nil { return "\(label) · cloud" }
+        return sandboxProvider.map { "\(label) · \($0)" } ?? label
+    }
+
+    /// A cloud machine's state from why its bridge ended ("box is asleep;
+    /// run: conch cloud machine wake box"): asleep, sleeping or archived —
+    /// a state of its own, as a stopped sandbox's is — else nil.
+    public static func cloudState(fromReason reason: String) -> String? {
+        for s in ["asleep", "sleeping", "archived"] where reason.contains(" is \(s)") { return s }
+        return nil
     }
 
     /// The enabled machines in a machines.json; none for a file that is

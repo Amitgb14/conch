@@ -80,3 +80,16 @@ import Testing
     // A link without the code in it is still a link.
     #expect(CloudLoginEvent.parse(#"{"event":"code","user_code":"A","verification_uri":"http://x/device"}"#)!.link == "http://x/device")
 }
+
+// A cloud machine in machines.json: its id, how the sidebar names it, and
+// its state read from why its bridge ended.
+@Test func cloudMachineEntry() {
+    let e = MachineEntry(id: "box", label: "box", target: "conch:m_i806gqdxqcmoyx2y")
+    #expect(e.cloudID == "m_i806gqdxqcmoyx2y" && e.sandboxProvider == nil && e.displayLabel == "box · cloud")
+    for t in ["conch:m_short", "conch:", "daytona:sb1", "me@host", "conch:m_I806GQDXQCMOYX2Y"] {
+        #expect(MachineEntry(id: "x", label: "x", target: t).cloudID == nil, "\(t)")
+    }
+    #expect(MachineEntry.cloudState(fromReason: "conch: box is asleep; run: conch cloud machine wake box") == "asleep")
+    #expect(MachineEntry.cloudState(fromReason: "box is sleeping") == "sleeping")
+    #expect(MachineEntry.cloudState(fromReason: "the relay for box: gone") == nil)
+}
