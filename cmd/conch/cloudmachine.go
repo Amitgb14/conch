@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/cloud"
+	"github.com/Amitgb14/conch/internal/remote"
 )
 
 // conch cloud machine: the account's cloud machines.
@@ -74,6 +75,7 @@ func cloudMachineList(ctx context.Context, c *cloud.Client, args []string) error
 	if err != nil {
 		return err
 	}
+	_ = remote.SyncCloudMachines(ms) // conch's machines follow the account's
 	if *asJSON {
 		out := make([]cloudMachineJSON, 0, len(ms))
 		for _, m := range ms {
@@ -139,6 +141,7 @@ func cloudMachineNew(ctx context.Context, c *cloud.Client, args []string) error 
 	if err != nil {
 		return err
 	}
+	syncCatalog(ctx, c)
 	fmt.Fprintf(cloudOut, "Creating %s (%s, %s).\n", m.Name, m.ID, m.Size)
 	if *wait {
 		for m.State != cloud.StateRunning {
@@ -175,6 +178,7 @@ func cloudMachineRemove(ctx context.Context, c *cloud.Client, args []string) err
 		return err
 	}
 	_ = cloud.ForgetKey(m.ID)
+	syncCatalog(ctx, c)
 	fmt.Fprintf(cloudOut, "Destroying %s.\n", m.Name)
 	return nil
 }

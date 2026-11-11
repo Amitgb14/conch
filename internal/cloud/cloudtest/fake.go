@@ -432,7 +432,7 @@ func (f *Fake) JoinGateway(t *testing.T, serverSocket string, key noise.DHKey, s
 	t.Cleanup(g.Stop)
 	// Wait until it has joined the room.
 	deadline := time.Now().Add(10 * time.Second)
-	for l.Status().Connected == false {
+	for !l.Status().Connected {
 		if time.Now().After(deadline) {
 			t.Fatal("the gateway never joined the relay")
 		}

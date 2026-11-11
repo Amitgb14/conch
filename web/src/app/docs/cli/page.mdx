@@ -346,10 +346,14 @@ conch cloud machine new NAME [-size S] [-region R] [-provider ID] [-wait]
 conch cloud machine wake|sleep NAME [-force]   # sleep refuses while agents work, unless -force
 conch cloud machine rm NAME [-y]               # destroy it and its disk
 conch cloud machine forget-key NAME            # the next connection pins whatever key it is given
+conch cloud exec [-t] NAME [-- SCRIPT…]        # run a script there (a shell with none), waking it
+conch cloud bridge NAME                        # conch's protocol on stdin/stdout, for conch machine bridge
 conch cloud agent [-boot FILE] [-state DIR] [-user NAME]   # inside a Conch Cloud machine only
 conch cloud install [-user NAME]                          # ready a machine image (as root)
 conch cloud git-credential [-socket PATH] get              # git's credential helper there
 ```
+
+Once signed in, the account's machines are in conch's machines (`conch machine ls`, the TUI's tree, Conch.app's sidebar) as `conch:<id>`, named as on the account, and `-m NAME` reaches one. They are reached through Conch Cloud's relay rather than ssh: `exec` and `bridge` ask the control plane for a ticket and the machine's key, check the key against the one kept from the first connection (`cloud-keys.json`; a different key on a machine that was not recreated is refused), and open an end-to-end encrypted tunnel to the machine's conch. A background connection never wakes a machine that sleeps — it is shown asleep — but `exec` and `bridge`, asked for by you, wake it and wait.
 
 `conch cloud agent` is the machine's side of Conch Cloud, and runs **inside** a cloud machine: its host starts it (the `conch-cloud-agent` systemd unit — see [Cloud machine image](/docs/cloud-machine)) after writing `/run/conch-cloud/boot.json`. It refuses a `boot.json` anyone but its owner can read, keeps the machine's Noise key in `/var/lib/conch/cloud/noise.key` (0600, made once), starts the machine's conch server as `-user` (`conch` when it runs as root), says hello to the control plane, reports what the agents are doing so an idle machine sleeps, and joins the relay as the room's gateway so clients reach the server through an end-to-end encrypted tunnel. Agents it starts are given the account's env secrets; the machine token and those secrets are never written to disk. It exits 3 when the control plane refuses its token — each inject gives the machine a new one and restarts the agent — and 4 when the control plane refuses the machine itself. `install` readies a machine image: it writes the `conch-cloud-agent` unit (running this conch), enables it and makes `/var/lib/conch/cloud`; the user (`conch` by default) must exist. `git-credential` is what git asks for the git proxy's password: the machine token, from the agent's memory.
 

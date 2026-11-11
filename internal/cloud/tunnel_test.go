@@ -1,4 +1,4 @@
-package cloud
+package cloud_test
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,16 +17,17 @@ import (
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/relay"
-	"github.com/Amitgb14/conch/internal/server"
 
 	"github.com/Amitgb14/conch/internal/cloud/cloudtest"
+
+	"github.com/Amitgb14/conch/internal/cloud"
 )
 
 // tunnelRig is a signed-in client, a fake control plane, its relay, and a
 // machine whose gateway (cloudagent's) fronts a real conch server.
 type tunnelRig struct {
 	f    *cloudtest.Fake
-	c    *Client
+	c    *cloud.Client
 	gw   *cloudtest.Gateway
 	m    *cloudtest.Machine
 	sock string
@@ -42,17 +44,9 @@ func newTunnelRig(t *testing.T) *tunnelRig {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "s.sock")
-	srv := server.New(sock, dir)
-	go srv.Run()
-	t.Cleanup(srv.StopAndWait)
-	for range 200 {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	serveConch(t, sock)
 	gw := f.StartGateway(t, sock)
-	m := f.AddMachine("box", StateRunning, gw.Key, gw.Room)
+	m := f.AddMachine("box", cloud.StateRunning, gw.Key, gw.Room)
 	return &tunnelRig{f: f, c: c, gw: gw, m: m, sock: sock}
 }
 
@@ -69,7 +63,7 @@ func TestBridgeCarriesConchsProtocol(t *testing.T) {
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	done := make(chan error, 1)
-	go func() { done <- Bridge(ctx, s, inR, outW); outW.Close() }()
+	go func() { done <- cloud.Bridge(ctx, s, inR, outW); outW.Close() }()
 	c, err := client.New(rwc{outR, inW}, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +101,7 @@ func TestExecExitCodeStdinStderr(t *testing.T) {
 	}
 	defer s.Close()
 	var out, errb bytes.Buffer
-	code, err := Exec(ctx, s, ExecOptions{Script: `cat; echo oops >&2; exit 7`, Stdin: strings.NewReader("from stdin\n"), Stdout: &out, Stderr: &errb})
+	code, err := cloud.Exec(ctx, s, cloud.ExecOptions{Script: `cat; echo oops >&2; exit 7`, Stdin: strings.NewReader("from stdin\n"), Stdout: &out, Stderr: &errb})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,13 +110,13 @@ func TestExecExitCodeStdinStderr(t *testing.T) {
 	}
 	// No stdin at all: EOF at once, so cat ends.
 	out.Reset()
-	code, err = Exec(ctx, s, ExecOptions{Script: `cat; echo done`, Stdout: &out})
+	code, err = cloud.Exec(ctx, s, cloud.ExecOptions{Script: `cat; echo done`, Stdout: &out})
 	if err != nil || code != 0 || out.String() != "done\n" {
 		t.Fatalf("no stdin: %d %q %v", code, out.String(), err)
 	}
 	// A terminal, when asked for.
 	out.Reset()
-	code, err = Exec(ctx, s, ExecOptions{Script: `[ -t 0 ] && stty size`, TTY: true, Cols: 91, Rows: 17, Stdout: &out})
+	code, err = cloud.Exec(ctx, s, cloud.ExecOptions{Script: `[ -t 0 ] && stty size`, TTY: true, Cols: 91, Rows: 17, Stdout: &out})
 	if err != nil || code != 0 || !strings.Contains(out.String(), "17 91") {
 		t.Fatalf("tty: %d %q %v", code, out.String(), err)
 	}
@@ -152,7 +146,7 @@ func TestDroppedMidStream(t *testing.T) {
 	}
 	res := make(chan error, 1)
 	go func() {
-		_, err := Exec(ctx, s, ExecOptions{Script: `echo started; cat`, Stdin: pr, Stdout: &out})
+		_, err := cloud.Exec(ctx, s, cloud.ExecOptions{Script: `echo started; cat`, Stdin: pr, Stdout: &out})
 		res <- err
 	}()
 	<-got
@@ -160,7 +154,7 @@ func TestDroppedMidStream(t *testing.T) {
 	r.gw.Stop()
 	select {
 	case err := <-res:
-		if !errors.Is(err, ErrDropped) {
+		if !errors.Is(err, cloud.ErrDropped) {
 			t.Fatalf("err %v", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -176,12 +170,12 @@ func TestDroppedMidStream(t *testing.T) {
 	}
 	inR, _ := io.Pipe()
 	bres := make(chan error, 1)
-	go func() { bres <- Bridge(ctx, s2, inR, io.Discard) }()
+	go func() { bres <- cloud.Bridge(ctx, s2, inR, io.Discard) }()
 	time.Sleep(100 * time.Millisecond)
 	r2.gw.Stop()
 	select {
 	case err := <-bres:
-		if !errors.Is(err, ErrDropped) {
+		if !errors.Is(err, cloud.ErrDropped) {
 			t.Fatalf("bridge err %v", err)
 		}
 	case <-time.After(10 * time.Second):
@@ -225,13 +219,13 @@ func TestRefusedTicket(t *testing.T) {
 func TestWakesAndWaits(t *testing.T) {
 	r := newTunnelRig(t)
 	ctx := ctxT(t)
-	r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State = StateAsleep })
+	r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State = cloud.StateAsleep })
 	go func() {
 		for r.f.Count("POST /v1/machines/"+r.m.ID+"/wake") == 0 {
 			time.Sleep(5 * time.Millisecond)
 		}
 		time.Sleep(50 * time.Millisecond)
-		r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State = StateRunning })
+		r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State = cloud.StateRunning })
 	}()
 	var said []string
 	s, err := r.c.Dial(ctx, r.m.ID, func(m string) { said = append(said, m) })
@@ -243,7 +237,7 @@ func TestWakesAndWaits(t *testing.T) {
 		t.Fatalf("said %q", said)
 	}
 	// A machine in error is said, with why.
-	r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State, m.StateDetail = StateError, "its VM never said hello" })
+	r.f.SetMachine(r.m.ID, func(m *cloudtest.Machine) { m.State, m.StateDetail = cloud.StateError, "its VM never said hello" })
 	if _, err := r.c.Dial(ctx, r.m.ID, nil); err == nil || !strings.Contains(err.Error(), "never said hello") {
 		t.Fatalf("error state: %v", err)
 	}
@@ -272,48 +266,6 @@ func TestNoGatewayYet(t *testing.T) {
 	}
 }
 
-func TestKeyPinning(t *testing.T) {
-	isolate(t)
-	created := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	m := Machine{ID: "m_aaaaaaaaaaaaaaaa", Name: "box", CreatedAt: created}
-	if err := checkPin(m, "key-one"); err != nil {
-		t.Fatalf("first use: %v", err)
-	}
-	if err := checkPin(m, "key-one"); err != nil {
-		t.Fatalf("same key: %v", err)
-	}
-	err := checkPin(m, "key-two")
-	var kc *KeyChangedError
-	if !errors.As(err, &kc) || !strings.Contains(err.Error(), "forget-key m_aaaaaaaaaaaaaaaa") {
-		t.Fatalf("changed key: %v", err)
-	}
-	// Recreated: a new created_at, a new key, pinned again.
-	m.CreatedAt = created.Add(time.Hour)
-	if err := checkPin(m, "key-two"); err != nil {
-		t.Fatalf("recreated: %v", err)
-	}
-	if err := checkPin(m, "key-one"); err == nil {
-		t.Fatal("the old key passed after re-pinning")
-	}
-	// Forgotten: whatever comes next is pinned.
-	if err := ForgetKey(m.ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkPin(m, "key-three"); err != nil {
-		t.Fatal(err)
-	}
-	if err := ForgetKey("m_bbbbbbbbbbbbbbbb"); err == nil {
-		t.Fatal("forgot a key never pinned")
-	}
-	st, _ := os.Stat(KeysPath())
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("cloud-keys.json is %04o", st.Mode().Perm())
-	}
-	if err := checkPin(m, ""); err == nil {
-		t.Fatal("an empty key passed")
-	}
-}
-
 // TestDialRefusesAChangedKey: the control plane handing out a key the
 // machine did not make is refused before the relay is dialled.
 func TestDialRefusesAChangedKey(t *testing.T) {
@@ -328,24 +280,9 @@ func TestDialRefusesAChangedKey(t *testing.T) {
 	r.f.Mu.Lock()
 	r.f.Keys[r.m.ID] = relay.EncodeKey(other.Public)
 	r.f.Mu.Unlock()
-	var kc *KeyChangedError
+	var kc *cloud.KeyChangedError
 	if _, err := r.c.Dial(ctx, r.m.ID, nil); !errors.As(err, &kc) {
 		t.Fatalf("err %v", err)
-	}
-}
-
-func TestDecodeKey(t *testing.T) {
-	k, _ := relay.NewKey()
-	for _, s := range []string{relay.EncodeKey(k.Public), relay.EncodeKey(k.Public) + "="} {
-		if b, err := decodeKey(s); err != nil || !bytes.Equal(b, k.Public) {
-			t.Fatalf("%q: %v", s, err)
-		}
-	}
-	if _, err := decodeKey("c2hvcnQ"); err == nil {
-		t.Fatal("a short key decoded")
-	}
-	if _, err := decodeKey("!!"); err == nil {
-		t.Fatal("garbage decoded")
 	}
 }
 
@@ -362,3 +299,42 @@ func scanLines(r io.Reader) []string {
 var _ = json.Marshal
 var _ = context.Background
 var _ = scanLines
+
+// serveConch is a conch server as far as a bridge can tell: it answers
+// hello and any other call, one JSON line each. (The real server cannot
+// be imported here: it imports remote, which imports this package.)
+func serveConch(t *testing.T, sock string) {
+	t.Helper()
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				sc := bufio.NewScanner(c)
+				sc.Buffer(make([]byte, 64<<10), 8<<20)
+				for sc.Scan() {
+					var m proto.Message
+					if json.Unmarshal(sc.Bytes(), &m) != nil || m.ID == "" {
+						continue
+					}
+					res := json.RawMessage(`[]`)
+					if m.Method == proto.MethodHello {
+						res = proto.Marshal(proto.HelloResult{Version: proto.Version, Protocol: proto.ProtocolVersion, Capabilities: proto.Capabilities})
+					}
+					b, _ := json.Marshal(proto.Message{ID: m.ID, Result: res})
+					if _, err := c.Write(append(b, '\n')); err != nil {
+						return
+					}
+				}
+			}()
+		}
+	}()
+}

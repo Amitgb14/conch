@@ -15,7 +15,20 @@ import (
 
 	"github.com/Amitgb14/conch/internal/cloud"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/remote"
 )
+
+// syncCatalog puts the account's machines in conch's catalog, where the
+// TUI, Conch.app and -m find machines. Failing to is said, not fatal.
+func syncCatalog(ctx context.Context, c *cloud.Client) {
+	ms, err := c.Machines(ctx)
+	if err == nil {
+		err = remote.SyncCloudMachines(ms)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "conch: the cloud machines were not added to conch's machines: %v\n", err)
+	}
+}
 
 // conch login, logout and account: this device's Conch Cloud sign-in.
 // Nothing here asks the network unless somebody has signed in, or asks to.
@@ -103,6 +116,7 @@ func runLogin(args []string) error {
 	if me, err := c.Me(ctx); err == nil {
 		handle = me.Handle
 	}
+	syncCatalog(ctx, c)
 	emit(loginEvent{Event: "signed_in", API: server, Handle: handle})
 	if !*asJSON {
 		who := handle
@@ -128,13 +142,18 @@ func runLogout(args []string) error {
 		if ferr := cloud.Forget(); ferr != nil {
 			return ferr
 		}
+		_ = remote.ForgetCloudMachines()
 		fmt.Fprintf(cloudOut, "Signed out here (%v).\n", err)
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	who := c.Account().Handle
-	if err := c.Logout(ctx); err != nil {
+	err = c.Logout(ctx)
+	if ferr := remote.ForgetCloudMachines(); ferr != nil && err == nil {
+		err = ferr
+	}
+	if err != nil {
 		return err
 	}
 	if who != "" {

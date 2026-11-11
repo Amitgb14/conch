@@ -1,4 +1,4 @@
-package cloud
+package cloud_test
 
 import (
 	"fmt"
@@ -6,14 +6,15 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
+
+	"github.com/Amitgb14/conch/internal/cloud"
 )
 
 func TestMain(m *testing.M) {
 	// No test reaches a real Keychain: the default is nil in a test
 	// binary already; this says it out loud.
-	SetKeychain(nil)
-	pollUnit, waitPoll, eventsRetry = time.Millisecond, 10*time.Millisecond, 10*time.Millisecond
+	cloud.SetKeychain(nil)
+	cloud.FastForTest()
 	os.Exit(m.Run())
 }
 
@@ -28,7 +29,7 @@ func isolate(t *testing.T) string {
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
 	t.Setenv("SHELL", "/bin/sh")
-	t.Setenv(URLEnv, "")
+	t.Setenv(cloud.URLEnv, "")
 	return dir
 }
 

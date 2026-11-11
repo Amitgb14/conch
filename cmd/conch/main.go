@@ -274,6 +274,14 @@ Usage:
                                 wake one or put it to sleep (-force while agents work),
                                 destroy one, or forget the key pinned for it so the next
                                 connection pins the one Conch Cloud gives
+  conch cloud exec [-t] NAME [-- SCRIPT…]
+                                run a script on a cloud machine (a login shell with no
+                                script), through Conch Cloud's relay end to end; it wakes
+                                the machine and waits for it. Exits with the script's
+                                status, 255 when the tunnel failed, 254 when it never will
+                                (signed out, a machine key that changed)
+  conch cloud bridge NAME       conch's protocol to a cloud machine's server on stdin and
+                                stdout: what conch machine bridge runs for one
   conch cloud agent [-boot FILE] [-state DIR] [-user NAME] [-socket PATH] [-server-socket PATH]
                                 runs inside a Conch Cloud machine, started by its host (the
                                 conch-cloud-agent systemd unit): reads boot.json (root-only,

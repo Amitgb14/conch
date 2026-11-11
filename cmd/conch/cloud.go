@@ -24,6 +24,10 @@ func runCloud(args []string) error {
 	switch args[0] {
 	case "machine", "machines":
 		return runCloudMachine(args[1:])
+	case "bridge":
+		return runCloudBridge(args[1:])
+	case "exec":
+		return runCloudExec(args[1:])
 	case "agent":
 		return runCloudAgent(args[1:])
 	case "install":
@@ -31,7 +35,7 @@ func runCloud(args []string) error {
 	case "git-credential":
 		return cloudagent.GitCredential(args[1:], os.Stdin, os.Stdout)
 	}
-	return fmt.Errorf("unknown cloud subcommand %q (machine, agent, install, git-credential)", args[0])
+	return fmt.Errorf("unknown cloud subcommand %q (machine, bridge, exec, agent, install, git-credential)", args[0])
 }
 
 // runCloudInstall readies a machine image: the agent's systemd unit,
