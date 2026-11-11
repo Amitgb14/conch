@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -87,7 +88,7 @@ type securityKeychain struct{}
 // security(1) is driven through its interactive mode on stdin, so the
 // secret is never in an argv that ps shows.
 func (securityKeychain) Set(account, secret string) error {
-	cmd := exec.Command("/usr/bin/security", "-i")
+	cmd := security("-i")
 	cmd.Stdin = strings.NewReader(fmt.Sprintf("add-generic-password -U -s %s -a %s -w %s\n",
 		quoteSecurity(keychainService), quoteSecurity(account), quoteSecurity(secret)))
 	out, err := cmd.CombinedOutput()
@@ -98,7 +99,7 @@ func (securityKeychain) Set(account, secret string) error {
 }
 
 func (securityKeychain) Get(account string) (string, error) {
-	out, err := exec.Command("/usr/bin/security", "find-generic-password", "-s", keychainService, "-a", account, "-w").Output()
+	out, err := security("find-generic-password", "-s", keychainService, "-a", account, "-w").Output()
 	if err != nil {
 		return "", fmt.Errorf("keychain: no %s item for %s", keychainService, account)
 	}
@@ -106,11 +107,23 @@ func (securityKeychain) Get(account string) (string, error) {
 }
 
 func (securityKeychain) Delete(account string) error {
-	out, err := exec.Command("/usr/bin/security", "delete-generic-password", "-s", keychainService, "-a", account).CombinedOutput()
+	out, err := security("delete-generic-password", "-s", keychainService, "-a", account).CombinedOutput()
 	if err != nil && !bytes.Contains(out, []byte("could not be found")) {
 		return fmt.Errorf("keychain: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// security runs security(1) with HOME the account's own: it finds the
+// login keychain under $HOME/Library, so a conch run with another HOME —
+// a scratch one, a sandboxed tool's — would otherwise find no keychain and
+// lose the sign-in.
+func security(args ...string) *exec.Cmd {
+	cmd := exec.Command("/usr/bin/security", args...)
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		cmd.Env = append(os.Environ(), "HOME="+u.HomeDir)
+	}
+	return cmd
 }
 
 // quoteSecurity quotes a word for security -i, which splits like a shell.
