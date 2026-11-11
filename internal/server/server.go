@@ -100,6 +100,9 @@ type client struct {
 	// pane is the pane the connection comes from, as the kernel says; ""
 	// from outside the panes. See scope.go.
 	pane string
+	// root says the connection is root's, as the kernel says: the cloud
+	// agent's, on a cloud machine, where nothing in a pane is (cloud.go).
+	root bool
 	// actFor is the agent on another machine the connection is held to
 	// (scope.act_for), guarded by mu.
 	actFor proto.ActForParams
@@ -366,7 +369,7 @@ func (s *Server) shutdown() {
 func (s *Server) serve(nc net.Conn) {
 	pid := peerPID(nc)
 	s.noteCaller(pid) // CONCH_LOG_CALLER=1; see scope.go
-	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid)}
+	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid), root: peerUID(nc) == 0}
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -518,7 +521,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		if perr := s.cloud.register(c, rp.Socket); perr != nil {
+		if perr := s.cloud.register(c, rp); perr != nil {
 			return nil, perr
 		}
 		return proto.CloudAgentRegisterResult{Capabilities: s.capabilities()}, nil

@@ -22,11 +22,22 @@ import (
 // own environment, not a file, not a pane that is only a shell. The
 // registration is the connection's: when the cloud agent goes, so does
 // cloud.agent.v1.
+//
+// Whoever registers decides what every agent's environment holds, so the
+// registration is guarded: never from inside a pane, never over a live
+// one — except by root, which is what the real cloud agent runs as and
+// nothing in a pane can be. And the registration carries a key the cloud
+// agent made, which the server sends with each ask, so that its socket
+// gives the secrets to this server and not to any process of the same
+// user that finds it. That keeps them out of a shell's reach on demand;
+// it cannot hide them from that user once an agent holds them, since a
+// process's environment is readable by its user (/proc/PID/environ).
 
 type cloudAgent struct {
 	mu     sync.Mutex
 	owner  *client
 	socket string
+	key    string
 }
 
 // cloudAskWait is how long an agent's start waits for its secrets: a
@@ -34,14 +45,24 @@ type cloudAgent struct {
 // and the agent starts without them.
 var cloudAskWait = 10 * time.Second
 
-func (ca *cloudAgent) register(c *client, socket string) *proto.Error {
-	if socket == "" || !filepath.IsAbs(socket) {
-		return proto.Errorf(proto.ErrBadRequest, "cloud agent socket %q is not an absolute path", socket)
+func (ca *cloudAgent) register(c *client, p proto.CloudAgentRegisterParams) *proto.Error {
+	if p.Socket == "" || !filepath.IsAbs(p.Socket) {
+		return proto.Errorf(proto.ErrBadRequest, "cloud agent socket %q is not an absolute path", p.Socket)
+	}
+	c.mu.Lock()
+	actFor := c.actFor.ID
+	c.mu.Unlock()
+	if c.pane != "" || actFor != "" {
+		// Even a shell's: an agent types into shells it started.
+		return proto.Errorf(proto.ErrOutOfScope, "a cloud agent is not registered from inside a pane: it would decide what every agent's environment holds")
 	}
 	ca.mu.Lock()
-	ca.owner, ca.socket = c, socket
-	ca.mu.Unlock()
-	log.Printf("cloud agent registered at %s", socket)
+	defer ca.mu.Unlock()
+	if ca.owner != nil && ca.owner != c && !(c.root && !ca.owner.root) {
+		return proto.Errorf(proto.ErrCloudAgentHeld, "another connection is registered as this machine's cloud agent")
+	}
+	ca.owner, ca.socket, ca.key = c, p.Socket, p.Key
+	log.Printf("cloud agent registered at %s", p.Socket)
 	return nil
 }
 
@@ -50,7 +71,7 @@ func (ca *cloudAgent) forget(c *client) {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 	if ca.owner == c {
-		ca.owner, ca.socket = nil, ""
+		ca.owner, ca.socket, ca.key = nil, "", ""
 		log.Printf("cloud agent gone")
 	}
 }
@@ -64,17 +85,23 @@ func (ca *cloudAgent) registered() bool {
 // envName is a variable a shell can carry; anything else is not passed.
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// envReserved are names a secret may not take: conch's own variables,
+// which come before the secrets and would lose to them (CONCH_PANE_ID is
+// how hooks say which pane they are), and those that change what a
+// program loads or where it looks rather than what it is told.
+var envReserved = regexp.MustCompile(`^(CONCH_.*|LD_.*|DYLD_.*|PATH|HOME|USER|LOGNAME|SHELL|TERM|BASH_ENV|ENV|NODE_OPTIONS|PYTHONSTARTUP|PYTHONPATH|PERL5OPT|RUBYOPT)$`)
+
 // env is NAME=value for each env-mode secret, asked of the cloud agent now,
 // or nothing — with the reason logged, never the values — when there is no
 // cloud agent or it cannot say.
 func (ca *cloudAgent) env() []string {
 	ca.mu.Lock()
-	socket := ca.socket
+	socket, key := ca.socket, ca.key
 	ca.mu.Unlock()
 	if socket == "" {
 		return nil
 	}
-	ans, err := askCloudAgent(socket, proto.CloudAgentAsk{Op: proto.CloudAskEnv}, cloudAskWait)
+	ans, err := askCloudAgent(socket, proto.CloudAgentAsk{Op: proto.CloudAskEnv, Key: key}, cloudAskWait)
 	if err != nil {
 		log.Printf("cloud agent: no secrets for this agent: %v", err)
 		return nil
@@ -85,7 +112,7 @@ func (ca *cloudAgent) env() []string {
 	}
 	names := make([]string, 0, len(ans.Env))
 	for k := range ans.Env {
-		if envName.MatchString(k) {
+		if envName.MatchString(k) && !envReserved.MatchString(k) {
 			names = append(names, k)
 		}
 	}

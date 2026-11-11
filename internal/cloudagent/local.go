@@ -3,6 +3,7 @@ package cloudagent
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net"
@@ -20,6 +21,14 @@ import (
 // Neither is ever written to the machine's disk or put in an environment
 // that outlives the one process it is for. The socket is the person's
 // user's, 0600: that user's processes may ask, nobody else's.
+//
+// Among that user's processes, env is answered only to the conch server
+// this agent registered with — it sends the key the agent gave it — so a
+// shell cannot fetch the secrets whenever it likes. The git token is
+// another matter: git runs as that user, in whatever an agent started, so
+// anything that user runs can ask for it as git does. That is the
+// contract's (PROTOCOL §6: the git proxy takes the machine token), and
+// narrowing it is a change to the contract, not to this socket.
 
 // localAskWait bounds one ask, the control plane's answer included.
 var localAskWait = 15 * time.Second
@@ -93,6 +102,10 @@ const gitUser = "conch"
 func (a *Agent) answer(ctx context.Context, ask proto.CloudAgentAsk) proto.CloudAgentAnswer {
 	switch ask.Op {
 	case proto.CloudAskEnv:
+		if subtle.ConstantTimeCompare([]byte(ask.Key), []byte(a.serverKey)) != 1 {
+			a.logf("cloud: env secrets asked for without the conch server's key; not given")
+			return proto.CloudAgentAnswer{Error: "env secrets are given to the conch server this agent registered with, and nothing else"}
+		}
 		ctx, cancel := context.WithTimeout(ctx, localAskWait)
 		defer cancel()
 		env, err := a.api.Env(ctx)

@@ -2,6 +2,8 @@ package cloudagent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -46,6 +48,9 @@ type Agent struct {
 	opts Options
 	key  noise.DHKey
 	api  *API
+	// serverKey is what the conch server is given when the agent
+	// registers and sends back to ask for env secrets (local.go).
+	serverKey string
 
 	mu        sync.Mutex
 	boot      Boot
@@ -108,7 +113,11 @@ func New(opts Options) (*Agent, error) {
 	if opts.Logf == nil {
 		opts.Logf = log.Printf
 	}
-	return &Agent{opts: opts, panes: map[string]proto.PaneInfo{}, projects: map[string]string{},
+	var k [32]byte
+	if _, err := rand.Read(k[:]); err != nil {
+		return nil, err
+	}
+	return &Agent{opts: opts, serverKey: hex.EncodeToString(k[:]), panes: map[string]proto.PaneInfo{}, projects: map[string]string{},
 		changed: make(chan struct{}, 1)}, nil
 }
 
@@ -160,7 +169,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	defer ln.Close()
 	goWait(func() { a.serveLocal(ctx, ln) })
 
-	if err := a.connectServer(ctx); err != nil {
+	if err := a.connectServer(ctx); errors.Is(err, errServerHeld) {
+		a.logf("cloud: %v", err) // serverLoop tries again
+	} else if err != nil {
 		return err
 	}
 	defer func() {
@@ -299,6 +310,9 @@ func (a *Agent) kick() {
 
 // ---- the local conch server ----
 
+// errServerHeld is a conch server that has another cloud agent registered.
+var errServerHeld = errors.New("the conch server has another cloud agent registered")
+
 // connectServer starts the server if it is not running, connects, and
 // registers this agent with it.
 func (a *Agent) connectServer(ctx context.Context) error {
@@ -313,7 +327,15 @@ func (a *Agent) connectServer(ctx context.Context) error {
 	defer cancel()
 	caps := c.Server.Capabilities
 	var reg proto.CloudAgentRegisterResult
-	if err := c.Call(cctx, proto.MethodCloudAgentRegister, proto.CloudAgentRegisterParams{Socket: a.opts.AgentSocket}, &reg); err != nil {
+	if err := c.Call(cctx, proto.MethodCloudAgentRegister, proto.CloudAgentRegisterParams{Socket: a.opts.AgentSocket, Key: a.serverKey}, &reg); err != nil {
+		var perr *proto.Error
+		if errors.As(err, &perr) && perr.Code == proto.ErrCloudAgentHeld {
+			// Something else got there first — a cloud agent that has not
+			// gone yet, or a process pretending to be one. Agents must not
+			// take secrets from it, so try again until it is gone.
+			c.Close()
+			return fmt.Errorf("%w (%s); trying again", errServerHeld, perr.Message)
+		}
 		// A server from before cloud.agent.v1 runs agents without their
 		// secrets; everything else works.
 		a.logf("cloud: the conch server (%s) did not take this agent (%v): agents start without env secrets", c.Server.Version, err)

@@ -2,7 +2,6 @@ package cloudagent
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -157,22 +156,7 @@ func ensureServer(exe, sock, logPath string, u *User) error {
 		c.Close()
 		return nil
 	}
-	_ = os.Remove(sock) // a socket nobody answers on: it would stop the new server binding
-	for _, dir := range []string{filepath.Dir(sock), filepath.Dir(logPath)} {
-		if err := mkdirOwned(dir, u); err != nil {
-			return err
-		}
-	}
-	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer logf.Close()
-	_ = os.Chown(logPath, u.UID, u.GID)
-	cmd := exec.Command(exe, "server")
-	cmd.Dir = u.Home
-	cmd.Env = u.env("CONCH_SOCKET=" + sock)
-	cmd.Stdout, cmd.Stderr = logf, logf
+	cmd := serverCommand(exe, sock, logPath, u)
 	cmd.SysProcAttr = u.credential()
 	cmd.SysProcAttr.Setsid = true
 	if err := cmd.Start(); err != nil {
@@ -196,21 +180,22 @@ func ensureServer(exe, sock, logPath string, u *User) error {
 	}
 }
 
-// mkdirOwned makes dir, and any parent it has to make, owned by u: a
-// conch directory root made would be one the server cannot write in.
-func mkdirOwned(dir string, u *User) error {
-	if _, err := os.Stat(dir); err == nil {
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := mkdirOwned(filepath.Dir(dir), u); err != nil {
-		return err
-	}
-	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
-	}
-	return os.Chown(dir, u.UID, u.GID)
+// serverScript makes the server's directories, opens its log and runs it
+// ($1 server, socket $2, log $3) — all as the user it is started as. The
+// agent is root and those paths are in the user's home, where any of the
+// user's processes can leave a symlink: root opening the log, or chowning
+// it or a directory, once followed server.log to /etc/passwd and handed it
+// to the user. So root touches nothing there, and the server removes a
+// stale socket itself, as it always does.
+const serverScript = `umask 077 && mkdir -p -- "$(dirname -- "$2")" "$(dirname -- "$3")" && exec "$1" server >>"$3" 2>&1`
+
+// serverCommand is conch server started through serverScript as u, not
+// yet given u's credentials.
+func serverCommand(exe, sock, logPath string, u *User) *exec.Cmd {
+	cmd := exec.Command("/bin/sh", "-c", serverScript, "conch-server", exe, sock, logPath)
+	cmd.Dir = u.Home
+	cmd.Env = u.env("CONCH_SOCKET=" + sock)
+	return cmd
 }
 
 // serverSocket is where u's conch server listens: as config.SocketPath
