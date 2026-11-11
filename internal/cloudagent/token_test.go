@@ -104,10 +104,12 @@ func TestRetryAfterIsCapped(t *testing.T) {
 // TestActivityHonoursRetryAfter: while the control plane has asked for a
 // wait, changes do not each send a report; the retry sends them at once.
 func TestActivityHonoursRetryAfter(t *testing.T) {
-	r := newRig(t)
+	// Restored only once the agent has stopped: cleanups run last first,
+	// and the rig's stops the agent.
 	was := retryAfterMax
 	retryAfterMax = 800 * time.Millisecond
 	t.Cleanup(func() { retryAfterMax = was })
+	r := newRig(t)
 	var n atomic.Int32
 	r.cloud.handle("POST /v1/vm/activity", func(w http.ResponseWriter, _ *http.Request) {
 		if n.Add(1) == 1 {

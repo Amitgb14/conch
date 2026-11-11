@@ -41,6 +41,9 @@ type Options struct {
 	// GitConfig sets one system-wide git setting (git.go); nil is git
 	// config --system.
 	GitConfig func(ctx context.Context, args ...string) error
+	// ExecKillAfter is how long an /exec script whose client went has to
+	// end on its SIGHUP before it is killed; 0 is execKillAfter.
+	ExecKillAfter time.Duration
 }
 
 // Agent is one run of conch cloud agent.
@@ -112,6 +115,9 @@ func New(opts Options) (*Agent, error) {
 	}
 	if opts.Logf == nil {
 		opts.Logf = log.Printf
+	}
+	if opts.ExecKillAfter <= 0 {
+		opts.ExecKillAfter = execKillAfter
 	}
 	var k [32]byte
 	if _, err := rand.Read(k[:]); err != nil {
