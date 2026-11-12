@@ -253,3 +253,115 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     #expect(reusableShell(panes, cwd: nil, shown: { _ in false }) == nil && reusableShell(panes, cwd: "", shown: { _ in false }) == nil)
     #expect(reusableShell([], cwd: "/w", shown: { _ in false }) == nil)
 }
+
+@Test func chatLogMergesUpdates() {
+    var log = ChatLog()
+    #expect(!log.loaded)
+    let first = AgentChat(agent: "claude", session: "s1", turns: [
+        ChatTurn(seq: 0, role: "user", text: "hi"),
+        ChatTurn(seq: 1, role: "tool", text: "Bash", done: false),
+    ], epoch: "e1", ver: 5, reset: true)
+    let c1 = log.apply(first)
+    #expect(c1)
+    #expect(log.loaded && log.turns.count == 2 && log.ver == 5 && log.epoch == "e1")
+    // An update with reset left out (the server omits false): the tool's
+    // result replaces its turn, a new turn is added.
+    let up = AgentChat(agent: "claude", session: "s1", turns: [
+        ChatTurn(seq: 1, role: "tool", text: "Bash", output: "ok", done: true),
+        ChatTurn(seq: 2, role: "assistant", text: "Done."),
+    ], epoch: "e1", ver: 7)
+    let c2 = log.apply(up)
+    #expect(c2)
+    #expect(log.turns.map(\.seq) == [0, 1, 2] && log.turns[1].output == "ok" && log.ver == 7)
+    // Nothing changed: says so.
+    let c3 = log.apply(AgentChat(agent: "claude", session: "s1", turns: [], epoch: "e1", ver: 7))
+    #expect(!c3)
+    // A turn arriving out of order goes in its place.
+    log.apply(AgentChat(agent: "claude", session: "s1", turns: [ChatTurn(seq: 4, role: "user", text: "b")], epoch: "e1", ver: 8))
+    log.apply(AgentChat(agent: "claude", session: "s1", turns: [ChatTurn(seq: 3, role: "user", text: "a")], epoch: "e1", ver: 9))
+    #expect(log.turns.map(\.seq) == [0, 1, 2, 3, 4])
+    // Another log (the server restarted, a new conversation): replaced.
+    log.apply(AgentChat(agent: "claude", session: "s1", turns: [ChatTurn(seq: 0, role: "user", text: "x")], epoch: "e2", ver: 1, reset: true))
+    #expect(log.turns.count == 1 && log.epoch == "e2")
+    log.apply(AgentChat(agent: "claude", session: "s2", turns: [], epoch: "e2", ver: 2))
+    #expect(log.turns.isEmpty && log.session == "s2", "a new session starts empty")
+    // A server that keeps no versions sends everything: replaced each time.
+    var old = ChatLog()
+    old.apply(AgentChat(agent: "codex", session: "x", turns: [ChatTurn(role: "user", text: "a")]))
+    old.apply(AgentChat(agent: "codex", session: "x", turns: [ChatTurn(role: "user", text: "a"), ChatTurn(role: "assistant", text: "b")]))
+    #expect(old.turns.count == 2 && old.epoch == nil)
+}
+
+@Test func chatLogKnowsWhatWasSent() {
+    var log = ChatLog()
+    log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: 0, role: "user", text: "fix it")], epoch: "e", ver: 1, reset: true))
+    #expect(!log.has(sent: "fix it", after: 1), "the same words said before do not count")
+    log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: 1, role: "user", text: "fix it\n")], epoch: "e", ver: 2))
+    #expect(log.has(sent: " fix it", after: 1))
+    #expect(!log.has(sent: "other", after: 0) && !log.has(sent: "fix it", after: 9))
+}
+
+@Test func chatBlocksNotesAndSeqs() {
+    let b = chatBlocks([ChatTurn(seq: 10, role: "user", text: "a"), ChatTurn(seq: 11, role: "note", text: "Interrupted"),
+                        ChatTurn(seq: 12, role: "tool", text: "Read"), ChatTurn(seq: 13, role: "tool", text: "Edit")])
+    #expect(b.count == 3 && b[0].id == 10 && b[1] == .note("Interrupted", 11))
+    if case .tools(let run, let at) = b[2] { #expect(run.count == 2 && at == 12) } else { Issue.record("no run") }
+}
+
+@Test func chatTurnDecodesToolFields() throws {
+    let json = #"{"agent":"claude","epoch":"e","ver":3,"turns":[{"seq":4,"role":"tool","text":"Edit","detail":"/a","input":"- a\n+ b","input_kind":"diff","output":"ok","error":true,"done":true}]}"#
+    let c = try conchDecoder().decode(AgentChat.self, from: Data(json.utf8))
+    let t = try #require(c.turns?.first)
+    #expect(c.epoch == "e" && c.ver == 3 && c.reset == nil)
+    #expect(t.seq == 4 && t.inputKind == "diff" && t.output == "ok" && t.error == true && t.done == true)
+}
+
+@Test func markdownBlocksOfAnAnswer() {
+    let md = """
+    # Title
+    Some **bold** text
+    carried on.
+
+    - one
+    - two
+      wrapped
+      - nested
+    1. first
+    2) second
+    - [ ] todo
+    - [x] done
+
+    ```swift
+    let x = 1
+    ```
+
+    > quoted
+    > more
+
+    | A | B |
+    |---|:-:|
+    | 1 | 2 |
+    | 3 |
+
+    ---
+    #nothash
+    """
+    let b = markdownBlocks(md)
+    #expect(b[0] == .heading(1, "Title"))
+    #expect(b[1] == .paragraph("Some **bold** text\ncarried on."))
+    #expect(b[2] == .list([MDItem(depth: 0, marker: "•", text: "one"), MDItem(depth: 0, marker: "•", text: "two wrapped"),
+                           MDItem(depth: 1, marker: "•", text: "nested"), MDItem(depth: 0, marker: "1.", text: "first"),
+                           MDItem(depth: 0, marker: "2.", text: "second"), MDItem(depth: 0, marker: "☐", text: "todo"),
+                           MDItem(depth: 0, marker: "☑", text: "done")]))
+    #expect(b[3] == .code("swift", "let x = 1"))
+    #expect(b[4] == .quote("quoted\nmore"))
+    #expect(b[5] == .table(["A", "B"], [["1", "2"], ["3"]]))
+    #expect(b[6] == .rule)
+    #expect(b[7] == .paragraph("#nothash"))
+    #expect(b.count == 8)
+    // An unclosed fence runs to the end; nothing gives nothing.
+    #expect(markdownBlocks("```\ncode") == [.code("", "code")])
+    #expect(markdownBlocks("").isEmpty && markdownBlocks("\n\n").isEmpty)
+    // A pipe line without a divider under it is text.
+    #expect(markdownBlocks("| not a table") == [.paragraph("| not a table")])
+}

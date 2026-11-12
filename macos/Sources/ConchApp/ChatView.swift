@@ -2,22 +2,33 @@ import AppKit
 import ConchKit
 import SwiftUI
 
-/// An agent's conversation, read from what it saves (agent.chat): kept up to
-/// date while it is on screen — every two seconds while the agent works,
-/// less often while it waits or rests — and drawn as a chat beside its
-/// terminal. The terminal is still the agent: a message sent here is typed
-/// into it (agent.prompt), and a question is answered with its keys.
+/// An agent's conversation, read from what it saves (agent.chat), kept up
+/// to date while it is on screen: asked for every second while the agent
+/// works and every few while it rests, one request at a time, and sent only
+/// what changed. The terminal is still the agent: a message sent here is
+/// typed into it (agent.prompt), Stop is its escape key, and a question is
+/// answered with its keys.
 @MainActor
 final class ChatModel: ObservableObject {
     let key: String
     let pane: String
     unowned let store: Store
-    @Published var chat: AgentChat?
+    @Published private(set) var log = ChatLog()
     @Published var error = ""
     @Published var draft = ""
-    @Published var sending = false
-    private var reads = Latest()
+    /// Messages sent and not yet in the conversation: shown at once, as a
+    /// chat does, and dropped when the agent's transcript has them.
+    @Published private(set) var pending: [PendingMessage] = []
+    private var inFlight = false
     private var timer: Timer?
+    private var running = false
+
+    struct PendingMessage: Identifiable, Equatable {
+        let id = UUID()
+        var text: String
+        var after: Int
+        var failed: String?
+    }
 
     init(key: String, store: Store) {
         self.key = key
@@ -25,23 +36,24 @@ final class ChatModel: ObservableObject {
         self.store = store
     }
 
-    var blocks: [ChatBlock] { chatBlocks(chat?.turns ?? []) }
-
-    /// Starts reading, and keeps reading while shown.
     func start() {
+        running = true
         load()
         schedule()
     }
 
     func stop() {
+        running = false
         timer?.invalidate()
         timer = nil
     }
 
     private func schedule() {
         timer?.invalidate()
-        let busy = store.pane(pane)?.agent?.state == .working
-        timer = Timer.scheduledTimer(withTimeInterval: busy ? 2 : 6, repeats: false) { [weak self] _ in
+        guard running else { return }
+        let state = store.pane(pane)?.agent?.state
+        let busy = state == .working || !pending.isEmpty
+        timer = Timer.scheduledTimer(withTimeInterval: busy ? 1 : 4, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.load()
                 self?.schedule()
@@ -49,7 +61,11 @@ final class ChatModel: ObservableObject {
         }
     }
 
+    /// Asks for what changed. One request at a time: the first read of a
+    /// long conversation takes seconds, and a newer request discarding the
+    /// answer to an older one left the chat empty while the agent worked.
     func load() {
+        guard !inFlight else { return }
         let (m, id) = unkey(pane)
         guard let c = store.connection(m) else {
             error = "Not connected to \(store.label(m))"
@@ -59,16 +75,18 @@ final class ChatModel: ObservableObject {
             error = "The server on \(store.label(m)) is from before chats; reload it (right-click \(store.label(m)) → Reload Server) to see this agent's conversation here."
             return
         }
-        struct P: Encodable { var id: String }
-        let n = reads.next()
+        struct P: Encodable { var id: String; var epoch: String?; var ver: Int64? }
+        let p = P(id: id, epoch: log.epoch, ver: log.epoch == nil ? nil : log.ver)
+        inFlight = true
         Task {
+            defer { inFlight = false }
             do {
-                let got = try await c.call("agent.chat", P(id: id), as: AgentChat.self)
-                guard reads.isLatest(n) else { return }
-                if got != chat { chat = got }
+                let got = try await c.call("agent.chat", p, as: AgentChat.self)
+                var next = log
+                if next.apply(got) || !log.loaded { log = next }
+                pending.removeAll { $0.failed == nil && log.has(sent: $0.text, after: $0.after) }
                 error = ""
             } catch {
-                guard reads.isLatest(n) else { return }
                 self.error = "\(error)"
             }
         }
@@ -77,34 +95,54 @@ final class ChatModel: ObservableObject {
     /// The draft typed into the agent and submitted, as if at its prompt.
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !sending else { return }
+        guard !text.isEmpty else { return }
         let (m, id) = unkey(pane)
         guard let c = store.connection(m) else { return }
         guard c.hello?.capabilities?.contains("agent.prompt.v1") == true else {
             error = "The server on \(store.label(m)) predates prompting an agent; reload it"
             return
         }
+        let msg = PendingMessage(text: text, after: log.turns.count)
+        pending.append(msg)
+        draft = ""
         struct P: Encodable { var id: String; var text: String }
-        sending = true
         Task {
             do {
                 try await c.call("agent.prompt", P(id: id, text: text))
-                draft = ""
-                // What was sent is in its transcript a moment later.
-                try? await Task.sleep(nanoseconds: 600_000_000)
-                load()
+                schedule()
             } catch {
-                self.error = "\(error)"
+                if let i = pending.firstIndex(where: { $0.id == msg.id }) { pending[i].failed = "\(error)" }
             }
-            sending = false
         }
+    }
+
+    func retry(_ m: PendingMessage) {
+        pending.removeAll { $0.id == m.id }
+        draft = m.text
+        send()
+    }
+
+    func discard(_ m: PendingMessage) { pending.removeAll { $0.id == m.id } }
+
+    /// Stops what the agent is doing: its escape key, as in its terminal.
+    func interrupt() {
+        let (m, id) = unkey(pane)
+        guard let c = store.connection(m) else { return }
+        struct P: Encodable { var id: String; var keys: [String] }
+        Task { try? await c.call("pane.send_keys", P(id: id, keys: ["escape"])) }
     }
 }
 
 struct ChatView: View {
     @ObservedObject var store: Store
     @ObservedObject var model: ChatModel
+    /// Tool runs and tools opened by hand, by their turn's seq.
     @State private var open: Set<Int> = []
+    /// Whether the end of the conversation is on screen. Held apart from
+    /// this view's state, and watched only by the Latest button: as state
+    /// here, each change redrew the list, which moved the end in or out of
+    /// view again — a loop that kept the window at full processor.
+    @State private var follow = FollowState()
 
     var body: some View {
         let p = store.pane(model.pane)
@@ -115,7 +153,7 @@ struct ChatView: View {
             if p == nil {
                 note("This agent has ended. Its conversation is saved: open it from Sessions to resume.")
             } else {
-                messages
+                messages(p)
             }
             if let q = store.questions[model.pane], !q.choices.isEmpty {
                 question(q)
@@ -132,6 +170,8 @@ struct ChatView: View {
         .onChange(of: p?.agent?.state) { _ in model.load() }
     }
 
+    var squared: Bool { Theme.style == .jetbrains }
+
     func header(_ p: PaneInfo?) -> some View {
         HStack(spacing: 8) {
             if let a = p?.agent { Mark(agent: a.name) } else { Image(systemName: "bubble.left").font(.system(size: 11)).foregroundStyle(Theme.muted) }
@@ -141,7 +181,17 @@ struct ChatView: View {
                     .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
             }
             Spacer(minLength: 4)
-            Pill.state(p?.agent?.state)
+            if p?.agent?.state == .working {
+                Button { model.interrupt() } label: {
+                    HStack(spacing: 4) { Image(systemName: "stop.fill").font(.system(size: 8)); Text("Stop") }
+                        .font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.err)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .overlay(RoundedRectangle(cornerRadius: squared ? 3 : 5).stroke(Theme.err.opacity(0.5)))
+                }
+                .buttonStyle(.plain).help("Stop what the agent is doing (its escape key)")
+            } else {
+                Pill.state(p?.agent?.state)
+            }
             if store.layout.current?.benchAgent == model.pane {
                 // The same conversation as its terminal: one or the other
                 // where there is room for one.
@@ -156,93 +206,147 @@ struct ChatView: View {
         .background(Theme.paneHeader)
     }
 
-    var messages: some View {
-        ScrollViewReader { proxy in
+    func messages(_ p: PaneInfo?) -> some View {
+        let blocks = chatBlocks(model.log.turns)
+        let working = p?.agent?.state == .working
+        let lastID = blocks.last?.id
+        return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     if !model.error.isEmpty {
                         Text(model.error).font(.ui(size: 12)).foregroundStyle(Theme.err).textSelection(.enabled)
                     }
-                    let blocks = model.blocks
-                    if blocks.isEmpty && model.error.isEmpty {
-                        Text(model.chat == nil ? "Reading the conversation…"
-                             : model.chat?.note ?? "Nothing said yet. Write below, and what the agent does shows here as it works.")
-                            .font(.ui(size: 12)).foregroundStyle(Theme.muted).frame(maxWidth: .infinity).padding(.top, 30)
+                    if blocks.isEmpty && model.pending.isEmpty && model.error.isEmpty {
+                        VStack(spacing: 8) {
+                            if !model.log.loaded { ProgressView().controlSize(.small) }
+                            Text(!model.log.loaded ? "Reading the conversation…"
+                                 : model.log.note ?? "Nothing said yet. Write below; what the agent does shows here as it works.")
+                                .font(.ui(size: 12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity).padding(.top, 40)
                     }
-                    ForEach(blocks) { b in block(b).id(b.id) }
+                    ForEach(blocks) { b in
+                        block(b, live: working && b.id == lastID).id(b.id)
+                    }
+                    ForEach(model.pending) { m in pendingBubble(m).id(m.id) }
+                    if working, let since = p?.agent?.since {
+                        WorkingRow(since: since, message: p?.agent?.message, agent: p?.agent?.name)
+                    }
                     Color.clear.frame(height: 1).id("end")
+                        .onAppear { follow.set(true) }
+                        .onDisappear { follow.set(false) }
                 }
                 .padding(14)
             }
-            .onChange(of: model.chat?.turns?.count) { _ in withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("end", anchor: .bottom) } }
+            .overlay(alignment: .bottom) {
+                if !blocks.isEmpty {
+                    LatestButton(follow: follow) { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("end", anchor: .bottom) } }
+                }
+            }
+            // Followed while at the bottom; left alone while reading back.
+            .onChange(of: model.log.ver) { _ in if follow.atBottom { proxy.scrollTo("end", anchor: .bottom) } }
+            .onChange(of: model.pending.count) { _ in proxy.scrollTo("end", anchor: .bottom) }
+            .onChange(of: model.log.loaded) { _ in proxy.scrollTo("end", anchor: .bottom) }
             .onAppear { proxy.scrollTo("end", anchor: .bottom) }
         }
     }
 
     @ViewBuilder
-    func block(_ b: ChatBlock) -> some View {
+    func block(_ b: ChatBlock, live: Bool) -> some View {
         switch b {
         case .user(let s, _):
             HStack {
                 Spacer(minLength: 40)
                 Text(s).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
                     .padding(.horizontal, 11).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 6 : 12).fill(Theme.raise))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 6 : 12).stroke(Theme.line))
+                    .background(RoundedRectangle(cornerRadius: squared ? 6 : 12).fill(Theme.raise))
+                    .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 12).stroke(Theme.line))
             }
         case .agent(let s, _):
             HStack(alignment: .top, spacing: 9) {
-                if let a = store.pane(model.pane)?.agent { Mark(agent: a.name) }
-                Text(markdown(s)).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let a = store.pane(model.pane)?.agent { Mark(agent: a.name).padding(.top, 2) }
+                MarkdownView(text: s).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .contextMenu {
+                Button("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(s, forType: .string)
+                }
             }
         case .tools(let run, let at):
-            toolRun(run, at: at)
+            toolRun(run, at: at, live: live)
+        case .note(let s, _):
+            HStack {
+                Spacer()
+                Text(s).font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 9).padding(.vertical, 2)
+                    .background(Capsule().fill(Theme.raise))
+                Spacer()
+            }
         }
     }
 
-    func toolRun(_ run: [ChatTurn], at: Int) -> some View {
-        let shown = open.contains(at)
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                if shown { open.remove(at) } else { open.insert(at) }
-            } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: shown ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold)).frame(width: 10)
-                    if run.count == 1, let t = run.first {
-                        Image(systemName: toolSymbol(t.text ?? "")).font(.system(size: 11))
-                        Text(toolLabel(t.text ?? "")).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
-                        Text(t.detail ?? "").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
-                            .lineLimit(1).truncationMode(.middle)
-                    } else {
+    /// A run of tools between two messages: one line saying what was done,
+    /// opening to each tool. The run the agent is in the middle of stays
+    /// open, so its newest tool can be watched.
+    @ViewBuilder
+    func toolRun(_ run: [ChatTurn], at: Int, live: Bool) -> some View {
+        if run.count == 1, let t = run.first {
+            ToolCard(turn: t, live: live, open: binding(t.seq ?? at)).padding(.leading, 26)
+        } else {
+            let shown = open.contains(at) || live
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    if open.contains(at) { open.remove(at) } else { open.insert(at) }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: shown ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold)).frame(width: 10)
                         Image(systemName: "wrench.and.screwdriver").font(.system(size: 11))
                         Text(toolsSummary(run)).font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(Theme.muted)
-                .padding(.horizontal, 9).padding(.vertical, 5)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if shown {
-                Rectangle().fill(Theme.line).frame(height: 1)
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(run.enumerated()), id: \.offset) { _, t in
-                        HStack(alignment: .firstTextBaseline, spacing: 7) {
-                            Image(systemName: toolSymbol(t.text ?? "")).font(.system(size: 10)).foregroundStyle(Theme.muted).frame(width: 14)
-                            Text(toolLabel(t.text ?? "")).font(.ui(size: 11.5, weight: .semibold)).foregroundStyle(Theme.text)
-                            Text(t.detail ?? "").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
-                                .textSelection(.enabled).lineLimit(3)
+                        if run.contains(where: { $0.error == true }) {
+                            Image(systemName: "exclamationmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.err)
                         }
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Theme.muted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if shown {
+                    ForEach(Array(run.enumerated()), id: \.offset) { i, t in
+                        ToolCard(turn: t, live: live && i == run.count - 1, open: binding(t.seq ?? (at * 1000 + i)))
                     }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 7)
+            }
+            .padding(.leading, 26)
+        }
+    }
+
+    func binding(_ id: Int) -> Binding<Bool> {
+        Binding(get: { open.contains(-id - 1) }, set: { if $0 { open.insert(-id - 1) } else { open.remove(-id - 1) } })
+    }
+
+    func pendingBubble(_ m: ChatModel.PendingMessage) -> some View {
+        HStack {
+            Spacer(minLength: 40)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(m.text).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
+                    .padding(.horizontal, 11).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: squared ? 6 : 12).fill(Theme.raise))
+                    .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 12).stroke(m.failed == nil ? Theme.line : Theme.err.opacity(0.6)))
+                    .opacity(m.failed == nil ? 0.7 : 1)
+                if let f = m.failed {
+                    HStack(spacing: 8) {
+                        Text("Not sent: \(f)").foregroundStyle(Theme.err).lineLimit(2)
+                        Button("Retry") { model.retry(m) }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+                        Button("Discard") { model.discard(m) }.buttonStyle(.plain).foregroundStyle(Theme.muted)
+                    }
+                    .font(.ui(size: 11))
+                } else {
+                    Text("Sent").font(.ui(size: 10.5)).foregroundStyle(Theme.muted)
+                }
             }
         }
-        .background(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 5 : 8).fill(Theme.raise.opacity(0.6)))
-        .overlay(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 5 : 8).stroke(Theme.line))
-        .padding(.leading, 26)
     }
 
     func question(_ q: Question) -> some View {
@@ -256,41 +360,294 @@ struct ChatView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 6 : 10).fill(Theme.warn.opacity(0.09)))
-        .overlay(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 6 : 10).stroke(Theme.warn.opacity(0.5)))
+        .background(RoundedRectangle(cornerRadius: squared ? 6 : 10).fill(Theme.warn.opacity(0.09)))
+        .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 10).stroke(Theme.warn.opacity(0.5)))
         .padding(.horizontal, 10).padding(.bottom, 6)
     }
 
     func composer(_ p: PaneInfo?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let lines = max(model.draft.components(separatedBy: "\n").count, 1) + model.draft.count / 70
+        let height = min(max(CGFloat(lines) * 17 + 8, 26), 150)
+        let empty = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return VStack(alignment: .leading, spacing: 6) {
             ChatInput(text: $model.draft, placeholder: "Reply to \(p?.agent.map { agentDisplayName($0.name) } ?? "the agent")…") { model.send() }
-                .frame(height: 40)
+                .frame(height: height)
             HStack(spacing: 8) {
-                Text("⏎ send · ⇧⏎ new line").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                Text(p?.agent?.state == .working ? "It is working: what you send is queued for it" : "⏎ send · ⇧⏎ new line")
+                    .font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer()
                 Button { model.send() } label: {
-                    Image(systemName: model.sending ? "ellipsis" : "arrow.up").font(.system(size: 12, weight: .bold))
+                    Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Theme.selectedText).frame(width: 26, height: 24)
-                        .background(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 4 : 7).fill(Theme.accentDeep))
+                        .background(RoundedRectangle(cornerRadius: squared ? 4 : 7).fill(empty ? Theme.muted.opacity(0.4) : Theme.accentDeep))
                 }
-                .buttonStyle(.plain)
-                .disabled(model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.sending)
+                .buttonStyle(.plain).disabled(empty)
                 .help("Send to the agent, as if typed at its prompt")
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 6 : 11).fill(Theme.raise))
-        .overlay(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 6 : 11).stroke(Theme.line2))
+        .background(RoundedRectangle(cornerRadius: squared ? 6 : 11).fill(Theme.raise))
+        .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 11).stroke(Theme.line2))
         .padding([.horizontal, .bottom], 10)
     }
 
     func note(_ s: String) -> some View {
         VStack { Text(s).font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(20); Spacer() }.frame(maxWidth: .infinity)
     }
+}
 
-    /// An answer's markdown — bold, code, links — kept on its lines.
-    func markdown(_ s: String) -> AttributedString {
+/// Whether a chat's end is on screen; changed only when it changes.
+final class FollowState: ObservableObject {
+    @Published private(set) var atBottom = true
+    func set(_ v: Bool) { if atBottom != v { atBottom = v } }
+}
+
+/// "↓ Latest", over a chat scrolled back from its end.
+struct LatestButton: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var follow: FollowState
+    let action: () -> Void
+
+    var body: some View {
+        let _ = look
+        if !follow.atBottom {
+            Button(action: action) {
+                HStack(spacing: 5) { Image(systemName: "arrow.down"); Text("Latest") }
+                    .font(.ui(size: 11.5, weight: .semibold)).foregroundStyle(Theme.text)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(Theme.raise2)).overlay(Capsule().stroke(Theme.line2))
+                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain).padding(.bottom, 8)
+        }
+    }
+}
+
+/// The line under a conversation while its agent works: how long, and what
+/// it says it is doing.
+struct WorkingRow: View {
+    @Environment(\.conchTheme) private var look
+    let since: Date
+    let message: String?
+    let agent: String?
+
+    var body: some View {
+        let _ = look
+        TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+            HStack(spacing: 8) {
+                Text(spinnerFrame(at: ctx.date)).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.work)
+                Text("\(agentDisplayName(agent ?? "agent")) is working · \(elapsed(since, ctx.date))")
+                    .font(.ui(size: 12, weight: .medium)).foregroundStyle(Theme.text2)
+                if let m = message, !m.isEmpty {
+                    Text(m).font(.ui(size: 12)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail)
+                }
+            }
+        }
+        .padding(.leading, 26)
+    }
+}
+
+/// A tool the agent used: what it was, on what, and whether it worked;
+/// opening to what it was given (an edit as its lines out and in) and what
+/// came back.
+struct ToolCard: View {
+    @Environment(\.conchTheme) private var look
+    let turn: ChatTurn
+    let live: Bool
+    @Binding var open: Bool
+
+    var body: some View {
+        let _ = look
+        let squared = Theme.style == .jetbrains
+        let has = !(turn.input ?? "").isEmpty || !(turn.output ?? "").isEmpty
+        VStack(alignment: .leading, spacing: 0) {
+            Button { if has { open.toggle() } } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: has ? (open ? "chevron.down" : "chevron.right") : "circle.fill")
+                        .font(.system(size: has ? 9 : 4, weight: .semibold)).frame(width: 10).foregroundStyle(Theme.muted)
+                    status
+                    Image(systemName: toolSymbol(turn.text ?? "")).font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    Text(toolLabel(turn.text ?? "")).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text(turn.detail ?? "").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    if let n = diffCounts { Text(n).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted) }
+                }
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open && has {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let i = turn.input, !i.isEmpty { section(i, kind: turn.inputKind ?? "") }
+                    if let o = turn.output, !o.isEmpty {
+                        Text(turn.error == true ? "ERROR" : "OUTPUT").font(.ui(size: 9.5, weight: .bold)).tracking(0.6)
+                            .foregroundStyle(turn.error == true ? Theme.err : Theme.muted)
+                        section(o, kind: "output")
+                    }
+                }
+                .padding(9)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: squared ? 4 : 8).fill(Theme.raise.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: squared ? 4 : 8).stroke(turn.error == true ? Theme.err.opacity(0.45) : Theme.line))
+    }
+
+    @ViewBuilder
+    var status: some View {
+        if turn.error == true {
+            Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.err)
+        } else if turn.done == true {
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.ok)
+        } else if turn.done == nil {
+            EmptyView() // a server from before results
+        } else if live {
+            ProgressView().controlSize(.mini).frame(width: 10, height: 10)
+        } else {
+            Image(systemName: "circle.dashed").font(.system(size: 10)).foregroundStyle(Theme.muted)
+        }
+    }
+
+    /// An edit's lines out and in, as "−3 +5".
+    var diffCounts: String? {
+        guard turn.inputKind == "diff", let i = turn.input else { return nil }
+        let ls = i.components(separatedBy: "\n")
+        let minus = ls.filter { $0.hasPrefix("- ") || $0 == "-" }.count, plus = ls.filter { $0.hasPrefix("+ ") || $0 == "+" }.count
+        return "−\(minus) +\(plus)"
+    }
+
+    func section(_ s: String, kind: String) -> some View {
+        ScrollView([.vertical, .horizontal]) {
+            if kind == "diff" {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(s.components(separatedBy: "\n").enumerated()), id: \.offset) { _, l in
+                        let c: Color? = l.hasPrefix("+") ? Theme.ok : l.hasPrefix("-") ? Theme.err : nil
+                        Text(l.isEmpty ? " " : l).font(.ui(size: 11.5, design: .monospaced))
+                            .foregroundStyle(c ?? Theme.text2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background((c ?? .clear).opacity(0.10))
+                    }
+                }
+                .textSelection(.enabled)
+            } else {
+                Text(s).font(kind == "" ? .ui(size: 12) : .ui(size: 11.5, design: .monospaced))
+                    .foregroundStyle(kind == "output" && turn.error == true ? Theme.err : Theme.text2)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxHeight: 260)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.window))
+    }
+}
+
+/// An answer's markdown laid out as blocks: headings, lists, code with a
+/// copy button, tables, quotes; inline bold, code and links within each.
+struct MarkdownView: View {
+    @Environment(\.conchTheme) private var look
+    let text: String
+
+    var body: some View {
+        let _ = look
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(markdownBlocks(text).enumerated()), id: \.offset) { _, b in block(b) }
+        }
+        .textSelection(.enabled)
+    }
+
+    func inline(_ s: String) -> AttributedString {
         (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    }
+
+    @ViewBuilder
+    func block(_ b: MDBlock) -> some View {
+        switch b {
+        case .heading(let level, let s):
+            Text(inline(s)).font(.ui(size: level <= 1 ? 17 : level == 2 ? 15 : 13.5, weight: .semibold))
+                .foregroundStyle(Theme.text).padding(.top, 4)
+        case .paragraph(let s):
+            Text(inline(s)).font(.ui(size: 13)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+        case .list(let items):
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, it in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(it.marker).font(.ui(size: 13)).foregroundStyle(Theme.muted)
+                            .frame(minWidth: 14, alignment: .trailing)
+                        Text(inline(it.text)).font(.ui(size: 13)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.leading, CGFloat(it.depth) * 16)
+                }
+            }
+        case .code(let lang, let s):
+            CodeBlock(language: lang, code: s)
+        case .quote(let s):
+            HStack(alignment: .top, spacing: 8) {
+                Rectangle().fill(Theme.line2).frame(width: 3)
+                Text(inline(s)).font(.ui(size: 13)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            }
+        case .table(let head, let rows):
+            ScrollView(.horizontal) {
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 5) {
+                    GridRow {
+                        ForEach(Array(head.enumerated()), id: \.offset) { _, h in
+                            Text(inline(h)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
+                        }
+                    }
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, r in
+                        GridRow {
+                            ForEach(Array(r.enumerated()), id: \.offset) { _, c in
+                                Text(inline(c)).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .padding(10)
+            }
+            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raise.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
+        case .rule:
+            Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 4)
+        }
+    }
+}
+
+/// Code in an answer: monospace on its own ground, scrolling sideways
+/// rather than wrapping, with its language and a copy button.
+struct CodeBlock: View {
+    @Environment(\.conchTheme) private var look
+    let language: String
+    let code: String
+    @State private var copied = false
+
+    var body: some View {
+        let _ = look
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(language.isEmpty ? "code" : language).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                Spacer()
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(code, forType: .string)
+                    copied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc").font(.ui(size: 10.5))
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.text2)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            Rectangle().fill(Theme.line).frame(height: 1)
+            ScrollView(.horizontal) {
+                Text(code).font(.ui(size: 12, design: .monospaced)).foregroundStyle(Theme.text)
+                    .textSelection(.enabled).padding(10)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 4 : 7).fill(Theme.well))
+        .overlay(RoundedRectangle(cornerRadius: Theme.style == .jetbrains ? 4 : 7).stroke(Theme.line))
     }
 }
 
@@ -399,6 +756,8 @@ struct ChatInput: NSViewRepresentable {
         tv.drawsBackground = false
         tv.isRichText = false
         tv.allowsUndo = true
+        tv.isAutomaticQuoteSubstitutionEnabled = false
+        tv.isAutomaticDashSubstitutionEnabled = false
         tv.font = NSFont.systemFont(ofSize: 13)
         tv.textColor = Theme.fg
         tv.insertionPointColor = Theme.fg
@@ -430,6 +789,8 @@ struct ChatInput: NSViewRepresentable {
 
         func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
             if sel == #selector(NSResponder.insertNewline(_:)) {
+                // Return mid-composition (an input method) is the method's.
+                if tv.hasMarkedText() { return false }
                 if NSEvent.modifierFlags.contains(.shift) || NSEvent.modifierFlags.contains(.option) {
                     tv.insertNewlineIgnoringFieldEditor(nil)
                 } else {

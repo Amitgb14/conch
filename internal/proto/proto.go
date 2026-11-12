@@ -2505,10 +2505,31 @@ type ViewShowResult struct {
 // (user), what the agent said (assistant), or a tool it used (tool, Text
 // its name and Detail what it was used on).
 type ChatTurn struct {
+	// Seq is its place in the whole conversation: stable as turns are
+	// added, so an update replaces the turn it names.
+	Seq    int       `json:"seq"`
 	Role   string    `json:"role"`
 	Text   string    `json:"text,omitempty"`
 	Detail string    `json:"detail,omitempty"`
 	Time   time.Time `json:"time,omitempty"`
+	// For a tool: what it was given (an edit as - and + lines, InputKind
+	// "diff"; a command or a file as "code"), what came back, whether it
+	// failed, and whether its result has come yet.
+	Input     string `json:"input,omitempty"`
+	InputKind string `json:"input_kind,omitempty"`
+	Output    string `json:"output,omitempty"`
+	Error     bool   `json:"error,omitempty"`
+	Done      bool   `json:"done,omitempty"`
+}
+
+// AgentChatParams asks for a pane's chat. A chat that has some sends the
+// log's Epoch and Ver it has, and is sent only what is new or changed
+// since; without them (or from another log) it is sent the newest turns
+// with Reset.
+type AgentChatParams struct {
+	ID    string `json:"id"`
+	Epoch string `json:"epoch,omitempty"`
+	Ver   int64  `json:"ver,omitempty"`
 }
 
 // AgentChat is a pane's agent's conversation, newest last. Session is
@@ -2519,6 +2540,11 @@ type AgentChat struct {
 	Session string     `json:"session,omitempty"`
 	Turns   []ChatTurn `json:"turns"`
 	Note    string     `json:"note,omitempty"`
+	// Epoch and Ver name what the chat now has, to send next time; Reset
+	// says Turns are the whole of it rather than what changed.
+	Epoch string `json:"epoch,omitempty"`
+	Ver   int64  `json:"ver,omitempty"`
+	Reset bool   `json:"reset,omitempty"`
 }
 
 // AgentReply is the last answer of a pane's agent and when it was given.

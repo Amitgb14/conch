@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -62,40 +64,63 @@ func lastReply(agent string, turns []sessions.Turn) (proto.AgentReply, *proto.Er
 }
 
 // agentChat reads a pane's agent's conversation, with the tools it used,
-// for a chat drawn beside its terminal. An agent that has not said which
-// conversation it is in yet has an empty chat rather than an error: a chat
-// is opened beside an agent just started, and fills in as it works.
-func (s *Server) agentChat(ref proto.PaneRef) (proto.AgentChat, *proto.Error) {
-	e, perr := s.get(ref.ID)
+// for a chat drawn beside its terminal: what changed since the version the
+// chat has. An agent that has not said which conversation it is in yet has
+// an empty chat rather than an error: a chat is opened beside an agent just
+// started, and fills in as it works.
+func (s *Server) agentChat(p proto.AgentChatParams) (proto.AgentChat, *proto.Error) {
+	e, perr := s.get(p.ID)
 	if perr != nil {
 		return proto.AgentChat{}, perr
 	}
 	info := e.info()
 	if info.Agent == nil {
-		return proto.AgentChat{}, proto.Errorf(proto.ErrBadRequest, "no agent is running in %s", ref.ID)
+		return proto.AgentChat{}, proto.Errorf(proto.ErrBadRequest, "no agent is running in %s", p.ID)
 	}
-	out := proto.AgentChat{Agent: info.Agent.Name, Session: info.Agent.SessionID, Turns: []proto.ChatTurn{}}
+	out := proto.AgentChat{Agent: info.Agent.Name, Session: info.Agent.SessionID, Turns: []proto.ChatTurn{}, Reset: true}
 	if out.Session == "" {
 		return out, nil
 	}
 	env := sessions.CurrentEnv()
-	for _, f := range sessions.List(env, []string{info.Cwd}, 0) {
-		if f.Agent != info.Agent.Name || f.ID != info.Agent.SessionID {
-			continue
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		turns, err := sessions.Chat(ctx, env, f)
-		if err != nil {
-			out.Note = err.Error()
-			return out, nil
-		}
-		for _, t := range turns {
-			out.Turns = append(out.Turns, proto.ChatTurn{Role: t.Role, Text: t.Text, Detail: t.Detail, Time: t.Time})
-		}
+	f, ok := chatSession(env, info.Agent.Name, info.Agent.SessionID, info.Cwd)
+	if !ok {
+		// Named but not on disk yet: an agent writes its transcript after
+		// its first answer.
 		return out, nil
 	}
-	// Named but not on disk yet: an agent writes its transcript after its
-	// first answer.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	up, err := sessions.ChatSince(ctx, env, f, p.Epoch, p.Ver)
+	if err != nil {
+		out.Note = err.Error()
+		return out, nil
+	}
+	out.Epoch, out.Ver, out.Reset = up.Epoch, up.Ver, up.Reset
+	for _, t := range up.Turns {
+		out.Turns = append(out.Turns, proto.ChatTurn{Seq: t.Seq, Role: t.Role, Text: t.Text, Detail: t.Detail, Time: t.Time,
+			Input: t.Input, InputKind: t.InputKind, Output: t.Output, Error: t.Error, Done: t.Done})
+	}
 	return out, nil
+}
+
+// chatFiles remembers where each conversation is saved, so a chat polled
+// every second does not list the folder's sessions every time.
+var chatFiles sync.Map // agent \x00 session \x00 cwd → sessions.Session
+
+func chatSession(env sessions.Env, agent, id, cwd string) (sessions.Session, bool) {
+	k := agent + "\x00" + id + "\x00" + cwd
+	if v, ok := chatFiles.Load(k); ok {
+		f := v.(sessions.Session)
+		if _, err := os.Stat(f.Path); err == nil || f.Path == "" {
+			return f, true
+		}
+		chatFiles.Delete(k)
+	}
+	for _, f := range sessions.List(env, []string{cwd}, 0) {
+		if f.Agent == agent && f.ID == id {
+			chatFiles.Store(k, f)
+			return f, true
+		}
+	}
+	return sessions.Session{}, false
 }
