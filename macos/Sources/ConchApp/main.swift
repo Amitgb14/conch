@@ -83,7 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         }
         Notifier.shared.start()
         store.onThemeChoice = { [weak self] in self?.updateThemeMenu() }
-        window.contentView = NSHostingView(rootView: MainView(store: store))
+        let host = NSHostingView(rootView: MainView(store: store))
+        // The window's size is its own (minSize above), not the view's: by
+        // default a hosting view measures its whole tree for a minimum,
+        // ideal and maximum size on every layout, and a spinner's frame is
+        // a layout — which kept the app near a whole core while agents
+        // worked.
+        host.sizingOptions = []
+        window.contentView = host
         store.onTheme = { [weak self] t in
             NSApp.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
             self?.window.backgroundColor = Theme.ns(t.chrome)
