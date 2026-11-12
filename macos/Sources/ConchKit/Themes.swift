@@ -105,6 +105,9 @@ extension ConchTheme {
         // conch's teal on a terminal's ground, after herdr: the Terminal style's.
         .init("terminal", "Terminal", accent: "#2AA5B5", selFG: "#FFFFFF", border: "#1E232A", muted: "#8B949E", ok: "#9ECE6A", warn: "#E0AF68", err: "#F7768E", work: "#7AA2F7", selDim: "#171B20", bg: "#0C0E11", fg: "#D4D9DF"),
         .init("terminal-light", "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781", ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", bg: "#FBFBFC", fg: "#1F2328", light: true),
+        // IntelliJ's New UI, Dark and Light: the JetBrains style's.
+        .init("jetbrains", "JetBrains Dark", accent: "#3574F0", selFG: "#FFFFFF", border: "#393B40", muted: "#6F737A", ok: "#5FB865", warn: "#F2C55C", err: "#DB5C5C", work: "#548AF7", selDim: "#2E436E", bg: "#1E1F22", fg: "#DFE1E5", ui: "#548AF7"),
+        .init("jetbrains-light", "JetBrains Light", accent: "#3574F0", selFG: "#FFFFFF", border: "#EBECF0", muted: "#818594", ok: "#208A3C", warn: "#C27D04", err: "#DB3B4B", work: "#5A8DEE", selDim: "#D4E2FF", bg: "#FFFFFF", fg: "#1E1F22", light: true),
         // VS Code's own, from extensions/theme-defaults: Dark/Light Modern, Dark+/Light+.
         .init("vscode-dark-modern", "VS Code Dark Modern", accent: "#0078D4", selFG: "#FFFFFF", border: "#2B2B2B", muted: "#9D9D9D", ok: "#89D185", warn: "#CCA700", err: "#F14C4C", work: "#3794FF", selDim: "#37373D", bg: "#1F1F1F", fg: "#CCCCCC"),
         .init("vscode-light-modern", "VS Code Light Modern", accent: "#005FB8", selFG: "#FFFFFF", border: "#E5E5E5", muted: "#616161", ok: "#388A34", warn: "#BF8803", err: "#E51400", work: "#1A85FF", selDim: "#E8E8E8", bg: "#FFFFFF", fg: "#3B3B3B", light: true),
@@ -117,6 +120,7 @@ extension ConchTheme {
     /// light one chosen by name stays light — somebody picked it.
     public static let lightPairs: [String: String] = [
         "terminal": "terminal-light",
+        "jetbrains": "jetbrains-light",
         // As VS Code follows the system between its dark and light pair.
         "vscode-dark-modern": "vscode-light-modern",
         "vscode-dark-plus": "vscode-light-plus",

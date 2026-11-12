@@ -10,7 +10,10 @@ import Foundation
 /// card in a roster across the top and a column of projects for the tree
 /// (G); or Terminal, today's window on a terminal's ground — herdr's ink
 /// black and hairline borders, and one monospace face for all of it, the
-/// layout, pills and teal accent as they are (the Restyle mock, C).
+/// layout, pills and teal accent as they are (the Restyle mock, C); or
+/// JetBrains, after IntelliJ's New UI — flat panels meeting at hairlines,
+/// square corners, its greys and blue, and the title bar in the panels'
+/// colour (the one-window mock's JetBrains style).
 /// The app's alone, kept in its defaults: the TUI draws cells and has no
 /// borders to thicken.
 public enum AppStyle: String, CaseIterable, Equatable, Sendable {
@@ -19,6 +22,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     case meadow
     case cel
     case terminal
+    case jetbrains
 
     /// A saved choice; anything else, an older build's or none, is standard.
     public init(setting: String?) {
@@ -32,6 +36,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .meadow: return "Meadow"
         case .cel: return "Cel"
         case .terminal: return "Terminal"
+        case .jetbrains: return "JetBrains"
         }
     }
 
@@ -46,11 +51,20 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
         case .meadow: return "meadow"
         case .cel: return "cel"
         case .terminal: return "terminal"
+        case .jetbrains: return "jetbrains"
         }
     }
 
     /// The gutter between panels, and how thick a panel's ink is.
-    public var gutter: Double { self == .standard || self == .terminal ? 8 : 12 }
+    public var gutter: Double {
+        switch self {
+        case .standard, .terminal: return 8
+        // Panels meet at a line, as IntelliJ's tool windows do; the gap is
+        // only wide enough to take hold of and drag.
+        case .jetbrains: return 3
+        default: return 12
+        }
+    }
     public var border: Double {
         switch self {
         case .ink: return 3
@@ -63,6 +77,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     public var corner: Double {
         switch self {
         case .standard, .terminal: return 9
+        case .jetbrains: return 0
         case .ink: return 0
         case .meadow: return 16
         case .cel: return 12
@@ -100,7 +115,7 @@ public enum AppStyle: String, CaseIterable, Equatable, Sendable {
     /// made transparent over it: Meadow's sky, and Terminal's panel colour —
     /// macOS's own title bar, lighter than an ink-black window, read as a
     /// grey band over it.
-    public var paintsTitleBar: Bool { self == .meadow || self == .terminal }
+    public var paintsTitleBar: Bool { self == .meadow || self == .terminal || self == .jetbrains }
 }
 
 /// Where a meadow's clouds sit in a band `width` wide: one every ~260
