@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -223,6 +223,10 @@ const CapBranchCILog = "branch.ci_log.v1"
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
 const CapAgentReply = "agent.reply.v1"
+
+// CapAgentChat is agent.chat: a pane's agent's conversation with the tools
+// it used, from its saved transcript, for a chat drawn beside its terminal.
+const CapAgentChat = "agent.chat.v1"
 
 // CapSchedule is schedule.add, schedule.list and schedule.remove: a
 // message for a running agent, or a task, kept by the server for a time
@@ -489,6 +493,9 @@ const (
 	// MethodAgentReply is the last thing a pane's agent said, read from
 	// its saved conversation (CapAgentReply).
 	MethodAgentReply = "agent.reply"
+	// MethodAgentChat is a pane's agent's conversation, tools and all,
+	// read from its saved transcript (CapAgentChat).
+	MethodAgentChat = "agent.chat"
 
 	MethodProjectIssues = "project.issues"
 
@@ -2467,6 +2474,26 @@ type ViewShowParams struct {
 // and without the ones named twice.
 type ViewShowResult struct {
 	Panes []string `json:"panes,omitempty"`
+}
+
+// ChatTurn is one entry of an agent's conversation: what the person typed
+// (user), what the agent said (assistant), or a tool it used (tool, Text
+// its name and Detail what it was used on).
+type ChatTurn struct {
+	Role   string    `json:"role"`
+	Text   string    `json:"text,omitempty"`
+	Detail string    `json:"detail,omitempty"`
+	Time   time.Time `json:"time,omitempty"`
+}
+
+// AgentChat is a pane's agent's conversation, newest last. Session is
+// empty, and Turns with it, until the agent says which conversation it is
+// in; Note says why a chat has nothing in it when it is not merely new.
+type AgentChat struct {
+	Agent   string     `json:"agent"`
+	Session string     `json:"session,omitempty"`
+	Turns   []ChatTurn `json:"turns"`
+	Note    string     `json:"note,omitempty"`
 }
 
 // AgentReply is the last answer of a pane's agent and when it was given.

@@ -60,3 +60,42 @@ func lastReply(agent string, turns []sessions.Turn) (proto.AgentReply, *proto.Er
 	}
 	return proto.AgentReply{}, proto.Errorf(proto.ErrNotFound, "%s has not answered anything yet", sessions.AgentName(agent))
 }
+
+// agentChat reads a pane's agent's conversation, with the tools it used,
+// for a chat drawn beside its terminal. An agent that has not said which
+// conversation it is in yet has an empty chat rather than an error: a chat
+// is opened beside an agent just started, and fills in as it works.
+func (s *Server) agentChat(ref proto.PaneRef) (proto.AgentChat, *proto.Error) {
+	e, perr := s.get(ref.ID)
+	if perr != nil {
+		return proto.AgentChat{}, perr
+	}
+	info := e.info()
+	if info.Agent == nil {
+		return proto.AgentChat{}, proto.Errorf(proto.ErrBadRequest, "no agent is running in %s", ref.ID)
+	}
+	out := proto.AgentChat{Agent: info.Agent.Name, Session: info.Agent.SessionID, Turns: []proto.ChatTurn{}}
+	if out.Session == "" {
+		return out, nil
+	}
+	env := sessions.CurrentEnv()
+	for _, f := range sessions.List(env, []string{info.Cwd}, 0) {
+		if f.Agent != info.Agent.Name || f.ID != info.Agent.SessionID {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		turns, err := sessions.Chat(ctx, env, f)
+		if err != nil {
+			out.Note = err.Error()
+			return out, nil
+		}
+		for _, t := range turns {
+			out.Turns = append(out.Turns, proto.ChatTurn{Role: t.Role, Text: t.Text, Detail: t.Detail, Time: t.Time})
+		}
+		return out, nil
+	}
+	// Named but not on disk yet: an agent writes its transcript after its
+	// first answer.
+	return out, nil
+}

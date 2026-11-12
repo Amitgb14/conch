@@ -274,7 +274,7 @@ func TestSettingsChoices(t *testing.T) {
 	for _, o := range c.LightThemes {
 		light = append(light, o.Value)
 	}
-	if want := []string{"github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "vscode-light-modern", "vscode-light-plus"}; !slices.Equal(light, want) {
+	if want := []string{"github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "jetbrains-light", "vscode-light-modern", "vscode-light-plus"}; !slices.Equal(light, want) {
 		t.Fatalf("light themes %v, want %v", light, want)
 	}
 	if len(c.Agents) < 4 || c.Agents[0].Label != "Claude Code" {

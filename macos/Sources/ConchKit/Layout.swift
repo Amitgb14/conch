@@ -63,6 +63,14 @@ public struct Tab: Identifiable, Equatable, Sendable {
     public var zoomed = false
     /// What it was named, by hand or in the TUI; nil names it by its pane.
     public var name: String?
+    /// Leaves kept in the tab but not drawn: a workbench's tool windows
+    /// closed from its strips, or the half of Chat ⇄ Terminal not shown.
+    /// Their splits give the room to the rest.
+    public var hidden: Set<String> = []
+    /// A workbench's layout, and the agent it is for; nil for a tab of
+    /// splits made by hand.
+    public var bench: BenchLayout?
+    public var benchAgent: String?
 
     public init(pane: String) {
         root = .leaf(pane)
@@ -94,12 +102,15 @@ public struct Tab: Identifiable, Equatable, Sendable {
         var out: [String: CGRect] = [:]
         func walk(_ n: SplitNode, _ r: CGRect, _ path: String) {
             switch n {
-            case .leaf(let id): out[id] = r
+            case .leaf(let id): if !hidden.contains(id) { out[id] = r }
             case .split(let axis, let kids):
-                let w = shares(path, kids.count)
+                // Hidden children take no room, as they are drawn.
+                let shown = shownKids(kids, hidden: hidden)
+                let w = shownShares(shares(path, kids.count), shown: shown)
                 var at = axis == .horizontal ? r.minX : r.minY
-                for (i, k) in kids.enumerated() {
-                    let len = (axis == .horizontal ? r.width : r.height) * w[i]
+                for (j, i) in shown.enumerated() {
+                    let k = kids[i]
+                    let len = (axis == .horizontal ? r.width : r.height) * w[j]
                     let kr = axis == .horizontal ? CGRect(x: at, y: r.minY, width: len, height: r.height)
                                                  : CGRect(x: r.minX, y: at, width: r.width, height: len)
                     walk(k, kr, path.isEmpty ? "\(i)" : "\(path).\(i)")
@@ -162,6 +173,7 @@ public struct Layout: Equatable, Sendable {
     public mutating func open(_ pane: String) {
         if let i = tab(showing: pane) {
             active = i
+            reveal(pane, in: i)
             tabs[i].focused = pane
             return
         }
@@ -219,7 +231,19 @@ public struct Layout: Equatable, Sendable {
     public mutating func focus(_ pane: String) {
         if let i = tab(showing: pane) {
             active = i
+            reveal(pane, in: i)
             tabs[i].focused = pane
+        }
+    }
+
+    /// A hidden leaf shown, as it is asked for: in a workbench, the agent's
+    /// terminal takes the chat's place where they share one, and the other
+    /// way round.
+    private mutating func reveal(_ pane: String, in i: Int) {
+        guard tabs[i].hidden.contains(pane) else { return }
+        tabs[i].hidden.remove(pane)
+        if let a = tabs[i].benchAgent, tabs[i].bench != .agent {
+            if pane == a { tabs[i].hidden.insert(chatKey(a)) } else if pane == chatKey(a) { tabs[i].hidden.insert(a) }
         }
     }
 
@@ -352,7 +376,7 @@ extension Layout {
 /// Whether a layout key is a pane's ("machine|id"), rather than a view of
 /// a branch's changes, a project's commits or its sessions.
 public func isPaneKey(_ k: String) -> Bool {
-    parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil
+    parseChatKey(k) == nil && parseBenchShellKey(k) == nil && parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil
 }
 
 /// How long to wait before trying this computer's server again, the nth

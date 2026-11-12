@@ -94,6 +94,12 @@ var themes = []palette{
 	// teal deepened so a selection reads on white, GitHub-light states.
 	{name: "terminal-light", label: "Terminal Light", accent: "#0F7B8A", selFG: "#FFFFFF", border: "#DADDE2", muted: "#6E7781",
 		ok: "#1A7F37", warn: "#9A6700", err: "#CF222E", work: "#0969DA", selDim: "#E9EBEE", merged: "#8250DF", bg: "#FBFBFC", fg: "#1F2328"},
+	// JetBrains is IntelliJ's New UI: Dark's editor grey and its blue, Light
+	// on white — the desktop's JetBrains style puts it on.
+	{name: "jetbrains", label: "JetBrains Dark", accent: "#3574F0", selFG: "#FFFFFF", border: "#393B40", muted: "#6F737A",
+		ok: "#5FB865", warn: "#F2C55C", err: "#DB5C5C", work: "#548AF7", selDim: "#2E436E", merged: "#B28CEF", bg: "#1E1F22", fg: "#DFE1E5"},
+	{name: "jetbrains-light", label: "JetBrains Light", accent: "#3574F0", selFG: "#FFFFFF", border: "#EBECF0", muted: "#818594",
+		ok: "#208A3C", warn: "#C27D04", err: "#DB3B4B", work: "#5A8DEE", selDim: "#D4E2FF", merged: "#8A5CD6", bg: "#FFFFFF", fg: "#1E1F22"},
 	// VS Code's own: Dark Modern and Light Modern (its defaults), Dark+ and
 	// Light+ (the classic pair), from extensions/theme-defaults; the states
 	// are its charts.green, yellow, red and blue.
