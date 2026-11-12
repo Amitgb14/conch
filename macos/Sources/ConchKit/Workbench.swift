@@ -372,6 +372,20 @@ public enum ChatBlock: Equatable, Sendable, Identifiable {
     }
 }
 
+/// Whether the agent may be busy with something Stop could end. conch's
+/// own state is read off the screen and hooks and can lag a message just
+/// sent, so a conversation that ends in a question not yet answered, or a
+/// tool still running, counts too; one that ends in an interruption does not.
+public func chatBusy(state: AgentState?, pending: Int, turns: [ChatTurn]) -> Bool {
+    if state == .working || pending > 0 { return true }
+    guard let last = turns.last else { return false }
+    switch last.role {
+    case "user": return true
+    case "tool": return last.done == false
+    default: return false
+    }
+}
+
 public func chatBlocks(_ turns: [ChatTurn]) -> [ChatBlock] {
     var out: [ChatBlock] = []
     for (n, t) in turns.enumerated() {

@@ -52,7 +52,7 @@ final class ChatModel: ObservableObject {
         timer?.invalidate()
         guard running else { return }
         let state = store.pane(pane)?.agent?.state
-        let busy = state == .working || !pending.isEmpty
+        let busy = chatBusy(state: state, pending: pending.count, turns: log.turns)
         timer = Timer.scheduledTimer(withTimeInterval: busy ? 1 : 4, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.load()
@@ -181,17 +181,7 @@ struct ChatView: View {
                     .padding(.horizontal, 6).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
             }
             Spacer(minLength: 4)
-            if p?.agent?.state == .working {
-                Button { model.interrupt() } label: {
-                    HStack(spacing: 4) { Image(systemName: "stop.fill").font(.system(size: 8)); Text("Stop") }
-                        .font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.err)
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .overlay(RoundedRectangle(cornerRadius: squared ? 3 : 5).stroke(Theme.err.opacity(0.5)))
-                }
-                .buttonStyle(.plain).help("Stop what the agent is doing (its escape key)")
-            } else {
-                Pill.state(p?.agent?.state)
-            }
+            Pill.state(p?.agent?.state)
             if store.layout.current?.benchAgent == model.pane {
                 // The same conversation as its terminal: one or the other
                 // where there is room for one.
@@ -369,13 +359,32 @@ struct ChatView: View {
         let lines = max(model.draft.components(separatedBy: "\n").count, 1) + model.draft.count / 70
         let height = min(max(CGFloat(lines) * 17 + 8, 26), 150)
         let empty = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let busy = chatBusy(state: p?.agent?.state, pending: model.pending.count, turns: model.log.turns)
         return VStack(alignment: .leading, spacing: 6) {
-            ChatInput(text: $model.draft, placeholder: "Reply to \(p?.agent.map { agentDisplayName($0.name) } ?? "the agent")…") { model.send() }
+            ChatInput(text: $model.draft, placeholder: "Reply to \(p?.agent.map { agentDisplayName($0.name) } ?? "the agent")…",
+                      onSend: { model.send() },
+                      onEscape: {
+                          guard busy else { return false }
+                          model.interrupt()
+                          return true
+                      })
                 .frame(height: height)
             HStack(spacing: 8) {
-                Text(p?.agent?.state == .working ? "It is working: what you send is queued for it" : "⏎ send · ⇧⏎ new line")
+                Text(busy ? "Working · what you send is queued · esc stops" : "⏎ send · ⇧⏎ new line")
                     .font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer()
+                if busy {
+                    // As other agent chats: Stop where Send is while it works,
+                    // and Send beside it once there is something to queue.
+                    Button { model.interrupt() } label: {
+                        Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Theme.selectedText).frame(width: 26, height: 24)
+                            .background(RoundedRectangle(cornerRadius: squared ? 4 : 7).fill(Theme.err))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop what the agent is doing (its escape key)")
+                }
+                if !busy || !empty {
                 Button { model.send() } label: {
                     Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Theme.selectedText).frame(width: 26, height: 24)
@@ -383,6 +392,7 @@ struct ChatView: View {
                 }
                 .buttonStyle(.plain).disabled(empty)
                 .help("Send to the agent, as if typed at its prompt")
+                }
             }
         }
         .padding(10)
@@ -743,6 +753,9 @@ struct ChatInput: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var onSend: () -> Void
+    /// Escape: true when it was taken (the agent stopped), so the key does
+    /// nothing else.
+    var onEscape: () -> Bool = { false }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -797,6 +810,9 @@ struct ChatInput: NSViewRepresentable {
                     parent.onSend()
                 }
                 return true
+            }
+            if sel == #selector(NSResponder.cancelOperation(_:)), !tv.hasMarkedText() {
+                return parent.onEscape()
             }
             return false
         }
