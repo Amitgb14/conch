@@ -64,3 +64,12 @@ import Testing
     #expect(moveCount(2, "agent continues", "agents continue") == "2 agents continue")
     #expect(moveCount(0, "branch", "branches") == "0 branches")
 }
+
+// A project with no origin is copied, said by the plan's bundle.
+@Test func movePlanBundle() throws {
+    let json = #"{"project_id":"r1","name":"cachemind","path":"/p","from":"local","to":"bot","clone_to":"~/cachemind","bundle":true}"#
+    let p = try conchDecoder().decode(MovePlan.self, from: Data(json.utf8))
+    #expect(p.bundle == true && p.remote == nil && p.destination == "~/cachemind")
+    let old = try conchDecoder().decode(MovePlan.self, from: Data(#"{"project_id":"r1","name":"x","path":"/p","from":"a","to":"b"}"#.utf8))
+    #expect(old.bundle == nil)
+}

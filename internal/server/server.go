@@ -423,7 +423,7 @@ var slowMethods = map[string]bool{
 	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
-	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
+	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
 	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
@@ -1028,6 +1028,20 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.cloneProject(cp)
+
+	case proto.MethodProjectBundle:
+		bp, perr := decode[proto.ProjectRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.bundleProject(bp)
+
+	case proto.MethodProjectUnbundle:
+		up, perr := decode[proto.ProjectUnbundleParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.unbundleProject(up)
 
 	case proto.MethodWorktreeRemove:
 		wp, perr := decode[proto.WorktreeRemoveParams](msg)
