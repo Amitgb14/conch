@@ -593,6 +593,21 @@ public func sandboxMenu(machine: String, running: Bool) -> [RowMenuItem] {
     return out
 }
 
+/// A Conch Cloud machine's own items: sleep or wake, and deleting it —
+/// the machine and its disk, which `conch cloud machine rm` destroys.
+public func cloudMachineMenu(machine: String, online: Bool) -> [RowMenuItem] {
+    [.divider,
+     online ? RowMenuItem("Sleep", .cloud(machine: machine, verb: "sleep")) : RowMenuItem("Wake", .cloud(machine: machine, verb: "wake")),
+     RowMenuItem("Delete Machine…", .cloud(machine: machine, verb: "rm"))]
+}
+
+/// `conch cloud machine`'s arguments for a verb on a cloud machine (its
+/// id): -y on rm, which the app has asked about already, since conch would
+/// otherwise ask on a terminal nobody is at.
+public func cloudMachineArgs(verb: String, id: String) -> [String] {
+    ["cloud", "machine", verb, id] + (verb == "rm" ? ["-y"] : [])
+}
+
 /// `conch sandbox`'s arguments for a verb on a machine: -y where the app
 /// has asked already, since conch would otherwise ask on a terminal nobody
 /// is at.

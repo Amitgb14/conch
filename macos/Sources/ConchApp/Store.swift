@@ -397,6 +397,15 @@ final class Store: ObservableObject {
     /// The sidebar row the keyboard is on while no terminal has it.
     @Published var treeCursor: String?
 
+    /// The machine of what is selected — the sidebar's row, else the tab
+    /// in front — for the toolbar's chip.
+    var selectedPlace: MachinePlace? {
+        let row = treeCursor.flatMap { treeNav.row($0)?.machine }
+        guard let m = selectedMachine(row: row, focusedTab: layout.focused),
+              let link = machines.first(where: { $0.id == m }) else { return nil }
+        return machinePlace(id: m, label: link.label, cloud: link.cloud, sandbox: link.sandbox, online: link.online)
+    }
+
     /// The port of the checkout a pane is in (CONCH_PORT), if it has one.
     func port(of k: String) -> Int? {
         let (m, _) = unkey(k)
@@ -2301,8 +2310,7 @@ final class Store: ObservableObject {
             items += sandboxMenu(machine: m, running: link.online)
         }
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.cloud {
-            items += [RowMenuItem("", .divider), link.online ? RowMenuItem("Sleep", .cloud(machine: m, verb: "sleep"))
-                                                           : RowMenuItem("Wake", .cloud(machine: m, verb: "wake"))]
+            items += cloudMachineMenu(machine: m, online: link.online)
         }
         // The actions of your own that belong on this kind of row.
         if online, let (place, _) = s.actionPlace(node, machine: m, home: conns[m]?.hello?.home) {
@@ -2507,9 +2515,25 @@ final class Store: ObservableObject {
     func cloudVerb(_ m: String, _ verb: String) {
         guard let b = binary else { return }
         let label = machines.first { $0.id == m }?.label ?? m
+        if verb == "rm" {
+            let a = NSAlert()
+            a.messageText = "Delete \(label) for good?"
+            a.informativeText = "The cloud machine and its disk are destroyed: its projects, agents and terminals go with it, and work there that is not pushed is lost. Nothing brings it back."
+            a.addButton(withTitle: "Delete")
+            a.addButton(withTitle: "Cancel")
+            a.buttons.first?.hasDestructiveAction = true
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+            job("Deleting \(label)", done: "Deleted \(label)") {
+                let id = self.catalog.first { $0.id == m }?.cloudID ?? m
+                _ = try await runConch(b, cloudMachineArgs(verb: "rm", id: id))
+                self.connect() // machines.json without it, and its connection gone
+                self.refreshCloud()
+            }
+            return
+        }
         job(verb == "wake" ? "Waking \(label)" : "Putting \(label) to sleep", done: verb == "wake" ? "\(label) is awake" : "\(label) is going to sleep") {
             let id = self.catalog.first { $0.id == m }?.cloudID ?? m
-            _ = try await runConch(b, ["cloud", "machine", verb, id])
+            _ = try await runConch(b, cloudMachineArgs(verb: verb, id: id))
             if verb == "wake" {
                 self.setState(m, "connecting")
                 await self.connect(m)

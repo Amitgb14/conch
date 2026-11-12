@@ -518,6 +518,10 @@ struct Counts: View {
         let (w, d) = store.inbox
         let r = store.reviewItems.count
         HStack(spacing: 8) {
+            // Its width is fixed: the toolbar sizes its item once, so a
+            // chip that grew with a longer name would be cut off.
+            MachineChip(place: store.selectedPlace, look: store.appLook)
+                .frame(width: 190, alignment: .trailing)
             Button { store.nextWaiting() } label: {
                 if Theme.ink {
                     BurstCount(text: "\(w) waiting\(w > 0 ? "!" : "")", loud: w > 0, ink: w > 0 ? Theme.inkLine : Theme.muted)
@@ -546,6 +550,39 @@ struct Counts: View {
             .buttonStyle(.plain)
             .help("What needs a decision, on every machine: agents waiting or finished, branches with work nobody has shipped")
             .popover(isPresented: $reviewing, arrowEdge: .bottom) { ReviewPopover(store: store) { reviewing = false } }
+        }
+    }
+}
+
+/// Which machine what is selected lives on — a folder, a file, a branch,
+/// an agent — at the toolbar's top right, since they look the same on
+/// every machine.
+struct MachineChip: View {
+    @Environment(\.conchTheme) private var look_
+    let place: MachinePlace?
+    var look = AppLook()
+
+    var body: some View {
+        let _ = look_
+        if let p = place {
+            HStack(spacing: 5) {
+                TreeIcon(name: icon(p.kind), look: look, color: p.kind == .local ? Theme.muted : Theme.accent, size: 12)
+                Text(p.title).font(.ui(size: 11, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(p.kind == .local ? Theme.muted : Theme.text2)
+                if !p.online { Circle().fill(Theme.muted).frame(width: 5, height: 5) }
+            }
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: Theme.corner(20, meadow: 20, cel: 7))
+                .fill(p.kind == .local ? Color.clear : Theme.accent.opacity(0.12)))
+            .help(p.help)
+        }
+    }
+
+    func icon(_ k: MachineKind) -> LucideName {
+        switch k {
+        case .local: return .laptop
+        case .remote: return .server
+        case .cloud, .sandbox: return .cloud
         }
     }
 }
