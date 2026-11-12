@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"strings"
 	"time"
@@ -21,7 +22,8 @@ import (
 // system's configuration — every user, every repository, a clone an agent
 // starts included — and asks this agent for the token through a
 // credential helper scoped to the proxy alone, which is the only host git
-// will hand it to.
+// will hand it to. Only when the proxy answers, though (gitProxyAnswers):
+// without one, git reaches github.com itself.
 
 // githubForms are the ways a repository on github.com is named, each sent
 // to the proxy.
@@ -31,12 +33,49 @@ var githubForms = []string{"https://github.com/", "git@github.com:", "ssh://git@
 // credential helper. It replaces what an earlier agent set, for this
 // proxy or another.
 func (a *Agent) configureGit(ctx context.Context, proxy string) error {
-	set := a.opts.GitConfig
-	if set == nil {
-		set = systemGitConfig
+	set := a.gitSet()
+	if err := clearGit(ctx, set); err != nil {
+		return err
 	}
 	base := strings.TrimRight(proxy, "/") + "/github.com/"
-	// Rewrites an earlier agent left, for any proxy.
+	key := "url." + base + ".insteadOf"
+	for _, form := range githubForms {
+		if err := set(ctx, "--add", key, form); err != nil {
+			return err
+		}
+	}
+	helper := "credential." + strings.TrimRight(proxy, "/") + ".helper"
+	// An empty helper first clears any the system or user configured for
+	// this URL, so the proxy is asked only with the machine's token.
+	if err := set(ctx, "--add", helper, ""); err != nil {
+		return err
+	}
+	cmd := "!" + shellQuote(a.opts.Executable) + " cloud git-credential -socket " + shellQuote(a.opts.AgentSocket)
+	if err := set(ctx, "--add", helper, cmd); err != nil {
+		return err
+	}
+	a.logf("cloud: git reaches github.com through %s", proxy)
+	return nil
+}
+
+// unconfigureGit takes away what configureGit set, for any proxy, so git
+// reaches github.com itself — with the machine's own credentials (gh, a
+// key, a token the person gave it), or none for a public repository.
+func (a *Agent) unconfigureGit(ctx context.Context) error {
+	return clearGit(ctx, a.gitSet())
+}
+
+func (a *Agent) gitSet() func(ctx context.Context, args ...string) error {
+	if a.opts.GitConfig != nil {
+		return a.opts.GitConfig
+	}
+	return systemGitConfig
+}
+
+// clearGit removes the github.com rewrites and the proxy credential
+// helpers an agent set, for any proxy, and nothing else: a helper that
+// moved with its proxy must not still be offered the machine token.
+func clearGit(ctx context.Context, set func(ctx context.Context, args ...string) error) error {
 	if old, err := gitGetRegexp(ctx, `^url\..*\.insteadof$`); err == nil {
 		for key, vals := range old {
 			for _, v := range vals {
@@ -49,14 +88,6 @@ func (a *Agent) configureGit(ctx context.Context, proxy string) error {
 			}
 		}
 	}
-	key := "url." + base + ".insteadOf"
-	for _, form := range githubForms {
-		if err := set(ctx, "--add", key, form); err != nil {
-			return err
-		}
-	}
-	// Helpers an earlier agent left, for this proxy or another: a proxy
-	// that moved must not still be offered the machine token.
 	if old, err := gitGetRegexp(ctx, `^credential\..*\.helper$`); err == nil {
 		for key, vals := range old {
 			for _, v := range vals {
@@ -69,19 +100,34 @@ func (a *Agent) configureGit(ctx context.Context, proxy string) error {
 			}
 		}
 	}
-	helper := "credential." + strings.TrimRight(proxy, "/") + ".helper"
-	_ = set(ctx, "--unset-all", helper)
-	// An empty helper first clears any the system or user configured for
-	// this URL, so the proxy is asked only with the machine's token.
-	if err := set(ctx, "--add", helper, ""); err != nil {
-		return err
-	}
-	cmd := "!" + shellQuote(a.opts.Executable) + " cloud git-credential -socket " + shellQuote(a.opts.AgentSocket)
-	if err := set(ctx, "--add", helper, cmd); err != nil {
-		return err
-	}
-	a.logf("cloud: git reaches github.com through %s", proxy)
 	return nil
+}
+
+// gitProxyAnswers is whether proxy is a git proxy that is up: asked with
+// no credentials, one asks for the machine token (401, Basic). A control
+// plane can name a proxy it does not run — one with no GitHub App, behind
+// a gateway that then answers 502 — and pointing github.com at that broke
+// every clone, public repositories too. Nothing secret is sent.
+func gitProxyAnswers(ctx context.Context, hc *http.Client, proxy string) (bool, string) {
+	if hc == nil {
+		hc = http.DefaultClient
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(proxy, "/")+"/github.com/", nil)
+	if err != nil {
+		return false, err.Error()
+	}
+	res, err := hc.Do(req)
+	if err != nil {
+		return false, err.Error()
+	}
+	io.Copy(io.Discard, io.LimitReader(res.Body, 4096))
+	res.Body.Close()
+	if res.StatusCode == http.StatusUnauthorized && strings.HasPrefix(strings.ToLower(res.Header.Get("WWW-Authenticate")), "basic") {
+		return true, ""
+	}
+	return false, res.Status
 }
 
 func isGithubForm(v string) bool {
