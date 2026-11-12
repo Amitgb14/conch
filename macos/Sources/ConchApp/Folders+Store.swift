@@ -237,6 +237,13 @@ extension Store {
 
     func words(_ s: String) -> [String] { s.split(separator: " ").map(String.init) }
 
+    /// ui.json with a host just saved listed in the workspace on screen,
+    /// and kept in the first if the first listed it already.
+    func joinHost(_ host: String, in data: Data) throws -> Data {
+        let had = savedHosts.contains { $0.host == host } && (workspaces.first?.shows(host: host) ?? false)
+        return try joiningHost(host, workspace: ws?.id ?? "first", keepInFirst: had, in: data)
+    }
+
     func hostFolder(_ host: String) -> String? {
         (folders[folderKey(machine: "local", section: .ssh)] ?? []).first { $0.hosts.contains(host) }?.name
     }
@@ -248,7 +255,7 @@ extension Store {
         let key = folderKey(machine: "local", section: .ssh)
         let ws = ws?.id ?? "first"
         _ = editUI("save \(f.host)") { data in
-            let saved = try savingHost(h, in: data)
+            let saved = try joinHost(f.host, in: savingHost(h, in: data))
             guard hostFolder(f.host) != f.folder else { return saved }
             return try FolderEdit.movingHost(f.host, to: f.folder, key: key, sessions: sectionPanes("local", .ssh), workspace: ws, in: saved)
         }

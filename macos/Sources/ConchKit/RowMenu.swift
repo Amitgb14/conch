@@ -48,6 +48,9 @@ public enum RowAction: Equatable, Sendable {
     case sshToHost
     /// Another machine, conch installed there (the TUI's M).
     case addMachine
+    /// A machine conch has, listed in the workspace on screen (the TUI's
+    /// M → Machine already in conch).
+    case bringMachine(String)
     /// A sandbox made with a provider and added as a machine (the TUI's
     /// M → New sandbox…).
     case newSandbox

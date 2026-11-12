@@ -244,6 +244,15 @@ public struct Workspace: Equatable, Sendable {
     /// the name); for the first, those the later ones made between them.
     public var folders: Set<String> = []
     public var claimedFolders: Set<String> = []
+    /// The saved ssh hosts listed in it (the TUI's space.hosts); for the
+    /// first, those the later ones list between them.
+    public var hosts: Set<String> = []
+    public var claimedHosts: Set<String> = []
+    /// The machines added in it (the TUI's space.machines), shown even
+    /// with nothing of its on them; for the first, those the later ones
+    /// list between them.
+    public var machines: Set<String> = []
+    public var claimedMachines: Set<String> = []
 
     public init(id: String = "first", name: String, projects: Set<String> = [], panes: Set<String> = [], first: Bool = false) {
         self.id = id
@@ -258,6 +267,12 @@ public struct Workspace: Equatable, Sendable {
 
     static func projectKey(_ machine: String, _ id: String) -> String {
         machine == "local" ? id : "\(machine)~\(id)"
+    }
+
+    /// Whether it lists saved host h (the TUI's hasHost): one saved in it,
+    /// or, in the first, one no later workspace lists.
+    public func shows(host h: String) -> Bool {
+        hosts.contains(h) || first && !claimedHosts.contains(h)
     }
 
     public func shows(_ p: ProjectInfo, machine: String = "local") -> Bool {
@@ -275,6 +290,8 @@ public struct Workspace: Equatable, Sendable {
             var projects: [String]?
             var panes: [String]?
             var folders: [String]?
+            var hosts: [String]?
+            var machines: [String]?
         }
         struct UI: Decodable {
             var spaces: [Saved]?
@@ -285,6 +302,8 @@ public struct Workspace: Equatable, Sendable {
             var w = Workspace(id: (s.id ?? "").isEmpty ? "w\(i + 1)" : s.id!, name: s.name ?? "",
                               projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
             w.folders = Set(s.folders ?? [])
+            w.hosts = Set(s.hosts ?? [])
+            w.machines = Set(s.machines ?? [])
             return w
         }
         var first = Workspace(name: ui?.first_space?.name ?? "", first: true)
@@ -292,10 +311,14 @@ public struct Workspace: Equatable, Sendable {
         if !later.isEmpty, let f = ui?.first_space {
             first.projects = Set(f.projects ?? [])
             first.panes = Set(f.panes ?? [])
+            first.hosts = Set(f.hosts ?? [])
+            first.machines = Set(f.machines ?? [])
         }
         first.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
         first.claimedPanes = later.reduce(into: []) { $0.formUnion($1.panes) }
         first.claimedFolders = later.reduce(into: []) { $0.formUnion($1.folders) }
+        first.claimedHosts = later.reduce(into: []) { $0.formUnion($1.hosts) }
+        first.claimedMachines = later.reduce(into: []) { $0.formUnion($1.machines) }
         return [first] + later
     }
 
@@ -533,6 +556,20 @@ public func isOpen(_ node: TreeNode, app: [String: Bool], tui: [String: Bool]) -
 public let branchesRecent = 12
 public let branchRecentAge: TimeInterval = 14 * 24 * 3600
 
+/// Whether workspace ws lists machine id, as the TUI's hasMachine: this
+/// computer always; one added in it; one holding a project or pane it
+/// shows; and, in the first, any no later workspace lists. snapshot is
+/// what the machine holds; all is every workspace. nil is every machine.
+public func workspaceShows(machine id: String, snapshot: Snapshot, in ws: Workspace?, all: [Workspace]) -> Bool {
+    guard let ws else { return true }
+    func has(_ w: Workspace) -> Bool {
+        id == "local" || w.machines.contains(id)
+            || snapshot.projects.contains { w.shows($0, machine: id) } || !snapshot.shown(in: w, machine: id).isEmpty
+    }
+    if has(ws) { return true }
+    return ws.first && !all.contains { !$0.first && has($0) }
+}
+
 extension Snapshot {
     /// One machine in the sidebar: its projects with their agents, branches,
     /// terminals and saved sessions, and the CLI group for what belongs to
@@ -601,8 +638,10 @@ extension Snapshot {
         }
         // This computer's saved ssh hosts with no session open, after its
         // own terminals, as the TUI lists them under CLI → SSH.
-        let idle = machine == "local" ? idleSavedHosts(savedHosts, panes: panes) : []
-        let cli = cliSections(loose: loose, idle: idle, saved: machine == "local" ? Set(savedHosts.map(\.host)) : [],
+        // Each workspace lists the hosts saved in it, as the TUI's does.
+        let listedHosts = machine == "local" ? savedHosts.filter { ws?.shows(host: $0.host) ?? true } : []
+        let idle = idleSavedHosts(listedHosts, panes: panes)
+        let cli = cliSections(loose: loose, idle: idle, saved: Set(listedHosts.map(\.host)),
                               machine: machine, ws: ws, shown: shown, folders: folders)
         if !cli.isEmpty {
             // Its count is what it lists: panes and saved hosts both.

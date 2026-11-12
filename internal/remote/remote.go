@@ -232,6 +232,11 @@ func retryConnection(ctx context.Context, do func(attempt int) error) error {
 		if !errors.As(err, &conn) || attempt == connectionTries {
 			return err
 		}
+		// Asked first: with both ready, select picks at random, and a
+		// cancelled context could go on trying when the wait is short.
+		if ctx.Err() != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return err
