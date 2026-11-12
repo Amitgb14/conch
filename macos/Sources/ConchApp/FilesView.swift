@@ -459,6 +459,7 @@ struct FilesView: View {
                 Text(model.error).foregroundStyle(Theme.err).padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
             } else {
+                GeometryReader { g in
                 HStack(spacing: 0) {
                     Group {
                         switch model.side {
@@ -466,7 +467,9 @@ struct FilesView: View {
                         case .search: FilesSearchPanel(model: model.search)
                         }
                     }
-                    .frame(width: model.side == .search ? 380 : 300)
+                    // Its usual width, or less in a narrow card (a
+                    // workbench's), so the file beside it keeps room.
+                    .frame(width: filesSideWidth(search: model.side == .search, card: g.size.width))
                     Rectangle().fill(Theme.line).frame(width: 1)
                     VStack(spacing: 0) {
                         if !model.tabs.paths.isEmpty {
@@ -479,6 +482,7 @@ struct FilesView: View {
                         Rectangle().fill(Theme.line).frame(width: 1)
                         AgentEditPanel(model: model, store: store).frame(width: 340)
                     }
+                }
                 }
             }
         }
@@ -496,16 +500,13 @@ struct FilesView: View {
             Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2)
             branchMenu
             Text(model.root).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
-            Spacer()
-            headerButton("Go to File", icon: "doc", key: "⌘P") { model.quickOpen = true }
-                .help("Open a file by a few letters of its name (⌘P)")
-            headerButton(model.side == .search ? "Show Tree" : "Search", icon: model.side == .search ? "list.bullet.indent" : "magnifyingglass", key: "⌘⇧F") {
-                model.side = model.side == .search ? .tree : .search
-                if model.side == .search { model.search.focus &+= 1 }
+            Spacer(minLength: 4)
+            // In a narrow card (a workbench's) the buttons lose their words
+            // before they would run off its edge.
+            ViewThatFits(in: .horizontal) {
+                headerButtons(compact: false)
+                headerButtons(compact: true)
             }
-            .help("Search the whole project for file names and text, and replace (⌘⇧F)")
-            Toggle("Hidden files", isOn: Binding(get: { model.hidden }, set: { model.hidden = $0; model.load() }))
-                .toggleStyle(.checkbox).font(.ui(size: 12)).foregroundStyle(Theme.text2)
             // ↻ turns while files are read, and a moment after.
             Button { model.load() } label: {
                 TimelineView(.animation(paused: !model.spinning)) { ctx in
@@ -540,13 +541,31 @@ struct FilesView: View {
         .help("Show another branch's files: any branch checked out in a worktree")
     }
 
-    func headerButton(_ title: String, icon: String, key: String, action: @escaping () -> Void) -> some View {
+    func headerButtons(compact: Bool) -> some View {
+        HStack(spacing: 10) {
+            headerButton("Go to File", icon: "doc", key: "⌘P", compact: compact) { model.quickOpen = true }
+                .help("Open a file by a few letters of its name (⌘P)")
+            headerButton(model.side == .search ? "Show Tree" : "Search", icon: model.side == .search ? "list.bullet.indent" : "magnifyingglass", key: "⌘⇧F", compact: compact) {
+                model.side = model.side == .search ? .tree : .search
+                if model.side == .search { model.search.focus &+= 1 }
+            }
+            .help("Search the whole project for file names and text, and replace (⌘⇧F)")
+            Toggle(compact ? "Hidden" : "Hidden files", isOn: Binding(get: { model.hidden }, set: { model.hidden = $0; model.load() }))
+                .toggleStyle(.checkbox).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize()
+                .help("Show hidden files")
+        }
+    }
+
+    func headerButton(_ title: String, icon: String, key: String, compact: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.system(size: 11))
-                Text(title).font(.ui(size: 12))
-                Text(key).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                if !compact {
+                    Text(title).font(.ui(size: 12))
+                    Text(key).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                }
             }
+            .fixedSize()
             .padding(.horizontal, 8).frame(height: 24)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
             .contentShape(Rectangle())

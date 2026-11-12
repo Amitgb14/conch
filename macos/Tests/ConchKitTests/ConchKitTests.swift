@@ -444,7 +444,7 @@ final class FakeServer: @unchecked Sendable {
         let t = ConchTheme.all[i]
         #expect(t.id == name && t.accent.hex == accent.uppercased() && t.bg.hex == bg.uppercased(), "theme \(name)")
     }
-    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "vscode-light-modern", "vscode-light-plus"])
+    #expect(ConchTheme.all.filter(\.light).map(\.id) == ["github-light", "solarized-light", "catppuccin-latte", "ink", "meadow", "terminal-light", "jetbrains-light", "vscode-light-modern", "vscode-light-plus"])
     // VS Code's: its own values, and each dark one follows macOS to its light one.
     let dm = ConchTheme.named("vscode-dark-modern"), lm = ConchTheme.named("vscode-light-modern")
     #expect(dm.bg.hex == "#1F1F1F" && dm.fg.hex == "#CCCCCC" && dm.accent.hex == "#0078D4" && dm.border.hex == "#2B2B2B" && !dm.light)
@@ -642,9 +642,10 @@ final class FakeServer: @unchecked Sendable {
     // An agent: open, rename, prompt, start beside it, its branch, close.
     let agent = api.children![0].children![0]
     let am = s.menu(for: agent, machine: "box")
-    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "", "Start an Agent Here", "New Terminal Here", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Redraw", "Close Agent…"])
-    #expect(am[4].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[4].picksAgent)
-    #expect(am[6].action == .changes(project: "box|r1", branch: "feat"))
+    #expect(titles(am) == ["Open", "Rename…", "Prompt…", "Open Workbench", "", "Start an Agent Here", "New Terminal Here", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Redraw", "Close Agent…"])
+    #expect(am[3].action == .workbench(pane: "box|p1"))
+    #expect(am[5].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true) && am[5].picksAgent)
+    #expect(am[7].action == .changes(project: "box|r1", branch: "feat"))
     #expect(am.last?.action == .close(pane: "box|p1"))
     // A terminal: no prompt, a plain Close; one in no project starts things outside any.
     let cli = t.children!.first { $0.kind == .cli("box") }!
@@ -722,7 +723,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(s.menu(for: t, machine: "box", machineOnline: false).map(\.action) == [.addMachine, .newSandbox, .divider, .reconnect(machine: "box"),
                                                                                    .upgrade(machine: "box"), .removeMachine(machine: "box")])
     #expect(s.menu(for: api, machine: "box", machineOnline: false).isEmpty)
-    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Close Agent…"])
+    #expect(titles(s.menu(for: agent, machine: "box", machineOnline: false)) == ["Open", "Rename…", "Prompt…", "Open Workbench", "View Changes on feat", "", "Copy Pane ID (box:p1)", "Close Agent…"])
     // A section offers a broadcast to those in it, offline nothing; a pane
     // gone from the snapshot has no menu.
     #expect(s.menu(for: api.children![0], machine: "box").map(\.action) == [.broadcast(.section(project: "box|r1", agents: true))])
@@ -1461,7 +1462,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 @Test func appStyles() {
     #expect(AppStyle(setting: "ink") == .ink && AppStyle(setting: " INK ") == .ink)
     #expect(AppStyle(setting: nil) == .standard && AppStyle(setting: "") == .standard && AppStyle(setting: "manga") == .standard)
-    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel", "Terminal"])
+    #expect(AppStyle.allCases.map(\.label) == ["Standard", "Ink", "Meadow", "Cel", "Terminal", "JetBrains"])
     // Terminal: today's window — gutters, borders, corners and no roster as
     // Standard — on its own theme, every word in monospace a little smaller,
     // and the sidebar wider for the wider names. Only it is monospace.
@@ -1510,7 +1511,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(AppStyle(setting: "meadow") == .meadow && AppStyle.meadow.label == "Meadow")
     #expect(AppStyle.meadow.theme == "meadow" && ConchTheme.named("meadow").light && !ConchTheme.named("firefly").light)
     #expect(AppStyle.meadow.corner > AppStyle.standard.corner && AppStyle.ink.corner == 0)
-    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow, .terminal] && AppStyle.allCases.filter(\.roster) == [.cel])
+    #expect(AppStyle.allCases.filter(\.paintsTitleBar) == [.meadow, .terminal, .jetbrains] && AppStyle.allCases.filter(\.roster) == [.cel])
     #expect(AppStyle.meadow.gutter == AppStyle.ink.gutter && AppStyle.meadow.border == AppStyle.standard.border)
     for w in [0.0, 100, 1320, 2560] {
         let c = cloudLayout(width: w)

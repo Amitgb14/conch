@@ -373,6 +373,8 @@ final class Store: ObservableObject {
 
     /// "api · local": where a pane is, for the end of the tab bar.
     func scope(of k: String) -> String {
+        // A workbench's chat and terminal are the agent's.
+        if let a = parseChatKey(k) ?? parseBenchShellKey(k) { return scope(of: a) }
         if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
         if let t = parseTaskKey(k) { return [t.group, label(t.machine)].joined(separator: " · ") }
         if let c = parseChangesKey(k) {
@@ -1224,6 +1226,10 @@ final class Store: ObservableObject {
             isPaneKey(id) && unkey(id).machine == machine && !alive.contains(id)
         }
         for id in layout.tabs.flatMap(\.root.panes) where gone(id) { layout.close(id) }
+        // A chat goes with its agent.
+        for id in layout.tabs.flatMap(\.root.panes) {
+            if let a = parseChatKey(id), gone(a) { layout.close(id) }
+        }
         if let s = scratch, gone(s) { dropScratch() }
         for w in parkedTabs.keys {
             for id in parkedTabs[w]?.tabs.flatMap(\.root.panes) ?? [] where gone(id) { parkedTabs[w]?.close(id) }
@@ -1927,6 +1933,12 @@ final class Store: ObservableObject {
         layout.tabs[layout.active].resize(path, n: n, after: i, by: delta)
     }
 
+    /// The same, in a split some of whose children are hidden.
+    func resizeSplit(_ path: String, n: Int, between a: Int, and b: Int, shown: [Int], by delta: Double) {
+        guard layout.tabs.indices.contains(layout.active) else { return }
+        layout.tabs[layout.active].resize(path, n: n, between: a, and: b, shown: shown, by: delta)
+    }
+
     /// Whether a tab or split shows k, in this workspace or another's.
     func isShown(_ k: String) -> Bool {
         layout.tab(showing: k) != nil || parkedTabs.values.contains { $0.tab(showing: k) != nil }
@@ -1975,6 +1987,17 @@ final class Store: ObservableObject {
     }
 
     private(set) var fileViews: [String: FilesModel] = [:]
+    /// Each workbench's chat, by its key.
+    var chatViews: [String: ChatModel] = [:]
+    /// Why a workbench's terminal did not start, by its agent.
+    @Published var benchShellErrors: [String: String] = [:]
+
+    /// The name of the project a pane is in, for a workbench's bar.
+    func projectName(of k: String) -> String? {
+        let (m, _) = unkey(k)
+        guard let pid = pane(k)?.projectID else { return nil }
+        return snapshots[m]?.project(pid)?.name
+    }
 
     private var setupViews: [String: SetupModel] = [:]
     func setup(for k: String) -> SetupModel {
@@ -2271,6 +2294,15 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "workbench": workbenchForFocused()
+        case let b where b.hasPrefix("bench:"):
+            let l = BenchLayout(setting: String(b.dropFirst(6)))
+            // The workbench on screen rearranged; else the focused agent's
+            // opened in it.
+            if layout.current?.benchAgent != nil { setBench(l) } else {
+                benchLayout = l
+                workbenchForFocused()
+            }
         case "newBrowser": openBrowser(nil)
         case "closeWorkspace":
             if workspace > 0 { closeWorkspace(workspace) } else { say("The first workspace stays: it holds what no other has", .info) }
@@ -2381,6 +2413,7 @@ final class Store: ObservableObject {
         case .open, .divider: activate(node)
         case .rename(let k): renamePane(k)
         case .prompt(let k): promptAgent(k)
+        case .workbench(let k): openWorkbench(k)
         case .close(let k): closePane(k)
         case .startAgent(let m, let cwd, let inProject):
             newPane(machine: m, cwd: cwd, inProject: inProject, agent: agent ?? startable(on: m).first?.name)

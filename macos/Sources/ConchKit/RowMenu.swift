@@ -26,6 +26,9 @@ public enum RowAction: Equatable, Sendable {
     case open
     case rename(pane: String)
     case prompt(pane: String)
+    /// The agent's branch in one tab: its files, a terminal, its chat and
+    /// its own terminal, arranged by the workbench layout.
+    case workbench(pane: String)
     case close(pane: String)
     /// Starts an agent where cwd is (nil: the machine's home). inProject
     /// false keeps it out of any project, as the TUI's CLI group does.
@@ -203,6 +206,7 @@ extension Snapshot {
             out = [RowMenuItem("Open", .open), RowMenuItem("Rename…", .rename(pane: k))]
             if agent && p.running {
                 out.append(RowMenuItem(p.agent?.state == .blocked ? "Prompt… (It Is Waiting for an Answer)" : "Prompt…", .prompt(pane: k)))
+                out.append(RowMenuItem("Open Workbench", .workbench(pane: k)))
             }
             if machineOnline {
                 out += [.divider,

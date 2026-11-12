@@ -700,8 +700,15 @@ struct MainView: View {
                         // which is on screen in the tab bar's place.
                         if store.appLook.tabs == .top { TabBar(store: store) } else { CrumbBar(store: store) }
                         if store.connected, let tab = store.layout.current {
-                            // Zoomed: the focused split alone, filling the tab.
-                            SplitArea(store: store, node: tab.zoomed ? .leaf(tab.focused) : tab.root).padding(store.gutter)
+                            if tab.benchAgent != nil {
+                                // A workbench: its bar above, or IntelliJ's strips.
+                                BenchFrame(store: store, tab: tab) {
+                                    SplitArea(store: store, node: tab.zoomed ? .leaf(tab.focused) : tab.root).padding(store.gutter)
+                                }
+                            } else {
+                                // Zoomed: the focused split alone, filling the tab.
+                                SplitArea(store: store, node: tab.zoomed ? .leaf(tab.focused) : tab.root).padding(store.gutter)
+                            }
                         } else {
                             Empty(store: store)
                         }
@@ -1678,6 +1685,7 @@ struct TabButton: View {
     /// a project's sessions or commits by the project, else the pane.
     func title(changes: (machine: String, project: String, branch: String)?, pane p: PaneInfo?) -> String {
         if let n = tab.name { return n }
+        if let a = tab.benchAgent { return "Workbench · " + (store.pane(a)?.displayName ?? "agent") }
         if let c = changes { return "\(c.branch) changes" }
         func project(_ m: String, _ id: String) -> String { store.snapshots[m]?.project(id)?.name ?? id }
         if let s = parseSessionsKey(tab.focused) { return "Sessions · " + project(s.machine, s.project) }
@@ -1696,7 +1704,8 @@ struct TabButton: View {
 
     var body: some View {
         let on = index == store.layout.active
-        let p = store.pane(tab.focused)
+        // A workbench is named and marked by its agent, whatever has focus.
+        let p = store.pane(tab.benchAgent ?? tab.focused)
         HStack(spacing: 7) {
             let changes = parseChangesKey(tab.focused)
             // Its number, for ⌘1–⌘9.
@@ -1853,6 +1862,10 @@ struct SplitArea: View {
                 BrowserView(model: store.browser(for: id)).id(id)
             } else if parseTaskKey(id) != nil {
                 TaskPageView(store: store, key: id).id(id)
+            } else if parseChatKey(id) != nil {
+                ChatView(store: store, model: store.chat(for: id)).id(id)
+            } else if let agent = parseBenchShellKey(id) {
+                BenchShellPlaceholder(store: store, agent: agent).id(id)
             } else {
                 // Its own card for each pane, so moving to another tab
                 // never shows one pane's terminal under another's header.
@@ -1877,21 +1890,26 @@ struct SplitStack: View {
     var body: some View {
         GeometryReader { g in
             let gap = store.gutter
-            let total = (axis == .horizontal ? g.size.width : g.size.height) - gap * CGFloat(kids.count - 1)
-            let w = store.layout.current?.shares(path, kids.count) ?? Array(repeating: 1 / Double(kids.count), count: kids.count)
+            // A workbench's hidden parts take no room: the shown ones share
+            // it in proportion (shownShares).
+            let hidden = store.layout.current?.hidden ?? []
+            let shown = shownKids(kids, hidden: hidden)
+            let total = (axis == .horizontal ? g.size.width : g.size.height) - gap * CGFloat(max(shown.count - 1, 0))
+            let all = store.layout.current?.shares(path, kids.count) ?? Array(repeating: 1 / Double(kids.count), count: kids.count)
+            let w = shownShares(all, shown: shown)
             let layout = axis == .horizontal ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
             layout {
-                ForEach(Array(kids.enumerated()), id: \.offset) { i, k in
-                    let len = max(total * CGFloat(w[i]), 0)
-                    SplitArea(store: store, node: k, path: path.isEmpty ? "\(i)" : "\(path).\(i)")
+                ForEach(Array(shown.enumerated()), id: \.element) { j, i in
+                    let len = max(total * CGFloat(w[j]), 0)
+                    SplitArea(store: store, node: kids[i], path: path.isEmpty ? "\(i)" : "\(path).\(i)")
                         .frame(width: axis == .horizontal ? len : nil, height: axis == .vertical ? len : nil)
-                    if i < kids.count - 1 { handle(after: i, gap: gap, total: total) }
+                    if j < shown.count - 1 { handle(between: i, and: shown[j + 1], shown: shown, gap: gap, total: total) }
                 }
             }
         }
     }
 
-    func handle(after i: Int, gap: CGFloat, total: CGFloat) -> some View {
+    func handle(between i: Int, and next: Int, shown: [Int], gap: CGFloat, total: CGFloat) -> some View {
         Color.clear
             .frame(width: axis == .horizontal ? gap : nil, height: axis == .vertical ? gap : nil)
             .contentShape(Rectangle())
@@ -1902,7 +1920,11 @@ struct SplitStack: View {
                 .onChanged { v in
                     let now = axis == .horizontal ? v.translation.width : v.translation.height
                     guard total > 0 else { return }
-                    store.resizeSplit(path, n: kids.count, after: i, by: Double((now - dragged) / total))
+                    if shown.count == kids.count {
+                        store.resizeSplit(path, n: kids.count, after: i, by: Double((now - dragged) / total))
+                    } else {
+                        store.resizeSplit(path, n: kids.count, between: i, and: next, shown: shown, by: Double((now - dragged) / total))
+                    }
                     dragged = now
                 }
                 .onEnded { _ in dragged = 0 })
@@ -1968,6 +1990,11 @@ struct PaneCard: View {
                 }
                 if p?.running == false {
                     Text("exited \(p?.exitCode ?? 0)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                }
+                // In a workbench where the chat and this terminal share a
+                // place, the way back to the chat.
+                if let t = store.layout.current, t.benchAgent == pane, t.bench != .agent {
+                    ChatTerminalSwitch(store: store, chat: false)
                 }
                 // What conch's commands call it — conch read p12 — a click away.
                 if let ref = store.paneRef(key: pane) { PaneIDChip(store: store, ref: ref) }
