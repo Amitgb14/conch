@@ -35,6 +35,8 @@ public struct MovePlan: Decodable, Equatable, Sendable {
     public var targetName: String?
     public var targetPath: String?
     public var cloneTo: String?
+    /// No origin: the repository itself is copied there, every branch with it.
+    public var bundle: Bool?
     public var worktrees: [MoveWorktree]?
     public var branches: [BranchInfo]?
     public var mainAgents: [PaneInfo]?
@@ -45,7 +47,7 @@ public struct MovePlan: Decodable, Equatable, Sendable {
     public var terminals: Int?
 
     enum CodingKeys: String, CodingKey {
-        case name, path, remote, from, to, target, worktrees, branches, skipped, terminals, already
+        case name, path, remote, from, to, target, worktrees, branches, skipped, terminals, already, bundle
         case projectID = "project_id"
         case targetName = "target_name"
         case targetPath = "target_path"

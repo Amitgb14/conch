@@ -306,21 +306,42 @@ func (a *Agent) capabilities() []string {
 
 // apply puts a hello's answer to use: git through the proxy, the relay.
 func (a *Agent) apply(ctx context.Context, cfg VMConfig) {
-	if cfg.GitProxy != "" {
-		a.mu.Lock()
-		done := a.gitProxy == cfg.GitProxy
-		a.mu.Unlock()
-		if !done {
-			if err := a.configureGit(ctx, cfg.GitProxy); err != nil {
-				a.logf("cloud: git through %s: %v", cfg.GitProxy, err)
-			} else {
-				a.mu.Lock()
-				a.gitProxy = cfg.GitProxy
-				a.mu.Unlock()
-			}
-		}
-	}
+	a.applyGit(ctx, cfg.GitProxy)
 	a.startLink(ctx, cfg)
+}
+
+// applyGit sends github.com through proxy when it is a git proxy that
+// answers, and otherwise leaves git to reach github.com itself: a proxy
+// named but not running (a control plane with no GitHub App) failed every
+// clone with a 502. Each hello asks again, so a proxy that comes up later
+// is used from the next one; one in use is not asked again.
+func (a *Agent) applyGit(ctx context.Context, proxy string) {
+	a.mu.Lock()
+	done := proxy != "" && a.gitProxy == proxy
+	a.mu.Unlock()
+	if done {
+		return
+	}
+	if proxy != "" {
+		ok, why := gitProxyAnswers(ctx, a.opts.HTTP, proxy)
+		if ok {
+			if err := a.configureGit(ctx, proxy); err != nil {
+				a.logf("cloud: git through %s: %v", proxy, err)
+				return
+			}
+			a.mu.Lock()
+			a.gitProxy = proxy
+			a.mu.Unlock()
+			return
+		}
+		a.logf("cloud: the git proxy %s does not answer (%s); git reaches github.com itself, with this machine's own credentials", proxy, why)
+	}
+	if err := a.unconfigureGit(ctx); err != nil {
+		a.logf("cloud: git: %v", err)
+	}
+	a.mu.Lock()
+	a.gitProxy = ""
+	a.mu.Unlock()
 }
 
 // kick asks for an activity report: something changed.

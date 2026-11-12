@@ -2,6 +2,8 @@ package cloudagent
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -166,5 +168,174 @@ func TestGitProxyWithAPath(t *testing.T) {
 		if pass, ok := proxy.password(want); !ok || pass != "ccm_first" {
 			t.Errorf("%s: the proxy was given %q at %s (%v); git said:\n%s", remote, pass, want, ok, out)
 		}
+	}
+}
+
+func TestGitProxyAnswers(t *testing.T) {
+	serve := func(status int, auth string) string {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "" {
+				t.Errorf("the probe sent credentials: %q", r.Header.Get("Authorization"))
+			}
+			if auth != "" {
+				w.Header().Set("WWW-Authenticate", auth)
+			}
+			w.WriteHeader(status)
+		}))
+		t.Cleanup(s.Close)
+		return s.URL
+	}
+	gone := httptest.NewServer(http.NotFoundHandler())
+	gone.Close()
+	cases := []struct {
+		name string
+		url  string
+		want bool
+	}{
+		{"asks for the token", serve(401, `Basic realm="conch-cloud git"`), true},
+		{"asks, lower case", serve(401, `basic realm="x"`), true},
+		{"with a path and a slash", serve(401, "Basic") + "/git/", true},
+		{"gateway with nothing behind it", serve(502, ""), false},
+		{"401 asking for something else", serve(401, "Bearer"), false},
+		{"401 asking nothing", serve(401, ""), false},
+		{"answers without asking", serve(200, ""), false},
+		{"not found", serve(404, ""), false},
+		{"nobody listening", gone.URL, false},
+		{"not a URL", "://nope", false},
+	}
+	for _, c := range cases {
+		ok, why := gitProxyAnswers(context.Background(), nil, c.url)
+		if ok != c.want {
+			t.Errorf("%s: %v (%s), want %v", c.name, ok, why, c.want)
+		}
+		if !ok && why == "" {
+			t.Errorf("%s: refused with no reason", c.name)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if ok, _ := gitProxyAnswers(ctx, nil, serve(401, "Basic")); ok {
+		t.Fatal("a cancelled context answered")
+	}
+}
+
+// gitAgent is an agent with just enough to set git up: the real git, on
+// the isolated GIT_CONFIG_SYSTEM.
+func gitAgent(t *testing.T) (*Agent, string, *bytes.Buffer) {
+	t.Helper()
+	home := t.TempDir()
+	sys := filepath.Join(home, "gitconfig-system")
+	t.Setenv("GIT_CONFIG_SYSTEM", sys)
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig-global"))
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "")
+	var log bytes.Buffer
+	var mu sync.Mutex
+	a := &Agent{opts: Options{Executable: "/usr/bin/conch", AgentSocket: "/run/x.sock", Logf: func(f string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(&log, f+"\n", args...)
+	}}}
+	return a, sys, &log
+}
+
+// resolved is where git would fetch remote from, asked without the network.
+func resolved(t *testing.T, remote string) string {
+	t.Helper()
+	out, err := git(t, t.TempDir(), "ls-remote", "--get-url", remote)
+	if err != nil {
+		t.Fatalf("ls-remote --get-url: %v: %s", err, out)
+	}
+	return strings.TrimSpace(out)
+}
+
+// TestGitProxyDownLeavesGithubAlone: a control plane can name a git proxy
+// it does not run (no GitHub App), behind a gateway answering 502.
+// github.com must not be sent there — every clone failed, public
+// repositories too — and what an earlier agent set for it is taken away.
+func TestGitProxyDownLeavesGithubAlone(t *testing.T) {
+	a, sys, log := gitAgent(t)
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(502) }))
+	defer down.Close()
+	// Set when the proxy last answered, plus somebody's own settings.
+	os.WriteFile(sys, []byte("[url \""+down.URL+"/github.com/\"]\n\tinsteadOf = https://github.com/\n\tinsteadOf = git@github.com:\n"+
+		"[url \"https://mirror.example/\"]\n\tinsteadOf = https://gitlab.example/\n"+
+		"[credential \""+down.URL+"\"]\n\thelper = \n\thelper = !'/usr/bin/conch' cloud git-credential -socket '/run/x.sock'\n"+
+		"[credential \"https://mine.example\"]\n\thelper = store\n[user]\n\tname = kept\n"), 0o644)
+
+	a.applyGit(context.Background(), down.URL)
+
+	if got := resolved(t, "https://github.com/acme/bot.git"); got != "https://github.com/acme/bot.git" {
+		t.Fatalf("github.com still goes to %s", got)
+	}
+	if got := resolved(t, "git@github.com:acme/bot.git"); got != "git@github.com:acme/bot.git" {
+		t.Fatalf("the ssh form still goes to %s", got)
+	}
+	conf, _ := os.ReadFile(sys)
+	for _, gone := range []string{"cloud git-credential", down.URL} {
+		if bytes.Contains(conf, []byte(gone)) {
+			t.Errorf("%q is still in the system config:\n%s", gone, conf)
+		}
+	}
+	for _, kept := range []string{"mirror.example", "helper = store", "name = kept"} {
+		if !bytes.Contains(conf, []byte(kept)) {
+			t.Errorf("%q was taken away:\n%s", kept, conf)
+		}
+	}
+	if !strings.Contains(log.String(), "does not answer (502") {
+		t.Errorf("log: %s", log)
+	}
+	if a.gitProxy != "" {
+		t.Errorf("recorded as in use: %q", a.gitProxy)
+	}
+}
+
+// TestGitProxyComesUpLater: the next hello asks again, and a proxy that
+// answers now is used; once in use it is not asked again, and a hello
+// that names none takes it away.
+func TestGitProxyComesUpLater(t *testing.T) {
+	a, sys, _ := gitAgent(t)
+	var mu sync.Mutex
+	up, asked := false, 0
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked++
+		if !up {
+			w.WriteHeader(502)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", "Basic")
+		w.WriteHeader(401)
+	}))
+	defer proxy.Close()
+	ctx := context.Background()
+
+	a.applyGit(ctx, proxy.URL)
+	if got := resolved(t, "https://github.com/acme/bot.git"); got != "https://github.com/acme/bot.git" {
+		t.Fatalf("down, and github.com goes to %s", got)
+	}
+	mu.Lock()
+	up = true
+	mu.Unlock()
+	a.applyGit(ctx, proxy.URL)
+	if got, want := resolved(t, "https://github.com/acme/bot.git"), proxy.URL+"/github.com/acme/bot.git"; got != want {
+		t.Fatalf("up, and github.com goes to %s, want %s", got, want)
+	}
+	mu.Lock()
+	before := asked
+	mu.Unlock()
+	a.applyGit(ctx, proxy.URL)
+	mu.Lock()
+	if asked != before {
+		t.Errorf("a proxy in use was asked again")
+	}
+	mu.Unlock()
+
+	a.applyGit(ctx, "")
+	if got := resolved(t, "https://github.com/acme/bot.git"); got != "https://github.com/acme/bot.git" {
+		t.Fatalf("no proxy named, and github.com goes to %s", got)
+	}
+	if conf, _ := os.ReadFile(sys); bytes.Contains(conf, []byte("git-credential")) {
+		t.Fatalf("the helper stayed:\n%s", conf)
 	}
 }

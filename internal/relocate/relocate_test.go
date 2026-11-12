@@ -347,21 +347,188 @@ func TestPlanRefusals(t *testing.T) {
 	if _, err := NewPlan(ctx, from, to, info.ID, "here", "there", ""); err == nil || !strings.Contains(err.Error(), "not a git repository") {
 		t.Fatalf("plain folder: %v", err)
 	}
-	// A repository with nothing of its own to move says so.
+	// A clone with nothing of its own to move says so: the other machine
+	// can clone it from its origin itself.
+	origin := filepath.Join(home, "origin.git")
+	git(t, home, "init", "-q", "--bare", "-b", "main", origin)
 	repo := filepath.Join(home, "repo")
-	git(t, home, "init", "-q", repo)
+	git(t, home, "clone", "-q", origin, repo)
 	git(t, repo, "commit", "-q", "--allow-empty", "-m", "first")
+	git(t, repo, "push", "-q", "-u", "origin", "main")
 	call(t, from, proto.MethodProjectAdd, proto.ProjectAddParams{Path: repo}, &info)
-	project(t, from, info.ID, func(p proto.ProjectInfo) bool { return len(p.Branches) > 0 })
+	project(t, from, info.ID, func(p proto.ProjectInfo) bool { return len(p.Branches) > 0 && p.Remote != "" })
 	_, err := NewPlan(ctx, from, to, info.ID, "here", "there", "")
 	if err == nil || !strings.Contains(err.Error(), "nothing would move") {
 		t.Fatalf("nothing to move: %v", err)
 	}
-	// With a branch of its own but no origin, there is nothing to clone there.
-	git(t, repo, "branch", "mine")
-	project(t, from, info.ID, func(p proto.ProjectInfo) bool { return branch(p, "mine") != nil })
-	if _, err := NewPlan(ctx, from, to, info.ID, "here", "there", ""); err == nil || !strings.Contains(err.Error(), "has no origin") {
-		t.Fatalf("no origin: %v", err)
+
+	// No origin: the repository itself moves, so even with nothing else
+	// of its own there is something to move — unless a server predates
+	// carrying it, which is said, naming that machine.
+	solo := filepath.Join(home, "solo")
+	git(t, home, "init", "-q", solo)
+	git(t, solo, "commit", "-q", "--allow-empty", "-m", "first")
+	call(t, from, proto.MethodProjectAdd, proto.ProjectAddParams{Path: solo}, &info)
+	project(t, from, info.ID, func(p proto.ProjectInfo) bool { return len(p.Branches) > 0 })
+	plan, err := NewPlan(ctx, from, to, info.ID, "here", "there", "~/elsewhere/solo")
+	if err != nil || !plan.Bundle || plan.CloneTo != "~/elsewhere/solo" || plan.Steps() != 1 {
+		t.Fatalf("no origin: %v %+v", err, plan)
+	}
+	caps := to.Server.Capabilities
+	to.Server.Capabilities = nil
+	for _, c := range caps {
+		if c != proto.CapProjectBundle {
+			to.Server.Capabilities = append(to.Server.Capabilities, c)
+		}
+	}
+	_, err = NewPlan(ctx, from, to, info.ID, "here", "there", "~/elsewhere/solo")
+	to.Server.Capabilities = caps
+	if err == nil || !strings.Contains(err.Error(), "has no origin") || !strings.Contains(err.Error(), "server on there predates") {
+		t.Fatalf("an older server there: %v", err)
+	}
+}
+
+// A project with no origin moves by carrying its repository: every branch
+// and tag, the main checkout's branch checked out, no remote there; a
+// task worktree follows with its uncommitted work, and a branch with no
+// worktree goes in the bundle rather than a worktree of its own.
+func TestMoveProjectWithNoOrigin(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	home := isolate(t)
+	src := filepath.Join(home, "workspace", "cachemind")
+	git(t, home, "init", "-q", src)
+	os.WriteFile(filepath.Join(src, "README.md"), []byte("cachemind\n"), 0o644)
+	git(t, src, "add", "README.md")
+	git(t, src, "commit", "-q", "-m", "first")
+	git(t, src, "tag", "v1")
+	git(t, src, "checkout", "-q", "-b", "wip/local")
+	git(t, src, "commit", "-q", "--allow-empty", "-m", "only here")
+	git(t, src, "checkout", "-q", "main")
+	// Work in the main checkout stays here, as it does for a clone.
+	os.WriteFile(filepath.Join(src, "scratch.txt"), []byte("mine\n"), 0o644)
+
+	from := start(t, "here")
+	to := start(t, "there")
+	var info proto.ProjectInfo
+	call(t, from, proto.MethodProjectAdd, proto.ProjectAddParams{Path: src}, &info)
+	var wt proto.WorktreeResult
+	call(t, from, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: info.ID, Branch: "feat/fix"}, &wt)
+	os.WriteFile(filepath.Join(wt.Path, "fix.go"), []byte("package fix\n"), 0o644)
+	git(t, wt.Path, "add", "fix.go")
+	git(t, wt.Path, "commit", "-q", "-m", "the fix")
+	os.WriteFile(filepath.Join(wt.Path, "README.md"), []byte("changed\n"), 0o644)
+	project(t, from, info.ID, func(p proto.ProjectInfo) bool {
+		return branch(p, "wip/local") != nil && len(ProjectWorktrees(&p)) == 1
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	plan, err := NewPlan(ctx, from, to, info.ID, "here", "there", "~/there/cachemind")
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if !plan.Bundle || plan.Remote != "" || plan.Target != "" || len(plan.Branches) != 0 || len(plan.Worktrees) != 1 {
+		t.Fatalf("plan: %+v", plan)
+	}
+	if plan.Steps() != 2 { // the repository, feat/fix
+		t.Fatalf("steps %d", plan.Steps())
+	}
+	var said []string
+	res, err := Run(ctx, plan, from, to, Options{Cols: 80, Rows: 24}, func(e Event) { said = append(said, e.Kind+":"+e.State) })
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if strings.Join(said, " ") != "clone:start clone:ok worktree:start worktree:ok" || len(res.Failed) > 0 || strings.Join(res.Moved, ",") != "feat/fix" {
+		t.Fatalf("events %v result %+v", said, res)
+	}
+
+	there := project(t, to, res.Target, func(p proto.ProjectInfo) bool { return len(ProjectWorktrees(&p)) == 1 })
+	if there.Path != filepath.Join(home, "there", "cachemind") {
+		t.Fatalf("there at %s", there.Path)
+	}
+	if got := git(t, there.Path, "remote"); got != "" {
+		t.Fatalf("a remote there: %q", got)
+	}
+	if got := git(t, there.Path, "branch", "--show-current"); got != "main" {
+		t.Fatalf("checked out there: %q", got)
+	}
+	if b, _ := os.ReadFile(filepath.Join(there.Path, "README.md")); string(b) != "cachemind\n" {
+		t.Fatalf("README there: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(there.Path, "scratch.txt")); err == nil {
+		t.Fatal("the main checkout's uncommitted file went too")
+	}
+	if got := git(t, there.Path, "log", "-1", "--format=%s", "wip/local"); got != "only here" {
+		t.Fatalf("wip/local there: %q", got)
+	}
+	if got := git(t, there.Path, "tag"); got != "v1" {
+		t.Fatalf("tags there: %q", got)
+	}
+	fix := ProjectWorktrees(&there)[0]
+	if fix.Branch != "feat/fix" || git(t, fix.Path, "log", "-1", "--format=%s") != "the fix" {
+		t.Fatalf("feat/fix there: %+v", fix)
+	}
+	if st := git(t, fix.Path, "status", "--porcelain"); !strings.Contains(st, " M README.md") {
+		t.Fatalf("feat/fix's uncommitted work there:\n%s", st)
+	}
+	// Here, everything is kept.
+	if _, err := os.Stat(filepath.Join(src, "scratch.txt")); err != nil {
+		t.Fatal("the main checkout here lost its file")
+	}
+}
+
+// project.bundle and project.unbundle refuse what they cannot do.
+func TestBundleRefusals(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	home := isolate(t)
+	c := start(t, "here")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// No commits: nothing to carry.
+	empty := filepath.Join(home, "empty")
+	git(t, home, "init", "-q", empty)
+	var info proto.ProjectInfo
+	call(t, c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: empty}, &info)
+	var b proto.ProjectBundle
+	if err := c.Call(ctx, proto.MethodProjectBundle, proto.ProjectRef{ID: info.ID}, &b); err == nil || !strings.Contains(err.Error(), "no commits yet") {
+		t.Fatalf("empty repository: %v", err)
+	}
+	if err := c.Call(ctx, proto.MethodProjectBundle, proto.ProjectRef{ID: "nope"}, &b); err == nil {
+		t.Fatal("unknown project bundled")
+	}
+	// Only an upload is made a project, and only into an empty folder.
+	var out proto.ProjectInfo
+	for _, pack := range []string{"", "/etc/hosts", filepath.Join(home, "x.bundle")} {
+		if err := c.Call(ctx, proto.MethodProjectUnbundle, proto.ProjectUnbundleParams{Pack: pack, Path: "~/new"}, &out); err == nil || !strings.Contains(err.Error(), "not an upload") {
+			t.Fatalf("unbundle %q: %v", pack, err)
+		}
+	}
+	// An upload that is no bundle: refused, and nothing left behind.
+	up := client.NewUpload(c, "bad.bundle", []byte("not a bundle"))
+	path, err := up.Run(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, proto.MethodProjectUnbundle, proto.ProjectUnbundleParams{Pack: path, Path: "~/fresh"}, &out); err == nil || !strings.Contains(err.Error(), "from the bundle") {
+		t.Fatalf("not a bundle: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "fresh")); !os.IsNotExist(err) {
+		t.Fatalf("a failed unbundle left its folder: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the upload stayed: %v", err)
+	}
+	up = client.NewUpload(c, "b.bundle", []byte("x"))
+	if path, err = up.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, proto.MethodProjectUnbundle, proto.ProjectUnbundleParams{Pack: path, Path: empty}, &out); err == nil || !strings.Contains(err.Error(), "isn't empty") {
+		t.Fatalf("into a folder in use: %v", err)
 	}
 }
 

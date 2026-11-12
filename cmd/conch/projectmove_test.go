@@ -239,6 +239,11 @@ func TestProjectMoveWords(t *testing.T) {
 	if !strings.Contains(text, "codex, opencode continue in it") {
 		t.Errorf("plan says no %q:\n%s", "codex, opencode continue in it", text)
 	}
+	// No origin: the repository is copied, not cloned.
+	copied := relocate.Plan{Name: "cachemind", Path: "/p", To: "box", CloneTo: "~/cachemind", Bundle: true}
+	if text := planText(copied); !strings.Contains(text, "copy     the repository (no origin") || strings.Contains(text, "clone") {
+		t.Errorf("a copied project's plan:\n%s", text)
+	}
 	if strings.Contains(text, "(s)") || strings.Contains(planText(one), "(s)") {
 		t.Errorf("a plan said (s):\n%s", text)
 	}

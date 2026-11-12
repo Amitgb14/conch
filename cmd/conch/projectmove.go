@@ -170,6 +170,8 @@ func planText(p relocate.Plan) string {
 	fmt.Fprintf(&b, "Move %s (%s) to %s\n", p.Name, p.Path, p.To)
 	if p.Target != "" {
 		fmt.Fprintf(&b, "  into     %s, which %s already has (%s)\n", p.TargetName, p.To, p.TargetPath)
+	} else if p.Bundle {
+		fmt.Fprintf(&b, "  copy     the repository (no origin: every branch and tag) into %s there\n", p.CloneTo)
 	} else {
 		fmt.Fprintf(&b, "  clone    %s into %s there\n", relocate.RemoteName(p.Remote), p.CloneTo)
 	}

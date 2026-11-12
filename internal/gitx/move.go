@@ -213,3 +213,58 @@ func Clone(ctx context.Context, url, dir string) error {
 	}
 	return nil
 }
+
+// ErrNoCommits is a repository with no commits: there is nothing for a
+// bundle to carry.
+var ErrNoCommits = errors.New("the repository has no commits yet")
+
+// BundleAll writes every branch and tag of the repository at root to
+// file, for a machine that cannot clone it from anywhere.
+func BundleAll(ctx context.Context, root, file string) error {
+	if out, err := run(ctx, root, "for-each-ref", "--count=1", "--format=%(refname)", "refs/heads"); err == nil && strings.TrimSpace(string(out)) == "" {
+		return ErrNoCommits
+	}
+	_, err := run(ctx, root, "bundle", "create", "-q", file, "--branches", "--tags")
+	return err
+}
+
+// InitFromBundle makes dir, which must not exist yet or be empty, a new
+// repository holding every branch and tag of bundle, with branch checked
+// out — or, when it has no such branch, its first. It has no remote: a
+// bundle is not somewhere to fetch from again.
+func InitFromBundle(ctx context.Context, bundle, dir, branch string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if _, err := run(ctx, dir, "init", "-q"); err != nil {
+		return err
+	}
+	if _, err := run(ctx, dir, "bundle", "verify", "-q", bundle); err != nil {
+		return err
+	}
+	// --update-head-ok: HEAD names a branch that does not exist yet, and
+	// may be one of those fetched.
+	if _, err := run(ctx, dir, "fetch", "-q", "--update-head-ok", "--no-tags", bundle,
+		"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"); err != nil {
+		return err
+	}
+	if branch == "" || !refExists(ctx, dir, "refs/heads/"+branch) {
+		out, err := run(ctx, dir, "for-each-ref", "--count=1", "--format=%(refname:short)", "refs/heads")
+		if err != nil {
+			return err
+		}
+		if branch = strings.TrimSpace(string(out)); branch == "" {
+			return errors.New("the bundle holds no branch")
+		}
+	}
+	if _, err := run(ctx, dir, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {
+		return err
+	}
+	_, err := run(ctx, dir, "reset", "-q", "--hard")
+	return err
+}
+
+func refExists(ctx context.Context, dir, ref string) bool {
+	_, err := run(ctx, dir, "show-ref", "--verify", "-q", ref)
+	return err == nil
+}

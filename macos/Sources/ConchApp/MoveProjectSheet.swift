@@ -235,7 +235,11 @@ final class MoveProjectModel: ObservableObject {
     /// The checklist, before anything has run: a line a step.
     func planned(_ p: MovePlan) -> [Line] {
         var out: [Line] = []
-        if p.target == nil { out.append(Line(kind: "clone", name: p.remote ?? "", title: "Clone \(remoteLabel(p.remote)) into \(p.cloneTo ?? "")")) }
+        if p.target == nil {
+            out.append(p.bundle == true
+                ? Line(kind: "clone", name: p.name, title: "Copy the repository into \(p.cloneTo ?? "")")
+                : Line(kind: "clone", name: p.remote ?? "", title: "Clone \(remoteLabel(p.remote)) into \(p.cloneTo ?? "")"))
+        }
         for b in p.branches ?? [] { out.append(Line(kind: "branch", name: b.name, title: "\(b.name) — \(branchWhy(b))")) }
         for w in p.worktrees ?? [] {
             let agents = w.agents?.count ?? 0
@@ -558,8 +562,9 @@ struct MoveProjectSheet: View {
                 pill("\(agents.count)", agents.count == 1 ? "agent" : "agents")
             }
             .padding(.bottom, 2)
-            card("Repository", icon: "shippingbox", note: p.target == nil ? "cloned there from its origin" : "\(destLabel) has it already") {
-                row(left: Text(model.remoteLabel(p.remote)).font(.ui(size: 12, design: .monospaced)),
+            card("Repository", icon: "shippingbox", note: p.target != nil ? "\(destLabel) has it already"
+                    : p.bundle == true ? "no origin: copied there, every branch and tag" : "cloned there from its origin") {
+                row(left: Text(p.bundle == true ? p.name : model.remoteLabel(p.remote)).font(.ui(size: 12, design: .monospaced)),
                     right: [p.target == nil ? "→ \(p.cloneTo ?? "")" : "joins \(p.targetName ?? "") · \(p.targetPath ?? "")"])
             }
             if let w = p.worktrees, !w.isEmpty {

@@ -682,3 +682,92 @@ func (s *Server) cloneProject(p proto.ProjectCloneParams) (proto.ProjectInfo, *p
 	log.Printf("project %s: cloned %s into %s", proj.id, p.URL, path)
 	return proj.snapshot(), nil
 }
+
+// ---- project.bundle and project.unbundle ----
+
+// bundleProject bundles every branch and tag of a project for a machine
+// that cannot clone it — it has no origin — to be read back with
+// worktree.pack_read, uploaded there and made a project with
+// project.unbundle. Uncommitted work is not in it: the worktrees carry
+// theirs when they move.
+func (s *Server) bundleProject(p proto.ProjectRef) (proto.ProjectBundle, *proto.Error) {
+	proj, perr := s.projects.get(p.ID)
+	if perr != nil {
+		return proto.ProjectBundle{}, perr
+	}
+	snap := proj.snapshot()
+	if !snap.Git {
+		return proto.ProjectBundle{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository", proj.root)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), moveTimeout)
+	defer cancel()
+	if err := os.MkdirAll(s.packs.dir, 0o700); err != nil {
+		return proto.ProjectBundle{}, proto.Errorf(proto.ErrInternal, "%v", err)
+	}
+	id := randomHex(8)
+	path := filepath.Join(s.packs.dir, id+".bundle")
+	if err := gitx.BundleAll(ctx, proj.root, path); err != nil {
+		os.Remove(path)
+		if errors.Is(err, gitx.ErrNoCommits) {
+			return proto.ProjectBundle{}, proto.Errorf(proto.ErrBadRequest, "%s has no commits yet: commit something first", snap.Name)
+		}
+		return proto.ProjectBundle{}, proto.Errorf(proto.ErrBadRequest, "bundle %s: %v", proj.root, err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return proto.ProjectBundle{}, proto.Errorf(proto.ErrInternal, "%v", err)
+	}
+	// It is uploaded there as a pack is, so a pack's limit.
+	if st.Size() > packLimit {
+		os.Remove(path)
+		return proto.ProjectBundle{}, proto.Errorf(proto.ErrBadRequest, "%s's history bundles to %s; the limit is %s: push it somewhere and move it from there",
+			snap.Name, sizeText(st.Size()), sizeText(packLimit))
+	}
+	branch := ""
+	for _, wt := range snap.Worktrees {
+		if wt.Main {
+			branch = wt.Branch
+		}
+	}
+	s.packs.mu.Lock()
+	s.packs.active[id] = &packFile{path: path, size: st.Size(), last: s.packs.now()}
+	s.packs.mu.Unlock()
+	log.Printf("project %s: bundled %s (%s) for another machine", proj.id, proj.root, sizeText(st.Size()))
+	return proto.ProjectBundle{ID: id, Name: gitx.Slug(snap.Name) + ".bundle", Size: st.Size(), Branch: branch}, nil
+}
+
+// unbundleProject makes a project from a bundle uploaded here: every
+// branch and tag, the given branch checked out, and no remote.
+func (s *Server) unbundleProject(p proto.ProjectUnbundleParams) (proto.ProjectInfo, *proto.Error) {
+	// Only a file uploaded here, which is removed once used.
+	if rel, err := filepath.Rel(s.uploads.dir, filepath.Clean(p.Pack)); p.Pack == "" || err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return proto.ProjectInfo{}, proto.Errorf(proto.ErrBadRequest, "%s is not an upload", p.Pack)
+	}
+	defer os.Remove(p.Pack)
+	path, err := resolvePath(p.Path)
+	if err != nil {
+		return proto.ProjectInfo{}, proto.Errorf(proto.ErrInternal, "%v", err)
+	}
+	if entries, err := os.ReadDir(path); err == nil && len(entries) > 0 {
+		return proto.ProjectInfo{}, proto.Errorf(proto.ErrBadRequest, "%s already exists and isn't empty; move into another folder", path)
+	}
+	_, existed := os.Stat(path)
+	ctx, cancel := context.WithTimeout(context.Background(), cloneTimeout)
+	defer cancel()
+	if err := gitx.InitFromBundle(ctx, p.Pack, path, p.Branch); err != nil {
+		// What this made, and only that: a folder that was there empty
+		// stays, emptied.
+		if existed != nil {
+			os.RemoveAll(path)
+		} else {
+			os.RemoveAll(filepath.Join(path, ".git"))
+		}
+		return proto.ProjectInfo{}, proto.Errorf(proto.ErrBadRequest, "make the repository from the bundle: %v", err)
+	}
+	proj, err := s.projects.add(path, true)
+	if err != nil {
+		return proto.ProjectInfo{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	log.Printf("project %s: made %s from a bundle", proj.id, path)
+	return proj.snapshot(), nil
+}

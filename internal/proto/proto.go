@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -157,6 +157,11 @@ func BuildCapabilities() []string {
 // worktree.describe, worktree.pack, worktree.pack_read, worktree.unpack and
 // project.clone.
 const CapWorktreeMove = "worktree.move.v1"
+
+// CapProjectBundle is project.bundle and project.unbundle: a project with
+// no origin moved by carrying its repository — every branch and tag in a
+// git bundle — rather than cloning it there.
+const CapProjectBundle = "project.bundle.v1"
 
 // CapPaneSearch is pane.search: finding text in a pane's history.
 const CapPaneSearch = "pane.search.v1"
@@ -557,6 +562,8 @@ const (
 	MethodWorktreePackRead = "worktree.pack_read"
 	MethodWorktreeUnpack   = "worktree.unpack"
 	MethodProjectClone     = "project.clone"
+	MethodProjectBundle    = "project.bundle"
+	MethodProjectUnbundle  = "project.unbundle"
 )
 
 // Events.
@@ -1947,6 +1954,24 @@ type WorktreeUnpackResult struct {
 type ProjectCloneParams struct {
 	URL  string `json:"url"`
 	Path string `json:"path"`
+}
+
+// ProjectBundle is a project's repository bundled for another machine:
+// read it back with worktree.pack_read. Branch is the one its main
+// checkout is on, for the other machine to check out.
+type ProjectBundle struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// ProjectUnbundleParams makes a project at Path from a bundle uploaded
+// here (Pack, an fs.upload's path), with Branch checked out.
+type ProjectUnbundleParams struct {
+	Pack   string `json:"pack"`
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"`
 }
 
 // WorktreeRemoveParams removes a (clean) linked worktree.
