@@ -2702,7 +2702,8 @@ final class Store: ObservableObject {
     func saveHost(_ h: SavedHost, save: Bool = true) {
         let path = (conchDir as NSString).appendingPathComponent("ui.json")
         do {
-            let data = try savingHost(h, save: save, in: FileManager.default.contents(atPath: path))
+            var data = try savingHost(h, save: save, in: FileManager.default.contents(atPath: path))
+            if save { data = try joinHost(h.host, in: data) }
             try data.write(to: URL(fileURLWithPath: path), options: .atomic)
         } catch {
             say("Could not \(save ? "save" : "forget") \(h.host): \(error)", .err)

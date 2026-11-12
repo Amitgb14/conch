@@ -136,20 +136,26 @@ public enum FolderEdit {
 
     /// Changes a workspace's list of folders: "first" is first_space's.
     static func editSpaceFolders(_ ui: inout [String: Any], workspace: String, _ change: (inout [String]) -> Void) {
+        editSpaceList(&ui, workspace: workspace, field: "folders", change)
+    }
+
+    /// Changes one of a workspace's lists (folders, hosts…): "first" is
+    /// first_space's.
+    static func editSpaceList(_ ui: inout [String: Any], workspace: String, field: String, _ change: (inout [String]) -> Void) {
         if workspace == "first" {
             var first = ui["first_space"] as? [String: Any] ?? [:]
-            var list = first["folders"] as? [String] ?? []
+            var list = first[field] as? [String] ?? []
             change(&list)
-            if list.isEmpty { first.removeValue(forKey: "folders") } else { first["folders"] = list }
+            if list.isEmpty { first.removeValue(forKey: field) } else { first[field] = list }
             if first.isEmpty { ui.removeValue(forKey: "first_space") } else { ui["first_space"] = first }
             return
         }
         guard var spaces = ui["spaces"] as? [[String: Any]] else { return }
         for i in spaces.indices where (spaces[i]["id"] as? String ?? "").isEmpty { spaces[i]["id"] = "w\(i + 1)" }
         guard let i = spaces.firstIndex(where: { $0["id"] as? String == workspace }) else { return }
-        var list = spaces[i]["folders"] as? [String] ?? []
+        var list = spaces[i][field] as? [String] ?? []
         change(&list)
-        if list.isEmpty { spaces[i].removeValue(forKey: "folders") } else { spaces[i]["folders"] = list }
+        if list.isEmpty { spaces[i].removeValue(forKey: field) } else { spaces[i][field] = list }
         ui["spaces"] = spaces
     }
 
@@ -293,12 +299,12 @@ public enum FolderEdit {
 extension Workspace {
     /// Whether this workspace shows folder f of section key (the TUI's
     /// hasFolder): one made in it, in the first one no other made, one
-    /// holding a pane it shows, or one holding a saved host.
+    /// holding a pane it shows, or one holding a saved host it lists.
     public func shows(folder f: Folder, key: String, panes: [PaneInfo]) -> Bool {
         let k = spaceFolder(key, f.name)
         if folders.contains(k) || first && !claimedFolders.contains(k) { return true }
         var taken: Set<String> = []
         if !f.claim(panes, taken: &taken).isEmpty { return true }
-        return !f.hosts.isEmpty
+        return f.hosts.contains { shows(host: $0) }
     }
 }

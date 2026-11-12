@@ -3034,7 +3034,7 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
 }
 
 // A workspace shows the folders made in it; the first, those no other
-// made; any workspace, one holding a pane it shows or a saved host.
+// made; any workspace, one holding a pane it shows or a saved host it lists.
 @Test func foldersInWorkspaces() {
     let zsh = PaneInfo(id: "p3", name: "zsh")
     var w2 = Workspace(id: "w2", name: "b", panes: ["local|p3"])
@@ -3045,7 +3045,10 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let holding = Folder(name: "holding", members: [FolderMember(name: "zsh", id: "p3")])
     let hosting = Folder(name: "hosting", members: [FolderMember(host: "db")])
     #expect(w2.shows(folder: mine, key: "/4", panes: [zsh]) && !w2.shows(folder: loose, key: "/4", panes: []))
-    #expect(w2.shows(folder: holding, key: "/4", panes: [zsh]) && w2.shows(folder: hosting, key: "/11", panes: []))
+    #expect(w2.shows(folder: holding, key: "/4", panes: [zsh]) && !w2.shows(folder: hosting, key: "/11", panes: []))
+    var w3 = w2
+    w3.hosts = ["db"]
+    #expect(w3.shows(folder: hosting, key: "/11", panes: [])) // its host is listed here
     #expect(!first.shows(folder: mine, key: "/4", panes: []) && first.shows(folder: loose, key: "/4", panes: []))
 }
 
@@ -3450,4 +3453,60 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(String(decoding: try JSONEncoder().encode(p), as: UTF8.self).contains(#""plain":true"#))
     let decoded = try JSONDecoder().decode(LibraryServer.self, from: Data(#"{"name":"w","url":"https://w","headers":{"Authorization":"Bearer x"},"agents":[],"plain":true}"#.utf8))
     #expect(decoded.plain == true)
+}
+
+/// A saved ssh host belongs to the workspace it was saved in, as in the
+/// TUI (hasHost): workspace 2's host is not listed in workspace 1, nor its
+/// folder, and the first lists only what no later workspace has.
+@Test func savedHostsBelongToTheirWorkspace() throws {
+    let k = folderKey(machine: "local", section: .ssh)
+    let ui = """
+    {"saved_ssh":["one","two","both","old"],
+     "first_space":{"hosts":["one","both"]},
+     "spaces":[{"id":"w2","hosts":["two","both"],"folders":["\(k)\\nlab"]}],
+     "folders":{"\(k)":[{"name":"lab","members":[{"host":"two"}]}]}}
+    """
+    let data = Data(ui.utf8)
+    let ws = Workspace.load(uiJSON: data)
+    let hosts = loadSavedHosts(uiJSON: data)
+    let folders = loadFolders(uiJSON: data)
+    #expect(ws[0].hosts == ["one", "both"] && ws[0].claimedHosts == ["two", "both"])
+    #expect(ws[1].hosts == ["two", "both"])
+    // "old", saved before workspaces kept hosts, is the first's: no later one claims it.
+    #expect(["one", "both", "old"].allSatisfy(ws[0].shows(host:)) && !ws[0].shows(host: "two"))
+    #expect(["two", "both"].allSatisfy(ws[1].shows(host:)) && !ws[1].shows(host: "one") && !ws[1].shows(host: "old"))
+
+    func listed(_ w: Workspace) -> (hosts: [String], folders: [String]) {
+        let cli = Snapshot().tree(machine: "local", in: w, savedHosts: hosts, folders: folders).children?.first { $0.kind == .cli("local") }
+        var hs: [String] = [], fs: [String] = []
+        func walk(_ n: TreeNode) {
+            if case .savedHost(let h) = n.kind { hs.append(h) }
+            if case .folder(_, _, let name) = n.kind { fs.append(name) }
+            n.children?.forEach(walk)
+        }
+        cli.map(walk)
+        return (hs.sorted(), fs)
+    }
+    #expect(listed(ws[0]).hosts == ["both", "old", "one"])
+    #expect(listed(ws[0]).folders.isEmpty) // lab is w2's, and holds w2's host only
+    #expect(listed(ws[1]).hosts == ["both", "two"])
+    #expect(listed(ws[1]).folders == ["lab"])
+    // No workspaces at all: every host, as before.
+    #expect(listed(Workspace.everything).hosts == ["both", "old", "one", "two"])
+
+    // Saving a host in workspace 2 lists it there and not in the first.
+    let saved = try joiningHost("new", workspace: "w2", keepInFirst: false, in: savingHost(SavedHost(host: "new"), in: data))
+    let after = Workspace.load(uiJSON: saved)
+    #expect(after[1].shows(host: "new") && !after[0].shows(host: "new"))
+    // Saved again in w2 while the first listed it: the first keeps it.
+    let kept = try joiningHost("old", workspace: "w2", keepInFirst: true, in: data)
+    let k2 = Workspace.load(uiJSON: kept)
+    #expect(k2[0].shows(host: "old") && k2[1].shows(host: "old"))
+    // In the first; and once only, however often.
+    let first = try joiningHost("x", workspace: "first", keepInFirst: false, in: joiningHost("x", workspace: "first", keepInFirst: false, in: data))
+    #expect(Workspace.load(uiJSON: first)[0].hosts == ["one", "both", "x"])
+    // A workspace that is not there changes nothing; nor does an empty file break.
+    #expect(Workspace.load(uiJSON: try joiningHost("y", workspace: "w9", keepInFirst: false, in: data))[1].hosts == ["two", "both"])
+    #expect(Workspace.load(uiJSON: try joiningHost("y", workspace: "first", keepInFirst: false, in: nil))[0].shows(host: "y"))
+    #expect(throws: ConchError.self) { try joiningHost("y", workspace: "first", keepInFirst: false, in: Data("[1]".utf8)) }
 }
