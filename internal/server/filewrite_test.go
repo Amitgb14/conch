@@ -157,6 +157,89 @@ func TestWriteFileConfined(t *testing.T) {
 	}
 }
 
+// A file that isn't there yet is confined by where creating it lands: a
+// link among the folders on the way, or a broken link as the file itself,
+// would otherwise have it — and the folders made for it — written outside
+// the checkout.
+func TestWriteNewFileConfined(t *testing.T) {
+	a5IsolateEnv(t)
+	s, dir := a5Server(t)
+	repo := filesRepo(t, s, dir)
+	c := &client{}
+	elsewhere := filepath.Join(dir, "elsewhere")
+	os.MkdirAll(elsewhere, 0o755)
+	os.Symlink(elsewhere, filepath.Join(repo, "link"))
+	os.Symlink("../elsewhere", filepath.Join(repo, "rel-link"))
+	os.Symlink(filepath.Join(elsewhere, "made.txt"), filepath.Join(repo, "dangling-out"))
+	os.Symlink("link", filepath.Join(repo, "link-to-link"))
+	os.Symlink("loop-b", filepath.Join(repo, "loop-a"))
+	os.Symlink("loop-a", filepath.Join(repo, "loop-b"))
+	for _, path := range []string{
+		"link/new.txt",           // a new file through a linked folder
+		"link/a/b/c.txt",         // and the folders on the way
+		"rel-link/new.txt",       // a relative link out
+		"link-to-link/x/new.txt", // a link to a link out
+		"dangling-out",           // a broken link out, as the file itself
+		"loop-a/new.txt",         // links in a loop: refused, not followed for ever
+	} {
+		if _, perr := s.writeFile(c, proto.FSWriteParams{Root: repo, Path: path, Data: "x", Create: true}); perr == nil {
+			t.Errorf("%s was written", path)
+		}
+	}
+	entries, _ := os.ReadDir(elsewhere)
+	if len(entries) != 0 {
+		t.Fatalf("written outside the checkout: %v", entries)
+	}
+
+	// Inside, new files and folders are made as before — through a link
+	// that stays inside, and to a broken link that points inside.
+	os.MkdirAll(filepath.Join(repo, "docs"), 0o755)
+	os.Symlink("docs", filepath.Join(repo, "docs-link"))
+	os.Symlink("docs/later.md", filepath.Join(repo, "later-link"))
+	for path, want := range map[string]string{
+		"fresh/deep/new.txt":   "fresh/deep/new.txt",
+		"docs-link/a/note.txt": "docs/a/note.txt",
+	} {
+		if _, perr := s.writeFile(c, proto.FSWriteParams{Root: repo, Path: path, Data: "x", Create: true}); perr != nil {
+			t.Fatalf("%s: %v", path, perr)
+		}
+		if got, _ := os.ReadFile(filepath.Join(repo, want)); string(got) != "x" {
+			t.Fatalf("%s: %q at %s", path, got, want)
+		}
+	}
+	if _, perr := s.writeFile(c, proto.FSWriteParams{Root: repo, Path: "later-link", Data: "x", Create: true}); perr != nil {
+		t.Fatalf("a broken link inside: %v", perr)
+	}
+
+	// A file where a folder is wanted: refused, not created.
+	filesWrite(t, repo, "plain.txt", "x")
+	if _, perr := s.writeFile(c, proto.FSWriteParams{Root: repo, Path: "plain.txt/under.txt", Data: "x", Create: true}); perr == nil {
+		t.Fatal("wrote under a file")
+	}
+}
+
+// The other ways in that make things: a new folder through a linked one,
+// and a rename into one.
+func TestFSOpsNewPathsConfined(t *testing.T) {
+	a5IsolateEnv(t)
+	s, dir := a5Server(t)
+	repo := filesRepo(t, s, dir)
+	elsewhere := filepath.Join(dir, "elsewhere")
+	os.MkdirAll(elsewhere, 0o755)
+	os.Symlink(elsewhere, filepath.Join(repo, "link"))
+	for _, rel := range []string{"link/new", "link/a/b"} {
+		if _, perr := confine(repo, rel); perr == nil {
+			t.Errorf("confine let %s through", rel)
+		}
+		if _, perr := confineEntry(repo, rel+"/x"); perr == nil {
+			t.Errorf("confineEntry let %s/x through", rel)
+		}
+	}
+	if p, perr := confine(repo, "brand/new"); perr != nil || p != filepath.Join(repo, "brand", "new") {
+		t.Fatalf("a new path inside: %q %v", p, perr)
+	}
+}
+
 // An agent writes through conch only in its own project's checkouts.
 func TestWriteFileScoped(t *testing.T) {
 	s, _, work := shareFixture(t)
