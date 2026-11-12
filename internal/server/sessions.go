@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
 )
@@ -367,6 +368,9 @@ func (s *Server) resumeSession(r proto.SessionRef) (proto.PaneInfo, *proto.Error
 	}
 	if st, err := os.Stat(r.Dir); err != nil || !st.IsDir() {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "%s no longer exists (a removed worktree?)", r.Dir)
+	}
+	if !adapter.SessionIDOK(r.ID) {
+		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "%q is not a session id", r.ID)
 	}
 	info, perr := s.create(proto.PaneCreateParams{Agent: r.Agent, AgentArgs: ad.ResumeArgs(r.ID), Cwd: r.Dir, Cols: r.Cols, Rows: r.Rows})
 	if perr != nil {

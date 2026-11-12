@@ -197,6 +197,7 @@ func (a *cliAgent) PromptArgs(prompt string) string {
 	if strings.TrimSpace(prompt) == "" {
 		return ""
 	}
+	prompt = notAnOption(prompt)
 	if a.promptTmpl != "" {
 		return fill(a.promptTmpl, "{prompt}", prompt)
 	}
@@ -211,6 +212,29 @@ func (a *cliAgent) PromptArgs(prompt string) string {
 	}
 	return ShellQuote(prompt)
 }
+
+// notAnOption keeps a first message from being read as the agent's own
+// option. Quoting only stops the shell: a message that begins "--yolo",
+// or "--dangerously-skip-permissions", is still a flag to the agent, which
+// would start in that mode instead of being told it. A space in front is
+// what every parser here (commander, clap, yargs) takes as a word rather
+// than an option, as a value after --prompt as well, without counting on
+// each agent honouring "--".
+func notAnOption(s string) string {
+	if strings.HasPrefix(s, "-") {
+		return " " + s
+	}
+	return s
+}
+
+// SessionIDOK says whether id can name a saved session to resume: it is
+// passed to the agent after its resume option, where one beginning with
+// "-" would be read as an option of its own ("resume --yolo"). No agent's
+// session ids begin with one.
+func SessionIDOK(id string) bool {
+	return !strings.HasPrefix(id, "-")
+}
+
 func (a *cliAgent) InstallScript() string { return a.install }
 
 func (a *cliAgent) Tier() string {
