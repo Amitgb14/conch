@@ -89,7 +89,8 @@ Usage:
                                 block until a pane's agent is done (or waiting, working, idle);
                                 exits 124 if the time runs out
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
-                                start Claude Code with state tracking
+                                start Claude Code with state tracking. From an agent's pane, only
+                                -- --model NAME, and no CMD ([agents] unrestricted_launch lifts it)
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID
@@ -713,9 +714,9 @@ func runNew(args []string) error {
 			agentArgs += adapter.ShellQuote(a) + " "
 		}
 		command = nil
-	} else if len(command) == 0 {
-		command = []string{config.DefaultShell(), "-l"}
 	}
+	// No command is the server's login shell, which is also the only
+	// command an agent's pane may ask for (internal/server/launchrule.go).
 	params := proto.PaneCreateParams{Name: *name, Agent: *agent, AgentArgs: agentArgs, Command: command, Cwd: *cwd, Cols: 120, Rows: 40}
 	switch {
 	case onRemoteMachine() && *cwd == "":

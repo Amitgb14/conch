@@ -376,6 +376,12 @@ type AgentsCfg struct {
 	// default) answers by them, "dry-run" only records what they would
 	// have answered, "off" ignores them.
 	PermissionMode string `toml:"permission_mode,omitempty"`
+	// UnrestrictedLaunch lets an agent calling conch from its pane start
+	// panes however it likes: any command, environment and flags — a
+	// helper told to ask nobody before it acts among them. Off, an agent
+	// may choose only which agent to start and its --model
+	// (internal/server/launchrule.go).
+	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.

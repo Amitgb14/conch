@@ -273,12 +273,14 @@ func TestA4PaneCommandsAgainstFake(t *testing.T) {
 		t.Fatalf("create params %+v", create)
 	}
 
-	// No command: a login shell in the current directory (made absolute).
+	// No command: none is sent, and the server starts its login shell —
+	// the one command an agent's pane may ask for (launchrule.go). In the
+	// current directory, made absolute.
 	t.Chdir(cwd)
 	a4Capture(t, "", func() { err = runNew([]string{"-cwd", "."}) })
 	create = proto.PaneCreateParams{}
 	srv.params(t, proto.MethodPaneCreate, &create)
-	if err != nil || strings.Join(create.Command, " ") != "/bin/sh -l" || create.Cwd != cwd {
+	if err != nil || len(create.Command) != 0 || create.Cwd != cwd {
 		t.Fatalf("default shell %+v %v", create, err)
 	}
 	a4Capture(t, "", func() { err = runNew(nil) })

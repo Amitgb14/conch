@@ -558,6 +558,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		if cp, perr = s.launchAllowed(c, cp); perr != nil {
+			return nil, perr
+		}
 		return s.made(c)(s.create(cp))
 
 	case proto.MethodPaneClose:

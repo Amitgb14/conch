@@ -295,6 +295,23 @@ conch: out_of_scope: the claude agent in p1 may not close p4: it did not start i
 
 You are never held to this: the TUI, your terminal panes and scripts run outside conch act as you. conch tells who is asking from the operating system — the process at the other end of its socket and that process's parents, up to a pane — so an agent can't get round it by changing its environment. It is a guard against an agent closing the wrong session, not a sandbox: a program set on escaping can leave its pane's process tree.
 
+### What an agent may start
+
+An agent may start other agents, and choose which one and its model — `conch new -agent codex -- --model gpt-5`, or the MCP `start` tool's `--model NAME`. It may not choose anything else about what runs: no command of its own (a plain terminal is fine), no environment, and no other flags. Otherwise an agent that asks you before each command could start a helper told to ask nobody — `--dangerously-skip-permissions`, `--yolo` — or a pane running whatever it liked, and one tool call would step around every prompt you rely on. That is what an injected instruction in a README or an issue would try first.
+
+```text
+conch: out_of_scope: the claude agent in p1 may not start an agent with "--dangerously-skip-permissions": an agent may choose which agent to start and its --model, nothing else ([agents] unrestricted_launch in config.toml allows more); do it from the TUI or a terminal pane
+```
+
+If you want agents to start agents however they like — workers in bypass mode, a launcher of your own — set it in `config.toml` (or Settings → Agents):
+
+```toml
+[agents]
+unrestricted_launch = true
+```
+
+An agent can't set this through conch: changing your setup is out of its scope. Like the rest, it holds for agents going through conch; one that runs `claude` in its own shell isn't held by it, and is held by whatever that shell asks you instead.
+
 ### On another machine
 
 `conch -m MACHINE` from an agent's pane carries the agent's scope along: on the other machine it reaches only the panes it started there, and the projects it started them in.
