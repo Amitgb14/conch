@@ -129,7 +129,7 @@ struct TaskPageView: View {
                             if let a = p.agent { Mark(agent: a.name) }
                             Text(p.displayName).font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                             if p.agent?.state == .working {
-                                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                                TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                                     Text(spinnerFrame(at: ctx.date)).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.work)
                                 }
                             }
@@ -162,7 +162,7 @@ struct TaskPageView: View {
         }
         return HStack(spacing: 10) {
             if tone == .merging {
-                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                     Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
                 }
             }

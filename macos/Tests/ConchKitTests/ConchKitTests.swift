@@ -1102,6 +1102,16 @@ final class FakeServer: @unchecked Sendable {
     #expect(spinnerFrames.count == 10 && spinnerInterval == 0.12)
 }
 
+// Every spinner ticks from one epoch, so their ticks fall together (one
+// layout for all of them) and each tick lands on the next frame, none
+// skipped or shown twice.
+@Test func spinnersShareOneClock() {
+    for k in 0..<25 {
+        let tick = spinnerEpoch.addingTimeInterval(Double(k) * spinnerInterval + 0.001)
+        #expect(spinnerFrame(at: tick) == spinnerFrames[k % spinnerFrames.count], "tick \(k)")
+    }
+}
+
 // An ssh session is told as the TUI tells one: no agent, and ssh the program.
 @Test func sshPanes() throws {
     let json = #"{"panes":[{"id":"p1","name":"ssh","state":"running","command":["/usr/bin/ssh","-t","--","me@box"]},{"id":"p2","name":"zsh","state":"running","command":["/bin/zsh","-l"]},{"id":"p3","name":"claude","state":"running","command":["ssh"],"agent":{"name":"claude","state":"idle"}},{"id":"p4","name":"x","state":"running"}]}"#
@@ -1960,6 +1970,12 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     // LobeHub's are drawn even-odd, as they are made; Simple Icons' are not.
     #expect(AgentLogos.logo("grok")?.evenOdd == true && AgentLogos.logo("claude")?.evenOdd == false)
     #expect(AgentLogos.ops(nil) == nil)
+    // Read once and kept: the same shape the path text reads to, whatever
+    // case the agent is named in.
+    for (agent, logo) in AgentLogos.logos {
+        #expect(AgentLogos.ops(agent) == parseSVGPath(logo.path), "\(agent)")
+        #expect(AgentLogos.ops(agent.uppercased()) == AgentLogos.ops(agent), "\(agent)")
+    }
 }
 
 // A mark too close to the background to see is drawn in the theme's text

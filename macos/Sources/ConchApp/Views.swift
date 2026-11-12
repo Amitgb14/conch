@@ -76,7 +76,7 @@ struct Pill: View {
         let _ = look
         Group {
             if spins {
-                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                     Text(spinnerFrame(at: ctx.date) + (text.isEmpty ? "" : " " + text))
                 }
             } else {
@@ -1068,7 +1068,7 @@ struct NodeView: View {
         case .files: TreeIcon("folder-open", look: store.appLook, color: Theme.muted, size: 12)
         case .subagent:
             // At work inside its agent, as the TUI draws it: the spinner.
-            TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+            TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                 Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
             }
             .frame(width: 16)
@@ -1095,7 +1095,7 @@ struct NodeView: View {
                     Pill(text: String(part.dropFirst()), fg: Theme.onWarn, bg: Theme.warn)
                 } else if part.hasPrefix("⠋") {
                     // Turning while they work, as an agent's own row does.
-                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                    TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                         Pill(text: spinnerFrame(at: ctx.date) + " " + String(part.dropFirst()), fg: Theme.work, bg: Theme.work.opacity(0.18))
                     }
                 } else if part.hasPrefix("✓") {
@@ -1749,7 +1749,7 @@ struct TabButton: View {
                     .help("waiting for you")
             } else if tab.root.panes.contains(where: { store.pane($0)?.agent?.state == .working }) {
                 // An agent at work in it: the TUI's spinner, turning.
-                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                     Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
                 }
             }
@@ -2005,7 +2005,7 @@ struct PaneCard: View {
                         Lettering(text: "tap tap", size: 12, color: Theme.spot).rotationEffect(.degrees(-6))
                     }
                     if a.state == .working, let since = a.since {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        TimelineView(.periodic(from: spinnerEpoch, by: 1)) { ctx in
                             Lettering(text: "\(word) \(elapsed(since, ctx.date))", size: 12, color: Theme.work)
                         }
                     } else {
@@ -2013,7 +2013,7 @@ struct PaneCard: View {
                     }
                 } else if let a = p?.agent, a.state == .working, let since = a.since {
                     // How long it has been at it, as the mock's "working · 41s".
-                    TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                    TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                         Pill(text: "\(spinnerFrame(at: ctx.date)) working · \(elapsed(since, ctx.date))", fg: Theme.work, bg: Theme.work.opacity(0.18))
                     }
                 } else {

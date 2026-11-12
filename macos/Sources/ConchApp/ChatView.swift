@@ -443,7 +443,7 @@ struct WorkingRow: View {
 
     var body: some View {
         let _ = look
-        TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+        TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
             HStack(spacing: 8) {
                 Text(spinnerFrame(at: ctx.date)).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.work)
                 Text("\(agentDisplayName(agent ?? "agent")) is working · \(elapsed(since, ctx.date))")

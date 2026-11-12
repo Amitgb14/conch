@@ -82,6 +82,12 @@ public func rowWidths(name: Double, right: Double, room: Double, share: Double =
 public let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 public let spinnerInterval = 0.12
 
+/// The moment every spinner counts its frames from. Each TimelineView used
+/// to start its own clock at `.now`, so six agents at work meant six
+/// timers ticking out of step — and every tick re-lays out the window, so
+/// six times the work for frames that are the same anyway.
+public let spinnerEpoch = Date(timeIntervalSinceReferenceDate: 0)
+
 /// The spinner's frame at a moment, the same in every view drawing it.
 public func spinnerFrame(at date: Date) -> String {
     let n = Int((date.timeIntervalSinceReferenceDate / spinnerInterval).rounded(.down))
