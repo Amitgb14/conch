@@ -240,27 +240,119 @@ extension SplitNode {
 // MARK: - the chat
 
 /// One entry of an agent's conversation (agent.chat): what the person
-/// typed, what the agent said, or a tool it used.
+/// typed, what the agent said, a tool it used — with what it was given and
+/// what came back — or a note (an interruption).
 public struct ChatTurn: Decodable, Equatable, Sendable {
+    /// Its place in the whole conversation: an update replaces the turn
+    /// with the same seq (a tool's result arriving). nil from the first
+    /// servers with chats, which sent the whole conversation every time.
+    public var seq: Int?
     public var role: String
     public var text: String?
     public var detail: String?
     public var time: Date?
+    public var input: String?
+    public var inputKind: String?
+    public var output: String?
+    public var error: Bool?
+    public var done: Bool?
 
-    public init(role: String, text: String? = nil, detail: String? = nil, time: Date? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case seq, role, text, detail, time, input, output, error, done
+        case inputKind = "input_kind"
+    }
+
+    public init(seq: Int? = nil, role: String, text: String? = nil, detail: String? = nil, time: Date? = nil,
+                input: String? = nil, inputKind: String? = nil, output: String? = nil, error: Bool? = nil, done: Bool? = nil) {
+        self.seq = seq
         self.role = role
         self.text = text
         self.detail = detail
         self.time = time
+        self.input = input
+        self.inputKind = inputKind
+        self.output = output
+        self.error = error
+        self.done = done
     }
 }
 
-/// A pane's agent's conversation, as agent.chat answers.
+/// A pane's agent's conversation, as agent.chat answers: the turns new or
+/// changed since the epoch and version asked with, or — reset, or from a
+/// server that keeps no versions — all of them.
 public struct AgentChat: Decodable, Equatable, Sendable {
     public var agent: String
     public var session: String?
     public var turns: [ChatTurn]?
     public var note: String?
+    public var epoch: String?
+    public var ver: Int64?
+    public var reset: Bool?
+
+    public init(agent: String, session: String? = nil, turns: [ChatTurn]? = nil, note: String? = nil,
+                epoch: String? = nil, ver: Int64? = nil, reset: Bool? = nil) {
+        self.agent = agent
+        self.session = session
+        self.turns = turns
+        self.note = note
+        self.epoch = epoch
+        self.ver = ver
+        self.reset = reset
+    }
+}
+
+/// What a chat holds: the conversation so far, and the version of the
+/// server's log it is, to ask for only what changed after it.
+public struct ChatLog: Equatable, Sendable {
+    public var agent = ""
+    public var session: String?
+    public var note: String?
+    public var epoch: String?
+    public var ver: Int64 = 0
+    public var turns: [ChatTurn] = []
+    /// Whether an answer has come at all.
+    public var loaded = false
+
+    public init() {}
+
+    /// An answer taken in: a reset — or one from a server that keeps no
+    /// versions — is the whole conversation; otherwise each turn replaces
+    /// the one with its seq or is added after the rest. Returns whether
+    /// anything changed.
+    @discardableResult
+    public mutating func apply(_ c: AgentChat) -> Bool {
+        let before = self
+        agent = c.agent
+        note = c.note
+        if c.session != session { session = c.session; turns = [] }
+        let incoming = c.turns ?? []
+        // The server leaves reset out when false, so absent is not a reset.
+        if c.reset == true || c.epoch == nil || c.epoch != epoch {
+            turns = incoming
+        } else {
+            for t in incoming {
+                if let s = t.seq, let i = turns.lastIndex(where: { $0.seq == s }) {
+                    turns[i] = t
+                } else if let s = t.seq, let i = turns.firstIndex(where: { ($0.seq ?? -1) > s }) {
+                    turns.insert(t, at: i)
+                } else {
+                    turns.append(t)
+                }
+            }
+            if turns.count > 1500 { turns.removeFirst(turns.count - 1500) }
+        }
+        epoch = c.epoch
+        ver = c.ver ?? 0
+        loaded = true
+        return self != before
+    }
+
+    /// Whether the person's message has reached the conversation: the last
+    /// thing they said, after the turn count it was sent at.
+    public func has(sent text: String, after count: Int) -> Bool {
+        let want = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return turns.dropFirst(min(count, turns.count)).contains { $0.role == "user" && ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == want }
+    }
 }
 
 /// What a chat draws: a message, or the tools used in a row between two —
@@ -269,20 +361,24 @@ public enum ChatBlock: Equatable, Sendable, Identifiable {
     case user(String, Int)
     case agent(String, Int)
     case tools([ChatTurn], Int)
+    case note(String, Int)
 
     /// Its place in the conversation, which is what keeps a block the same
     /// one as turns are added after it.
     public var id: Int {
         switch self {
-        case .user(_, let i), .agent(_, let i), .tools(_, let i): return i
+        case .user(_, let i), .agent(_, let i), .tools(_, let i), .note(_, let i): return i
         }
     }
 }
 
 public func chatBlocks(_ turns: [ChatTurn]) -> [ChatBlock] {
     var out: [ChatBlock] = []
-    for (i, t) in turns.enumerated() {
+    for (n, t) in turns.enumerated() {
+        let i = t.seq ?? n
         switch t.role {
+        case "note":
+            if let s = t.text, !s.isEmpty { out.append(.note(s, i)) }
         case "user":
             if let s = t.text, !s.isEmpty { out.append(.user(s, i)) }
         case "assistant":
@@ -386,4 +482,143 @@ public func filesSideWidth(search: Bool, card: Double) -> Double {
     let usual = search ? 380.0 : 300.0
     guard card > 0 else { return usual }
     return max(min(usual, card * 0.45), min(170, usual))
+}
+
+// MARK: - markdown
+
+/// A block of an answer's markdown, as a chat lays it out: what Claude and
+/// the others write — headings, lists, code, tables, quotes — rather than
+/// one run of text with its asterisks showing.
+public enum MDBlock: Equatable, Sendable {
+    case heading(Int, String)
+    case paragraph(String)
+    /// Items, each with its depth (0 the outermost) and its marker: "•" or
+    /// "1." and so on.
+    case list([MDItem])
+    case code(String, String) // its language, its text
+    case quote(String)
+    case table([String], [[String]])
+    case rule
+}
+
+public struct MDItem: Equatable, Sendable {
+    public var depth: Int
+    public var marker: String
+    public var text: String
+    public init(depth: Int, marker: String, text: String) {
+        self.depth = depth
+        self.marker = marker
+        self.text = text
+    }
+}
+
+public func markdownBlocks(_ src: String) -> [MDBlock] {
+    let lines = src.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+    var out: [MDBlock] = []
+    var para: [String] = []
+    var i = 0
+    func flush() {
+        if !para.isEmpty { out.append(.paragraph(para.joined(separator: "\n"))); para = [] }
+    }
+    func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespaces) }
+    func indent(_ s: String) -> Int { s.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) } }
+    func listItem(_ s: String) -> (depth: Int, marker: String, text: String)? {
+        let t = trimmed(s)
+        let d = indent(s) / 2
+        for m in ["- ", "* ", "+ "] where t.hasPrefix(m) {
+            var rest = String(t.dropFirst(2))
+            var mark = "•"
+            if rest.hasPrefix("[ ] ") { mark = "☐"; rest = String(rest.dropFirst(4)) } else if rest.lowercased().hasPrefix("[x] ") { mark = "☑"; rest = String(rest.dropFirst(4)) }
+            return (d, mark, rest)
+        }
+        let digits = t.prefix { $0.isNumber }
+        if !digits.isEmpty, digits.count <= 3 {
+            let after = t.dropFirst(digits.count)
+            if after.hasPrefix(". ") || after.hasPrefix(") ") { return (d, digits + ".", String(after.dropFirst(2))) }
+        }
+        return nil
+    }
+    func cells(_ s: String) -> [String] {
+        var t = trimmed(s)
+        if t.hasPrefix("|") { t.removeFirst() }
+        if t.hasSuffix("|") { t.removeLast() }
+        return t.components(separatedBy: "|").map { trimmed($0) }
+    }
+    func isDivider(_ s: String) -> Bool {
+        let c = cells(s)
+        return !c.isEmpty && c.allSatisfy { !$0.isEmpty && $0.allSatisfy { "-:".contains($0) } && $0.contains("-") }
+    }
+    while i < lines.count {
+        let line = lines[i]
+        let t = trimmed(line)
+        if t.hasPrefix("```") || t.hasPrefix("~~~") {
+            flush()
+            let fence = String(t.prefix(3))
+            let lang = trimmed(String(t.dropFirst(3)))
+            var body: [String] = []
+            i += 1
+            while i < lines.count, !trimmed(lines[i]).hasPrefix(fence) {
+                body.append(lines[i])
+                i += 1
+            }
+            out.append(.code(lang, body.joined(separator: "\n")))
+            i += 1
+            continue
+        }
+        if t.isEmpty { flush(); i += 1; continue }
+        if t.hasPrefix("#") {
+            let level = t.prefix { $0 == "#" }.count
+            if level <= 6, t.dropFirst(level).hasPrefix(" ") {
+                flush()
+                out.append(.heading(level, trimmed(String(t.dropFirst(level)))))
+                i += 1
+                continue
+            }
+        }
+        if t == "---" || t == "***" || t == "___" {
+            flush(); out.append(.rule); i += 1; continue
+        }
+        if t.hasPrefix("|"), i + 1 < lines.count, isDivider(lines[i + 1]) {
+            flush()
+            let head = cells(line)
+            var rows: [[String]] = []
+            i += 2
+            while i < lines.count, trimmed(lines[i]).hasPrefix("|") {
+                rows.append(cells(lines[i]))
+                i += 1
+            }
+            out.append(.table(head, rows))
+            continue
+        }
+        if t.hasPrefix(">") {
+            flush()
+            var q: [String] = []
+            while i < lines.count, trimmed(lines[i]).hasPrefix(">") {
+                q.append(trimmed(String(trimmed(lines[i]).dropFirst())))
+                i += 1
+            }
+            out.append(.quote(q.joined(separator: "\n")))
+            continue
+        }
+        if listItem(line) != nil {
+            flush()
+            var items: [MDItem] = []
+            while i < lines.count {
+                if let it = listItem(lines[i]) {
+                    items.append(MDItem(depth: it.depth, marker: it.marker, text: it.text))
+                } else if !trimmed(lines[i]).isEmpty, indent(lines[i]) >= 2, !items.isEmpty {
+                    items[items.count - 1].text += " " + trimmed(lines[i]) // an item carried onto the next line
+                } else {
+                    break
+                }
+                i += 1
+            }
+            out.append(.list(items))
+            continue
+        }
+        para.append(t)
+        i += 1
+    }
+    flush()
+    return out
 }

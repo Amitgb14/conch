@@ -1389,7 +1389,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return s.agentReply(rp)
 
 	case proto.MethodAgentChat:
-		rp, perr := decode[proto.PaneRef](msg)
+		rp, perr := decode[proto.AgentChatParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
