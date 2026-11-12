@@ -161,6 +161,14 @@ final class Store: ObservableObject {
             }
         }
     }
+    /// Runs body as a long job, the status bar saying what while it runs,
+    /// for a caller that waits on it and says what came of it itself.
+    func running<T>(_ what: String, _ body: () async throws -> T) async throws -> T {
+        let id = UUID()
+        jobs.append((id, what))
+        defer { jobs.removeAll { $0.id == id } }
+        return try await body()
+    }
     /// The theme chosen in the app ("" follows conch's own [ui] theme),
     /// and the one in effect.
     @Published private(set) var themeChoice = UserDefaults.standard.string(forKey: "theme") ?? ""
@@ -2770,6 +2778,7 @@ final class Store: ObservableObject {
         }
         let size = newPaneSize()
         Task {
+            if let agent, !(await readyAgent(agent, on: machine)) { return }
             do {
                 let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true,
                                                                cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
@@ -2781,6 +2790,75 @@ final class Store: ObservableObject {
                 self.error = "Could not start \(agent ?? "a terminal"): \(error)"
             }
         }
+    }
+
+    /// Whether agent can be started on machine, installing it first when
+    /// the machine does not have it — a new cloud machine has none — with
+    /// the status bar saying so. False when the start should not go on;
+    /// why has been said.
+    func readyAgent(_ agent: String, on machine: String) async -> Bool {
+        guard let c = conns[machine] else { return false }
+        // Seen installed at connect: nothing to ask.
+        if agents[machine]?.contains(where: { $0.name == agent }) == true { return true }
+        let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
+        if let status { agents[machine] = status.filter(\.installed) }
+        let canInstall = c.hello?.capabilities?.contains("agent.install.v1") == true
+        switch agentReadiness(agent, status: status, canInstall: canInstall, machineName: label(machine)) {
+        case .start: return true
+        case .missing(let why):
+            say(why, .err)
+            return false
+        case .install: break
+        }
+        let title = status?.first { $0.name == agent }?.title ?? agent
+        let what = agentInstallJob(title, machineName: label(machine))
+        do {
+            try await running(what) { try await installAgent(agent, title: title, on: machine, c) }
+            say("\(title) installed on \(label(machine)); starting it")
+            return true
+        } catch {
+            say("\(what) failed: \(error)", .err)
+            return false
+        }
+    }
+
+    /// Runs agent's installer on machine in a pane of its own and waits for
+    /// it to end. The pane is closed when it worked; when it did not it is
+    /// kept and opened, since what the installer said is the explanation.
+    private func installAgent(_ agent: String, title: String, on machine: String, _ c: Connection) async throws {
+        struct P: Encodable { var agent: String; var cols: Int?; var rows: Int? }
+        let size = newPaneSize()
+        let p = try await c.call("agent.install", P(agent: agent, cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
+        let k = key(machine, p.id)
+        keptPanes.insert(k) // a failure is read, not closed after launchWindow
+        snapshots[machine, default: Snapshot()].upsert(p)
+        let deadline = Date().addingTimeInterval(20 * 60)
+        var code = 0
+        while true {
+            if let q = snapshots[machine]?.pane(p.id), q.state == "exited" { code = q.exitCode ?? 0; break }
+            if snapshots[machine]?.pane(p.id) == nil {
+                throw ConchError(code: "install", message: "its terminal was closed before it finished")
+            }
+            if Date() > deadline {
+                joinWorkspace(machine: machine, pane: p)
+                layout.open(k)
+                throw ConchError(code: "install", message: "still running after 20 minutes; its terminal is open")
+            }
+            try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
+        if let status { agents[machine] = status.filter(\.installed) }
+        // A machine that could not be asked is taken at the installer's word.
+        let found = status?.first { $0.name == agent }?.installed ?? true
+        if let why = agentInstallProblem(title, exitCode: code, found: found) {
+            if let q = snapshots[machine]?.pane(p.id) {
+                joinWorkspace(machine: machine, pane: q)
+                layout.open(k)
+            }
+            throw ConchError(code: "install", message: why)
+        }
+        keptPanes.remove(k)
+        try? await c.call("pane.close", PaneRefParams(id: p.id))
     }
 
     /// Opens the task sheet for a project (key(machine, project)), with
@@ -2849,6 +2927,7 @@ final class Store: ObservableObject {
         let branch = d.branch.trimmingCharacters(in: .whitespaces)
         taskDraft = nil
         Task {
+            if !d.agent.isEmpty, !(await readyAgent(d.agent, on: m)) { return }
             do {
                 let p = try await c.call("task.create", Params(project_id: pr, prompt: d.prompt, agent: d.agent,
                                                                branch: branch.isEmpty ? nil : branch), as: PaneInfo.self)
