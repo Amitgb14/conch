@@ -125,10 +125,17 @@ func TestAdaptWritesChecksAndSaves(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, "provider.toml"), []byte(adaptFile(site.URL)), 0o600)
 	})
 	t.Setenv("ACME_API_KEY", "acme-key")
+	var asked []string
+	adaptConfirm = func(q string) bool { asked = append(asked, q); return true }
+	t.Cleanup(func() { adaptConfirm = askYes })
 	var err error
 	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"adapt", "-name", "acme", site.URL + "/openapi.yaml"}) })
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
+	}
+	// The key went only once the person agreed to where it was going.
+	if len(asked) != 1 || !strings.Contains(asked[0], "$ACME_API_KEY to "+site.URL) {
+		t.Fatalf("asked %q", asked)
 	}
 	for _, want := range []string{"docs: " + site.URL + "/openapi.yaml", "claude is writing the file in pane p7",
 		"New sandbox", "POST /sandboxes", "signed in with $ACME_API_KEY: the list answered, 2 sandboxes (1 of them conch's)",
@@ -193,6 +200,79 @@ func TestAdaptWritesChecksAndSaves(t *testing.T) {
 	a4Capture(t, "", func() { err = runSandbox([]string{"provider", "rm", "acme"}) })
 	if err == nil || !strings.Contains(err.Error(), "hull") {
 		t.Fatalf("rm with a machine: %v", err)
+	}
+}
+
+// The agent's draft names both the variable the key comes from and the
+// host it goes to, so docs that steer the agent could have conch send any
+// of the person's secrets anywhere. Nothing is sent until they agree to
+// that pair — never in -json, where nobody is asked.
+func TestAdaptSendsNoKeyUnasked(t *testing.T) {
+	a4Env(t)
+	site := adaptSite(t)
+	var mu sync.Mutex
+	var got []string
+	calls := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), got...)
+	}
+	thief := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, r.Method+" "+r.URL.Path+" "+r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Write([]byte(`{"sandboxes":[]}`))
+	}))
+	t.Cleanup(thief.Close)
+	draft := strings.Replace(adaptFile(thief.URL), `key_env = "ACME_API_KEY"`, `key_env = "GITHUB_TOKEN"`, 1)
+	startAdaptAgent(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "provider.toml"), []byte(draft), 0o600)
+	})
+	t.Setenv("GITHUB_TOKEN", "ghp_secret")
+	var asked []string
+	adaptConfirm = func(q string) bool { asked = append(asked, q); return false }
+	t.Cleanup(func() { adaptConfirm = askYes })
+
+	// At a terminal, the person is shown the pair and says no.
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"adapt", "-name", "acme", site.URL + "/openapi.yaml"}) })
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(asked) != 1 || !strings.Contains(asked[0], "$GITHUB_TOKEN to "+thief.URL) {
+		t.Fatalf("asked %q", asked)
+	}
+	if !strings.Contains(out, "it would send $GITHUB_TOKEN to "+thief.URL) || !strings.Contains(out, "conch sandbox provider check acme") {
+		t.Fatalf("out:\n%s", out)
+	}
+
+	// For the app, nobody is asked and nothing is sent either.
+	asked = nil
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"adapt", "-json", "-revise", "again", "acme"}) })
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if len(asked) != 0 {
+		t.Fatalf("asked in -json: %q", asked)
+	}
+	var check *providerCheckJSON
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		var e adaptEvent
+		if json.Unmarshal([]byte(line), &e) == nil && e.Event == "check" {
+			check = e.Check
+		}
+	}
+	if check == nil || check.Signed || !strings.Contains(check.Why, "$GITHUB_TOKEN to "+thief.URL) {
+		t.Fatalf("check %+v\n%s", check, out)
+	}
+	if c := calls(); len(c) != 0 {
+		t.Fatalf("the draft's host was called: %q", c)
+	}
+
+	// Asked for by name, the check is the person's own doing, and runs.
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"provider", "check", "acme"}) })
+	if c := calls(); err != nil || len(c) != 1 || !strings.Contains(c[0], "ghp_secret") {
+		t.Fatalf("explicit check: %v %q\n%s", err, c, out)
 	}
 }
 

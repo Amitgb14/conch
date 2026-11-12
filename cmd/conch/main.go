@@ -203,7 +203,8 @@ Usage:
   conch sandbox adapt [-agent A] [-name N] [-new] [-json] URL...
                                 a provider conch doesn't know: conch downloads its API docs, an agent
                                 (claude by default) writes a provider file from them in a pane of its
-                                own, and conch checks the file and the key; nothing is saved yet.
+                                own, and conch checks the file; the key is tried against the API only
+                                once you agree to where it goes. Nothing is saved yet.
                                 One already in the provider registry is offered instead (-new adapts anyway)
   conch sandbox adapt -revise TEXT NAME   ask that agent to change the draft, and check it again
   conch sandbox provider check [-offline] [-json] NAME|FILE | show NAME | save NAME | rm NAME

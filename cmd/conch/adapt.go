@@ -284,7 +284,8 @@ func sandboxAdapt(args []string) error {
 	}
 	out := adaptOut{json: *asJSON, w: os.Stdout}
 	fail := func(err error) error {
-		if *asJSON {
+		// -revise passes its outcome through here, success and all.
+		if *asJSON && err != nil {
 			out.say(adaptEvent{Event: "error", Detail: err.Error()})
 		}
 		return err
@@ -431,7 +432,12 @@ func reportDraft(name, agent string, out adaptOut) error {
 		out.say(adaptEvent{Event: "problems", Problems: problems})
 		return fmt.Errorf("the file is not right yet: conch sandbox adapt -revise \"…\" %s asks %s to change it", name, agent)
 	}
-	ck := checkProvider(f)
+	// Only with the person's yes, at a terminal: the agent wrote both the
+	// variable and the host. The app (-json) shows the file and leaves the
+	// check to conch sandbox provider check, run once they have read it.
+	ck := checkProviderAsking(f, func(goes string) bool {
+		return !out.json && adaptConfirm(fmt.Sprintf("Check it against the API? That sends %s.", goes))
+	})
 	out.say(adaptEvent{Event: "check", Check: &ck})
 	next := fmt.Sprintf("save it with: conch sandbox provider save %s", name)
 	if !ck.Signed {
@@ -482,11 +488,27 @@ type providerCheckJSON struct {
 // checkProvider asks the provider for its list with the key, making
 // nothing.
 func checkProvider(f *sandbox.ProviderFile) providerCheckJSON {
+	return checkProviderAsking(f, func(string) bool { return true })
+}
+
+// adaptConfirm asks the person a yes-or-no question; tests answer it.
+var adaptConfirm = askYes
+
+// checkProviderAsking is checkProvider once ask has agreed to where the
+// key goes. A file an agent drafted names both the variable the key is
+// read from and the host it is sent to, so checking it unasked would send
+// any variable of the person's — $GITHUB_TOKEN, say — wherever docs the
+// agent read told it to.
+func checkProviderAsking(f *sandbox.ProviderFile, ask func(goes string) bool) providerCheckJSON {
 	ck := providerCheckJSON{KeyEnv: f.KeyEnv}
-	cfg := loadSandboxCfg()
-	p := sandbox.NewCustom(f, cfg.Of(f.Name))
+	cfg := loadSandboxCfg().Of(f.Name)
+	p := sandbox.NewCustom(f, cfg)
 	if err := p.Check(); err != nil {
 		ck.Why = strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")
+		return ck
+	}
+	if goes := keyGoesTo(f, cfg); !ask(goes) {
+		ck.Why = fmt.Sprintf("it would send %s, which the file chose: read the file, then run conch sandbox provider check %s", goes, f.Name)
 		return ck
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -498,6 +520,24 @@ func checkProvider(f *sandbox.ProviderFile) providerCheckJSON {
 	}
 	ck.Signed, ck.All, ck.Mine = true, all, mine
 	return ck
+}
+
+// keyGoesTo says which key a check sends and to which host, as NewCustom
+// will pick them: a key saved in Settings before the file's variable, and
+// an API address set there before the file's.
+func keyGoesTo(f *sandbox.ProviderFile, cfg config.ProviderCfg) string {
+	key := "$" + f.KeyEnv
+	switch {
+	case strings.TrimSpace(cfg.APIKey) != "":
+		key = "the " + f.Name + " key saved in Settings"
+	case cfg.APIKeyEnv != "":
+		key = "$" + cfg.APIKeyEnv
+	}
+	host := f.API
+	if u, err := url.Parse(f.API); err == nil && u.Host != "" {
+		host = u.Scheme + "://" + u.Host
+	}
+	return key + " to " + host
 }
 
 func printCheck(w io.Writer, ck *providerCheckJSON) {

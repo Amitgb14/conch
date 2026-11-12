@@ -179,7 +179,7 @@ struct AddProviderSheet: View {
 
     private var ask: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("conch downloads the provider's API docs, and an agent reads them in a pane of its own and writes a provider file: which calls make, list, start, stop and delete a sandbox, and how ssh gets in. conch checks it, and the list call with your key, before you save it. The key is never given to the agent.")
+            Text("conch downloads the provider's API docs, and an agent reads them in a pane of its own and writes a provider file: which calls make, list, start, stop and delete a sandbox, and how ssh gets in. conch checks it before you save it. The key is never given to the agent, and is not sent to the host the file names until you check the file with conch sandbox provider check.")
                 .font(.ui(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Form {
                 TextField("API or docs URL", text: $form.url, prompt: Text("https://api.example.dev/sandboxes"))
