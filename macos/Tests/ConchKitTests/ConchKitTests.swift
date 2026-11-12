@@ -3510,3 +3510,18 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(Workspace.load(uiJSON: try joiningHost("y", workspace: "first", keepInFirst: false, in: nil))[0].shows(host: "y"))
     #expect(throws: ConchError.self) { try joiningHost("y", workspace: "first", keepInFirst: false, in: Data("[1]".utf8)) }
 }
+
+/// What the app asks before a paste Ghostty holds back.
+@Test func pasteWarningCountsLines() {
+    #expect(pasteWarning("ls -la\n").title == "Paste this line?") // its own newline is not a second line
+    #expect(pasteWarning("ls -la\n").info.hasPrefix("It ends in a line break"))
+    #expect(pasteWarning("a\nb\nc").title == "Paste 3 lines?")
+    #expect(pasteWarning("a\r\nb\r\n").title == "Paste 2 lines?")
+    #expect(pasteWarning("\n").title == "Paste this line?")
+    #expect(pasteWarning("").title == "Paste this line?")
+    let long = (1...9).map { "line \($0)" }.joined(separator: "\n")
+    let w = pasteWarning(long)
+    #expect(w.title == "Paste 9 lines?" && w.info.hasSuffix("line 4\n…") && !w.info.contains("line 5"))
+    #expect(pasteWarning(String(repeating: "x", count: 200) + "\n").info.contains(String(repeating: "x", count: 79) + "…"))
+    #expect(pasteWarning("a\u{1b}[201~rm -rf x\n").info.contains("end-of-paste"))
+}
