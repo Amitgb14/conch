@@ -130,8 +130,10 @@ func (g *Gateway) reaches(dev Device, machine string) *APIError {
 }
 
 // tellMachines sends every open socket the machine list, so a phone sees a
-// machine come up without asking. Sent from the connecting goroutine, so
-// it must not hold the pool's lock while it writes.
+// machine come up without asking — each socket the machines its device
+// reaches, never the whole pool: a phone not given a machine must not
+// learn it exists. Sent from the connecting goroutine, so it must not hold
+// the pool's lock while it writes.
 func (g *Gateway) tellMachines() {
 	g.mu.Lock()
 	socks := make([]*socket, 0, len(g.sockets))
@@ -142,8 +144,8 @@ func (g *Gateway) tellMachines() {
 	if len(socks) == 0 {
 		return
 	}
-	list := machineList(g.machines(), nil)
 	for _, s := range socks {
+		list := machineList(g.machinesFor(s.device()), nil)
 		s.send(ServerMessage{Type: MsgMachines, Machines: &list})
 	}
 }

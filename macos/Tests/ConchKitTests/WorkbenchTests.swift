@@ -364,4 +364,31 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     #expect(markdownBlocks("").isEmpty && markdownBlocks("\n\n").isEmpty)
     // A pipe line without a divider under it is text.
     #expect(markdownBlocks("| not a table") == [.paragraph("| not a table")])
+
+}
+
+@Test func chatBusyWhenStopCanEndSomething() {
+    let asked = ChatTurn(seq: 0, role: "user", text: "fix it")
+    let said = ChatTurn(seq: 1, role: "assistant", text: "done")
+    let running = ChatTurn(seq: 2, role: "tool", text: "Bash", done: false)
+    let ran = ChatTurn(seq: 2, role: "tool", text: "Bash", done: true)
+    let stopped = ChatTurn(seq: 3, role: "note", text: "Interrupted")
+    // Nothing said, nothing sent: nothing to stop.
+    #expect(!chatBusy(state: nil, pending: 0, turns: []))
+    #expect(!chatBusy(state: .idle, pending: 0, turns: [asked, said]))
+    #expect(!chatBusy(state: .done, pending: 0, turns: [asked, said]))
+    // conch says it works, whatever the transcript says.
+    #expect(chatBusy(state: .working, pending: 0, turns: []))
+    // A message sent and not yet in the transcript, before conch's state catches up.
+    #expect(chatBusy(state: .idle, pending: 1, turns: [asked, said]))
+    // The transcript ends in a question not yet answered, or a tool still running.
+    #expect(chatBusy(state: .idle, pending: 0, turns: [asked]))
+    #expect(chatBusy(state: .idle, pending: 0, turns: [asked, running]))
+    #expect(!chatBusy(state: .idle, pending: 0, turns: [asked, ran]))
+    // A tool from an older server, which says nothing of done.
+    #expect(!chatBusy(state: .idle, pending: 0, turns: [asked, ChatTurn(seq: 2, role: "tool", text: "Bash")]))
+    // Stopped: Stop goes away.
+    #expect(!chatBusy(state: .idle, pending: 0, turns: [asked, stopped]))
+    // Waiting on a question is answered, not stopped.
+    #expect(!chatBusy(state: .blocked, pending: 0, turns: [asked, said]))
 }
