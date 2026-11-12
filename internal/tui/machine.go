@@ -253,6 +253,9 @@ func (mach *machine) listen() []tea.Cmd {
 			if err := callCtx(c, proto.MethodPaneList, nil, &list); err != nil {
 				return nil // the connection's closing reports the problem
 			}
+			for i := range list.Panes {
+				list.Panes[i] = printablePane(list.Panes[i])
+			}
 			return panesMsg{machine: id, gen: gen, panes: list.Panes}
 		},
 		func() tea.Msg {

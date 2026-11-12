@@ -145,7 +145,9 @@ func (p *Pane) rawReplayLocked() (string, int, int) {
 	}
 	b.WriteString(p.replayLocked(modes, cursorVisible))
 	if title != "" {
-		b.WriteString(ansi.SetWindowTitle(title))
+		// The program's own title, written back inside a sequence of
+		// conch's: an escape in it would end that one and start its own.
+		b.WriteString(ansi.SetWindowTitle(printableTitle(title)))
 	}
 	return b.String(), cols, rows
 }
@@ -159,6 +161,13 @@ func (p *Pane) rawReplayLocked() (string, int, int) {
 //   - the foreground, background and cursor colours (OSC 10, 11, 12 with ?)
 //   - whether the terminal speaks the Program Status Protocol (OSC 7501 ; ?)
 //
+// It also takes out OSC 52, the clipboard, both ways: a program setting it
+// would write the person's own clipboard from a pane — any remote host,
+// any file a pane cats — and one asking for it would be answered with the
+// clipboard's contents, typed into the pane. conch's own screen never acts
+// on a pane's OSC 52, nor does tmux by default; a raw client is no
+// different.
+//
 // Everything else passes, including the questions only the client's
 // terminal can answer — whether it draws images (kitty graphics), its
 // name (XTVERSION), its key protocol — since conch's emulator stays
@@ -167,6 +176,9 @@ func (p *Pane) rawReplayLocked() (string, int, int) {
 // unchanged.
 type queryFilter struct {
 	held []byte // a sequence begun and not yet ended
+	// dropping is inside an OSC 52 being taken out, which can be longer
+	// than any read: everything up to its end goes.
+	dropping bool
 }
 
 // maxHeld is the longest sequence held back to see what it is. A query is
@@ -175,7 +187,7 @@ const maxHeld = 64
 
 // filter returns b without the queries in it. State carries across calls.
 func (f *queryFilter) filter(b []byte) []byte {
-	if len(f.held) == 0 && !slices.Contains(b, 0x1b) {
+	if len(f.held) == 0 && !f.dropping && !slices.Contains(b, 0x1b) {
 		return b
 	}
 	in := b
@@ -185,10 +197,25 @@ func (f *queryFilter) filter(b []byte) []byte {
 	}
 	out := make([]byte, 0, len(in))
 	for i := 0; i < len(in); {
+		if f.dropping {
+			n, done := oscEnd(in[i:])
+			i += n
+			f.dropping = !done
+			if !done && i < len(in) { // an ESC last: ESC \ may be split
+				f.held = slices.Clone(in[i:])
+				return out
+			}
+			continue
+		}
 		c := in[i]
 		if c != 0x1b {
 			out = append(out, c)
 			i++
+			continue
+		}
+		if clipboardOSC(in[i:]) {
+			f.dropping = true
+			i += 5 // ESC ] 5 2 ;
 			continue
 		}
 		n, query, whole := sequence(in[i:])
@@ -259,6 +286,42 @@ func csiQuery(params []byte, final byte) bool {
 		return len(params) > 0 && params[len(params)-1] == '$' // DECRQM
 	}
 	return false
+}
+
+// clipboardOSC says whether b starts an OSC 52, the clipboard. A start
+// cut short by the end of a read ("ESC ] 5") is held as any unfinished
+// sequence is, so this sees the whole of "ESC ] 5 2 ;" when the next read
+// brings it.
+func clipboardOSC(b []byte) bool {
+	return len(b) >= 5 && string(b[:5]) == "\x1b]52;"
+}
+
+// oscEnd is how much of b an OSC being dropped takes, through its BEL or
+// ESC \, and whether that end was in b.
+func oscEnd(b []byte) (int, bool) {
+	for i := 0; i < len(b); i++ {
+		switch {
+		case b[i] == 0x07:
+			return i + 1, true
+		case b[i] == 0x1b && i+1 == len(b):
+			return i, false // ESC \ may be split across reads: held
+		case b[i] == 0x1b && b[i+1] == '\\':
+			return i + 2, true
+		case b[i] == 0x1b:
+			return i, true // an ESC that is not ST ends the string, and starts what follows
+		}
+	}
+	return len(b), false
+}
+
+// printableTitle is a window title without control characters.
+func printableTitle(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // oscQuery says whether an OSC body is a question conch answers.

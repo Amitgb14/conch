@@ -632,6 +632,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.receiveActionStarted(msg)
 
 	case createdMsg:
+		msg.info = printablePane(msg.info)
 		if mach := m.machine(msg.machine); mach != nil && mach.paneIndex(msg.info.ID) < 0 {
 			mach.panes = append(mach.panes, msg.info)
 		}
@@ -687,6 +688,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		mach.installers[msg.info.ID] = msg.agent
+		msg.info = printablePane(msg.info)
 		if mach.paneIndex(msg.info.ID) < 0 {
 			mach.panes = append(mach.panes, msg.info)
 		}
@@ -1002,6 +1004,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 	case proto.EventPaneCreated:
 		var info proto.PaneInfo
 		if decodeInto(msg, &info) && mach.paneIndex(info.ID) < 0 {
+			info = printablePane(info)
 			mach.panes = append(mach.panes, info)
 			m.adoptCheck(mach.id, info)
 			return m.rebuild()
@@ -1016,6 +1019,7 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if i < 0 {
 			return nil
 		}
+		info = printablePane(info)
 		old := mach.panes[i]
 		mach.panes[i] = info
 		var renamed tea.Cmd

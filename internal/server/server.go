@@ -1465,6 +1465,7 @@ func (s *Server) get(id string) (*entry, *proto.Error) {
 }
 
 func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error) {
+	cp.Name = gitx.Printable(cp.Name) // drawn by every client (entry.info)
 	if cp.SSH != "" {
 		if perr := s.overSSH(&cp); perr != nil {
 			return proto.PaneInfo{}, perr

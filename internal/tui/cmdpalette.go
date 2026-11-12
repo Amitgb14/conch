@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/gitx"
 )
 
 // The palette (ctrl+b /, ⌘K in conch's own window) is one list of
@@ -319,11 +321,12 @@ func (p *cmdPalette) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 		p.query = ""
 		p.filter()
 	case tea.KeyRunes, tea.KeySpace:
+		// What is typed is drawn, twice: no escape of a paste's goes with it.
 		if k.Paste {
 			// A paste is text to look for, but one line of it.
-			p.query += strings.Join(strings.Fields(string(k.Runes)), " ")
+			p.query += gitx.Printable(strings.Join(strings.Fields(string(k.Runes)), " "))
 		} else {
-			p.query += string(k.Runes)
+			p.query += gitx.Printable(string(k.Runes))
 		}
 		if k.Type == tea.KeySpace {
 			p.query += " "
