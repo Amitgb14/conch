@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -156,6 +157,9 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 	if ix.Format != indexFormat {
 		return nil, fmt.Errorf("the provider registry's index is format %d; this conch reads %d: update conch", ix.Format, indexFormat)
 	}
+	// An entry whose name could not be a provider's is left out: its name
+	// would be made a path here, and no conch could install it anyway.
+	ix.Providers = slices.DeleteFunc(ix.Providers, func(e RegistryEntry) bool { return CheckName(e.Name) != nil })
 	sort.Slice(ix.Providers, func(i, j int) bool { return ix.Providers[i].Name < ix.Providers[j].Name })
 	return &ix, nil
 }
@@ -247,6 +251,9 @@ func FileHosts(f *ProviderFile) (api, ssh string) {
 // ParseProviderFile checks data as a provider file named name, without
 // keeping it anywhere.
 func ParseProviderFile(name string, data []byte) (*ProviderFile, []string, error) {
+	if err := CheckName(name); err != nil {
+		return nil, nil, err
+	}
 	dir, err := os.MkdirTemp("", "conch-provider")
 	if err != nil {
 		return nil, nil, err
