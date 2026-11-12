@@ -31,7 +31,7 @@ func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.E
 		for {
 			select {
 			case b := <-raw.C:
-				if c.conn.Write(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: p.ID(), Data: b})}) != nil {
+				if !c.sendWait(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: p.ID(), Data: b})}) {
 					return
 				}
 				continue
@@ -43,7 +43,7 @@ func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.E
 				for {
 					select {
 					case b := <-raw.C:
-						if c.conn.Write(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: p.ID(), Data: b})}) != nil {
+						if !c.sendWait(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: p.ID(), Data: b})}) {
 							return
 						}
 					default:
@@ -59,14 +59,14 @@ func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.E
 				var again string
 				again, cols, rows, raw = p.SubscribeRaw()
 				out := proto.PaneOutput{ID: p.ID(), Data: []byte(again), Reset: true, Cols: cols, Rows: rows}
-				if c.conn.Write(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(out)}) != nil {
+				if !c.sendWait(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(out)}) {
 					return
 				}
 				continue
 			}
 			select {
 			case b := <-raw.C:
-				if c.conn.Write(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: p.ID(), Data: b})}) != nil {
+				if !c.sendWait(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(proto.PaneOutput{ID: p.ID(), Data: b})}) {
 					return
 				}
 			case <-sub.stop:
