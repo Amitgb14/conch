@@ -30,6 +30,9 @@ type PR struct {
 	Draft  bool
 	URL    string
 	Branch string // head branch
+	// Fork says the head branch is another repository's: Branch then names
+	// a branch there, which only shares its name with any branch here.
+	Fork   bool
 	Base   string // the branch it merges into
 	Head   string // head commit
 	Review string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or ""
@@ -57,7 +60,7 @@ type Check struct {
 // ErrNoGH means the gh binary is not installed.
 var ErrNoGH = errors.New("gh (GitHub CLI) is not installed; pull requests, CI and issues need it: https://cli.github.com")
 
-const fields = "number,title,state,isDraft,url,headRefName,headRefOid,baseRefName,reviewDecision,statusCheckRollup,updatedAt,mergeable"
+const fields = "number,title,state,isDraft,url,headRefName,headRefOid,isCrossRepository,baseRefName,reviewDecision,statusCheckRollup,updatedAt,mergeable"
 
 // List returns recent pull requests of the repository in dir. The gh binary
 // is $CONCH_GH when set.
@@ -189,6 +192,7 @@ type rawPR struct {
 	URL            string    `json:"url"`
 	HeadRefName    string    `json:"headRefName"`
 	HeadRefOid     string    `json:"headRefOid"`
+	Cross          bool      `json:"isCrossRepository"`
 	BaseRefName    string    `json:"baseRefName"`
 	ReviewDecision string    `json:"reviewDecision"`
 	Mergeable      string    `json:"mergeable"` // MERGEABLE, CONFLICTING or UNKNOWN
@@ -215,7 +219,7 @@ func Parse(data []byte) ([]PR, error) {
 	for _, r := range raw {
 		pr := PR{
 			Number: r.Number, Title: r.Title, State: r.State, Draft: r.IsDraft, URL: r.URL,
-			Branch: r.HeadRefName, Head: r.HeadRefOid, Base: r.BaseRefName, Review: r.ReviewDecision, Updated: r.UpdatedAt,
+			Branch: r.HeadRefName, Fork: r.Cross, Head: r.HeadRefOid, Base: r.BaseRefName, Review: r.ReviewDecision, Updated: r.UpdatedAt,
 			Conflicting: r.Mergeable == "CONFLICTING",
 		}
 		failed, pending := 0, 0
@@ -283,10 +287,16 @@ func contextOutcome(state string) string {
 }
 
 // ByBranch picks one pull request per head branch: an open one when there
-// is one, else the most recently updated.
+// is one, else the most recently updated. A fork's pull request is left
+// out: its branch is another repository's, and anyone can name one after
+// a branch here — conch would then show its checks as this branch's, send
+// its CI log to this branch's agent, and the autopilot merge it.
 func ByBranch(prs []PR) map[string]PR {
 	out := map[string]PR{}
 	for _, pr := range prs {
+		if pr.Fork {
+			continue
+		}
 		cur, ok := out[pr.Branch]
 		switch {
 		case !ok:

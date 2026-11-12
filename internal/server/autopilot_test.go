@@ -62,6 +62,20 @@ func TestAutopilotObserveTurns(t *testing.T) {
 	if _, ok := a.saved.Waiting[branchKey("p", "green")]; ok {
 		t.Fatal("green all along waits to merge")
 	}
+	// A pull request the server never saw before — opened, and gone green,
+	// while it was stopped or between two reads — arrives green: no turn
+	// was watched, so it does not merge. Seen pending next, then green, it
+	// does.
+	a.observe(apInfo("p", map[string]string{"red": "pass", "green": "pass", "main": "pass", "new": "fail", "slow": "pass", "late": "pass"}))
+	if _, ok := a.saved.Waiting[branchKey("p", "late")]; ok {
+		t.Fatal("a pull request first seen green waits to merge")
+	}
+	a.observe(apInfo("p", map[string]string{"red": "pass", "green": "pass", "main": "pass", "new": "fail", "slow": "pass", "late": "pending"}))
+	a.observe(apInfo("p", map[string]string{"red": "pass", "green": "pass", "main": "pass", "new": "fail", "slow": "pass", "late": "pass"}))
+	if _, ok := a.saved.Waiting[branchKey("p", "late")]; !ok {
+		t.Fatal("pending to green does not wait to merge")
+	}
+	delete(a.saved.Waiting, branchKey("p", "late"))
 
 	// Red again, or gone: nothing to wait for any more, and a branch gone
 	// is forgotten.
@@ -218,6 +232,20 @@ func apPR(s *Server, p *project, branch string, pr proto.PRInfo) {
 	s.autopilotPRs(info)
 }
 
+// apBranch makes branch a branch of the project's repository and returns
+// its commit: what a pull request of an agent here has as its head.
+func apBranch(t *testing.T, p *project, branch string) string {
+	t.Helper()
+	if branchHead(p, branch) == "" {
+		gitIn(t, p.root, "branch", branch, "main")
+	}
+	head := branchHead(p, branch)
+	if head == "" {
+		t.Fatalf("no branch %s", branch)
+	}
+	return head
+}
+
 // A pull request that turns green merges on GitHub, by its number and at
 // the commit its checks passed for, with nobody's TUI involved.
 func TestAutopilotMergesOnTheTurnToGreen(t *testing.T) {
@@ -225,14 +253,15 @@ func TestAutopilotMergesOnTheTurnToGreen(t *testing.T) {
 	quietPRs(t, p)
 	calls := fakeMergeGH(t)
 	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true})
+	head := apBranch(t, p, "feat")
 
-	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Head: "abc"})
-	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Head: "abc"}) // seen once now
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Head: head})
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Head: head}) // seen once now
 	if strings.Contains(readCalls(calls), "pr merge") {
 		t.Fatal("merged while pending")
 	}
-	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pass", Head: "abc"})
-	a5WaitFor(t, "the merge", func() bool { return strings.Contains(readCalls(calls), "pr merge 5 --merge --match-head-commit abc") })
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pass", Head: head})
+	a5WaitFor(t, "the merge", func() bool { return strings.Contains(readCalls(calls), "pr merge 5 --merge --match-head-commit "+head) })
 	a5WaitFor(t, "nothing left waiting", func() bool { return len(s.autopilotState().Branches) == 0 })
 	if n := strings.Count(readCalls(calls), "pr merge"); n != 1 {
 		t.Fatalf("merged %d times", n)
@@ -246,8 +275,9 @@ func TestAutopilotHoldsThenMerges(t *testing.T) {
 	quietPRs(t, p)
 	calls := fakeMergeGH(t)
 	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true})
-	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Draft: true})
-	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pass", Draft: true})
+	head := apBranch(t, p, "feat")
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Draft: true, Head: head})
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pass", Draft: true, Head: head})
 	st := s.autopilotState()
 	if len(st.Branches) != 1 || !st.Branches[0].Waiting || st.Branches[0].Held != "its pull request is a draft" {
 		t.Fatalf("held: %+v", st)
@@ -269,17 +299,63 @@ func TestAutopilotMergeRefused(t *testing.T) {
 	quietPRs(t, p)
 	calls := fakeMergeGH(t)
 	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true})
-	apPR(s, p, "clash", proto.PRInfo{Number: 9, Checks: "pending"})
-	apPR(s, p, "clash", proto.PRInfo{Number: 9, Checks: "pass"})
+	head := apBranch(t, p, "clash")
+	apPR(s, p, "clash", proto.PRInfo{Number: 9, Checks: "pending", Head: head})
+	apPR(s, p, "clash", proto.PRInfo{Number: 9, Checks: "pass", Head: head})
 	a5WaitFor(t, "the merge refused", func() bool {
 		return strings.Contains(readCalls(calls), "pr merge 9") && len(s.autopilotState().Branches) == 0
 	})
 	s.autopilotMerges()
-	apPR(s, p, "clash", proto.PRInfo{Number: 9, Checks: "pass"})
+	apPR(s, p, "clash", proto.PRInfo{Number: 9, Checks: "pass", Head: head})
 	time.Sleep(50 * time.Millisecond)
 	if n := strings.Count(readCalls(calls), "pr merge"); n != 1 {
 		t.Fatalf("tried %d times", n)
 	}
+}
+
+// Green is not enough: the commit GitHub would merge has to be on the
+// branch here. One that isn't — a fork's branch of the same name, a push
+// from somewhere else — is held and said, and so is one GitHub did not
+// name; a head behind the branch (the agent's newer commit not pushed
+// yet) is still its own, and merges.
+func TestAutopilotMergesOnlyItsOwnCommits(t *testing.T) {
+	s, p := afterFixture(t)
+	quietPRs(t, p)
+	calls := fakeMergeGH(t)
+	s.autopilot.set(proto.AutopilotPolicy{AutoMerge: true})
+	apBranch(t, p, "feat")
+	stranger := strings.Repeat("ab", 20) // a commit id this repository has never had
+
+	for _, c := range []struct{ head, why string }{
+		{stranger, "#5 is at abababa, which is not on feat here: conch merges only commits it has"},
+		{"", "the commit #5 would merge could not be read"},
+		{"--all", "the commit #5 would merge could not be read"}, // never reaches git as an option
+	} {
+		apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Head: c.head})
+		apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pass", Head: c.head})
+		s.autopilotMerges()
+		st := s.autopilotState()
+		if len(st.Branches) != 1 || !st.Branches[0].Waiting || st.Branches[0].Held != c.why {
+			t.Fatalf("head %q: %+v", c.head, st)
+		}
+		if strings.Contains(readCalls(calls), "pr merge") {
+			t.Fatalf("head %q was merged", c.head)
+		}
+	}
+
+	// The branch moves on past the head GitHub has: still its own work.
+	old := branchHead(p, "feat")
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitIn(t, p.root, "worktree", "add", "-q", wt, "feat")
+	gitIn(t, wt, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "newer")
+	if branchHead(p, "feat") == old {
+		t.Fatal("the branch did not move")
+	}
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pending", Head: old})
+	apPR(s, p, "feat", proto.PRInfo{Number: 5, Checks: "pass", Head: old})
+	a5WaitFor(t, "the merge of its own, older head", func() bool {
+		return strings.Contains(readCalls(calls), "pr merge 5 --merge --match-head-commit "+old)
+	})
 }
 
 func TestAutopilotMergeHold(t *testing.T) {
