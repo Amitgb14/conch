@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/detect"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
 )
@@ -132,8 +133,8 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 		if rel, err := filepath.Rel(target.dir, path); err == nil && !strings.HasPrefix(rel, "..") {
 			ref = rel
 		}
-		if err := s.submitPrompt(target, handoffPrompt(p.Agent, p.From, ref)); err != nil {
-			return res, proto.Errorf(proto.ErrBadRequest, "%v", err)
+		if perr := s.submitPrompt(target, handoffPrompt(p.Agent, p.From, ref)); perr != nil {
+			return res, perr
 		}
 		res.Pane = target.info()
 		log.Printf("shared %s session %s with pane %s (%s)", p.Agent, p.ID, p.PaneID, path)
@@ -205,12 +206,45 @@ func (s *Server) exportSession(p proto.SessionRef) (proto.SessionExport, *proto.
 // agents take an Enter inside a paste as a newline.
 const submitDelay = 150 * time.Millisecond
 
-// submitPrompt pastes text into an agent's input and submits it.
-func (s *Server) submitPrompt(e *entry, text string) error {
-	if err := e.p.SendText(text, true); err != nil {
-		return err
+// submitPrompt pastes text into an agent's input and submits it, as
+// agent.prompt does: never into a question the agent is asking.
+func (s *Server) submitPrompt(e *entry, text string) *proto.Error {
+	if perr := s.pasteUnlessAsked(e, text); perr != nil {
+		return perr
 	}
-	time.AfterFunc(submitDelay, func() { _ = e.p.SendKeys([]string{"enter"}) })
+	time.Sleep(submitDelay)
+	return s.enterUnlessAsked(e)
+}
+
+// pasteUnlessAsked types text into the pane unless its agent is waiting
+// on a question — a permission menu, a choice — where the Enter that
+// follows would pick whatever is highlighted, often "Yes". Held across
+// the check and the paste, as agent.prompt holds it, so no evaluation
+// moves the state in between; a shell (no agent) has nothing to ask.
+func (s *Server) pasteUnlessAsked(e *entry, text string) *proto.Error {
+	e.evalMu.Lock()
+	defer e.evalMu.Unlock()
+	s.evaluate(e, func(*detect.Tracker) {})
+	if info := e.info(); info.Agent != nil && info.Agent.State == proto.AgentBlocked {
+		return blockedErr(info, "nothing was typed")
+	}
+	if err := e.p.SendText(text, true); err != nil {
+		return proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	return nil
+}
+
+// enterUnlessAsked submits what was pasted, unless a question came up
+// in the moment since: the message then stays in the agent's input rather
+// than answer something nobody read.
+func (s *Server) enterUnlessAsked(e *entry) *proto.Error {
+	s.observe(e)
+	if now := e.info(); now.Agent != nil && now.Agent.State == proto.AgentBlocked {
+		return blockedErr(now, "the message was typed but not sent")
+	}
+	if err := e.p.SendKeys([]string{"enter"}); err != nil {
+		return proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
 	s.userInput(e)
 	return nil
 }
@@ -227,7 +261,9 @@ func (s *Server) broadcastMessage(p proto.AgentBroadcastParams) (proto.AgentBroa
 	}
 	text := strings.TrimSpace(p.Text)
 	seen := map[string]bool{}
-	sent := 0
+	// Pasted everywhere first and submitted after one wait, so a dozen
+	// panes cost one submitDelay rather than twelve.
+	typed := map[int]*entry{}
 	for _, id := range p.IDs {
 		if seen[id] {
 			continue
@@ -245,14 +281,25 @@ func (s *Server) broadcastMessage(p proto.AgentBroadcastParams) (proto.AgentBroa
 		case info.Agent == nil && !p.Shells:
 			out.Error = "not running an agent"
 		default:
-			if err := s.submitPrompt(e, text); err != nil {
-				out.Error = err.Error()
+			if perr := s.pasteUnlessAsked(e, text); perr != nil {
+				out.Error = perr.Message
 			} else {
-				out.Sent = true
-				sent++
+				typed[len(res.Results)] = e
 			}
 		}
 		res.Results = append(res.Results, out)
+	}
+	if len(typed) > 0 {
+		time.Sleep(submitDelay)
+	}
+	sent := 0
+	for i, e := range typed {
+		if perr := s.enterUnlessAsked(e); perr != nil {
+			res.Results[i].Error = perr.Message
+			continue
+		}
+		res.Results[i].Sent = true
+		sent++
 	}
 	log.Printf("broadcast to %d of %d pane(s)", sent, len(res.Results))
 	return res, nil
