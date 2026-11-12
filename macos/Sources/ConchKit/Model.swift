@@ -248,6 +248,11 @@ public struct Workspace: Equatable, Sendable {
     /// first, those the later ones list between them.
     public var hosts: Set<String> = []
     public var claimedHosts: Set<String> = []
+    /// The machines added in it (the TUI's space.machines), shown even
+    /// with nothing of its on them; for the first, those the later ones
+    /// list between them.
+    public var machines: Set<String> = []
+    public var claimedMachines: Set<String> = []
 
     public init(id: String = "first", name: String, projects: Set<String> = [], panes: Set<String> = [], first: Bool = false) {
         self.id = id
@@ -286,6 +291,7 @@ public struct Workspace: Equatable, Sendable {
             var panes: [String]?
             var folders: [String]?
             var hosts: [String]?
+            var machines: [String]?
         }
         struct UI: Decodable {
             var spaces: [Saved]?
@@ -297,6 +303,7 @@ public struct Workspace: Equatable, Sendable {
                               projects: Set(s.projects ?? []), panes: Set(s.panes ?? []))
             w.folders = Set(s.folders ?? [])
             w.hosts = Set(s.hosts ?? [])
+            w.machines = Set(s.machines ?? [])
             return w
         }
         var first = Workspace(name: ui?.first_space?.name ?? "", first: true)
@@ -305,11 +312,13 @@ public struct Workspace: Equatable, Sendable {
             first.projects = Set(f.projects ?? [])
             first.panes = Set(f.panes ?? [])
             first.hosts = Set(f.hosts ?? [])
+            first.machines = Set(f.machines ?? [])
         }
         first.claimedProjects = later.reduce(into: []) { $0.formUnion($1.projects) }
         first.claimedPanes = later.reduce(into: []) { $0.formUnion($1.panes) }
         first.claimedFolders = later.reduce(into: []) { $0.formUnion($1.folders) }
         first.claimedHosts = later.reduce(into: []) { $0.formUnion($1.hosts) }
+        first.claimedMachines = later.reduce(into: []) { $0.formUnion($1.machines) }
         return [first] + later
     }
 
@@ -546,6 +555,20 @@ public func isOpen(_ node: TreeNode, app: [String: Bool], tui: [String: Bool]) -
 /// TUI's maxListedBranches and recentBranchAge).
 public let branchesRecent = 12
 public let branchRecentAge: TimeInterval = 14 * 24 * 3600
+
+/// Whether workspace ws lists machine id, as the TUI's hasMachine: this
+/// computer always; one added in it; one holding a project or pane it
+/// shows; and, in the first, any no later workspace lists. snapshot is
+/// what the machine holds; all is every workspace. nil is every machine.
+public func workspaceShows(machine id: String, snapshot: Snapshot, in ws: Workspace?, all: [Workspace]) -> Bool {
+    guard let ws else { return true }
+    func has(_ w: Workspace) -> Bool {
+        id == "local" || w.machines.contains(id)
+            || snapshot.projects.contains { w.shows($0, machine: id) } || !snapshot.shown(in: w, machine: id).isEmpty
+    }
+    if has(ws) { return true }
+    return ws.first && !all.contains { !$0.first && has($0) }
+}
 
 extension Snapshot {
     /// One machine in the sidebar: its projects with their agents, branches,

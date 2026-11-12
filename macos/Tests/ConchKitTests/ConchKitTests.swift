@@ -3525,3 +3525,45 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(pasteWarning(String(repeating: "x", count: 200) + "\n").info.contains(String(repeating: "x", count: 79) + "…"))
     #expect(pasteWarning("a\u{1b}[201~rm -rf x\n").info.contains("end-of-paste"))
 }
+
+/// A machine is listed where the TUI lists it (hasMachine): this computer
+/// everywhere; one added in a workspace there; one holding a workspace's
+/// project or pane there; and the first, whatever no later one lists.
+@Test func machinesBelongToTheirWorkspace() throws {
+    let ui = #"{"spaces":[{"id":"w2","machines":["box"],"projects":["dev~r1"]},{"id":"w3","panes":["pi|p5"]}],"first_space":{"machines":["shared"]}}"#
+    let all = Workspace.load(uiJSON: Data(ui.utf8))
+    let (first, w2, w3) = (all[0], all[1], all[2])
+    #expect(w2.machines == ["box"] && first.machines == ["shared"] && first.claimedMachines == ["box"])
+    let empty = Snapshot()
+    let dev = Snapshot(projects: [ProjectInfo(id: "r1", name: "api", path: "/r1")])
+    let pi = Snapshot(panes: [PaneInfo(id: "p5", name: "zsh")])
+    func shows(_ m: String, _ s: Snapshot, _ w: Workspace) -> Bool { workspaceShows(machine: m, snapshot: s, in: w, all: all) }
+    // This computer, everywhere, even with nothing on it.
+    #expect(all.allSatisfy { shows("local", empty, $0) })
+    // Added in w2: there, even empty; not in the first, which another claims it from.
+    #expect(shows("box", empty, w2) && !shows("box", empty, first) && !shows("box", empty, w3))
+    // Holding w2's project, w3's pane: there, and not in the first.
+    #expect(shows("dev", dev, w2) && !shows("dev", dev, first) && !shows("dev", dev, w3))
+    #expect(shows("pi", pi, w3) && !shows("pi", pi, first) && !shows("pi", pi, w2))
+    // A pane on pi no later workspace has: the first shows pi too, for it.
+    var more = pi
+    more.panes.append(PaneInfo(id: "p6", name: "zsh"))
+    #expect(shows("pi", more, first) && shows("pi", more, w3))
+    // A machine nobody lists, or the first listed itself: the first's.
+    #expect(shows("new", empty, first) && !shows("new", empty, w2))
+    #expect(shows("shared", empty, first) && !shows("shared", empty, w3))
+    // One workspace: every machine.
+    #expect(workspaceShows(machine: "box", snapshot: empty, in: nil, all: []))
+    #expect(workspaceShows(machine: "box", snapshot: empty, in: .everything, all: [.everything]))
+
+    // Brought into w3, keeping it in the first that showed it.
+    let brought = try joiningMachine("new", workspace: "w3", keepInFirst: true, in: Data(ui.utf8))
+    let after = Workspace.load(uiJSON: brought)
+    #expect(after[2].machines == ["new"] && after[0].machines == ["shared", "new"])
+    #expect(workspaceShows(machine: "new", snapshot: empty, in: after[0], all: after))
+    #expect(workspaceShows(machine: "new", snapshot: empty, in: after[2], all: after))
+    // Added in w2 from scratch: only there.
+    let added = Workspace.load(uiJSON: try joiningMachine("fresh", workspace: "w2", keepInFirst: false, in: Data(ui.utf8)))
+    #expect(!workspaceShows(machine: "fresh", snapshot: empty, in: added[0], all: added))
+    #expect(workspaceShows(machine: "fresh", snapshot: empty, in: added[1], all: added))
+}

@@ -464,9 +464,40 @@ final class Store: ObservableObject {
         if allBranches.contains(project) { allBranches.remove(project) } else { allBranches.insert(project) }
     }
 
+    /// The machines the workspace on screen lists, as the TUI's
+    /// showsMachine: every one while there is only one workspace.
+    var shownMachines: [MachineLink] {
+        guard workspaces.count > 1 else { return machines }
+        return machines.filter { workspaceShows(machine: $0.id, snapshot: snapshots[$0.id] ?? Snapshot(), in: ws, all: workspaces) }
+    }
+
+    /// The machines conch has that the workspace on screen does not list.
+    var hiddenMachines: [MachineLink] {
+        let shown = Set(shownMachines.map(\.id))
+        return machines.filter { !shown.contains($0.id) }
+    }
+
+    /// Lists a machine in the workspace on screen; the first keeps it if
+    /// it listed it (the TUI's joinMachine).
+    func bringMachine(_ id: String) {
+        let had = workspaceShows(machine: id, snapshot: snapshots[id] ?? Snapshot(), in: workspaces.first, all: workspaces)
+        let w = ws?.id ?? "first"
+        _ = editUI("show \(id) here") { try joiningMachine(id, workspace: w, keepInFirst: had, in: $0) }
+    }
+
+    /// A machine about to be added from the app, and the workspace it was
+    /// asked for in: when machines.json gains one, it is listed there, as
+    /// the TUI lists a machine it added in the workspace on screen.
+    private var addingMachine: (workspace: String, known: Set<String>, at: Date)?
+
+    func expectMachine() {
+        guard workspaces.count > 1 else { return }
+        addingMachine = (ws?.id ?? "first", Set(catalog.map(\.id)), Date())
+    }
+
     /// The sidebar: a tree per machine, this computer first.
     var tree: [TreeNode] {
-        machines.map { m in
+        shownMachines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
                                                             savedHosts: savedHosts, folders: folders)
             if !m.online { node.badge = m.state }
@@ -1095,6 +1126,13 @@ final class Store: ObservableObject {
     func connect() {
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json"))
         catalog = MachineEntry.all(machinesJSON: data)
+        if let a = addingMachine {
+            // An install is watched in a terminal and may take minutes;
+            // one not done in an hour was given up on.
+            let new = catalog.map(\.id).filter { !a.known.contains($0) }
+            if !new.isEmpty || Date().timeIntervalSince(a.at) > 3600 { addingMachine = nil }
+            for id in new { _ = editUI("show \(id) here") { try joiningMachine(id, workspace: a.workspace, keepInFirst: false, in: $0) } }
+        }
         let entries = MachineEntry.load(machinesJSON: data)
         var next = [machines.first { $0.id == "local" } ?? MachineLink(id: "local", label: "local")]
         for e in entries {
@@ -2337,6 +2375,12 @@ final class Store: ObservableObject {
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true)
+        // The machines this workspace does not list, to bring one here.
+        if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
+           let at = items.firstIndex(where: { $0.action == .newSandbox }) {
+            items.insert(RowMenuItem("Machine Already in conch", .divider,
+                                     children: hiddenMachines.map { RowMenuItem($0.label, .bringMachine($0.id)) }), at: at + 1)
+        }
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
             items += sandboxMenu(machine: m, running: link.online)
@@ -2429,6 +2473,7 @@ final class Store: ObservableObject {
         case .addProject(let m): addProject(on: m)
         case .sshToHost: sshToHost()
         case .addMachine: addMachine()
+        case .bringMachine(let id): bringMachine(id)
         case .newSandbox: newSandboxOpen = true
         case .reconnect(let m): reconnect(m)
         case .reloadServer(let m): reloadServer(m)
@@ -2723,6 +2768,7 @@ final class Store: ObservableObject {
                                          button: "Add", firstValue: target) else { return }
         let target = host.trimmingCharacters(in: .whitespaces)
         guard !target.isEmpty else { return }
+        expectMachine()
         var command = [b, "machine", "add"]
         let l = label.trimmingCharacters(in: .whitespaces)
         if !l.isEmpty { command += ["-label", l] }

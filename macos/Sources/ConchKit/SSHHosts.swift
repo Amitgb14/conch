@@ -68,10 +68,21 @@ public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws
 /// when the first listed it before, so saving it again elsewhere does not
 /// take it away from there.
 public func joiningHost(_ h: String, workspace ws: String, keepInFirst: Bool, in data: Data?) throws -> Data {
+    try joiningSpace("hosts", h, workspace: ws, keepInFirst: keepInFirst, in: data)
+}
+
+/// ui.json with machine id listed in workspace ws, as the TUI's
+/// joinMachineTo: a machine added in workspace 2, or brought there, shows
+/// there; keepInFirst as for a host.
+public func joiningMachine(_ id: String, workspace ws: String, keepInFirst: Bool, in data: Data?) throws -> Data {
+    try joiningSpace("machines", id, workspace: ws, keepInFirst: keepInFirst, in: data)
+}
+
+func joiningSpace(_ field: String, _ item: String, workspace ws: String, keepInFirst: Bool, in data: Data?) throws -> Data {
     var ui = try FolderEdit.read(data)
-    func add(_ l: inout [String]) { if !l.contains(h) { l.append(h) } }
-    if ws != "first" && keepInFirst { FolderEdit.editSpaceList(&ui, workspace: "first", field: "hosts", add) }
-    FolderEdit.editSpaceList(&ui, workspace: ws, field: "hosts", add)
+    func add(_ l: inout [String]) { if !l.contains(item) { l.append(item) } }
+    if ws != "first" && keepInFirst { FolderEdit.editSpaceList(&ui, workspace: "first", field: field, add) }
+    FolderEdit.editSpaceList(&ui, workspace: ws, field: field, add)
     return try FolderEdit.write(ui)
 }
 
