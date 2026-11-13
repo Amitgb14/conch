@@ -455,7 +455,7 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     layout.setBench(.agent, chat: true)
     #expect(layout.tabs[layout.active].shows(p.chat), "turned back on")
 
-    #expect(!paletteCommandItems(chat: false).contains { $0.title.contains("Chat First") })
+    #expect(!paletteCommandItems(chat: false).contains { $0.title.contains("Chat") }, "no chat named in ⌘K")
     #expect(paletteCommandItems(chat: true).contains { $0.title.contains("Chat First") })
 }
 
