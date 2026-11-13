@@ -2069,6 +2069,29 @@ final class Store: ObservableObject {
         terminalHasKeyboard = false
     }
 
+    /// Each task's brief being edited, by machine and folder: kept here so
+    /// the edits outlive the page that shows them.
+    private(set) var briefs: [String: TaskBriefModel] = [:]
+
+    func brief(machine: String, task: GroupTask) -> TaskBriefModel {
+        let k = key(machine, task.folder)
+        if let b = briefs[k] { return b }
+        let b = TaskBriefModel(machine: machine, folder: task.folder, branch: task.branch, store: self)
+        briefs[k] = b
+        return b
+    }
+
+    /// Everything with edits not saved — files open in Files tabs and
+    /// workbenches, tasks' briefs — for the question asked before quitting.
+    func unsaved() -> [Unsaved] {
+        var out = fileViews.keys.sorted().flatMap { fileViews[$0]!.unsaved() }
+        for k in briefs.keys.sorted() {
+            guard let b = briefs[k], b.draft.dirty else { continue }
+            out.append(Unsaved(name: "the brief of \(b.branch)") { [weak b] in await b?.save() ?? true })
+        }
+        return out
+    }
+
     /// The Files tab in front, if that is what is focused.
     var focusedFiles: FilesModel? {
         guard let k = layout.focused, parseFilesKey(k) != nil else { return nil }
