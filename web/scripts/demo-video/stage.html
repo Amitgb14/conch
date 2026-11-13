@@ -1,0 +1,176 @@
+<!doctype html>
+<!-- One frame of a demo video, drawn from timeline.mjs. record.py opens
+     this at 1920x1080, calls draw(t) for each frame and photographs it;
+     open it in a browser yourself (?video=NAME&t=4.2) to look at a frame. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+  body {
+    background: radial-gradient(120% 90% at 50% 0%, #17343a 0%, #0d1417 55%, #080b0d 100%);
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Inter, sans-serif;
+    color: #f2f5f6; -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+  .layer { position: absolute; inset: 0; }
+  .window img {
+    position: absolute; left: 0; top: 0; transform-origin: 0 0; border-radius: 12px;
+    box-shadow: 0 40px 120px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.08);
+    image-rendering: auto;
+  }
+  .phones { display: flex; justify-content: center; align-items: flex-start; gap: 72px; padding-top: 56px; }
+  .phones img {
+    height: 740px; border-radius: 50px; border: 12px solid #1c1f22;
+    box-shadow: 0 40px 120px rgba(0,0,0,.7), 0 0 0 2px #2b3034;
+  }
+  .title { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .title img { width: 168px; height: 168px; margin-bottom: 36px; filter: drop-shadow(0 18px 50px rgba(43,182,201,.35)); }
+  .title h1 { font-size: 104px; font-weight: 800; letter-spacing: -2px; margin: 0; }
+  .title p { font-size: 42px; color: #b8c6ca; margin: 22px 0 0; font-weight: 500; }
+  .title .url { font-size: 34px; color: #4fd1e0; margin-top: 44px; font-weight: 600; letter-spacing: .5px; }
+  #caption {
+    position: absolute; left: 0; right: 0; bottom: 56px; text-align: center; pointer-events: none;
+  }
+  #caption .box {
+    display: inline-block; padding: 22px 44px 24px; border-radius: 26px; max-width: 1600px;
+    background: rgba(8, 12, 14, .82); box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.07);
+  }
+  #caption .text { font-size: 58px; font-weight: 750; letter-spacing: -1px; line-height: 1.1; }
+  #caption .sub { font-size: 32px; color: #a9bcc1; margin-top: 10px; font-weight: 500; }
+  #caption .sub:empty { display: none; }
+  #ring {
+    position: absolute; border: 4px solid #4fd1e0; border-radius: 14px;
+    box-shadow: 0 0 0 9999px rgba(4, 8, 10, .42), 0 0 40px rgba(79,209,224,.55);
+  }
+  #cursor { position: absolute; width: 44px; height: 44px; margin: -4px 0 0 -6px; }
+  #ripple { position: absolute; border-radius: 50%; border: 4px solid #4fd1e0; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="ring"></div>
+<div id="ripple"></div>
+<svg id="cursor" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.4 L14.4 20.2 L11.5 13.8 L17.6 13.6 Z"
+  fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg>
+<div id="caption"><div class="box"><div class="text"></div><div class="sub"></div></div></div>
+<script>window.addEventListener("error", (e) => { window.loadError = String(e.message); });
+window.addEventListener("unhandledrejection", (e) => { window.loadError = String(e.reason); });</script>
+<script type="module">
+import { ANCHOR_Y, W, frameAt } from "./timeline.mjs";
+
+const q = new URLSearchParams(location.search);
+// The storyboard's paths (web/src/images/…) are from the repository's
+// root, which is where record.py serves it from.
+const sb = await (await fetch("/web/scripts/demo-video/videos.json")).json();
+const video = sb.videos.find((v) => v.name === q.get("video")) || sb.videos[0];
+
+// Every picture loaded before the first frame, and its size known.
+const sizes = {}, imgs = {};
+const paths = new Set(["assets/conch-icon.png"]);
+for (const s of video.scenes) {
+  if (s.image) paths.add(s.image);
+  for (const i of s.images || []) paths.add(i);
+}
+await Promise.all([...paths].map((p) => new Promise((ok, fail) => {
+  const im = new Image();
+  im.onload = () => { sizes[p] = [im.naturalWidth, im.naturalHeight]; imgs[p] = im; ok(); };
+  im.onerror = () => fail(new Error("cannot load " + p));
+  im.src = "/" + p;
+})));
+await document.fonts.ready;
+
+const stage = document.getElementById("stage");
+const ring = document.getElementById("ring");
+const ripple = document.getElementById("ripple");
+const cursor = document.getElementById("cursor");
+const caption = document.getElementById("caption");
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+// Elements are kept and moved rather than made per frame: an image made
+// anew may not be decoded by the time the frame is photographed.
+const pool = new Map();
+function el(key, make) {
+  if (!pool.has(key)) pool.set(key, make());
+  return pool.get(key);
+}
+function picture(key, src) {
+  return el(key, () => { const im = document.createElement("img"); im.src = "/" + src; return im; });
+}
+
+function drawLayer(l, k) {
+  if (l.kind === "window") {
+    const d = el(`w${k}`, () => { const d = document.createElement("div"); d.className = "layer window"; return d; });
+    const im = picture(`w${k}:${l.image}`, l.image);
+    const c = l.cam;
+    im.style.transform = `translate(${W / 2 - c.cx * c.scale}px, ${ANCHOR_Y - c.cy * c.scale}px) scale(${c.scale})`;
+    d.replaceChildren(im);
+    d.style.opacity = l.opacity;
+    return d;
+  }
+  if (l.kind === "phone") {
+    const d = el(`p${k}`, () => { const d = document.createElement("div"); d.className = "layer phones"; return d; });
+    d.replaceChildren(...l.images.map((p) => picture(`p${k}:${p}`, p)));
+    d.style.opacity = l.opacity;
+    d.style.transform = `translateY(${l.lift}px)`;
+    return d;
+  }
+  const d = el(`t${k}:${l.title}:${l.sub}:${l.url}`, () => {
+    const d = document.createElement("div");
+    d.className = "layer title";
+    d.innerHTML = `<div><img src="/assets/conch-icon.png"><h1>${esc(l.title)}</h1>` +
+      (l.sub ? `<p>${esc(l.sub)}</p>` : "") + (l.url ? `<div class="url">${esc(l.url)}</div>` : "") + `</div>`;
+    return d;
+  });
+  d.style.opacity = l.opacity;
+  d.style.transform = `translateY(${l.lift}px)`;
+  return d;
+}
+
+window.duration = video.scenes.reduce((a, s) => a + s.hold, 0);
+window.draw = (t) => {
+  const f = frameAt(video, sizes, t);
+  stage.replaceChildren(...f.layers.map((l, k) => drawLayer(l, k)));
+  if (f.caption && f.caption.opacity > 0) {
+    caption.style.display = "";
+    caption.style.opacity = f.caption.opacity;
+    caption.style.transform = `translateY(${f.caption.rise}px)`;
+    caption.querySelector(".text").textContent = f.caption.text;
+    caption.querySelector(".sub").textContent = f.caption.sub;
+  } else {
+    caption.style.display = "none";
+  }
+  if (f.ring && f.ring.opacity > 0) {
+    const pad = 10;
+    Object.assign(ring.style, {
+      display: "", opacity: f.ring.opacity,
+      left: f.ring.x - pad + "px", top: f.ring.y - pad + "px",
+      width: f.ring.w + 2 * pad + "px", height: f.ring.h + 2 * pad + "px",
+    });
+  } else {
+    ring.style.display = "none";
+  }
+  if (f.cursor && f.cursor.opacity > 0) {
+    Object.assign(cursor.style, {
+      display: "", opacity: f.cursor.opacity, left: f.cursor.x + "px", top: f.cursor.y + "px",
+      transform: f.cursor.down ? "scale(.85)" : "",
+    });
+    if (f.cursor.ripple > 0) {
+      const r = 14 + 60 * f.cursor.ripple;
+      Object.assign(ripple.style, {
+        display: "", opacity: 1 - f.cursor.ripple,
+        left: f.cursor.x - r + "px", top: f.cursor.y - r + "px", width: 2 * r + "px", height: 2 * r + "px",
+      });
+    } else {
+      ripple.style.display = "none";
+    }
+  } else {
+    cursor.style.display = "none";
+    ripple.style.display = "none";
+  }
+};
+draw(Number(q.get("t") || 0));
+window.ready = true;
+</script>
+</body>
+</html>
