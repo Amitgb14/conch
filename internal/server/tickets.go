@@ -24,6 +24,11 @@ import (
 // thread is still there in the tracker.
 const maxComments = 8 << 10
 
+// keychainKey reads a tracker key's variable from the Keychain, through the
+// same cache the library's tokens use; a variable so a test can say what
+// the Keychain holds without timing a security process under load.
+var keychainKey = func(s *Server, name string) string { return s.secrets.lookup(name) }
+
 // trackerSecret reads a key's variable: this server's environment, then the
 // Keychain.
 func (s *Server) trackerSecret(name string) string {
@@ -31,7 +36,7 @@ func (s *Server) trackerSecret(name string) string {
 		return v
 	}
 	if keychainHas() {
-		return s.secrets.lookup(name)
+		return keychainKey(s, name)
 	}
 	return ""
 }

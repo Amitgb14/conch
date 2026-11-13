@@ -1,8 +1,6 @@
 package server
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,16 +47,22 @@ func TestTicketPrompt(t *testing.T) {
 
 // A tracker's key is read from the environment, then the Keychain — which
 // is where Conch.app keeps one for a server it started — and not at all
-// where there is no Keychain.
+// where there is no Keychain. Reading the Keychain itself, through
+// security, is secrets_test.go's.
 func TestTrackerSecret(t *testing.T) {
-	dir := t.TempDir()
-	bin := filepath.Join(dir, "security")
-	os.WriteFile(bin, []byte(`#!/bin/sh
-if [ "$1" = find-generic-password ] && [ "$3" = conch-mcp ] && [ "$5" = LINEAR_API_KEY ]; then echo 'kc-key'; exit 0; fi
-exit 44
-`), 0o755)
-	t.Setenv("CONCH_SECURITY", bin)
+	wasKey, wasHas := keychainKey, keychainHas
+	t.Cleanup(func() { keychainKey, keychainHas = wasKey, wasHas })
+	var asked []string
+	keychainKey = func(_ *Server, name string) string {
+		asked = append(asked, name)
+		if name == "LINEAR_API_KEY" {
+			return "kc-key"
+		}
+		return ""
+	}
+	keychainHas = func() bool { return true }
 	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("JIRA_API_TOKEN", "")
 	s := &Server{}
 	if got := s.trackerSecret("LINEAR_API_KEY"); got != "kc-key" {
 		t.Errorf("from the Keychain: %q", got)
@@ -67,15 +71,13 @@ exit 44
 		t.Errorf("an item the Keychain lacks: %q", got)
 	}
 	t.Setenv("LINEAR_API_KEY", "env-key")
-	if got := s.trackerSecret("LINEAR_API_KEY"); got != "env-key" {
-		t.Errorf("the environment first: %q", got)
+	asked = nil
+	if got := s.trackerSecret("LINEAR_API_KEY"); got != "env-key" || len(asked) != 0 {
+		t.Errorf("the environment first: %q, and the Keychain was asked for %v", got, asked)
 	}
-	was := keychainHas
 	keychainHas = func() bool { return false }
-	t.Cleanup(func() { keychainHas = was })
 	t.Setenv("LINEAR_API_KEY", "")
-	s = &Server{}
-	if got := s.trackerSecret("LINEAR_API_KEY"); got != "" {
-		t.Errorf("no Keychain here: %q", got)
+	if got := s.trackerSecret("LINEAR_API_KEY"); got != "" || len(asked) != 0 {
+		t.Errorf("no Keychain here: %q, asked %v", got, asked)
 	}
 }
