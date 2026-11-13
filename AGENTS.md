@@ -72,7 +72,7 @@ go test -race -count=1 -timeout 20m ./...   # what to run before every commit
 make gate                      # lint, then the same suite in ~3 minutes: internal/server split across processes (scripts/test.sh)
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 make settings-ui-check         # rebuild internal/configweb/dist and fail if it moved (needs pnpm)
-make app-release VERSION=0.1.10 NOTARY=conch-notary # Conch.app's zip for a release, Developer ID-signed and notarized (Apple Silicon, Ghostty built): dist/
+make app-release VERSION=0.2.0 NOTARY=conch-notary # Conch.app's zip for a release, Developer ID-signed and notarized (Apple Silicon, Ghostty built): dist/
 ```
 
 CI (`.github/workflows/ci.yml`) runs `make lint` and `go test -race` on
