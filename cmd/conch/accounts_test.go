@@ -178,7 +178,9 @@ func TestNewAndTaskTakeAnAccount(t *testing.T) {
 		t.Errorf("-account without an agent: %v", err)
 	}
 
-	if _, _, err := a4Out(t, func() error { return runTask([]string{"-cwd", t.TempDir(), "-agent", "claude", "-account", "work", "fix it"}) }); err != nil {
+	if _, _, err := a4Out(t, func() error {
+		return runTask([]string{"-cwd", t.TempDir(), "-agent", "claude", "-account", "work", "fix it"})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if p := sent[proto.TaskCreateParams](t, seen, proto.MethodTaskCreate); p.Agent != "claude" || p.Account != "work" {
