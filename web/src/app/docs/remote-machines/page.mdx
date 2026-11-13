@@ -2,165 +2,95 @@ export const metadata = { title: "Remote machines", description: "Run agents on 
 
 # Remote machines
 
-Each machine runs its own conch server, which owns that machine's panes and agents, so work continues there when your laptop sleeps or the network drops. The TUI connects to all of them at once over your normal `ssh`.
+Each machine runs its own conch server, so its agents keep working when your laptop sleeps; the TUI reaches all of them over your normal `ssh`.
 
-## Commands
-
-```sh
-conch machine add gpu-box              # an alias from ~/.ssh/config, user@host or ssh://user@host:port
-conch machine ls
-conch -m gpu-box status                # any command against a machine
-conch -m gpu-box new -- make test      # a pane in the machine's home
-conch -m gpu-box task -cwd /home/dev/src/api "Fix the flaky tests"
-```
-
-With `-m`, `-cwd` is a directory on that machine and must be an absolute path: your shell expands `~` to your own home before conch sees it. Without `-cwd`, `new` and `task` start in the machine's home, outside every project: the task's agent gets the prompt there, with no repository needed. A `-cwd` that isn't a git repository works the same way, in that folder.
-
-No machine of your own? `conch sandbox -provider daytona create` (or `-provider boat`, or `-provider devin` for a Devin Cloud session's VM) makes one in the cloud and adds it here, and `conch sandbox -provider P add ID` adds one `ls` shows with no machine; see [Sandboxes](/docs/sandboxes).
-
-Or press `M` in the TUI — and on a [saved ssh host or an ssh session](/docs/interface#ssh-sessions), `M` offers that host as a machine with its ssh options already filled in. `conch machine rm ID` removes a machine, `conch machine rename ID LABEL` renames it, `conch machine upgrade ID` installs your build there and reloads its server, and `conch machine hosts` lists the hosts in your ssh config. See [Command line](/docs/cli#machine) for flags.
+<Architecture />
 
 ## Adding a machine
 
-<Steps>
+conch probes the machine over ssh, installs itself to `~/.local/bin/conch` there if it is missing or older, and connects.
 
-<Step title="Probe">
+**How:** press `M` in the TUI, or:
 
-conch probes the machine over ssh (OS, CPU, an installed conch).
+```sh
+conch machine add gpu-box      # an alias from ~/.ssh/config, user@host or ssh://user@host:port
+conch machine ls
+```
 
-A host that needs more than a name — a jump host, a port, an old key exchange — takes **SSH options** in the `M` dialog, or `-o Setting=value` (repeatable) on `conch machine add`; they are kept with the machine and used for every connection it makes, including the bridge that carries the protocol. conch's own settings are given to `ssh` first, so a machine cannot turn off the batch mode that keeps an unwatched connection from waiting on a prompt. Options that belong to one terminal's session — a forward, a tty, agent forwarding — are dropped, since a machine's connections are not that. A changed set reconnects the machine rather than keeping a connection made the old way.
+A host that needs a jump host, a port or other ssh options takes them in the `M` dialog's **SSH options**, or `-o Setting=value` on `conch machine add`. On a [saved ssh host](/docs/interface), `M` offers it as a machine with its options filled in.
 
-</Step>
+If ssh needs a password, type it in the **Password** field; it is never saved. With **Key login** ticked (the default), conch uses it once to add your public key to the machine.
 
-<Step title="Install">
+`conch machine rm ID`, `conch machine rename ID LABEL` (or `r` in the tree) and `conch machine upgrade ID` manage machines; see [Command line](/docs/cli#machine) for flags.
 
-conch installs itself to `~/.local/bin/conch` there if it is missing or older than your client — `machine add` asks first.
+## Running commands on a machine
 
-For another platform (say a Linux server from a Mac) conch cross-compiles itself from its source tree (found next to the binary, or `CONCH_SOURCE`) with your Go toolchain, and caches the result in `~/.config/conch/binaries/<os>-<arch>/`. The cache is keyed on your conch build *and* on that source tree, so rebuilding conch or moving the checkout on makes the next install build again. A released conch without source or Go downloads the matching release binary instead (checksum-verified). Otherwise put a binary there or point `CONCH_REMOTE_BINARY` at one.
+`-m` sends any command to a machine. `-cwd` is a path there and must be absolute; without it, work starts in the machine's home.
 
-conch checks what the machine has after installing. If the binary it had to install is itself from an older build — a checkout older than your conch, or a `CONCH_REMOTE_BINARY` left behind — it says so and names where that binary came from, rather than starting a server from it and reporting the machine as merely needing a reload.
+```sh
+conch -m gpu-box status
+conch -m gpu-box new -- make test
+conch -m gpu-box task -cwd /home/dev/src/api "Fix the flaky tests"
+```
 
-</Step>
-
-<Step title="Connect">
-
-conch connects through `conch bridge`, which starts the server there if needed.
-
-</Step>
-
-</Steps>
-
-## How conch uses ssh
-
-conch runs the system `ssh` with a generated config that includes yours first (so your settings win) and adds keepalives and connection sharing. It stores no secrets; `machines.json` holds only an ID, label and ssh target.
-
-**Connections to other machines are compressed** (`Compression yes` in that generated config). What they mostly carry is panes, and a pane's frame is the whole screen as styled text: one measures 12 KB and deflates to under a kilobyte — ten to sixty times, depending on what is on screen — and 4.3 MB of real frame traffic crossed a LAN here as 54 KB, arriving sooner than it did uncompressed. It is asked for in the config rather than on each command because ssh settles compression when it opens a connection and conch shares connections: a bridge started with `ssh -C` onto a connection some earlier probe had opened gets nothing, and says nothing about it. The same sharing means installs ride along compressed too, which costs little and does a Go binary no harm.
-
-Nothing on this computer is compressed — there is no connection to settle it on, only a unix socket, which moves a frame in about 12 µs where compressing it would take 26 µs. If your machine is as fast as its link (a VM on this host, say), **Settings → Agents → Compress what a machine's panes send** turns it off. It applies to the next conch you start, since the config is written as conch comes up — and then only to connections made after that. ssh settles compression when it opens a connection, and conch keeps one per machine alive for as long as that machine is up, so a connection already open keeps what it was born with: after changing the setting, close it with `ssh -O exit -F ~/.config/conch/ssh/config user@host` and conch redials within a minute. **R** (Reconnect) on its own usually rejoins the same connection, which lingers a minute after its last session.
-
-<Callout type="note" title="Background connections never prompt">
-
-If ssh needs a password, type it in the **Password** field of the `M` dialog. It is handed to ssh only for that add (through a short-lived `SSH_ASKPASS` helper), never saved, and a new host's key is accepted the first time. With **Key login** ticked (the default), conch uses the password once to add your ssh public key to the machine's `~/.ssh/authorized_keys` — your `~/.ssh/id_ed25519`, `id_ecdsa` or `id_rsa`, or a key it creates in `~/.config/conch/ssh` when you have none — and checks that logging in with the key works, so reconnects never need the password. A copy that is dropped part-way is tried again — three attempts, a couple of seconds apart — and a connection that fails with nothing said reads as *the ssh connection failed (255)* rather than a bare exit code. conch's ssh names every key it might use — its own and your defaults — so a machine authorized with one of yours is still let in once conch has made a key of its own, whether or not `ssh-agent` holds anything. If the machine refuses keys, the status bar says so. From a shell, `conch machine add` lets ssh ask for the password on the terminal instead.
-
-To rename a machine, press `r` on it in the tree (or use its menu), or run `conch machine rename ID LABEL`. The ssh target and the machine's ID stay the same. A label is a name you type (`-m busybox`, `busybox:p3`), so no two machines share one, and none is `local` or another machine's ID: a rename to one is refused, and a machine added with one — `alice@devbox` and then `bob@devbox` both default to `devbox` — is labelled with its own ID instead (`devbox-2`).
-
-Machines added or removed with `conch machine add` and `conch machine rm` appear in (or leave) a TUI that is already open within a few seconds; conch watches `machines.json`.
-
-</Callout>
+No machine of your own? A [sandbox](/docs/sandboxes) is one made in the cloud.
 
 ## Machine states
-
-In the sidebar each machine shows its state:
 
 | State | Meaning |
 | --- | --- |
 | `●` online | connected |
 | `⠋` connecting | connecting |
-| `○ offline` | unreachable; its last-seen panes stay visible, dimmed, while conch retries with backoff |
+| `○ offline` | unreachable; its panes stay visible, dimmed, while conch retries |
 | `! setup` | conch needs installing or upgrading — `m` → Install |
-| `outdated` | the server there predates your client — `m` → Restart server, which stops its panes |
+| `outdated` | the server there predates your client — `m` → Restart server |
 
-`R` on a machine reconnects now; `x` removes it. To move a machine onto a new build without stopping its panes, see [Updating without stopping agents](/docs/installation#updating-without-stopping-agents).
+**How:** `R` on a machine reconnects now; `x` removes it.
 
-**Adding a machine installs conch on it, and that is not optional.** The server there is what owns the ptys: it is why an agent keeps working when you close conch, when the ssh connection drops and when the laptop sleeps, and it is what sessions, git, worktrees, the file explorer and usage are all asking. A machine without it holds no panes at all, so adding one and installing conch are the same act. What it writes is one static binary at `~/.local/bin/conch` (no root, no package manager, `.new` then an atomic rename so a half-copy is never run) and a `~/.config/conch` of its own for the socket, the log and the agent glue — your `~/.claude` and the rest are not touched, since conch launches Claude with `--settings` pointing at its own file. Nothing starts at boot. If what you want is a shell on a machine with nothing installed on it, a [saved SSH host](/docs/interface#ssh-sessions) is the right tool instead: that runs `ssh` in a pane on *this* computer and touches the far side not at all.
+## Compression
 
-**Which build a machine runs.** A machine's page says `conch build …` and then **up to date** or **older build**. The build it names is not the hash of the binary running over there: conch cross-builds that binary from this computer's source, so it is a different file for a different platform and its own hash could never match yours. What the two share is the *source* build stamped into it, which is what the page shows and what conch compares — a machine on exactly your build says so, whatever its own file hash is. Nothing is said about a server too old to report a build, rather than a guess either way. A machine's uptime is not the clue it looks like either: it counts from the *first* server of a chain of reloads, so one upgraded a minute ago still reads as days old, by design — the panes have been alive that whole time. `conch status -m ID` says `(reloaded N ago)` beside it for when the running binary was actually loaded.
+Connections to other machines are compressed, since they mostly carry pane frames.
+
+**How:** turn it off with **Settings → Agents → Compress what a machine's panes send**. It applies to connections the next conch you start opens.
 
 ## Dropping files on a remote pane
 
-Drag a screenshot or any file from Finder, the desktop or the floating screenshot thumbnail onto conch while a pane on a remote machine has focus. Terminals paste a dropped file's path, which means nothing on the other machine, so conch uploads the file there first and pastes its path there instead. Claude Code attaches a pasted image path as `[Image #1]`; Codex, Gemini CLI and OpenCode take file paths in the prompt.
+Drag a screenshot or any file onto conch while a remote pane has focus: conch uploads it there and pastes the path on that machine. Claude Code attaches a pasted image as `[Image #1]`.
 
-- The status bar shows `uploading to gpu-box 40% · Shot.png`, then `uploaded to gpu-box · Shot.png`. The path goes to the pane the files were dropped on, even if you moved on meanwhile.
-- A paste counts as a drop only when every word in it is the path of a file on this computer, under your home folder, a temporary folder or `/Volumes`. Anything else, and anything pasted into a local pane, is pasted unchanged.
-- Files are stored in `~/.config/conch/uploads/<date>/<random>/<name>` on that machine, readable only by you, and deleted after 7 days.
-- Files over 25 MB are refused; change the limit, or turn uploads off, in Settings → Agents → Remote machines, or with `[remote]` in [config.toml](/docs/configuration#remote). The server there takes at most 256 MB.
-- If one file fails, nothing is pasted and the status bar says why. A machine running an older conch gets the paste unchanged, with a warning to update it.
-- SSH sessions under `CLI → SSH` have no conch server on the other side, so drops there paste the local path.
-
-`conch -m gpu-box upload FILE...` does the same from a shell and prints each file's path there.
+**How:** files over 25 MB are refused; change the limit or turn uploads off in Settings → Agents → Remote machines, or `[remote]` in [config.toml](/docs/configuration#remote). From a shell: `conch -m gpu-box upload FILE...`.
 
 ## Copying files to and from a machine
 
-To put a file somewhere of your choosing, or to bring one back, use the machine's **Files** row (`U` uploads, `D` downloads; see [A machine's own files](/docs/interface#a-machines-own-files)) or the commands:
+Use the machine's **Files** row (`U` uploads, `D` downloads) or:
 
 ```sh
-conch -m gpu-box upload -to ~/certs ~/doc/ca.pem    # prints /home/you/certs/ca.pem
-conch -m gpu-box upload -to ~ ./site                # a folder, copied whole
+conch -m gpu-box upload -to ~/certs ~/doc/ca.pem
 conch -m gpu-box download -to ~/Downloads ~/logs/run.log ~/results
+conch upload -ssh bb ./site                          # a terminal where you typed ssh host
 ```
-
-They travel over the connection conch already has to the machine, so they work the same for an ssh host and a sandbox — whose address can change at every start, and which you may hold no key for. Paths there may start with `~`, and `upload -p` makes a `-to` folder that is missing. A name already taken on the receiving side is numbered (`ca 2.pem`) unless `-f` is given, and each path is printed as it lands. Up to 4 GB a file or packed folder; a file dropped on a pane stays limited as above.
-
-### A host you reached with plain ssh
-
-A terminal where you typed `ssh host` needs no conch on that host: `-ssh` names the terminal — its ID or name, as `conch status` shows it, beside the host it is on — and the copy goes to or from the host it is logged in to, through the host's own sftp server, with the options you typed.
-
-```sh
-conch upload -ssh bb ./site ~/doc/ca.pem            # into that host's home
-conch upload -ssh p4 -p -to ~/certs ~/doc/ca.pem    # into a folder there, made if missing
-conch download -ssh bb -to ~/Downloads ~/logs/app.log
-```
-
-That needs a key or an ssh agent for the host, since nobody is there to type a password; with `-m`, it is a terminal on that machine. The same host's files are in the terminal's [Files row](/docs/interface#a-machines-own-files).
 
 ## Moving a worktree to another machine
 
-When this computer is slow, or you're about to close the lid, move a task to a machine that stays up: `T` on a branch in the tree, or on an agent working in it (or in the branch's changes view, or `m` → **Move to another machine or a sandbox…**), pick the machine, and confirm. That is all: conch settles the rest.
+Move a task to a machine that stays up. conch finds or clones the project there, sends the branch's commits, staged, unstaged and untracked files, and hands each agent's conversation to the same agent there. The worktree here is kept until you remove it.
 
-- **Which project:** the one there cloned from the same origin, however the URL is written (`git@github.com:acme/api.git` and `https://github.com/acme/api` match) — the one in the same place under the home folder, if there are several. If the machine doesn't have it, conch clones the origin there first, into the same place under the home folder as here; the confirmation says so. Only when that folder already holds another project, or the project here has no origin to match, does conch ask which project gets it (or where to clone). The machine needs access to the repository itself; conch never copies keys or credentials.
-- **A new sandbox:** each [sandbox provider](/docs/sandboxes) with a key is listed too, as **New Daytona sandbox** and so on. Picked, conch creates one with that provider's settings in `config.toml` (`snapshot`, `auto_stop`, and `env` — the names of the variables passed in, such as `CLAUDE_CODE_OAUTH_TOKEN`; the confirmation says when none are, since an agent there then logs in afresh), installs itself there, adds it as a machine, clones the origin and moves the worktree, saying each step in the status bar. A project with no origin can't go to one: there is nothing to clone. If the sandbox can't be made or set up it is deleted; if the clone in it fails, conch says the sandbox is still running, and costing, until you stop or delete it.
-- **What moves:** the branch's commits, and only those the machine lacks (it compares the branch's history first, so a pushed branch sends none); staged changes arrive staged and unstaged ones unstaged; untracked files, and the project's [local files](/docs/tasks#local-files-in-worktrees) such as `.env`, go along. Files git ignores otherwise — `node_modules`, build output — stay behind. The worktree is recreated there like any conch worktree, under `<repo>.worktrees/`.
-- **Agents:** each agent working in the worktree continues there. Its conversation is [handed over](/docs/sessions#on-another-machine) to the same agent in the new worktree (an agent that saved none starts afresh), then its pane here is closed. Terminals stay. An agent in the middle of a task is stopped; changes it makes during the move stay here.
-- **This computer:** the worktree and branch are kept, so nothing is lost if something goes wrong; remove them with `x` when you're done.
-
-The status bar follows it: `moving feat to gpu-box · sending 40%`, then `moved feat to gpu-box · 2 agents continue there`. If a step fails, conch shows why in full, nothing changes on this computer, and the other machine undoes what it started. conch refuses when the branch is already checked out there, or has commits there that the moved one doesn't. A worktree with unresolved conflicts, and one whose pack is over 256 MB (large untracked files), can't be moved. Both machines need a conch with this; an older one says to reload it.
+**How:** `T` on a branch or an agent in it (or `m` → **Move to another machine or a sandbox…**), pick the machine or a **New Daytona sandbox**, and confirm.
 
 ### Moving a whole project
 
-`T` on a project's row (or `m` → **Move the whole project to another machine or a sandbox…**) moves all of it at once: pick the machine or a new sandbox, confirm, and conch does the rest — the project there is settled as above, then every task worktree moves into it one after another, each with its agents and their conversations, and the agents in the main checkout continue in the project's own checkout there.
+Moves every task worktree, its agents and their conversations at once; a project with no origin is copied whole. Uncommitted changes in the main checkout and terminals stay here.
 
-- **What the confirmation lists:** the worktrees that move, every agent that continues there, and any worktree that can't move (unresolved conflicts, say), which stays here with its agents.
-- **What stays:** uncommitted changes in the main checkout (commit or stash them, or start a task for them, first), terminals, and saved conversations no agent has open — share one later from **Sessions** → `s` → **On another machine**. Detached checkouts aren't moved.
-- **When one worktree fails:** the others still go. The status bar says `moved api to gpu-box · 2 worktrees · 3 agents continue there`, and anything that stayed here is listed with why.
+**How:** `T` on a project's row, right-click → **Move to another machine…** in Conch.app, or:
 
-In Conch.app, right-click the project → **Move to another machine…**. The sheet goes in three steps: **Where** (every other machine, and whether it already has a clone of the same origin, which the move joins rather than cloning again), **What moves** (read from both machines, nothing changed yet: the repository, each worktree and what it takes — commits, staged, unstaged and untracked files — the branches, the agents, and what stays here), then **Moving**, a line a step as it happens. Hide it and the move goes on; the status bar says when it's done, and **Show on …** selects the project there.
-
-From a shell, the same move is `conch project move daos -to busybox` (`-plan` to only see what would move, `-into ~/src/daos` to clone it somewhere else there, `-y` not to be asked, `-json` a line of JSON a step). Both also take **branches with no worktree** that hold commits the origin hasn't — only here, ahead of their upstream, or with their upstream gone: each is given a worktree here, then moves like the others.
-
-A project with **no origin** moves too: there is nothing for the other machine to clone, so conch copies the repository itself — every branch and tag, bundled here and made a new repository there with the main checkout's branch checked out and no remote — and the worktrees and agents follow as above. Both servers need a conch that can (`project.bundle.v1`), and the history has to fit in 256 MB; past that, push it somewhere and move it from there. The main checkout's uncommitted files stay here, as they do for a clone.
-
-Moving the same project again is safe: a branch the project there already has checked out isn't copied over (whatever happened to it there is kept), its agents continue in it, and a branch with nothing left to follow it is listed as **on busybox already**. That is how an agent that stayed behind — its agent wasn't installed there yet, say — follows once it is.
+```sh
+conch project move daos -to busybox        # -plan to see what would move, -y not to be asked
+```
 
 ## Claude Code on a machine
 
-conch checks whether `claude` is installed on each machine (the machine view shows its version). If it isn't, `c` offers to install it, or press `C` (also in the machine menu, or `conch -m NAME agent install claude`). conch runs Anthropic's official installer (`curl -fsSL https://claude.ai/install.sh | bash`) in a pane you can watch; it installs `~/.local/bin/claude` for your user, no root.
-
-Then `c` starts Claude there: on first run it asks you to log in — open the link it shows on any computer and paste the code back.
+**How:** `c` offers to install `claude` where it is missing, or press `C` (or `conch -m NAME agent install claude`). It runs Anthropic's installer in a pane; then `c` starts Claude, which asks you to log in on first run.
 
 <Callout type="note">
 
-conch never copies credentials between machines. For unattended machines Claude also accepts `ANTHROPIC_API_KEY` or a `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
+conch never copies credentials between machines. Unattended machines can use `ANTHROPIC_API_KEY` or a `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
 
 </Callout>
-
-Alpine needs `apk add bash curl libgcc libstdc++ ripgrep` (as root) first.
