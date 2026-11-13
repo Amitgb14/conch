@@ -214,16 +214,22 @@ func installEntry(ctx context.Context, e sandbox.RegistryEntry, yes bool) error 
 	if err != nil {
 		return err
 	}
+	// What the index said and what the file says must agree, or the
+	// person was shown the wrong hosts, or the wrong variable: the file's
+	// key_env is what is read and sent, so an index saying $ACME_API_KEY
+	// over a file reading $GITHUB_TOKEN would send that token unasked.
+	// Checked before the file is kept, so it is never there to be used.
+	if f, _, err := sandbox.ParseProviderFile(e.Name, data); err == nil {
+		if api, ssh := sandbox.FileHosts(f); api != e.APIHost || ssh != e.SSHHost {
+			return fmt.Errorf("%s's file names %s and %s, not the hosts the index lists: not installed", e.Name, api, ssh)
+		}
+		if f.KeyEnv != e.KeyEnv {
+			return fmt.Errorf("%s's file reads your key from $%s, not the $%s the index lists: not installed", e.Name, f.KeyEnv, e.KeyEnv)
+		}
+	}
 	f, err := sandbox.InstallProviderFile(e.Name, data)
 	if err != nil {
 		return err
-	}
-	// What the index said and what the file says must agree, or the
-	// person was shown the wrong hosts.
-	if api, ssh := sandbox.FileHosts(f); api != e.APIHost || ssh != e.SSHHost {
-		_ = os.Remove(sandbox.ProviderFilePath(e.Name))
-		_ = sandbox.ForgetInstalled(e.Name)
-		return fmt.Errorf("%s's file names %s and %s, not the hosts the index lists: not installed", e.Name, api, ssh)
 	}
 	fmt.Printf("\ninstalled %s\n", sandbox.ProviderFilePath(e.Name))
 	ck := checkProvider(f)
@@ -238,7 +244,7 @@ func installEntry(ctx context.Context, e sandbox.RegistryEntry, yes bool) error 
 
 func providerUpdate(args []string) error {
 	fs := flag.NewFlagSet("sandbox provider update", flag.ContinueOnError)
-	yes := fs.Bool("y", false, "do not ask; a provider whose hosts changed is then left as it is")
+	yes := fs.Bool("y", false, "do not ask; a provider whose hosts or key changed is then left as it is")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -315,10 +321,37 @@ func updateOne(ctx context.Context, ix *sandbox.Index, n string, in sandbox.Inst
 	if len(problems) > 0 {
 		return "", fmt.Errorf("the registry's new file cannot be used here: %s", strings.Join(problems, "; "))
 	}
+	// Where the key goes and which key it is are asked about alike: a
+	// file that kept its hosts but now reads $GITHUB_TOKEN sends that
+	// token to them as surely as new hosts would send the key elsewhere.
+	hosts := false
 	if api, ssh := sandbox.FileHosts(f); api != in.APIHost || ssh != in.SSHHost {
 		fmt.Printf("%s now sends your API key to %s (was %s), and ssh to %s (was %s)\n", n, api, in.APIHost, sshHostWords(ssh), sshHostWords(in.SSHHost))
-		if yes || !askYes("Take the new hosts?") {
-			return "its hosts changed: left as it is (run conch sandbox provider update " + n + " to see them and say yes)", nil
+		hosts = true
+	}
+	key := false
+	if !in.SameKey(f) {
+		env, h, v := sandbox.FileKey(f)
+		sends := fmt.Sprintf("%s: %s", firstNonEmptyStr(h, "Authorization"), firstNonEmptyStr(v, "Bearer {key}"))
+		if in.KeyEnv == "" {
+			// Installed by a conch that kept no record of it.
+			fmt.Printf("%s now sends $%s as your API key, as %s (what it sent before was not recorded)\n", n, env, sends)
+		} else {
+			was := fmt.Sprintf("%s: %s", firstNonEmptyStr(in.AuthHeader, "Authorization"), firstNonEmptyStr(in.AuthValue, "Bearer {key}"))
+			fmt.Printf("%s now sends $%s as your API key, as %s (was $%s, as %s)\n", n, env, sends, in.KeyEnv, was)
+		}
+		key = true
+	}
+	if hosts || key {
+		what, q := "its hosts changed", "Take the new hosts?"
+		switch {
+		case hosts && key:
+			what, q = "its hosts and its key changed", "Take the new hosts and key?"
+		case key:
+			what, q = "the key it sends changed", "Take the new key?"
+		}
+		if yes || !askYes(q) {
+			return what + ": left as it is (run conch sandbox provider update " + n + " to see them and say yes)", nil
 		}
 	}
 	if _, err := sandbox.InstallProviderFile(n, data); err != nil {
