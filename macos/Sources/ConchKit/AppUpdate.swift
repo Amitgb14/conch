@@ -121,3 +121,17 @@ public func updatedSince(installed: String?, running: String) -> Bool {
     guard let installed, !installed.isEmpty else { return false }
     return installed == running
 }
+
+/// What relaunches the app once this process has quit: a shell waiting for
+/// the pid to be gone, then open. The app's path is the script's $0.
+public func relaunchCommand(pid: Int32, app: String) -> [String] {
+    ["/bin/sh", "-c", "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; exec /usr/bin/open \"$0\"", app]
+}
+
+/// Where the app an update replaced is kept, hidden beside it and without
+/// .app so LaunchServices offers no second Conch: internal/update's
+/// previousApp, which puts it there.
+public func previousAppPath(_ app: String) -> String {
+    let dir = (app as NSString).deletingLastPathComponent
+    return (dir as NSString).appendingPathComponent("." + (app as NSString).lastPathComponent + ".previous")
+}

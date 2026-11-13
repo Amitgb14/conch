@@ -17,6 +17,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         return i
     }()
 
+    /// Shown only while an update has left the app before it to go back to.
+    lazy var rollBackItem: NSMenuItem = {
+        let i = NSMenuItem(title: "Roll Back Update", action: #selector(runCommand(_:)), keyEquivalent: "")
+        i.representedObject = "rollBackUpdate"
+        i.target = self
+        i.isHidden = true
+        return i
+    }()
+
     /// The conch menu opening: what quitting leaves running, said now.
     func menuNeedsUpdate(_ menu: NSMenu) {
         // A theme file added or fixed since is in the menu as it opens.
@@ -28,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             updateBenchMenu()
             return
         }
+        rollBackItem.isHidden = !store.updater.canRollBack
         runOnItem.attributedTitle = NSAttributedString(string: runOnNote(panes: store.runningPanes),
                                                        attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
     }
@@ -121,6 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSApp.activate(ignoringOtherApps: true)
         }
         store.connect()
+        store.updater.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
@@ -220,6 +231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         }
         menu("conch", [
             NSMenuItem(title: "About Conch (Beta)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
+            item("Check for Updates…", "", [], "checkForUpdates"),
+            rollBackItem,
             .separator(),
             item("Settings…", ",", .command, "settings"),
             item("Run in Terminal", "", [], "openTUI"),

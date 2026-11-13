@@ -2298,6 +2298,8 @@ struct StatusBar: View {
                     .overlay(Rectangle().strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
             }
             .buttonStyle(.plain).help("conch's settings (⌘,); an open TUI takes in what you save")
+            // A newer Conch.app, or one just installed (AppUpdater.swift).
+            AppUpdateBarItem(updater: store.updater, store: store)
             // The version is where updates are said: in the warn colour, with
             // how many machines are behind, when any are — a click lists them
             // and does the ones picked.

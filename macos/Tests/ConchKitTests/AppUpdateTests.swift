@@ -98,3 +98,25 @@ import Testing
     // Still the old one running (relaunch not done, or rolled back): no.
     #expect(updatedSince(installed: "0.2.1", running: "0.2.0") == false)
 }
+
+// The relaunch waits for this process to be gone before opening the app
+// again, so the new launch is not handed to the old one; the path is an
+// argument, never part of the script.
+@Test func relaunchWaitsThenOpens() {
+    let argv = relaunchCommand(pid: 4242, app: "/Applications/My \"Conch\".app")
+    #expect(argv.first == "/bin/sh" && argv[1] == "-c")
+    #expect(argv[2].contains("kill -0 4242") && argv[2].contains("/usr/bin/open"))
+    #expect(!argv[2].contains("Conch"))
+    #expect(argv.last == "/Applications/My \"Conch\".app")
+}
+
+// Where the app replaced by an update is kept — the same place
+// internal/update's previousApp says.
+@Test func previousAppIsBeside() {
+    #expect(previousAppPath("/Applications/Conch.app") == "/Applications/.Conch.app.previous")
+    #expect(previousAppPath("/Users/a/Apps/Conch (Beta).app") == "/Users/a/Apps/.Conch (Beta).app.previous")
+}
+
+@Test func paletteChecksForUpdates() {
+    #expect(paletteCommands.contains { $0.id == "checkForUpdates" && $0.title == "Check for Updates…" })
+}

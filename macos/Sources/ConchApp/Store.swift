@@ -202,6 +202,8 @@ final class Store: ObservableObject {
     var onTheme: ((ConchTheme) -> Void)?
 
     let binary: String?
+    /// Conch.app's own updates (AppUpdater.swift).
+    let updater = AppUpdater()
     private var conns: [String: Connection] = [:]
     private(set) var terminals: [String: PaneTerminal] = [:]
     private(set) var changeViews: [String: ChangesModel] = [:]
@@ -212,6 +214,7 @@ final class Store: ObservableObject {
     init() {
         binary = conchBinary()
         loadWorkspaces()
+        updater.store = self
         Theme.style = style
         if style.roster { sidebarVisible = false }
         watchChanges()
@@ -1344,7 +1347,9 @@ final class Store: ObservableObject {
 
     /// A machine's server re-exec'd onto its binary, as the TUI's m: its
     /// panes stay, the connection drops and is made again.
-    func reloadServer(_ machine: String) {
+    /// onto is the conch to reload onto — the app's own after an update —
+    /// or nil for the program the server already runs from.
+    func reloadServer(_ machine: String, onto: String? = nil) {
         guard let c = conns[machine] else { return }
         guard c.hello?.capabilities?.contains("server.reload.v1") == true else {
             say("conch on \(label(machine)) is too old to reload from here: run conch server reload there", .err)
@@ -1352,10 +1357,10 @@ final class Store: ObservableObject {
         }
         reloading.insert(machine)
         job("Reloading \(label(machine))'s server", done: "\(label(machine))'s server reloaded") {
-            struct NoParams: Encodable {}
+            struct Params: Encodable { var binary: String? }
             defer { self.reloading.remove(machine) }
             do {
-                try await c.call("server.reload", NoParams())
+                try await c.call("server.reload", Params(binary: onto))
             } catch {
                 // A refusal is said — most often that it already runs this
                 // build, so there is nothing to reload onto; the connection
@@ -2412,6 +2417,8 @@ final class Store: ObservableObject {
         case "smallerText": stepTextSize(bigger: false)
         case "defaultText": stepTextSize(bigger: nil)
         case "openTUI": openTUI()
+        case "checkForUpdates": updater.check(manual: true)
+        case "rollBackUpdate": updater.rollBack()
         case "scratch": toggleScratch()
         case "dockScratch": dockScratch()
         case "scratchTab": scratchToTab()
