@@ -200,6 +200,8 @@ type PushMessage struct {
 	Name    string `json:"name"`
 	Project string `json:"project,omitempty"`
 	URL     string `json:"url"`
+	// Running is how many things the agent left running, never what.
+	Running int `json:"running,omitempty"`
 }
 
 // errGone is a subscription the push service says no longer exists: the

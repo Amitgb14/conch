@@ -145,8 +145,7 @@ func (g *Gateway) watchForPushes(machine string, c *client.Client) {
 					}
 					cancel()
 				}
-				g.queuePush(PushMessage{Type: now, Pane: paneRef(p.ID), Name: p.DisplayName(),
-					Project: projects[p.ProjectID], URL: "/agent/" + paneRef(p.ID)})
+				g.queuePush(pushOf(now, p, paneRef(p.ID), projects[p.ProjectID]))
 			case proto.EventPaneExited, proto.EventPaneClosed:
 				var ref proto.PaneRef
 				if json.Unmarshal(msg.Data, &ref) == nil {
@@ -235,4 +234,15 @@ func (g *Gateway) sendPushes() {
 		}
 		g.logf("push %s %s: sent to %d of %d", job.msg.Type, job.msg.Pane, sent, len(subs))
 	}
+}
+
+// pushOf is the push for an agent that has just started waiting or
+// finished. How many things it left running goes too, but never what they
+// are: a command line says as much as a question does.
+func pushOf(state string, p proto.PaneInfo, ref, project string) PushMessage {
+	msg := PushMessage{Type: state, Pane: ref, Name: p.DisplayName(), Project: project, URL: "/agent/" + ref}
+	if p.Agent != nil {
+		msg.Running = max(p.Agent.Background, 0)
+	}
+	return msg
 }
