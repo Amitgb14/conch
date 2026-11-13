@@ -1,0 +1,110 @@
+{
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "videos": [
+    {
+      "name": "conch-desktop-intro",
+      "title": "Introducing Conch.app",
+      "scenes": [
+        { "kind": "title", "title": "Conch.app", "sub": "conch's agents, in a native Mac window.", "hold": 2.8 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "caption": "Every agent you run, in one window", "sub": "Claude, Codex, Gemini, OpenCode and Devin.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 290, 246, 380], "ring": true, "caption": "Machines, projects, branches, agents", "sub": "Each agent on a branch and worktree of its own.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 88, 246, 168], "ring": true, "click": [130, 185], "caption": "Answer a waiting agent from the sidebar", "sub": "Its choices are buttons; the agent carries on.", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [450, 12, 420, 30], "ring": true, "caption": "⌘K finds any agent, branch, file or action", "hold": 2.8 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "caption": "A branch in a tab: Overview, Changes, Graph", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [272, 145, 256, 250], "ring": true, "caption": "Tick files or hunks, then commit", "sub": "✦ Write drafts the message.", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [540, 345, 475, 195], "ring": true, "caption": "Leave a note on a line — the agent answers", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [1045, 602, 255, 185], "click": [1066, 746], "caption": "Approve the pull request right here", "sub": "CI checks and the review sit beside the diff.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-files.png", "focus": [270, 95, 1045, 390], "caption": "The checkout in an editor", "sub": "⌘P goes to a file, ⌘I edits it with an agent.", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-browser.png", "focus": [270, 90, 1045, 520], "caption": "Your dev server in a tab beside its agent", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-skills.png", "focus": [405, 110, 760, 375], "caption": "Skills and MCP servers for every agent", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-settings.png", "focus": [405, 148, 760, 110], "ring": true, "caption": "Autopilot: review, PR, fix CI, merge", "sub": "Run by conch's server — closing the window stops nothing.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-limits.png", "focus": [770, 795, 548, 24], "ring": true, "caption": "Plan limits in the status bar", "hold": 2.8 },
+        { "kind": "title", "title": "Conch.app", "sub": "In beta, for Apple Silicon Macs on macOS 14 or later.", "url": "amitgb14.github.io/conch/docs/mac-app", "hold": 3.2 }
+      ]
+    },
+    {
+      "name": "conch-in-a-minute",
+      "title": "conch in a minute",
+      "scenes": [
+        { "kind": "title", "title": "conch", "sub": "Every coding agent you run, in one window.", "hold": 2.8 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "caption": "Claude, Codex, Gemini, OpenCode, Devin", "sub": "Side by side, each on a branch of its own.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 290, 246, 380], "ring": true, "caption": "Projects, branches, agents — one tree", "sub": "Every agent gets its own git worktree.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 88, 246, 168], "ring": true, "click": [130, 185], "caption": "The agent that needs you comes first", "sub": "Answer its prompt without switching tabs.", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [540, 345, 475, 195], "ring": true, "caption": "Leave a note on a line — the agent answers", "sub": "Review its diff the way you review a colleague's.", "hold": 4.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [1045, 395, 255, 190], "ring": true, "caption": "CI watched for you", "sub": "A failed check goes back to the branch's agent.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-settings.png", "focus": [405, 148, 760, 110], "ring": true, "caption": "Review, pull request, fix CI, merge", "sub": "The autopilot runs it — even with the window closed.", "hold": 4 },
+        { "kind": "window", "image": "web/src/images/desktop-browser.png", "focus": [270, 90, 1045, 520], "caption": "Your app runs in a tab beside its agent", "hold": 3.2 },
+        { "kind": "phone", "images": ["web/src/images/phone-agents.png", "web/src/images/phone-agent.png"], "caption": "Stepped away? Answer from your phone", "sub": "conch web pairs a phone with one QR code.", "hold": 3.8 },
+        { "kind": "title", "title": "conch", "sub": "A terminal orchestrator for AI coding agents.", "url": "amitgb14.github.io/conch", "hold": 3.2 }
+      ]
+    },
+    {
+      "name": "agents-side-by-side",
+      "title": "Run every agent at once",
+      "scenes": [
+        { "kind": "title", "title": "Run every agent at once", "sub": "Five agents. Five branches. One window.", "hold": 2.6 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "caption": "Each agent works in its own worktree", "sub": "No two agents edit the same checkout.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 374, 246, 78], "ring": true, "caption": "Working, waiting, done — at a glance", "sub": "conch reads each agent's state for you.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [270, 135, 620, 430], "caption": "Watch any one of them work, live", "sub": "Its real terminal, not a summary.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [1075, 12, 240, 30], "ring": true, "caption": "Know what's waiting and what's ready to review", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 88, 246, 168], "ring": true, "click": [130, 185], "caption": "Say yes from the sidebar", "sub": "The agent carries on; you never left your tab.", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-limits.png", "focus": [770, 795, 548, 24], "ring": true, "caption": "Plan limits, before you hit them", "sub": "Usage for every agent, in the status bar.", "hold": 3.4 },
+        { "kind": "title", "title": "conch", "sub": "Agents keep running when you close the window.", "url": "amitgb14.github.io/conch", "hold": 3 }
+      ]
+    },
+    {
+      "name": "review-to-merge",
+      "title": "From diff to merged",
+      "scenes": [
+        { "kind": "title", "title": "From diff to merged", "sub": "Review an agent's work without leaving conch.", "hold": 2.6 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "caption": "Every branch: changes, commits, CI, PR", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [270, 100, 1040, 32], "ring": true, "caption": "Ahead, uncommitted, CI and PR — on one line", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [272, 145, 256, 250], "ring": true, "caption": "See what the agent changed, file by file", "sub": "Stage a hunk, or the lot.", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [540, 345, 475, 195], "ring": true, "caption": "Leave a note on a line — the agent answers", "sub": "It reads the note, fixes the code, replies in the thread.", "hold": 4.4 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [1045, 395, 255, 190], "ring": true, "caption": "CI watched for you", "sub": "A failure goes straight back to the agent.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [1045, 602, 255, 185], "click": [1066, 746], "caption": "Approve the pull request right here", "sub": "The autopilot merges it once checks pass.", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-settings.png", "focus": [405, 148, 760, 110], "ring": true, "caption": "Or let the autopilot take the whole line", "sub": "Review by a second agent, PR, fix CI, merge.", "hold": 4 },
+        { "kind": "title", "title": "conch", "sub": "Agents write it. You decide what ships.", "url": "amitgb14.github.io/conch", "hold": 3 }
+      ]
+    },
+    {
+      "name": "dev-workbench",
+      "title": "Everything beside the agents",
+      "scenes": [
+        { "kind": "title", "title": "Everything beside the agents", "sub": "The app, its files, its tools — in one place.", "hold": 2.6 },
+        { "kind": "window", "image": "web/src/images/desktop-browser.png", "focus": [270, 90, 1045, 520], "caption": "Your dev server, in a tab beside the agent", "sub": "Check its work the moment it says done.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-browser.png", "focus": [937, 260, 304, 74], "ring": true, "caption": "The fix, live in the app", "hold": 2.8 },
+        { "kind": "window", "image": "web/src/images/desktop-files.png", "focus": [270, 95, 1045, 390], "caption": "Browse the checkout the agent works in", "sub": "Open a file, edit it, or hand it to an agent.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-skills.png", "focus": [405, 110, 760, 375], "caption": "One set of skills for every agent", "sub": "conch's own skills: review, ship, team, factory.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-skills.png", "focus": [405, 500, 760, 315], "ring": true, "caption": "Skills and MCP servers, agent by agent", "sub": "Claude, Codex, Gemini, OpenCode and Devin.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [450, 12, 420, 30], "ring": true, "caption": "⌘K finds any agent, branch, file or action", "hold": 3 },
+        { "kind": "title", "title": "conch", "sub": "Built for running several agents, not one.", "url": "amitgb14.github.io/conch", "hold": 3 }
+      ]
+    },
+    {
+      "name": "agents-on-your-phone",
+      "title": "Your agents, in your pocket",
+      "scenes": [
+        { "kind": "title", "title": "Your agents, in your pocket", "sub": "conch web: every machine's agents on your phone.", "hold": 2.6 },
+        { "kind": "phone", "images": ["web/src/images/phone-agents.png"], "caption": "See which agent is waiting on you", "sub": "On every machine you run them on.", "hold": 3.4 },
+        { "kind": "phone", "images": ["web/src/images/phone-agent.png"], "caption": "Answer its question with one tap", "sub": "Or reply in words, as you would at the keyboard.", "hold": 3.6 },
+        { "kind": "phone", "images": ["web/src/images/phone-agents.png", "web/src/images/phone-watch.png"], "caption": "Watch them work while you're away", "sub": "Paired by QR code; each device can be revoked.", "hold": 3.6 },
+        { "kind": "title", "title": "conch", "sub": "Leave the desk. The agents keep going.", "url": "amitgb14.github.io/conch", "hold": 3 }
+      ]
+    },
+    {
+      "name": "terminal-first",
+      "title": "Prefer the terminal?",
+      "scenes": [
+        { "kind": "title", "title": "Prefer the terminal?", "sub": "The same conch, as a TUI — local or over SSH.", "hold": 2.6 },
+        { "kind": "window", "image": "assets/tui-project.png", "caption": "Machines, projects, branches, agents", "sub": "One tree, in any terminal.", "hold": 3.4 },
+        { "kind": "window", "image": "assets/tui-project.png", "focus": [30, 80, 600, 600], "ring": true, "caption": "Every branch's state, PR and checks", "hold": 3.4 },
+        { "kind": "window", "image": "assets/tui-project.png", "focus": [645, 210, 1320, 85], "ring": true, "caption": "Which agent works, which waits, what it costs", "hold": 3.4 },
+        { "kind": "window", "image": "assets/tui-diff.png", "caption": "Read a branch's diff, hunk by hunk", "sub": "Mark hunks and commit them from the keyboard.", "hold": 3.6 },
+        { "kind": "title", "title": "conch", "sub": "Tabs and splits like tmux. Agents that outlive them.", "url": "amitgb14.github.io/conch", "hold": 3 }
+      ]
+    }
+  ]
+}

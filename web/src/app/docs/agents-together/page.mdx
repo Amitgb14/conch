@@ -2,338 +2,122 @@ export const metadata = { title: "Agents working together", description: "Let on
 
 # Agents working together
 
-An agent in a conch pane can start another agent, prompt it, wait for it and read its answer — a reviewer for its change, a tester, a second opinion — without you passing messages between them. Each helper runs in a pane of its own, on its own branch, and shows in the tree like any other agent, so you can watch it, answer it or close it at any time.
+How an agent in conch starts other agents — a reviewer, a tester, a second opinion — prompts them, waits and reads their answers, each helper in its own pane and branch.
+
+<FeatureGrid>
+  <Feature icon="agents" title="conch" href="#asking-an-agent-for-a-second-opinion">Start a helper on its own branch, prompt it, wait, read its answer.</Feature>
+  <Feature icon="workbench" title="conch-team" href="#a-team-a-review-loop-a-factory">One task tried by several agents, or split into parts.</Feature>
+  <Feature icon="diff" title="conch-review" href="#a-team-a-review-loop-a-factory">Review, fix, review again until clean.</Feature>
+  <Feature icon="git" title="conch-ship" href="#a-team-a-review-loop-a-factory">Tests, push, pull request, CI, merge when asked.</Feature>
+  <Feature icon="loop" title="conch-autopilot" href="#a-team-a-review-loop-a-factory">Set up a project's automated workflow.</Feature>
+  <Feature icon="sparkles" title="conch-factory" href="#a-team-a-review-loop-a-factory">A ticket all the way to a merged pull request.</Feature>
+</FeatureGrid>
 
 ## Setting it up
 
-The agents learn how from skills conch carries. Install them once on each machine:
+The agents learn how from six skills conch carries. Install them once per machine.
 
 ```sh
-conch agent skill            # says where it would write, and writes nothing
+conch agent skill            # shows where it would write
 conch agent skill -apply     # writes them
 ```
 
-There are six, installed together:
-
-| Skill | What it teaches the agent |
-| --- | --- |
-| `conch` | start a helper agent on a branch of its own, prompt it, wait for it and read its answer — the rest build on this |
-| `conch-team` | several agents at once: one task tried by two or three to keep the best, a task split into parts that run side by side, or a chain where each starts from the last one's branch |
-| `conch-review` | another agent reviews a branch and comments on its lines, the author fixes or answers each comment, and the reviewer looks again — until it is clean, or three rounds and it asks you |
-| `conch-ship` | the project's tests, a commit, a push, the pull request, CI watched and a failure sent back to the branch's agent, and a merge once it is green — only when you asked for one |
-| `conch-autopilot` | set up the automated workflow for a project: it finds the project's check and runs it once, proposes the `[verify]` policy (the check, a reviewer, failures sent back, pull requests opened, merging left off until you trust it), guardrails and a worktree's setup, applies only what you agree to, and shows the ways to feed it work |
-| `conch-factory` | a ticket all the way: read it (a GitHub issue, or your tracker through the agent's own tools), one agent builds it test-first, another reviews, the builder fixes, review again, a tester tries it, then the pull request, CI and the merge |
-
-Or without leaving the TUI. `i` on a project, branch or pane says under **conch** whether the agent whose tab is open has the skill on that machine, and `S` installs it or takes it away. For every agent at once: `,` → **Agents** → **conch's skills…** lists every machine and how it stands there — *every agent has it*, *1 have it · 1 not* (an agent counts once it has all five), or the reason it could not be asked — and opening a machine names each skill for each agent and what would happen to it. **Install it for every agent…** and **Take conch's copy away…** name every path in a question before anything is written, the way the command plans before `-apply`. A machine at a time, through that machine's own server.
-
-In Claude Code they are also a plugin, from the conch repository itself:
+Or `i` on a pane then `S`, or `,` → **Agents** → **conch's skills…**. In the Mac app: **Settings → Skills & MCP servers**. In Claude Code they are also a plugin (pick one way, not both):
 
 ```
 /plugin marketplace add Amitgb14/conch
 /plugin install conch@conch
 ```
 
-Its skills are named `conch:conch-factory` and so on. Pick one way for Claude Code — the plugin, or `conch agent skill` — or it reads each skill twice. The plugin installs the same files conch does, and they act only inside a conch pane.
-
-In the Mac app it is **Settings → Skills & MCP servers**, or **Skills & MCP servers…** on a machine's right-click menu.
-
-They go where each agent reads your skills — `~/.claude/skills/conch`, `~/.claude/skills/conch-factory` and so on for Claude Code, `~/.agents/skills/…` for Codex, Gemini CLI and OpenCode, and `~/.config/devin/skills/…` for Devin — beside your own skills, replacing none of them: a skill of yours under one of those names is left alone, and the others still install. `conch skill NAME` prints one (`conch skill -list` names them), for an agent conch can't install it for. `-skill conch,conch-review` installs only those skills, `-agent claude,codex` installs them for some agents only, `-remove -apply` takes it away again, and `conch -m MACHINE agent skill -apply` installs it on another machine. Claude Code picks it up at once, even mid-session; restart the others if they don't list it.
-
 ## Asking an agent for a second opinion
 
-In a project, start an agent (`c`) and ask in plain words:
+Start an agent (`c`) and ask in plain words. It starts a helper as a task on its own branch, waits, reads what it wrote and tells you. If the helper asks a question, the agent tells you which pane is waiting.
 
-> Get a second opinion on the change on this branch from another agent, and tell me what it found.
-
-What happens, as it did in a real run with Claude Code:
-
-1. The agent sees it is in conch and loads the skill.
-2. It starts a helper as a task — `conch task -name login-reviewer "…"` — which appears under the project in the tree, on a branch and worktree of its own.
-3. Its change wasn't committed, so rather than commit your work to hand it over, it put the diff in the helper's prompt.
-4. It waits for the helper, then reads the `REVIEW.md` the helper wrote in its worktree.
-5. It tells you what the reviewer found, and closes the reviewer's pane. The reviewer's branch and worktree stay for you to keep or [clean up](/docs/tasks#cleaning-up-worktrees).
-
-If the helper stops to ask something — a permission, a question — the agent doesn't answer for it: it tells you which pane is waiting. Open that pane and answer it yourself.
-
-Other things to ask for the same way: *"have Codex write tests for this and run them"*, *"ask another agent to try the migration on a copy of the branch"*, *"get Claude and Gemini to each review it and compare"*.
+**How:** _"Get a second opinion on the change on this branch from another agent, and tell me what it found."_
 
 ## A team, a review loop, a factory
 
-The other skills are asked for the same way, in plain words, or in Claude Code by name as a command:
+Ask for the other skills the same way, or by name as a command in Claude Code.
 
-> Have Claude and Codex each try the parser fix, and tell me which one to keep. *(conch-team)*
+| Ask | Skill |
+| --- | --- |
+| _"Have Claude and Codex each try the parser fix, and tell me which one to keep."_ | conch-team |
+| _"Get this branch reviewed by Codex and have the fixes made until the review is clean."_ | conch-review |
+| _"Open the pull request for this branch and merge it once CI is green."_ | conch-ship |
+| _"Take issue 123 from build to a merged pull request."_ | conch-factory (`/conch-factory 123`) |
+| _"Set up an automated workflow for this project."_ | conch-autopilot |
 
-> Get this branch reviewed by Codex and have the fixes made until the review is clean. *(conch-review)*
+<AutopilotLoop />
 
-> Open the pull request for this branch and merge it once CI is green. *(conch-ship)*
-
-> Take issue 123 from build to a merged pull request. *(conch-factory, or `/conch-factory 123` in Claude Code)*
-
-> Set up an automated workflow for this project. *(conch-autopilot)*
-
-The factory runs the whole line with the agent you asked as its foreman, each stage an agent in a pane of its own:
-
-```
-ticket → spec → build → review → fix → review → test → pull request → CI → merge → retro
-```
-
-It first writes the ticket down as a short spec — the goal, acceptance criteria a test or a reviewer can check, and what is out of scope — and agrees it with you; a vague ticket gets questions, one at a time, until it is whole. Builders work test-first against the spec, a slice at a time, and the reviewer checks fidelity to it before anything else. At the end a short retro says what slowed the line — review rounds, CI failures, questions a permission rule would have answered — and proposes changes for you to make. It tells you the plan first — which ticket, which agent builds, which reviews, and whether it will merge — and stops the line rather than guessing: a ticket too vague to build comes back with questions, a review still open after three rounds or CI still red after three fixes comes back to you, and an agent waiting on a question is yours to answer. It merges only when you asked it to. With conch's autopilot on (`auto_pr`, `auto_merge` under `[verify]` in [config.toml](/docs/configuration)), the pull request and the merge are conch's, and the factory waits for them rather than racing it. For a backlog it queues the tickets, at most two builders at a time (`conch task -queue -wip 2 -issue N`).
-
-Every stage is an agent spending your usage, so ask for the size of team you want.
+Every stage is an agent spending your usage, so ask for the team size you want.
 
 ## Who started what
 
-A pane an agent started carries the pane it came from, so the tree reads as a chain of work rather than a list of strangers. It is **listed under** the agent that started it:
+A pane an agent started is listed under it, and the agent shows **⑂2** (amber **⑂2!** when one waits).
 
 ```
 Agents
   ▾ claude                      ⑂2
       ↳ reviewer
       ↳ tester
-    codex
 ```
-
-Fold the agent and its helpers go with it. The agent that started them carries **⑂2**, which turns amber as **⑂2!** when one of them is waiting on a question. A helper that cannot sit under its agent — it is in another section, on another machine, or a search has narrowed the agent away — says **↳ for claude** on its own row instead. The review queue (`Q`), the jump to whoever needs you (`!`) and desktop notifications all name the same thing — *waiting for an answer for claude* — so the three read as one.
-
-A pane nobody started says nothing either way, and a creator that has gone leaves its helpers unclaimed rather than naming a pane that is not there.
 
 ### Claude's own subagents
 
-Claude Code can also hand work to **subagents** of its own — its Agent tool, background tasks — which run inside the same `claude` process and have no terminal. conch lists them under the agent too, from the hooks Claude reports when one starts and stops, each with the task it was given and its kind:
-
-```
-Agents
-  ▾ claude
-      ⠋ Writing gateway e2e tests      general-purpose
-      ⠋ Running race tests             Explore
-```
-
-A subagent is listed only while it runs, and goes when it finishes or the session ends. It has no screen of its own, so selecting it shows the agent running it, and `enter` opens that agent — where Claude itself shows what its subagents are doing. There is nothing to type into, close or rename. Agents other than Claude Code report no subagents, and a remote machine lists them once its conch is updated.
+Claude Code's own subagents are listed under it too, with their task and kind, while they run. `enter` opens the agent running them.
 
 ## From the tree
 
-`m` on an agent's pane — or a right-click — has **Prompt…**: type the message, and it goes in as that agent's next one. conch then watches the work it started and says when it ends: *finished what you asked*, *is waiting for you*, or *ended before it answered*, in the status bar, or as a desktop notification when that pane is not the one you are looking at. You are told once.
-
-An agent that is already waiting on a question of its own is not sent anything — the menu says so before you open it, and the server refuses it in its own words if it starts waiting in between. A machine whose server predates `agent.prompt.v1` says that instead of offering it.
-
-## A long-running job
-
-A build that takes most of an hour needs a little more care than a review, because an agent's shell tool isn't made for it: Claude Code's stops a command after 2 minutes by default, and an agent that moves a long command into the background ends its turn early — so "done" would come long before the build is. The way round it is to run the build in a **terminal pane** of its own, which has no time limit and outlives the agent's turns, and to have it leave a file saying it finished.
-
-Start an agent in the project and ask:
-
-> Hand the full build of this project to a helper agent and tell me how it went.
->
-> Start the helper with `conch task -name builder`. Tell it to:
-> - build the entire package with `make all`, in its own worktree;
-> - the build takes about 40 minutes — too long for its shell tool — so run it in a conch terminal pane:
->   `conch new -name build-run -cwd <its worktree> -- sh -c 'make all > build.log 2>&1; echo $? > build.exit'`
-> - then check every couple of minutes whether `build.exit` exists, running each check in the foreground, never in the background;
-> - if the build fails, fix the cause, run it again the same way, and repeat — at most 3 attempts;
-> - at the end write `BUILD.md`: pass or fail, the exit code, how long it took, the first error if any, and what it changed;
-> - close `build-run` when done. Don't commit, push or merge anything.
->
-> Then wait for the helper with `conch agent prompt -wait -timeout 2h` or `conch wait`, and when it stops, read `BUILD.md` from its worktree. If `BUILD.md` isn't there yet, it's still going — wait again rather than report.
->
-> If the helper, or anything it runs, asks for a permission or a decision, stop and tell me which pane is waiting — don't answer for it.
-
-Put your own build command and time in place of `make all` and 40 minutes. Three panes appear under the project — the agent you asked, `builder` on a branch of its own, and `build-run`, the terminal the build scrolls in — and you can open any of them while it runs:
-
-```text
-you ──▶ your agent (p1)
-          │ conch task -name builder "…"
-          ▼
-        builder (p2, its own branch and worktree)
-          │ conch new -name build-run -- sh -c 'make all > build.log …'
-          ▼
-        build-run (p3, a terminal) ── writes build.log and build.exit
-          ▲
-          └─ builder checks build.exit, fixes, runs again, writes BUILD.md
-your agent ◀── reads BUILD.md and tells you
-```
-
-Why each instruction is there:
-
-| Instruction | Why |
-| --- | --- |
-| the build in a terminal pane | no time limit, and it outlives the helper's turns |
-| `echo $? > build.exit` | a file that says it finished, and how — surer than reading a scrolling screen |
-| checks in the foreground | keeps the helper's turn open while it waits, so its end means the job's end |
-| `BUILD.md` | the result is read from a file, not guessed from a screen |
-| at most 3 attempts | a build it can't fix doesn't spend your usage for ever |
-| no commit, push or merge | that is yours to decide; the branch stays for you |
-| stop when it asks | a question is yours to answer; `conch agent prompt` won't type onto it anyway |
-
-Without an agent in between, start the builder from a terminal pane and wait for it yourself:
-
-```sh
-conch task -name builder "Build the entire package with make all … (the instructions above)"
-conch wait -state done,waiting -timeout 2h builder
-cat "$(conch status | awk '$2 == "builder" { print $7 }')/BUILD.md"
-```
+`m` on an agent's pane → **Prompt…** sends it a message, and conch tells you once when that work ends.
 
 ## Giving helpers files that aren't committed
 
-A helper works in a fresh worktree, which holds what is committed on its branch — so a design plan you keep out of git, a spec you haven't committed, or notes in `.gitignore` aren't there. Two ways to hand them over:
-
-- **Let conch copy them in.** When it makes a worktree, conch copies files from the project's main checkout that git ignores and that match the project's [local files](/docs/tasks#local-files-in-worktrees) — `.env` and a few others by default. Add a pattern for yours, keeping the defaults, since the list replaces them:
-
-  ```sh
-  conch project ls       # the project's ID
-  conch project files ID .env '.env.*' .envrc .claude/settings.local.json CLAUDE.local.md \
-    .mcp.json AGENTS.override.md .gemini/.env 'docs/plans/*.md'
-  ```
-
-  Every task from then on starts with those files in its worktree — copied, never committed, so never pushed. The files must be in the **main checkout**, and git must ignore them there (`.gitignore`, or `.git/info/exclude` to keep even the names private).
-- **Or give the path.** Name the file's absolute path in the helper's prompt — *"build against `~/src/app/docs/plans/api.md`"* — and it reads it from there. Every worktree is on the same disk.
-
-Don't commit a private file, or force-add an ignored one, just to hand it over: it would then be in the branch's history for anyone who fetches it. The skill tells agents the same, and to ask you to add a pattern rather than change the project's local files themselves.
+A helper's worktree holds only committed files. Add a [local files](/docs/tasks#local-files-in-worktrees) pattern so conch copies yours in, or name the file's absolute path in the prompt.
 
 ## Doing it yourself
 
-The commands the agents use are plain `conch` commands, so a script — or you, in a terminal pane — can drive agents the same way:
+The agents use plain `conch` commands, so a script can too:
 
 ```sh
-# A reviewer on its own branch, starting from yours (commit first: it sees only commits).
 conch task -name reviewer -agent codex -base "$(git branch --show-current)" \
-  "Review this branch against main. Run commands in the foreground. Write findings to REVIEW.md."
-
-# Wait for its first answer.
+  "Review this branch against main. Write findings to REVIEW.md."
 conch wait -state done,waiting -timeout 30m reviewer
-
-# A follow-up: typed in, submitted, and waited for in one step.
-conch agent prompt -wait -timeout 30m reviewer "Now check the error handling in login.py too."
-case $? in
-  0)   echo "finished" ;;
-  3)   echo "it is asking something:"; conch read reviewer ;;
-  124) echo "still working after 30 minutes" ;;
-esac
-
-conch read reviewer          # its screen
-conch close reviewer         # its branch and worktree stay
+conch agent prompt -wait -timeout 30m reviewer "Now check the error handling too."
+conch read reviewer
+conch close reviewer
 ```
 
-`conch agent prompt` is the safe way to message an agent. It types only into an agent, never into one waiting for an answer — a permission prompt, a trust question or a menu, where its Enter would answer something nobody read — and with `-wait` it waits for the work that message starts, not for the state the agent was in before it. It exits:
-
-| Exit | Meaning |
-| --- | --- |
-| `0` | the agent's turn ended |
-| `3` | the agent is waiting for an answer; nothing was typed |
-| `124` | `-timeout` ran out; it may still be working |
-| `1` | anything else: the pane ended, another program took it over, a name two panes share |
-
-`conch send` still types anything anywhere — for your terminals, not for agents.
-
-`conch wait` sees an agent `done` only while nobody is looking at it: finished in front of you, it goes straight to `idle`. Wait for `-state done,waiting` in scripts that run unwatched.
-
-### Names
-
-`-name reviewer` on `conch task`, or `conch rename ID NAME` on any pane, lets every pane command address it by name: `send`, `read`, `close`, `redraw`, `wait`, `agent prompt`, `agent explain`. An ID (`p` and a number) always means the ID, so names of that shape are refused, and a name two running panes share is refused rather than guessed. See [pane names](/docs/cli#pane-names).
+`conch agent prompt` exits `0` when the turn ended, `3` when the agent waits for an answer (nothing typed), `124` on timeout. See [pane names](/docs/cli#pane-names).
 
 ## Through MCP instead of the command line
 
-An agent that would rather call a tool than run a command can reach the same work through `conch mcp`, an MCP server over stdin and stdout:
+`conch mcp` offers the same work as MCP tools: `list`, `read`, `start`, `prompt`, `wait`, `task`, `rename`.
 
-```sh
-conch agent library mcp          # conch's own tools, as a server in the library
-conch agent library apply        # write it into each agent's configuration
-```
-
-Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **Add conch's own tools…**, then **Apply…**. Restart an agent afterwards for its client to list the tools.
-
-The [library](/docs/tasks#shared-mcp-servers-and-skills) writes it into each agent's own configuration, so this is one action rather than five formats. Its tools are `list`, `read`, `start`, `prompt`, `wait`, `task` and `rename` — the same server calls the commands above make, so neither door tells the agent something the other wouldn't. A tool call comes back as a typed result and a refusal written for the agent to act on: a prompt onto an open question says to read the screen and answer it, and a wait that runs out says it timed out rather than failing.
-
-`list` says which subagents are running inside each agent too (the ones above), so an agent waiting on a helper can see it is busy without reading its screen.
-
-The skill above teaches the commands. An agent that has both should use whichever its client makes easier; nothing goes wrong if it mixes them, since both reach one server.
+**How:** `conch agent library mcp`, then `conch agent library apply`, and restart the agent.
 
 ### Three reviewers at once
 
-Where the tools earn their keep is a job with several helpers in it. One agent reviewing `auth.py`, another `billing.py`, a third the tests — three agents, three branches, three worktrees — driven by a lead agent that never runs a shell command:
+A lead agent can run several reviewers through the tools without a shell command:
 
 ```jsonc
 task   {"prompt":"review auth.py",    "branch":"review-auth",    "agent":"claude", "name":"auth"}
-→ p2: claude started on branch review-auth in /src/api.worktrees/review-auth.
-  Wait for it (the wait tool) before prompting it: conch has to see the agent start
-
 task   {"prompt":"review billing.py", "branch":"review-billing", "agent":"codex",  "name":"billing"}
-task   {"prompt":"review the tests",  "branch":"review-tests",   "agent":"gemini", "name":"tests"}
-
 wait   {"pane":"auth", "state":["idle","waiting"], "timeout_seconds":1800}
-→ p2: claude is idle
-
 prompt {"pane":"auth", "text":"Write what you found to FINDINGS.md, worst first."}
 read   {"pane":"auth", "tail":20}
-→ …what it said
 ```
-
-Four things that are harder from a shell, and why each matters:
-
-- **Nothing is parsed.** `list` answers with data — `{"pane":"p3","name":"billing","agent":"codex","agent_state":"idle","branch":"review-billing"}` — where `conch status` answers with a table whose columns move when a name gets longer. With three helpers to keep track of, a mis-split prompts the wrong agent.
-- **Three kinds of agent, one interface.** `agent` is just a name; how each is launched, resumed and detected is conch's business. Reviewers that disagree usefully are the point of fanning out.
-- **The order comes from the tool.** Each `task` says to wait before prompting, because conch has to *see* an agent start before it can be messaged. Without that, a prompt sent in the same breath is refused — and an agent that then reaches for `conch send` types into whatever is on screen, which may be a trust question nobody read.
-- **It stops at the boundary.** Every pane above is the lead's own. Reach outside and the answer is `out_of_scope: … it did not start it, and it is in another project`, which an agent can repeat to you instead of working around.
-
-For one helper and one question, `conch task` and `conch wait` in a terminal are two lines and need none of this. The tools pay off when there are several helpers, several kinds of agent, or a client where every shell command needs your approval and a tool can be allowed once.
 
 ## What an agent may do
 
-An agent calling conch from inside its pane may start panes and tasks and read anything. What it may **change** is kept to its own work:
+An agent may start panes and tasks and read anything, but change only its own work: panes it started, panes in its project, and that project's branches. Anything else is refused with `out_of_scope` and a reason. The TUI and your own terminals are never limited.
 
-| It may change | It may not |
-| --- | --- |
-| panes it started, and the panes those started | other panes in other projects: typing, keys, closing, renaming, marking as seen |
-| | typing, keys or clicks into a pane that runs no agent — a shell, its own or yours (see below) |
-| a group task's folder (its `CONCH-TASK.md` and links) when it works on that task, or in one of its repos | another task's folder |
-| any pane in its own project | another project's branches and worktrees |
-| its own project's branches and worktrees: commit, push, discard | `conch server stop` or `reload` |
-| | your own setup: the skill, the [library](/docs/tasks#shared-mcp-servers-and-skills), syncing one agent's setup to the others, and which [local files](/docs/tasks#local-files-in-worktrees) a project copies into its worktrees — even in its own project |
+It may change a group task's folder while working on it, and open a terminal but never type into one: typed into a shell is a command.
 
-The rest is refused, and the agent is told why:
-
-```text
-conch: out_of_scope: the claude agent in p1 may not close p4: it did not start it, and it is in another project; do it from the TUI or a terminal pane
-```
-
-You are never held to this: the TUI, your terminal panes and scripts run outside conch act as you. conch tells who is asking from the operating system — the process at the other end of its socket and that process's parents, up to a pane — so an agent can't get round it by changing its environment. It is a guard against an agent closing the wrong session, not a sandbox: a program set on escaping can leave its pane's process tree.
-
-### What an agent may start
-
-An agent may start other agents, and choose which one and its model — `conch new -agent codex -- --model gpt-5`, or the MCP `start` tool's `--model NAME`. It may not choose anything else about what runs: no command of its own (a plain terminal is fine), no environment, and no other flags. Otherwise an agent that asks you before each command could start a helper told to ask nobody — `--dangerously-skip-permissions`, `--yolo` — or a pane running whatever it liked, and one tool call would step around every prompt you rely on. That is what an injected instruction in a README or an issue would try first.
-
-```text
-conch: out_of_scope: the claude agent in p1 may not start an agent with "--dangerously-skip-permissions": an agent may choose which agent to start and its --model, nothing else ([agents] unrestricted_launch in config.toml allows more); do it from the TUI or a terminal pane
-```
-
-It may still open a plain terminal, but it may not type into one — its own or yours. Typing `claude --dangerously-skip-permissions` into a shell it just started is the same launch a keystroke later, so an agent types, sends keys and clicks only into panes running an agent. What runs in the pane is looked at when it asks: a terminal where you have started an agent takes its typing while that agent is in front, and stops taking it once the agent exits back to the shell. A broadcast to terminals as well as agents is refused the same way.
-
-```text
-conch: out_of_scope: the claude agent in p1 may not type into p4: it runs no agent, and what is typed into a shell runs as a command — an agent may start a shell, and type only into agents ([agents] unrestricted_launch in config.toml allows it); do it from the TUI or a terminal pane
-```
-
-If you want agents to start agents however they like — workers in bypass mode, a launcher of your own, an agent driving a terminal — set it in `config.toml` (or Settings → Agents); it lifts both halves:
+Agents may pick which agent to start and its `--model`, nothing more. To allow more:
 
 ```toml
 [agents]
 unrestricted_launch = true
 ```
 
-An agent can't set this through conch: changing your setup is out of its scope. Like the rest, it holds for agents going through conch; one that runs `claude` in its own shell isn't held by it, and is held by whatever that shell asks you instead.
-
-### On another machine
-
-`conch -m MACHINE` from an agent's pane carries the agent's scope along: on the other machine it reaches only the panes it started there, and the projects it started them in. What it may start and type into is held there too, by that machine's own `unrestricted_launch`.
-
-```text
-conch: out_of_scope: the claude agent in p1 on laptop.local may not close p1: it did not start it; do it from the TUI or a terminal pane
-```
-
-A machine whose conch predates this isn't driven from an agent's pane at all — `conch machine upgrade` it. Like the rest, this holds for agents going through conch: one that runs `ssh` itself isn't held by it.
-
-## Good to know
-
-- **A helper sees only committed work.** It starts on a branch of its own. With your work committed, pass your branch as `-base`; if it isn't, the skill has the agent put the diff in the helper's prompt instead of committing for you.
-- **Files a helper needs that aren't committed** — a spec, a plan, notes kept out of git — don't reach its worktree on their own. See [giving helpers files that aren't committed](#giving-helpers-files-that-arent-committed).
-- **Exit 0 is the end of a turn, not always of the work.** A helper that puts a long command in the background ends its turn and takes the work up again later; a request that failed (an expired API key, say) ends a turn too. Ask helpers to run commands in the foreground, and check the result — the file you asked for — before relying on it.
-- **Codex and Devin are read from their screen.** conch can't see a failed request there: it ends like a finished one. Claude Code, Gemini CLI and OpenCode report it through their hooks.
-- **Every helper spends usage.** The skill tells agents to start only as many as the job needs.
+`conch -m MACHINE` from an agent's pane keeps that machine's own limits.

@@ -1,63 +1,50 @@
-export const metadata = { title: "Agents", description: "Supported agents, their states, usage and plan limits." }
+export const metadata = { title: "Agents", description: "Supported agents, their states, broadcast, usage and plan limits." }
 
 # Agents
 
-conch runs Claude Code, Codex, Gemini CLI, OpenCode and Devin in panes it owns, tracks what each is doing, and shows their token usage and plan limits. It wires in its state tracking without touching the agents' own configuration.
+conch runs Claude Code, Codex, Gemini CLI, OpenCode and Devin in panes it owns, tracks what each is doing, and shows their usage and plan limits.
 
-## Two tiers, said plainly
+<TuiShot
+  id="waiting"
+  title="conch — an agent waiting"
+  caption="An agent waiting for you is marked ! in the tree."
+/>
 
-conch supports five agents and **runs** more. The difference is a promise, not a ranking:
+## Supported agents
 
-- **Supported** — an adapter written for it, detection rules taken from the real agent, and its saved conversations listed, resumed and deleted in the Sessions view. Claude Code, Codex, Gemini CLI, OpenCode and Devin.
-- **Runs here** — described by a manifest: conch starts it, recognises it in a pane, and gives it a first message or resumes it **only where that agent documents how**. Its saved conversations are *not* read, and conch says so — in the agent menu ("runs here · no sessions") and in the Sessions view — rather than showing an empty list that reads as "you have not used it".
+| Agent | Install (no root) |
+| --- | --- |
+| **Claude Code** | `curl -fsSL https://claude.ai/install.sh \| bash` |
+| **Codex** | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` |
+| **Gemini CLI** | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
+| **OpenCode** | `curl -fsSL https://opencode.ai/install \| bash` |
+| **Devin** (preview) | `curl -fsSL https://cli.devin.ai/install.sh \| bash`, then `devin auth login` |
 
-**Pi is the one that needs no rules at all**: it reports its own state through [OSC 7501](#how-the-state-is-decided), so its row in the tree says what pi says — working, waiting, done — where another second-tier agent can only be shown as idle until conch is taught its screen. Any agent that adopts the protocol gets the same, including one you add yourself.
+Devin is Cognition's `devin` CLI. A Devin pane that needs an answer looks idle.
 
-The second tier exists because the wider catalogs *detect* twenty agents while conch *supports* five, and writing fifteen more to the supported bar stalls on session formats nobody has written down. Running an agent is easy; pretending to read its sessions is a lie.
+## Two tiers
 
-conch ships manifests for **Aider**, **Amp**, **Cursor CLI**, **Grok**, **Kilo Code** and **Pi**, each saying in its own file what was verified from that agent's documentation and what was not — these are other people's flags, and they change. Add your own with:
+- **Supported** — the five above, with their saved conversations in the [Sessions](/docs/sessions) view.
+- **Runs here** — described by a manifest: conch starts and recognises it, but does not read its sessions.
+
+conch ships manifests for **Aider**, **Amp**, **Cursor CLI**, **Grok**, **Kilo Code** and **Pi**, marked with a square rather than a circle.
+
+**How:** add your own, then reload the server.
 
 ```sh
 conch agent add robo -command robo -label "Robo Coder" \
   -prompt '--message {prompt}' -resume '--resume {id}' -resume-last --continue
 ```
 
-That writes `~/.config/conch/agents/robo.toml`, which you can then edit by hand; reload the server to pick it up. Leave `-prompt` out and conch will not try to give it a first message; leave `-resume` out and it will not offer to resume one. Add an `install` line to its `[run]` table for an installer conch can offer; without one the agent menu says conch has none rather than running nothing and calling it installed. A manifest cannot take a supported agent's name — that would replace a tested adapter with a guess.
-
-An agent conch runs from a manifest is marked in the tree like any other — a square rather than a circle (see [the sidebar](/docs/interface#the-sidebar)), and 🤖 for one conch has no mark of its own for.
-
-| Agent | Tier | First message | Resume |
-| --- | --- | --- | --- |
-| **Aider** | runs here | no — `--message` answers and exits | the folder's own history (`--restore-chat-history`) |
-| **Amp** | runs here | no — only piped stdin | by thread (`amp threads continue T-…`) |
-| **Cursor CLI** | runs here | yes, as an argument | `--resume ID`, `--continue` |
-| **Grok** | runs here | not verified for its TUI | `--resume ID`, `--continue` |
-| **Kilo Code** | runs here | no — `kilo run` answers and exits | the most recent here (`--continue`) |
-| **Pi** | runs here | yes, as an argument (`--print` is the one that answers and exits) | `--session ID`, `--continue` |
-
-## Supported agents
-
-| Agent | Launch | How conch knows its state | Install (no root) |
-| --- | --- | --- | --- |
-| **Claude Code** | `claude --settings <conch hooks>` | hooks, screen, token usage from the transcript | `curl -fsSL https://claude.ai/install.sh \| bash` |
-| **Codex** | `codex` | terminal title (`[ ! ] Action Required`, spinner) and screen ("Would you like to run the following command?") | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh` |
-| **Gemini CLI** | `gemini` with conch's hooks in a system-defaults settings file (merged with yours; Gemini runs hooks only in trusted folders) | hooks when trusted, title (`✋ Action Required`, `✦ Working…`, `◇ Ready`) and screen | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
-| **OpenCode** | `opencode` with conch's plugin via `OPENCODE_CONFIG_CONTENT` (merged with your config) | plugin events (busy, idle, permission, question) and screen | `curl -fsSL https://opencode.ai/install \| bash` |
-| **Devin** (preview) | `devin`; a task's first message after `--`, resume with `-r ID` or `-c` | screen (`esc twice to interrupt`, the placeholder "Guide Devin while it works", and the trust prompt); a question it asks mid-task is not separable from idle | `curl -fsSL https://cli.devin.ai/install.sh \| bash`, then `devin auth login` |
-
-Devin for Terminal is Cognition's `devin` CLI, not the Devin desktop app. conch starts, resumes and installs it like the other agents, and lists it in `c`. Its instructions, skills and MCP servers show in the setup view (`i`) and take part in [sync and the library](/docs/tasks#one-setup-every-agent); since it reads Claude Code's files by itself, it is only given what it would not otherwise see.
-
-conch reads **working** from its screen, so the tree shows the spinner while it thinks or edits, and it catches the trust prompt Devin shows on its first run in a directory. It cannot show **waiting** the rest of the time: Devin asks for permission in prose in the conversation — "This will permanently delete the file. Should I proceed?" — leaving the input placeholder and status bar exactly as they are when it is idle, and its terminal title is only the session's first prompt. So a Devin pane that needs an answer looks idle, and `!` will not jump to it. Hooks would fix that; conch only adds them once it's confirmed that passing `--config` leaves your own Devin settings intact.
+That writes `~/.config/conch/agents/robo.toml`.
 
 ## Starting agents
 
-`c` (or clicking **c agent** in the status bar, or **Start an agent…** in the right-click menu) asks which agent to start at the selected place — a machine, project, branch or pane. Every agent installed there is listed first, in the machine's own order, with what would have to be installed after it; the default (Settings → Agents) is pre-selected, so `c` `enter` starts it. The first ten rows that do something take a digit — `1`–`9` and then `0`, as the tab keys do — so the agents you are choosing between keep the numbers even when a dozen are listed. Missing agents can be installed from the same list; `A` starts or installs any agent.
+`c` asks which agent to start at the selected row; `c` `enter` starts the default (Settings → Agents). Missing agents can be installed from the same list; `A` starts or installs any agent.
 
-Opening the menu asks the machine again which agents are there, so one you installed since conch started — by hand, or with `brew`, `npm` or its own installer — is offered as a **start** rather than an install; if the answer arrives while the menu is open, the menu redraws. An agent whose manifest named no installer is listed as "not installed · conch has no installer for it" and cannot be chosen: install it yourself and conch will find it on your PATH.
+In the [Mac app](/docs/mac-app), starting an agent on a machine that lacks it installs it first — a new sandbox has none.
 
-In the [Mac app](/docs/mac-app), starting an agent — a new agent, or a task — on a machine that does not have it installs it first: a new sandbox has none. The status bar says *Installing Claude Code on bot…* while the installer runs in a terminal of its own (in the sidebar, to watch), and the agent starts once the machine finds it. When the installer fails its terminal opens with what it said; a server too old to install agents is said rather than tried.
-
-`t` [tasks](/docs/tasks) use the default agent unless the task dialog's Agent field (or `conch task -agent NAME`) names another. From a shell, `conch new -agent claude -cwd DIR` starts Claude Code with state tracking, and `conch agent status` / `conch agent install NAME` check or install agents (add `-m MACHINE` for a remote machine).
+**From a shell:** `conch new -agent claude -cwd DIR`, `conch agent status`, `conch agent install NAME` (add `-m MACHINE` for a remote machine).
 
 <Callout type="note">
 
@@ -67,106 +54,55 @@ conch never edits an agent's own configuration or answers its trust prompts for 
 
 ## Agent states
 
+<AgentStates />
+
 | State | Meaning |
 | --- | --- |
 | `⠋` working | the agent is busy |
 | `!` waiting | blocked on you: a permission, trust or other question |
 | `✓` done | finished while you were looking elsewhere |
 | `○` idle | waiting for a prompt |
-| `✗` failed | its last request ended with an error instead of an answer (Claude Code and OpenCode report this), e.g. an expired provider login; cleared by the next prompt |
+| `✗` failed | its last request ended with an error; cleared by the next prompt |
 
-A desktop notification fires when an agent you aren't viewing needs you (see [notification settings](/docs/interface#notifications)). `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
+**How:** `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
 
 ### How the state is decided
 
 Most reliable first:
 
-1. **The program's own report ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)).** An agent that speaks the Program Status Protocol says what it is doing on the terminal it already has — `idle`, `working`, `done`, `blocked` (with `permission`, `question` or `auth`), `error` — and conch takes that over its own screen rules, because the program is not guessing. A program asks first whether the terminal speaks it, and conch answers; one that gets no answer stays quiet, so this works in conch and not in a terminal that has not implemented it. It travels down the pty, so it works over ssh and inside a container, where a hook or a socket would not. **Claude Code 2.1.295 and later emit it**, and so do a growing number of others. A blocked report outranks everything; otherwise hooks still come first for the agents that have them, since a hook also carries the message, whether the work failed and which session it belongs to.
-2. **Hooks.** Claude panes started by conch get `--settings ~/.config/conch/claude-settings.json`, adding hooks that call `conch report claude-hook`. Your own settings files are untouched and their hooks still run. conch writes that file — and Gemini's defaults and OpenCode's plugin beside it — when its server starts *and* before every launch, so clearing `~/.config` does not leave an agent failing with *Settings file not found*; the folder is made again if it has gone.
-3. **Screen rules.** Regexes over the bottom of the screen (tolerant of line wrapping), e.g. "Do you want to proceed?" with its numbered choices under it → waiting; the question alone (typed, logged or quoted) is not. Also covers `claude` started by hand. Override `internal/detect/manifests/claude.toml` by copying it to `~/.config/conch/agents/claude.toml`.
-4. **Foreground process.** A pane is only an agent while the agent is the terminal's foreground process.
+1. **The program's own report** ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)), from Claude Code 2.1.295 and later.
+2. **Hooks**, added with `--settings`; yours still run.
+3. **Screen rules** over the bottom of the screen.
+4. **Foreground process**: a pane is an agent only while the agent is in front.
 
-A report decides a pane's *state*, never whether it holds an agent: that still comes from the manifest and the foreground process, so a build tool reporting `working` in a terminal stays a terminal.
-
-`conch agent explain p1` shows the evidence behind a state.
+**How:** `conch agent explain p1` shows the evidence behind a state.
 
 ### conch reports its own state too
 
-conch reads OSC 7501 because it is the terminal its agents run in. It is
-also a program on *your* terminal, with the same thing to say, so it emits
-one report of its own: `blocked` while any agent is waiting on you,
-`error` when one has failed, otherwise `working`, `done` or `idle`, with a
-line naming the agent when there is one of it (`claude on feat waiting`)
-and counting them when there are more. A terminal that understands the
-protocol can then put that on the tab or the window — **which is the one
-state you cannot see for yourself, because seeing it means looking at
-conch.** It counts every agent conch knows of, not only the
-[workspace](/docs/interface#workspaces) on screen, since the terminal's tab
-is outside workspaces and an agent waiting in one you switched away from is
-exactly the one that is out of sight. conch takes the report away when it
-quits, so no tab is left saying an agent waits after the conch that said so
-has gone.
+conch sends one OSC 7501 report to your terminal — `blocked` while any agent waits on you — for the terminal's tab to show.
 
-Unlike an agent, conch does not ask the terminal whether it speaks the
-protocol first. The answer would arrive on conch's own stdin, where the TUI
-reads keys and would take `ESC ] 7 5 0 1 ;` for an escape followed by the
-digits `7`, `5`, `0`, `1` — digits that switch tabs. Writing without
-listening is the safe half: never asking means nothing ever arrives to be
-misread. A terminal without support throws an unknown `OSC` away, and these
-are written only when something changes, so the cost of telling one that is
-not listening is a few bytes a minute. It is off inside tmux and screen,
-which own the window the report would reach, and `CONCH_STATUS=0` turns it
-off anywhere (`1` turns it on, tmux included).
+**How:** it is off inside tmux and screen; `CONCH_STATUS=0` turns it off anywhere, `1` turns it on.
 
 ## Agents working together
 
-An agent can start another — a reviewer for its change, a tester — prompt it and read its answer, kept to its own work while it does. See [Agents working together](/docs/agents-together).
+An agent can start and prompt another. See [Agents working together](/docs/agents-together).
 
 ## Broadcast
 
-`B` types one message into several panes at once and submits it. The [brain](/docs/brain#one-message-to-several-agents) can propose the same thing from a plain request, such as _"tell every agent in api to run the tests"_. An agent gets it as its next message — "run the tests and fix anything you broke" to every agent in a project — and a terminal runs it as a command — `git pull` in every checkout.
+`B` types one message into several panes and submits it: a prompt to every agent in a project, or `git pull` in every terminal. The list follows the tree's selection; agents waiting for an answer, and terminals in a mixed list, start unticked.
 
-What is listed follows the selection in the tree, grouped the same way (project or CLI, then Agents and Terminals):
-
-| Selected | Listed |
-| --- | --- |
-| a machine | its agents and terminals, by project and CLI |
-| `Workspace` | the agents and terminals of every project on the machine |
-| a project (or its Branches, Sessions) | the project's agents and terminals, in all its worktrees |
-| a branch | the agents and terminals on that branch |
-| `CLI` | the machine's agents and terminals outside projects |
-| an `Agents` section, or an agent | that group's agents |
-| a `Terminals` section, or a terminal | that group's terminals |
-
-What starts ticked:
-
-- **Agents** — all of them, except agents **waiting for an answer**: the message would answer their question. You can tick them; the confirmation says so.
-- **Terminals** — ticked when you selected a Terminals section or a terminal. In a mixed list they start unticked, since a prompt meant for agents would run as a command; `t` ticks them all.
-
-In the dialog, type the message, then `tab` to the list: `space` ticks or unticks, `a` ticks all, `t` all terminals, `e` widens to every machine. `enter` shows the recipients and how many terminals will run it as a command, and asks to confirm; `n` goes back with the message kept.
-
-Panes on other machines receive it through their own servers. A server from an older build is skipped and named (older servers can broadcast to agents but not terminals).
+**How:** type the message, `tab` to the list, then `space` ticks, `a` ticks all, `t` all terminals, `e` every machine. `enter` asks to confirm; `n` goes back.
 
 ## Token usage
 
-Agent panes show token usage in their title — `ctx 45k/200k · out 12k · $0.42`:
+Agent panes show usage in their title: `ctx 45k/200k · out 12k · $0.42`.
 
-- **ctx** — how much of the model's context window the conversation fills right now (the input of the latest request), out of the window's size when the agent reports it. When it nears the size, the agent compacts or forgets.
-- **out** — output tokens the agent has generated in this session so far.
-- **$** — the session's cost, only when the agent reports one.
-
-conch reads these from each agent's own session data and never estimates prices:
-
-| Agent | Usage from | Cost |
-| --- | --- | --- |
-| Claude Code | the transcript the hooks point at | when the transcript records it |
-| Codex | the session's rollout file (found by folder and start time) | — |
-| OpenCode | its session database (via `sqlite3`) | yes |
-
-A machine's page totals the usage of its running agents.
+**ctx** is the context window used now, **out** the output tokens this session, **$** the cost when the agent reports one.
 
 ## Plan limits
 
-For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%` (amber from 70%, red from 90%); click it for reset times. The machine page draws them as bars with when each window resets. When a window passes 80% and again at 95%, conch alerts once (see [notification settings](/docs/configuration#notify)).
+<Shot name="desktop-limits" alt="Claude plan limits shown as bars with their reset times" caption="Plan limits and when each window resets." />
 
-Claude shares these only with its status line, so conch adds a status line command to its `--settings` that records them and then runs your own status line unchanged. Codex's windows are read from its session files when its login has them. API-key logins have no plan windows.
+For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%`, amber from 70% and red from 90%. Codex's windows come from its session files; API-key logins have none.
+
+**How:** click it for reset times. conch alerts once at 80% and again at 95% (see [notify](/docs/configuration#notify)).

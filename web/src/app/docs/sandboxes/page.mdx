@@ -2,13 +2,19 @@ export const metadata = { title: "Sandboxes", description: "Run agents in a clou
 
 # Sandboxes
 
-A sandbox is a machine in the cloud that conch creates for you, so a long agent task runs away from your laptop and keeps running when you close it. conch makes the sandbox, installs itself there and adds it as a [remote machine](/docs/remote-machines): `-m` and every other machine feature work with it.
+A sandbox is a cloud machine conch makes and adds as a [remote machine](/docs/remote-machines), so a task keeps running with your laptop closed.
 
-In the tree they sit together under **Sandboxes**, one group per provider, so a fleet of them doesn't fill the top:
+<FeatureGrid>
+<Feature icon="cloud" title="Make one" href="#in-the-tui">M → New sandbox…, and conch sets it up as a machine.</Feature>
+<Feature icon="browser" title="Open a port" href="#looking-at-what-runs-inside">A link to a dev server running inside.</Feature>
+<Feature icon="signal" title="What it costs" href="#what-one-has-cost">Time up and what the provider billed, beside each row.</Feature>
+<Feature icon="reload" title="Stop and start" href="#stopping-one-nobody-is-using">Idle ones stop; what was running comes back.</Feature>
+</FeatureGrid>
+
+In the tree they sit under **Sandboxes**, one group per provider:
 
 ```
 ▾ ● local
-▾ ● busybox
 ▾ ▤ Sandboxes            3
   ▾ Daytona              2
     ▸ ● sdx01
@@ -17,22 +23,19 @@ In the tree they sit together under **Sandboxes**, one group per provider, so a 
     ▸ ● sdx01
 ```
 
-Each one opens like any machine — its projects, agents and terminals underneath — and `m` on its row starts, stops or deletes it. Selecting **Sandboxes**, or one provider, shows what is in it with each sandbox's state. The group appears once there is a sandbox; the same label under two providers is two different sandboxes, and each keeps its own row.
-
-Four providers are supported:
+## Providers
 
 | Provider | What it is | How conch gets in |
 | --- | --- | --- |
-| [Daytona](https://www.daytona.io) | sandboxes with an ssh gateway, sized in vCPUs, memory and disk | a fresh ssh token per connection, through Daytona's gateway |
-| [boat.dev](https://boat.dev) | whole Ubuntu machines in named sizes, with an sshd of their own | your own public key, authorized in the sandbox |
-| [Tensorlake](https://docs.tensorlake.ai/sandboxes/quickstart) | microVMs sized in vCPUs, memory and disk (10–100 GiB), suspended and resumed with their memory | your own public key, registered once with your Tensorlake account, through its ssh gateway `sandbox.tensorlake.ai`. Not offered in **New sandbox…** in the TUI or Conch.app; made only with `conch sandbox -provider tensorlake create` |
-| [Devin Cloud](https://docs.devin.ai/cli/cloud) | the VM of a Devin Cloud session, with Devin in it; sized by Devin, placed on a platform or an outpost pool | `devin ssh`, the devin CLI's own approved connection |
+| [Daytona](https://www.daytona.io) | sandboxes sized in vCPUs, memory and disk | a fresh ssh token per connection |
+| [boat.dev](https://boat.dev) | whole Ubuntu machines in named sizes | your public key, authorized in the sandbox |
+| [Devin Cloud](https://docs.devin.ai/cli/cloud) | the VM of a Devin Cloud session | `devin ssh` |
 
-Everything on this page works with all of them unless it says otherwise. Where they differ — sizes, prices, snapshots, what stopping keeps — it says so. Devin Cloud does least of it: no preview links, snapshots or billed cost, since its API has none to give.
+Tensorlake sandboxes are made from the command line only (`conch sandbox -provider tensorlake create`).
 
 ## Setting up
 
-Create an API key in the provider's dashboard and put it in your environment:
+Create an API key in the provider's dashboard and put it in your environment, then restart conch:
 
 ```sh
 export DAYTONA_API_KEY=dtn_…     # Daytona
@@ -41,207 +44,91 @@ export DEVIN_API_KEY=cog_…       # Devin Cloud: a service user's key
 export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 ```
 
-Tensorlake's gateway lets in the ssh keys registered with your account, and registering one takes your own login rather than an API key, so conch cannot do it for you. A sandbox made before that is paid for and then cannot be set up, which is why Tensorlake is left out of **New sandbox…** and is made from the command line only. Its sandboxes are still listed, added and deleted like any other. Register your key once, with [Tensorlake's CLI](https://docs.tensorlake.ai/sandboxes/remote-dev):
+Devin Cloud also needs the devin CLI installed (`conch agent install devin`) and signed in (`devin auth login`).
 
-```sh
-pip install tensorlake
-tl login
-env -u TENSORLAKE_API_KEY tl sbx ssh keys add --name laptop ~/.ssh/id_ed25519.pub
-```
-
-(`env -u` because the key in `TENSORLAKE_API_KEY` would be used instead of your login, and registering a key is refused to an API key.) Until it is registered, a sandbox is made but conch cannot log in to it: it says Tensorlake refused your ssh key, with these steps, and asks whether to delete the sandbox — your project may allow only one running at a time. **API endpoint** in its settings is the API's base, `https://api.tensorlake.ai`; one given with `/sandboxes` on the end is taken as its base.
-
-conch offers the first of `~/.ssh/id_ed25519`, `id_ecdsa` and `id_rsa` it finds (else a key of its own, in conch's directory: register that one). Every sandbox conch makes there is named `conch-…`, since only a named sandbox can be suspended and resumed, and that is how `conch sandbox -provider tensorlake ls` tells conch's apart from yours. Stop suspends it, keeping its disk and memory; start resumes it. Tensorlake takes no variables when a sandbox is made — only secrets it already holds — so a sandbox with `env` set is refused, with that reason; and the snapshot setting is the image a sandbox starts from.
-
-Devin Cloud also needs the [devin CLI](https://docs.devin.ai/cli/cloud), installed (`conch agent install devin`) and signed in (`devin auth login`): its API makes the session, but only the CLI's login can open the way into its VM. conch makes the session in the organization `$DEVIN_ORG_ID` names, or else the one Devin says the key's sessions run in.
-
-Only the provider you use needs a key. A provider with no key is still listed, and says what is missing rather than failing when you try.
-
-By default conch reads the key from the environment every time and never writes it down — set it where your shell will have it (`~/.zshrc`), and restart conch, since a running process keeps the environment it started with. The key is read by whatever connects: the TUI and the `conch sandbox` commands, never the server, and it never goes over the protocol. A different variable can be named in Settings (`,` → **Sandboxes** → the provider) or as `api_key_env` in [`[sandbox.<provider>]`](/docs/configuration#sandbox), along with the snapshot, region, auto-stop and what of your environment every new sandbox gets. Each provider has its own section, and its own key.
-
-If you would rather not keep it in your shell at all, Settings → **Sandboxes** → the provider → **API key** takes the key itself. It is then written to `config.toml` (0600) as it is: anything running as you can read it, and it travels with a backup or a synced dotfile, so it is the convenient choice rather than the careful one. A key kept there wins over the variable, the settings show only its last few characters, and emptying the field gives the variable back.
-
-## The provider registry
-
-Providers that others have adapted (see below), checked with their own key and published are in the **provider registry**, [github.com/Amitgb14/conch-sandbox-providers](https://github.com/Amitgb14/conch-sandbox-providers): Hetzner Cloud and DigitalOcean to start with. Installing one costs no agent's time. **Settings → Sandboxes → Add provider…** opens on it in Conch.app; `M` → **New sandbox…** → **\* Install a provider from the registry…** in the TUI; or:
-
-```sh
-conch sandbox provider search            # what there is, and what you have of it
-conch sandbox provider install hetzner
-conch sandbox provider update            # newer versions of what you installed
-```
-
-Before saving anything, install says where the file sends your API key, which variable it reads it from, and where ssh goes, and asks; a file that reads another variable than the registry lists is not installed. It checks that the file it downloaded is the one the registry's index lists, by its hash, and checks the file as it checks one you adapted. With the key set, it lists your sandboxes too, which makes nothing. An installed provider is a provider like any other, marked **adapted**.
-
-`update` takes the registry's newer version of each one you installed, but never:
-
-- **a file you have edited** since you installed it: that one is left alone, and saying `rm` then `install` takes theirs.
-- **new hosts**, unless you say yes: a file that would send your key somewhere new is shown, and with `-y` it is left as it is.
-- **a new key**, unless you say yes: a file that would read your key from another variable (`key_env`), or send it in another header, is shown the same way, and with `-y` left as it is — the same hosts sent `$GITHUB_TOKEN` are no safer than new hosts sent your key. A provider installed by a conch older than 0.2 is asked about this once, since what it sent then was not recorded.
-
-A provider that has left the registry is kept.
-
-**Publishing one of yours.** `conch sandbox provider publish NAME`, or **Publish…** beside it in Settings, first lists sandboxes with your key, so only a file that has worked is proposed. It then opens a pull request to the registry through `gh`, as you: through your fork, or straight to the repository if you can push to it. The pull request holds the file and a `meta.json` saying who adapted it, from which docs, and when your key last listed sandboxes with it. Your key is not in it. `-dry-run` shows both files and opens nothing. The registry's checks run on it: conch's own check, no secrets, and a provider's hosts kept unless a maintainer allows a change. A maintainer reviews it before it is listed, since the file is what everybody's key will be sent with.
-
-The registry is read from `https://amitgb14.github.io/conch-sandbox-providers`; `CONCH_PROVIDERS_URL` points conch at another, such as one of your own.
-
-## A provider conch doesn't know
-
-conch can be taught a provider it has no code for, from that provider's API docs. **Settings → Sandboxes → Add provider…** in Conch.app, `M` → **New sandbox…** → **+ Add a provider conch doesn't know…** in the TUI, or:
-
-```sh
-conch sandbox adapt https://api.example.dev/sandboxes          # Claude writes it
-conch sandbox adapt -agent codex -name acme https://docs.acme.dev/openapi.json
-```
-
-If the registry has that provider already (by its name, or the host of the address you give), conch says so and offers to install it instead; `-new` adapts it all the same.
-
-conch downloads the docs — the address you give, or, when that is the API itself answering *401*, the usual places beside it (`llms.txt`, `openapi.json`/`.yaml` on the docs host) — and starts the agent in a pane of its own, in a folder holding those docs and the format of a **provider file**. The agent writes the file: which call makes a sandbox, looks at one, lists them, starts, stops and deletes one; which of the provider's states mean started, stopped and the rest; and how ssh gets in — a gateway with a key registered with your account, an sshd conch hands its key to through the API, or a credential handed out per connection. It checks its own work with `conch sandbox provider check -offline`. You can watch it, and answer it if it asks.
-
-conch then shows what it will do with the file, a line per call, and checks it — every call there, every state mapped, the ssh way in. Asking the provider for its list with your key, which makes nothing, waits for you: the agent wrote both the variable the key is read from and the host it is sent to, so on a terminal conch names the two (`$ACME_API_KEY to https://api.acme.dev`) and asks first, and Conch.app leaves it to `conch sandbox provider check NAME`, once you have read the file. Nothing is a provider until you save it (**Save provider**, or `conch sandbox provider save NAME`); until then it is a draft in `~/.config/conch/providers/drafts/`. Something wrong with it can be sent back to the same agent (**Ask Claude to change…**, or `conch sandbox adapt -revise "…" NAME`).
-
-Saved, it is `~/.config/conch/providers/NAME.toml`, and it is a provider like the others: in **New sandbox…**, `conch sandbox -provider NAME …`, Stop, Start, Delete and the idle stop, marked **adapted** wherever providers are listed. It is a description, not code: conch reads it with one provider of its own, so a wrong file fails a check or a call — and says which call — rather than doing something else. Edit it by hand if you like; `conch sandbox provider check NAME` says whether it still holds. `conch sandbox provider rm NAME` forgets it, and refuses while a machine here is one of its sandboxes.
-
-Some things it cannot do:
-
-- **A provider with no ssh** cannot be adapted. conch runs everything in a sandbox over ssh; one that offers only its own way to run commands (E2B's, for one) is refused with that reason, and nothing is saved.
-- **The key is yours and conch's.** It is never put in the agent's prompt or folder, and the variables API keys are usually kept in are emptied in the agent's pane — but the agent runs as you, so do not adapt a provider with an agent you would not trust in your shell.
-- **The agent reads what the docs say**, and a docs page can say anything. Read the lines conch shows before saving: they are every request it will make, with your key, to that address.
-- **Format 2.** A file says `format = 2` when it needs what the first format lacked:
-  - **A wrapped reply:** `[get] item`, when one sandbox comes back as `{"server": {...}}`.
-  - **Your public key at creation:** `{public_key}` in the create body, put in through cloud-init where a provider has no key registry.
-  - **A selector:** `networks.v4[type=public].ip_address`, for an address kept in a list.
-
-  A conch older than 0.1.10 refuses such a file rather than misreading it.
-- Snapshots, preview links and what a sandbox has cost are left out: an adapted provider makes, starts, stops, deletes and reaches sandboxes, and the built-in ones do the rest.
+**How:** a different variable, or the key itself, goes in Settings (`,` → **Sandboxes** → the provider) or [`[sandbox.<provider>]`](/docs/configuration#sandbox), with the snapshot, region and auto-stop.
 
 ## In the TUI
 
-Press `M`, choose **New sandbox…** and then the provider — Daytona (`d`), boat.dev (`b`) or Devin Cloud (`e`) (Tensorlake is [command line only](#setting-up)), or one you [adapted](#a-provider-conch-doesnt-know), and whatever conch grows later sits beside it under the first letter of its name nobody else has; `esc` goes back to the machine menu. The dialog takes a label, a snapshot, a size and the names of environment variables to pass in; leave any of them empty for the defaults. boat.dev's machines come in named sizes rather than numbers: put `small`, `default` or `large` where the snapshot goes and leave vCPUs, memory and disk empty — a number there is refused, with that sentence, rather than quietly ignored. Devin Cloud's dialog asks for a **Platform** where the snapshot goes and no size at all, and says before anything is made that Devin works, and bills, in the session. conch creates the sandbox, sets itself up there and adds the machine to the tree, which takes a minute or two — and says what it is doing while it does it, in the status bar with a spinner: *asking boat.dev for a sandbox…*, *waiting for hull to answer…*, *copying conch to hull (16 MB)…*. A provider says a sandbox is started before its sshd is (Daytona says so within a second), so conch waits for it to answer, and tries again when a connection drops — copying 16 MB is the longest thing it asks of one — rather than throwing the sandbox away at the first refusal. That line stays until the job is done, unlike a message that fades. If setting up fails, the sandbox is deleted rather than left to cost — it says that too — and the reason is shown.
+**How:** press `M`, choose **New sandbox…**, then Daytona (`d`), boat.dev (`b`) or Devin Cloud (`e`). Leave fields empty for the defaults. If setup fails, the sandbox is deleted.
 
 `m` on a sandbox's row adds:
 
 | Item | What it does |
 | --- | --- |
-| **Start sandbox** | on a stopped sandbox: starts it and connects |
-| **Stop sandbox…** | ends its agents and terminals; its files stay. Asks first, saying how many agents are still working |
-| **Delete sandbox…** | deletes it and everything in it, and removes the machine. Asks first, listing the branches conch last saw there with commits no remote has, and uncommitted changes |
-
-A stopped sandbox shows `stopped` in the tree, and a spinner while it is starting, stopping or being deleted. **Remove machine** only takes it out of the tree; the sandbox keeps running, and costing, until `conch sandbox -provider P rm`.
+| **Start sandbox** | starts a stopped sandbox and connects |
+| **Stop sandbox…** | ends its agents and terminals; its files stay |
+| **Delete sandbox…** | deletes it and everything in it, after listing unpushed work |
 
 ## Looking at what runs inside
 
-An agent that starts a dev server in a sandbox has nothing to show for it — the port is inside somebody else's machine. `m` → **Open a port in the browser…** asks which port (3000 to begin with, then whatever you used last) and opens a link to it. From a shell: `conch sandbox -provider P url ID PORT`, with `-open` to open it and `-expires` to change how long it lasts (an hour by default, a day at most).
-
-The link carries its own credential, so it works in any browser — and so anyone with the link can reach that port until it expires. Daytona keeps 22222, 2280 and 33333 for itself; conch refuses those rather than letting you wonder why the page is wrong. boat.dev's links are the other kind: one per port, at the sandbox's own address, which stays the same the next time you ask and lasts as long as the sandbox — `-expires` means nothing to it.
-
-conch tries the link before opening it. When the proxy reaches the sandbox and finds nothing there — a `502 proxy upstream error` — it says so instead of opening that page, and says what usually mends it: **the server has to listen on `0.0.0.0`, not `127.0.0.1`**. The proxy arrives on the sandbox's own network interface, where a loopback-only server cannot be seen; `next dev --hostname 0.0.0.0`, `vite --host`, `rails s -b 0.0.0.0`. The link is put on your clipboard either way, so you can try it again once the server is up.
+**How:** `m` → **Open a port in the browser…**, or `conch sandbox -provider P url ID PORT -open`. Anyone with the link reaches that port until it expires. The server must listen on `0.0.0.0`, not `127.0.0.1`.
 
 ## Keeping one to make others from
 
-A sandbox that is set up — the repository cloned, dependencies installed, an agent logged in — can be kept and used as the starting point for the next one. `m` → **Keep a snapshot…**, or `conch sandbox -provider P snapshot ID`, names it; `conch sandbox -provider P snapshots` lists what is kept and `-rm NAME` forgets one. Then **New sandbox…**, or `conch sandbox -provider P create -snapshot NAME`, starts from it.
-
-Daytona takes a cold snapshot, which wants the sandbox stopped first, and says so if it isn't — nothing is changed when it refuses. boat.dev takes it from a running sandbox instead, and keeps ten named ones, so forgetting one is how you make room. Either way a snapshot takes a few minutes to become usable, is kept until you forget it, and is charged for storage meanwhile.
+**How:** `m` → **Keep a snapshot…** or `conch sandbox -provider P snapshot ID`; start from it with **New sandbox…** or `create -snapshot NAME`. Snapshots are charged for storage.
 
 ## What one has cost
 
-A sandbox costs while it runs, so the tree shows how long each has been up — `4h 12m` beside its row, and the total on the Sandboxes page. conch asks the provider what it has billed, every quarter of an hour, and shows that. Daytona reports per sandbox on its own analytics host; conch learns which organization to ask from the sandbox itself, so there is nothing to configure. boat.dev answers with one number for the whole sandbox — the seconds it has run and what they cost — so its detail page shows that single stretch rather than a period each. Those figures settle hours behind what is running, so until they arrive conch falls back to an estimate, marked with a `~`: `4h 12m · ~$0.59` is conch's arithmetic, `4h 12m · $0.03` is the provider's own number.
+The tree shows how long each sandbox has been up and what the provider billed: `4h 12m · $0.03` (`~` marks conch's estimate).
 
-Set what an hour costs in Settings → **Sandboxes** → the provider → **Price an hour** (per vCPU, per GiB of memory, per GiB of disk, from the provider's own pricing page) and the money appears beside the time: `4h 12m · $0.59`. conch ships no price list, because providers change theirs and a stale one misleads.
-
-`m` → **What it has cost…** asks the provider afresh and shows where the money went, newest first — each stretch the sandbox was billed for, what it was doing then, and what that cost:
-
-```
-Daytona f4c07743-2955-4c24-9977-9db242af22af
-
-$0.009 since 26 Sep 09:00
-
-26 Sep 17:32  5m 48s   $0.006  running · 1 vCPU, 1 GiB, 3 GiB disk
-26 Sep 16:45  47m 02s  $0.000  stopped · 3 GiB disk
-26 Sep 16:43  1m 35s   $0.002  running · 1 vCPU, 1 GiB, 3 GiB disk
-```
-
-`conch sandbox -provider P usage [-since 720h] ID` prints the same as a table. A provider with nothing to report yet says so rather than showing an empty page.
-
-**Stopped is not always free.** The disk a stopped sandbox keeps is charged until the sandbox is deleted — on a small Daytona sandbox that is most of what it costs over a week. boat.dev is the exception: it charges for machine time only, so a stopped sandbox there costs nothing and shows nothing. A stopped sandbox's row shows what it has cost all told, and — while the provider has yet to report anything — the rate its disk keeps costing: `disk $0.23/month` rather than nothing, and the Sandboxes page totals it: *stopped ones keep $0.47/month of disk*. Rates are shown in whatever unit says something — an hour, a day or a month — because a few GiB of disk rounds to `$0.000/h` and tells nobody anything. It is a rate rather than a total because a provider doesn't say when a sandbox stopped, and a total conch cannot know would be worse than the rate it can.
+**How:** set **Price an hour** in Settings → **Sandboxes** → the provider. `m` → **What it has cost…** or `conch sandbox -provider P usage ID` shows each billed stretch.
 
 ## Stopping one nobody is using
 
-A sandbox costs while it runs, and it is easy to leave one running. conch pauses a sandbox when no agent there is working, none is waiting for an answer, and no pane has printed for **30 minutes** — Settings → **Sandboxes** → the provider → **Stop when idle** changes it (15, 30, 60, 120 or never), per provider, as `idle_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox). The status bar says which sandbox went and why, its files are kept, and `m` → **Start sandbox** brings it back where it was.
+conch stops a sandbox when no agent is working or waiting and no pane has printed for **30 minutes**. Its files are kept.
 
-This is conch's own watching, not the provider's. Daytona's `auto_stop` counts only what reaches it from outside — an ssh connection, a preview request, an API call — so an agent working quietly inside looks idle to it and would be stopped mid-task. conch leaves that timer off and watches the agents and panes it can actually see. boat.dev has no idle timer at all, only a lifetime from when the sandbox was made: conch gives a new one a day, which `auto_stop` changes, and its own watch is what stops one nobody is using before then.
+**How:** Settings → **Sandboxes** → the provider → **Stop when idle** (15, 30, 60, 120 or never), or `idle_stop`. conch never starts a stopped sandbox by itself.
 
 ## Starting one again
 
-Stopping a sandbox ends every process in it — that is what stopping means, and the provider keeps the filesystem rather than the memory. The work itself stays: the checkout is as it was, and an agent's conversation is saved in the sandbox's own home.
+When a stopped sandbox starts, conch offers to start again the agents and terminals that were running.
 
-So conch writes down what was running — each agent, its conversation and its folder, and each terminal — and offers it back when the sandbox starts again:
-
-> sdx1 was running 2 Claude Code agents and a terminal when it stopped. Start them again? 2 agents carry on where they left off.
-
-Each is started in turn, and conch says what came of it: *started 3 of them again in sdx1*, or the reason each one didn't — a sandbox that comes back with nothing showing and nothing said is the thing to avoid. The first pane to start is opened, so it is plain that something is running. An agent whose conversation has gone is started afresh in the same folder rather than skipped; any other refusal is reported instead, so a busy or broken server doesn't quietly get a second agent.
-
-Nothing is started until you say yes: an agent picking up where it left off is not always what you want to happen twice. Settings → **Sandboxes** → the provider → **Bring back what was running** turns the whole thing off, per provider (`restore_running`), and then conch keeps no note of what ran — the conversations are still on the sandbox's disk, and the Sessions view still finds them. Agents with a saved conversation are resumed on it; one that saved none starts afresh, and the question says which is which. The note survives conch restarting, and is forgotten when the sandbox is deleted or when something is already running there.
-
-## Deleted somewhere else
-
-A sandbox deleted in the provider's own interface is gone as far as conch is concerned, however long Daytona takes to finish: `conch sandbox -provider P ls` shows it as `gone` rather than sitting at `destroying`, starting or stopping it says so straight away instead of waiting, and the machine it left behind is cleared with `conch sandbox -provider P rm ID` (or **Delete sandbox…** in the tree, which then only tidies up). The listing says as much when anything is in that state.
+**How:** say yes when asked. **Bring back what was running** (`restore_running`) turns it off per provider.
 
 ## Commands
 
 ```sh
 conch sandbox -provider daytona create -label fix-login   # make one, install conch, add it as a machine
-conch sandbox -provider boat create -label hull           # the same with boat.dev
-conch -m fix-login task -cwd /home/daytona/api "Fix the flaky tests"   # a branch in a checkout there
-conch -m fix-login task "Plan a CLI for tracking expenses"             # an agent in its home, no repository (t on its row)
-conch sandbox -provider daytona ls             # conch's Daytona sandboxes and their state
-conch sandbox stats                            # every provider's sandboxes at once
+conch -m fix-login task -cwd /home/daytona/api "Fix the flaky tests"
+conch sandbox -provider daytona ls             # conch's sandboxes and their state
+conch sandbox stats                            # every provider at once
 conch sandbox -provider daytona ssh fix-login  # a shell in it
-conch sandbox -provider daytona ssh fix-login git -C api status   # or one command, exiting with its status
-conch sandbox -provider daytona stop fix-login # ends its agents and terminals; files stay
+conch sandbox -provider daytona stop fix-login
 conch sandbox -provider daytona start fix-login
-conch sandbox -provider daytona rm fix-login   # deletes it and everything in it
+conch sandbox -provider daytona rm fix-login
+conch sandbox -provider P add ID               # make one ls lists a machine
 ```
 
-`create` takes `-snapshot`, `-cpu`, `-memory` and `-disk` (GiB), and `-env NAME` to pass one of your environment variables in, say `CLAUDE_CODE_OAUTH_TOKEN`. A named variable that isn't set is refused before anything is created. If setting conch up fails after the sandbox was made, `create` offers to delete it so it doesn't keep costing; `-yes` deletes it without asking.
-
-`-provider daytona` or `-provider boat`, in front of any subcommand, says whose sandboxes you mean. Every subcommand but `stats` needs it, and there is no default: a command without it is refused rather than guessing at an account you didn't pick, and a sandbox named under a provider that isn't its own — `-provider boat stop fix-login` for a Daytona sandbox — is refused with the provider it does belong to.
-
-`conch sandbox stats` needs no provider: it asks every provider at once and lists all their sandboxes in one table, with the provider in the first column, then a line for each provider — how many sandboxes it has, how many are in each state, the vCPUs and memory of the running ones, and how many have no machine here. A provider with no key says it is not set up; one that can't be asked (a bad key, the service down) says why, shows its machines' state as `?`, and makes the command fail, so a script can tell. `-provider P` narrows it to one.
-
-`conch sandbox -provider P ssh ID` opens a shell in a running sandbox, through the same fresh access conch connects with, so there is no token to copy. Anything after the ID is run there instead, and it exits with its status, so it works in scripts; `-t` gives such a command a terminal, for one that draws a screen (`conch sandbox -provider daytona ssh -t fix-login htop`). A stopped sandbox is refused with the command that starts it.
-
-`start`, `stop` and `rm` take the machine's ID or label, or the provider's own sandbox ID. `stop` and `rm` ask first; `-y` doesn't. Before deleting a running sandbox, `rm` lists branches there with commits no remote has and uncommitted changes.
-
-`conch sandbox -provider P ls` also lists sandboxes with no machine here — one whose setting up failed, one removed with `conch machine rm`, or, with a provider that lists the whole account rather than only conch's own (boat.dev has no labels to tell them apart), one you made yourself. They show with `-` for the ID and label, and a line underneath says so: they cost until `conch sandbox -provider P rm ID` deletes them. The size column names only what the provider reports, so a boat.dev sandbox shows `4 vCPU, 8 GiB` rather than inventing a disk it said nothing about.
-
-`conch sandbox -provider P add [-label L] ID` makes one of them a machine: it starts the sandbox if it is stopped, installs conch there and adds it to the sidebar, as `create` would have. It takes only what `ls` lists — with Daytona and Devin Cloud that is what conch made, since they list sandboxes by conch's label; a sandbox or session you made in their own interface is refused, as conch would lose sight of it (and a Devin session made by hand is somebody's work, which conch's wake-up message would interrupt). A sandbox conch already has a machine for is refused with that machine's name. If setting it up fails, the sandbox is left as it was — it is yours, so nothing offers to delete it. `[sandbox.P] env` and `auto_stop` are given to a sandbox when it is made, so one conch did not make — on boat.dev, which lists the whole account — has neither; `add` says so when they are set, and an agent there may start logged out until you sign it in.
-
-## Running until you stop it
-
-A Devin Cloud session is never just a machine: Devin has to be given a task, and works on it. conch gives it one asking it to change nothing and wait, so it does as little as it can — but it is billed in ACUs while the session runs, like any session. Devin also puts a session to sleep when nothing has happened in it for a while, and a sleeping session's VM is not running: conch shows it **stopped**, and **Start sandbox** wakes it (with a message, which is the only way Devin's API has). Stopping one archives it, which is how the API puts a session to sleep; starting it unarchives it again. Deleting one ends the session for good. A session asleep for a reason waiting won't mend — out of credits, a usage limit — says so instead of starting.
-
-Daytona stops an idle sandbox after 15 minutes by default, and an agent working inside doesn't count as activity — only an ssh connection or an API call does. So a sandbox conch creates never stops on its own: close the TUI and its agents carry on. It costs for as long as it runs, so stop or delete it when you're done. `auto_stop` in [`[sandbox.<provider>]`](/docs/configuration#sandbox) sets a timeout instead.
-
-boat.dev is the other way about: a sandbox is given a length of life when it is made, counted from then and not from the last thing that happened in it. conch asks for two hours, which is what the free trial allows, and Settings → **Sandboxes** → **boat.dev** → **Life** (`auto_stop`, in minutes) raises it on a paid plan; a plan that allows less says so, and conch asks again for the longest it named instead of failing. conch's own idle watch stops a sandbox nobody is using long before that clock runs out, and **Start sandbox** gives it a fresh two hours.
-
-conch never starts a stopped sandbox by itself: use **Start sandbox** in its menu, or `conch sandbox -provider P start ID`.
+Flags are on [Command line](/docs/cli#sandbox).
 
 ## Getting the work out
 
-Work goes *in* the same way: `T` on a branch or an agent, then **New Daytona sandbox** (or another provider's), makes a sandbox for it and moves the worktree and its agents there in one go (see [Moving a worktree to another machine](/docs/remote-machines#moving-a-worktree-to-another-machine)).
+**How:** `T` on a branch or agent, then **New Daytona sandbox**, moves the worktree there ([Moving a worktree](/docs/remote-machines#moving-a-worktree-to-another-machine)). Bring code back by pushing the branch, or with `T` again.
 
-The code comes back the way it would from any machine: push the branch from the sandbox, or move the worktree back with **T** (see [Remote machines](/docs/remote-machines)). The sandbox needs its own access to a private repository — a token scoped to that repository, passed with `-env`.
+## The provider registry
 
-## How conch reaches it
+Providers others have adapted, such as Hetzner Cloud and DigitalOcean, from [the registry](https://github.com/Amitgb14/conch-sandbox-providers). Install and update say where your key goes, from which variable, and ask.
 
-All are reached over ssh, by different means.
+**How:** `M` → **New sandbox…** → **\* Install a provider from the registry…**, Settings → Sandboxes → **Add provider…** in Conch.app, or:
 
-With Daytona, each connection asks for a fresh ssh token and goes through Daytona's ssh gateway, so nothing that lets you in is saved. The token is kept out of conch's messages, but ssh has it on its command line while connected, where other users of your computer could see it in the process list. Daytona's gateway key is accepted the first time it is seen.
+```sh
+conch sandbox provider search
+conch sandbox provider install hetzner
+conch sandbox provider update
+conch sandbox provider publish NAME    # a pull request through gh
+```
 
-With boat.dev, the sandbox is a machine with an sshd of its own. A new one is ready a moment before it has an address, so conch waits for one rather than failing a create that was going to work. conch authorizes your public key in it — your default `~/.ssh/id_*.pub`, or one conch makes for itself — and connects to the machine directly as `user`, offering that same key (`-i`, and nothing else), so the half that opens it never leaves your computer and there is no token to hide. Your key does not need to be in `ssh-agent`. A sandbox that comes back from being stopped lands on another machine, so where to connect is read afresh each time, and the new host key is accepted as the gateway's is.
+## A provider conch doesn't know
 
-With Devin Cloud, conch runs `devin ssh SESSION`, which wraps ssh to Devin's gateway (`ssh.devin.ai`) and approves the connection with the CLI's own login — plain ssh there would ask for approval in a browser, and the API hands out no credential for it. What conch runs there goes as an ssh `RemoteCommand`, encoded, so it arrives whole whatever the CLI does with the options it is given. `conch sandbox -provider devin ssh` opens a shell the same way. A session whose CLI isn't signed in says so (`not logged in — run devin auth login first`) rather than hanging.
+An agent reads the provider's API docs and writes a provider file; conch shows each call it will make and checks it before you save. The provider needs ssh.
+
+**How:** `M` → **New sandbox…** → **+ Add a provider conch doesn't know…**, or:
+
+```sh
+conch sandbox adapt https://api.example.dev/sandboxes
+conch sandbox provider save NAME
+```
 
 <Callout type="note">
 

@@ -1,0 +1,84 @@
+export const metadata = { title: "Why conch", description: "What conch does that other agent orchestrators leave to you." }
+
+# Why conch
+
+conch goes further where agent work stalls: waiting on CI, losing agents to an update, guessing what an agent is doing, and being away from the laptop.
+
+<FeatureGrid>
+<Feature icon="loop" title="It finishes the job" href="#it-finishes-the-job-without-you">Failed CI goes back to the agent; green merges. No window open.</Feature>
+
+<Feature icon="reload" title="Updates keep agents running" href="#updating-never-stops-your-agents">A new build, and every terminal still open.</Feature>
+
+<Feature icon="signal" title="It hears from the agent" href="#it-hears-from-the-agent-not-just-its-screen">The agent says what it is doing, not a guess from its spinner.</Feature>
+
+<Feature icon="scope" title="Agents run agents, safely" href="#agents-can-run-agents-and-stay-in-their-lane">A reviewer, a tester, a team, each kept to its own work.</Feature>
+
+<Feature icon="desktop" title="A desktop app, not a second product" href="#a-native-desktop-on-the-same-servers">Conch.app: Ghostty panes, a workbench, a branch's changes.</Feature>
+
+<Feature icon="phone" title="Your phone, your server" href="#your-phone-without-anyone-elses-server">Answer an agent from anywhere, with no account.</Feature>
+</FeatureGrid>
+
+## It finishes the job without you
+
+A failed check or CI run goes back to the branch's agent with the log, and the pull request merges once it is green — run by the server, with your laptop shut. See [Sending a failure back](/docs/interface).
+
+<AutopilotLoop />
+
+## Updating never stops your agents
+
+conch reloads its server onto a new build and keeps every terminal open. See [Updating without stopping agents](/docs/installation#updating-without-stopping-agents).
+
+## It hears from the agent, not just its screen
+
+An agent tells conch what it is doing — working, waiting for permission, done — through OSC 7501, and conch passes that up to your terminal's tab. See [Agent states](/docs/agents).
+
+<AgentStates />
+
+## Agents can run agents, and stay in their lane
+
+An agent can start a reviewer, prompt it and read its answer, but reaches only the panes it started and its own project. See [Agents together](/docs/agents-together).
+
+## A native desktop on the same servers
+
+[Conch.app](/docs/mac-app) is a window on the same servers the TUI talks to, with panes drawn by Ghostty; close it and nothing stops.
+
+<Shot
+  name="desktop-agents"
+  alt="Conch.app: the tree of machines, projects, agents and branches, a waiting agent's question answered from the sidebar, and a working agent in its tab"
+  caption="Answer a waiting agent from the sidebar while another works in a Ghostty pane."
+/>
+
+<Shot
+  name="desktop-git"
+  alt="Conch.app showing a branch's changes: files, a diff, a note to the agent on a line, and the pull request's checks"
+  caption="A branch's changes: commit single hunks, and leave the agent a note it answers in the thread."
+/>
+
+## A cloud sandbox is just another machine
+
+A sandbox at Daytona, boat.dev or Devin Cloud shows in the tree beside your own machines. See [Sandboxes](/docs/sandboxes).
+
+## Every conversation, from every agent, in one place
+
+Search, resume, delete or hand off what every agent saved for a project. See [Sessions](/docs/sessions).
+
+## Your phone, without anyone else's server
+
+Answer a waiting agent over Tailscale or a relay you run yourself, with no account. See [Phone](/docs/phone).
+
+<Shot
+  name="phone-agent"
+  phone
+  alt="The phone app: a waiting agent with its question and the answers to tap"
+  caption="A waiting agent on the phone: its question, and the answers as buttons."
+/>
+
+## Built for the terminal, and for ssh
+
+The TUI works the same on a laptop or over ssh, and shows every machine you add in one tree. See [Remote machines](/docs/remote-machines).
+
+<Architecture />
+
+## Ask in plain words, approve before anything runs
+
+Tell the [brain](/docs/brain) what you want; nothing runs until you press Enter.
