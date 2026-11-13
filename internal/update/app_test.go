@@ -2,6 +2,8 @@ package update
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -69,5 +71,88 @@ func TestCheckAppErrors(t *testing.T) {
 	cancel()
 	if _, err := CheckApp(ctx, "0.2.0"); err == nil {
 		t.Fatal("cancelled: no error")
+	}
+}
+
+// fakeApp makes a bundle with a version in its Info.plist.
+func fakeApp(t *testing.T, dir, version string) string {
+	t.Helper()
+	app := filepath.Join(dir, "Conch.app")
+	if err := os.MkdirAll(filepath.Join(app, "Contents", "MacOS"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plist := `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+	<key>CFBundleIdentifier</key><string>dev.conch.mac</string>
+	<key>CFBundleShortVersionString</key><string>` + version + `</string>
+</dict></plist>`
+	os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte(plist), 0o644)
+	os.WriteFile(filepath.Join(app, "Contents", "MacOS", "Conch"), []byte("v"+version), 0o755)
+	return app
+}
+
+func TestAppReplaceable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write anywhere")
+	}
+	dir := t.TempDir()
+	app := fakeApp(t, dir, "0.2.0")
+	if err := AppReplaceable(app); err != nil {
+		t.Fatalf("a writable install: %v", err)
+	}
+	// Translocated: macOS ran it from a random read-only copy.
+	if err := AppReplaceable("/private/var/folders/xy/T/AppTranslocation/1234-ABCD/d/Conch.app"); err == nil || !strings.Contains(err.Error(), "Applications") {
+		t.Fatalf("translocated: %v", err)
+	}
+	// Not a bundle, or not there.
+	if err := AppReplaceable(filepath.Join(dir, "Missing.app")); err == nil {
+		t.Fatal("missing: no error")
+	}
+	if err := AppReplaceable(dir); err == nil || !strings.Contains(err.Error(), ".app") {
+		t.Fatalf("not a bundle: %v", err)
+	}
+	if err := AppReplaceable(""); err == nil {
+		t.Fatal("empty: no error")
+	}
+
+	// A folder this user cannot write, as /Applications is to somebody who
+	// is not an admin.
+	locked := filepath.Join(t.TempDir(), "Applications")
+	os.Mkdir(locked, 0o755)
+	lockedApp := fakeApp(t, locked, "0.2.0")
+	os.Chmod(locked, 0o555)
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	if err := AppReplaceable(lockedApp); err == nil || !strings.Contains(err.Error(), "can't write") {
+		t.Fatalf("unwritable folder: %v", err)
+	}
+	os.Chmod(locked, 0o755)
+	// A bundle installed by an admin: the folder is writable, the app is not.
+	os.Chmod(filepath.Join(lockedApp, "Contents"), 0o555)
+	t.Cleanup(func() { os.Chmod(filepath.Join(lockedApp, "Contents"), 0o755) })
+	if err := AppReplaceable(lockedApp); err == nil || !strings.Contains(err.Error(), "can't write") {
+		t.Fatalf("unwritable bundle: %v", err)
+	}
+	// Probing left nothing behind.
+	if left, _ := os.ReadDir(locked); len(left) != 1 {
+		t.Fatalf("left behind: %v", left)
+	}
+}
+
+// A disk image is read-only, which says itself as an unwritable folder
+// under /Volumes; the advice is to copy it to Applications.
+func TestAppReplaceableFromADiskImage(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write anywhere")
+	}
+	vol := filepath.Join(t.TempDir(), "Volumes", "Conch")
+	os.MkdirAll(vol, 0o755)
+	app := fakeApp(t, vol, "0.2.0")
+	os.Chmod(vol, 0o555)
+	t.Cleanup(func() { os.Chmod(vol, 0o755) })
+	old := volumesDir
+	volumesDir = filepath.Dir(vol)
+	t.Cleanup(func() { volumesDir = old })
+	if err := AppReplaceable(app); err == nil || !strings.Contains(err.Error(), "disk image") {
+		t.Fatalf("dmg: %v", err)
 	}
 }
