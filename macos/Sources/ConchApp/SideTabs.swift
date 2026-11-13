@@ -85,6 +85,10 @@ struct SideTabRow: View {
             } else if panes.contains(where: { $0.agent?.state == .done }) {
                 Text("✓").font(.ui(size: 12, weight: .bold)).foregroundStyle(Theme.ok).help("finished")
             }
+            // What its agents left running, as the sidebar says it.
+            ForEach(tab.root.panes.filter { store.pane($0)?.agent?.backgroundPill != nil }, id: \.self) { k in
+                BackgroundPill(store: store, pane: k, mark: true)
+            }
         }
         .padding(.horizontal, 8).frame(height: 30)
         .background(RoundedRectangle(cornerRadius: 7).fill(on ? Theme.accentDeep.opacity(0.45) : hover ? Theme.raise : .clear))
