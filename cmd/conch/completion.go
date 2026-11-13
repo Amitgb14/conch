@@ -64,6 +64,7 @@ var compCommands = []compItem{
 	{"cloud", "Conch Cloud's machines"},
 	{"config", "edit every setting in the browser"},
 	{"ask", "ask the brain to plan actions"},
+	{"preview", "the phone simulators an app is previewed on"},
 	{"commit-message", "write a commit message for a diff"},
 	{"server", "run, stop or reload the server"},
 	{"update", "the newest release, without stopping agents"},
@@ -84,6 +85,11 @@ var compSubcommands = map[string][]compItem{
 	"app": {
 		{"ls", "which terminals conch can open"}, {"install", "put conch in the desktop's applications"},
 		{"remove", "take it out again"},
+	},
+	"preview": {
+		{"devices", "the simulators, emulators and phones here"}, {"boot", "start one"},
+		{"shot", "a picture of its screen"}, {"tap", "touch it"}, {"type", "type into it"},
+		{"button", "press home or back"}, {"detect", "what kind of mobile app a folder is"},
 	},
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}},
 	"agent": {
