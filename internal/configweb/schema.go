@@ -263,6 +263,10 @@ func Schema(c Choices) []Section {
 					Help: "Plain follows the text colour; Tinted gives each section a colour; Tiles puts it on a coloured square, as System Settings does."},
 				{Key: "font_size", Label: "Terminal font size", Kind: KindFloat, Placeholder: "14",
 					Help: "Points, for the text in every pane, 9 to 28; empty is 14. Command-plus and minus change it too."},
+				{Key: "check_updates", Label: "Automatically check for updates", Kind: KindBool, Default: true,
+					Help: "Once a day Conch.app asks GitHub whether a newer release of itself is out, and says so in the status bar. Conch → Check for Updates… asks now. A build from source never asks."},
+				{Key: "auto_update", Label: "Install updates automatically", Kind: KindBool,
+					Help: "Download, verify and install a newer release as soon as the check finds one; it runs from the next launch. Off, the app asks first."},
 			}},
 		{ID: "sandbox", Key: "sandbox", Title: "Sandboxes", Icon: "box", Description: "Hosted sandbox providers, one table each.",
 			Fields: []Field{
