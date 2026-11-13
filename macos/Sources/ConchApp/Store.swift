@@ -251,6 +251,10 @@ final class Store: ObservableObject {
     /// else [cloud] enabled), read with the theme. Hidden in this release;
     /// a cloud machine already in machines.json keeps working either way.
     @Published var offersCloud = false
+    /// Whether the workbench offers its chat (ConchKit's chatEnabled:
+    /// CONCH_CHAT, else [app] chat), read with the theme. Off in 0.2.0: the
+    /// agent's own terminal takes the chat's place.
+    @Published var offersChat = false
     @Published var cloudMachines: [CloudMachine] = []
     @Published var cloudLogin: CloudLoginState = .idle
     @Published var cloudError = ""
@@ -638,7 +642,7 @@ final class Store: ObservableObject {
             p += b
             pl += c
         }
-        return w + p + pl + paletteCommandItems()
+        return w + p + pl + paletteCommandItems(chat: offersChat)
     }
 
     // MARK: the status bar's own: limits, settings, what conch uses
@@ -870,6 +874,12 @@ final class Store: ObservableObject {
         notifySettings = NotifySettings(toml: toml)
         let offers = cloudEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
         if offers != offersCloud { offersCloud = offers }
+        let chat = chatEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
+        if chat != offersChat {
+            offersChat = chat
+            // An open workbench follows: the chat shown or its terminal.
+            for i in layout.tabs.indices where layout.tabs[i].benchAgent != nil && i == layout.active { layout.setBench(layout.tabs[i].bench ?? .ide, chat: chat) }
+        }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
         let cost = showsCost(toml: toml ?? "")

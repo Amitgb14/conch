@@ -28,7 +28,7 @@ extension Store {
     func openWorkbench(_ agent: String, layout l: BenchLayout? = nil) {
         if let i = layout.benchTab(of: agent) {
             layout.select(i)
-            if let l, layout.tabs[i].bench != l { setBench(l) }
+            if let l, layout.tabs[i].bench != l.shown(chat: offersChat) { setBench(l) }
             return
         }
         let (m, _) = unkey(agent)
@@ -53,7 +53,7 @@ extension Store {
         if fileViews[fk] == nil || fm.dirs.isEmpty { fm.load() }
         let chosen = l ?? benchLayout
         let placeholder = benchShellKey(agent)
-        layout.openBench(chosen, BenchParts(files: fk, shell: placeholder, chat: chatKey(agent), agent: agent))
+        layout.openBench(chosen, BenchParts(files: fk, shell: placeholder, chat: chatKey(agent), agent: agent), chat: offersChat)
         terminalHasKeyboard = false
         startBenchShell(for: agent, cwd: p.cwd)
     }
@@ -84,7 +84,7 @@ extension Store {
     /// The workbench on screen in another layout; remembered for the next.
     func setBench(_ l: BenchLayout) {
         benchLayout = l
-        layout.setBench(l)
+        layout.setBench(l, chat: offersChat)
     }
 
     func toggleBench(_ leaf: String) { layout.toggleHidden(leaf) }
@@ -156,7 +156,7 @@ struct BenchBar: View {
             if let parts {
                 toggle("Files", icon: "folder", leaf: parts.files)
                 toggle("Terminal", icon: "terminal", leaf: parts.shell)
-                toggle("Chat", icon: "bubble.left.and.bubble.right", leaf: parts.chat)
+                if store.offersChat { toggle("Chat", icon: "bubble.left.and.bubble.right", leaf: parts.chat) }
                 toggle("Agent", icon: "apple.terminal", leaf: parts.agent)
                 Rectangle().fill(Theme.line).frame(width: 1, height: 16)
             }
@@ -188,7 +188,7 @@ struct LayoutPicker: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(BenchLayout.allCases, id: \.self) { l in
+            ForEach(BenchLayout.offered(chat: store.offersChat), id: \.self) { l in
                 let on = l == current
                 Button { store.setBench(l) } label: {
                     Text(l.label).font(.ui(size: 11.5, weight: on ? .semibold : .regular))
@@ -224,11 +224,11 @@ struct ToolStripe: View {
                     Spacer()
                     icon("terminal", "Terminal", leaf: parts.shell)
                 } else {
-                    icon("bubble.left.and.bubble.right", "Agent Chat", leaf: parts.chat, badge: store.questions[parts.agent] != nil)
+                    if store.offersChat { icon("bubble.left.and.bubble.right", "Agent Chat", leaf: parts.chat, badge: store.questions[parts.agent] != nil) }
                     icon("apple.terminal", "Agent Terminal", leaf: parts.agent)
                     Spacer()
                     Menu {
-                        ForEach(BenchLayout.allCases, id: \.self) { l in
+                        ForEach(BenchLayout.offered(chat: store.offersChat), id: \.self) { l in
                             Button((l == tab.bench ? "✓ " : "   ") + l.label) { store.setBench(l) }
                         }
                     } label: { Image(systemName: "rectangle.3.group").font(.system(size: 13)) }

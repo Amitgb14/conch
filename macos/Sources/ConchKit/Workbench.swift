@@ -42,6 +42,27 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
 
     /// Whether the tab is framed by IntelliJ's strips of tool-window icons.
     public var stripes: Bool { self == .jetbrains }
+
+    /// The layouts offered: without the chat (chatEnabled), Chat First has
+    /// nothing to put first.
+    public static func offered(chat: Bool) -> [BenchLayout] { chat ? allCases : allCases.filter { $0 != .chat } }
+
+    /// The layout used for a choice: Chat First is IDE while the chat is off.
+    public func shown(chat: Bool) -> BenchLayout { !chat && self == .chat ? .ide : self }
+}
+
+/// The variable that turns the workbench's chat on or off over config.toml.
+public let chatEnv = "CONCH_CHAT"
+
+/// Whether the workbench offers its chat: CONCH_CHAT when set (1, true,
+/// yes or on is on, anything else off), else [app] chat in config.toml,
+/// else off. Hidden in 0.2.0: its Stop sent the agent an escape that could
+/// take a while to take, so the chat waits for a release that fixes it.
+public func chatEnabled(toml: String?, env: [String: String]) -> Bool {
+    if let v = env[chatEnv]?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
+        return ["1", "true", "yes", "on"].contains(v.lowercased())
+    }
+    return tomlSetting("app", "chat", in: toml) == "true"
 }
 
 /// The four parts of a workbench, by their layout keys.
@@ -65,7 +86,13 @@ public struct BenchParts: Equatable, Sendable {
 /// shares by its path, and what starts hidden. The chat and the agent's
 /// terminal are the same conversation, so where only one has room the other
 /// waits hidden beside it, a click away (Chat ⇄ Terminal).
-public func benchArrangement(_ l: BenchLayout, _ p: BenchParts) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
+public func benchArrangement(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
+    // Without the chat its place is the agent's own terminal's, which the
+    // layouts keep beside it for that: the chat waits hidden instead.
+    guard chat else {
+        let (root, weights, _) = benchArrangement(l.shown(chat: false), p)
+        return (root, weights, [p.chat])
+    }
     switch l {
     case .ide, .jetbrains:
         let root = SplitNode.split(.horizontal, [.split(.vertical, [.leaf(p.files), .leaf(p.shell)]), .leaf(p.chat), .leaf(p.agent)])
@@ -146,9 +173,9 @@ extension Layout {
     /// An agent's workbench in a tab of its own, arranged by l: the parts
     /// are taken out of any other tab first, since a pane is shown in one
     /// place. One already open is rearranged and shown.
-    public mutating func openBench(_ l: BenchLayout, _ p: BenchParts) {
+    public mutating func openBench(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) {
         if let i = benchTab(of: p.agent) {
-            arrange(i, l, p)
+            arrange(i, l, p, chat: chat)
             active = i
             return
         }
@@ -156,14 +183,14 @@ extension Layout {
         var t = Tab(pane: p.chat)
         t.benchAgent = p.agent
         tabs.append(t)
-        arrange(tabs.count - 1, l, p)
+        arrange(tabs.count - 1, l, p, chat: chat)
         active = tabs.count - 1
     }
 
     /// The current workbench tab in another layout, its parts as they are.
-    public mutating func setBench(_ l: BenchLayout) {
+    public mutating func setBench(_ l: BenchLayout, chat: Bool = true) {
         guard tabs.indices.contains(active), let parts = benchParts(active) else { return }
-        arrange(active, l, parts)
+        arrange(active, l, parts, chat: chat)
     }
 
     /// A workbench tab's parts, read off its leaves.
@@ -176,13 +203,13 @@ extension Layout {
         return BenchParts(files: files, shell: shell, chat: chatKey(agent), agent: agent)
     }
 
-    private mutating func arrange(_ i: Int, _ l: BenchLayout, _ p: BenchParts) {
-        let (root, weights, hidden) = benchArrangement(l, p)
+    private mutating func arrange(_ i: Int, _ l: BenchLayout, _ p: BenchParts, chat: Bool) {
+        let (root, weights, hidden) = benchArrangement(l, p, chat: chat)
         tabs[i].root = root
         tabs[i].weights = weights
         tabs[i].hidden = hidden
-        tabs[i].bench = l
-        if !tabs[i].shows(tabs[i].focused) { tabs[i].focused = p.chat }
+        tabs[i].bench = l.shown(chat: chat)
+        if !tabs[i].shows(tabs[i].focused) { tabs[i].focused = chat ? p.chat : p.agent }
     }
 
     /// A leaf of the current tab shown or hidden: a tool window opened or

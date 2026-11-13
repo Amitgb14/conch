@@ -422,3 +422,39 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     // Waiting on a question is answered, not stopped.
     #expect(!chatBusy(state: .blocked, pending: 0, turns: [asked, said]))
 }
+
+// The chat is off in 0.2.0 unless CONCH_CHAT or [app] chat says on; the
+// variable wins over the file either way.
+@Test func chatSwitch() {
+    #expect(!chatEnabled(toml: nil, env: [:]))
+    #expect(!chatEnabled(toml: "[app]\ntabs = \"left\"\n", env: [:]))
+    #expect(chatEnabled(toml: "[app]\nchat = true\n", env: [:]))
+    #expect(!chatEnabled(toml: "[cloud]\nchat = true\n", env: [:]), "another section's key")
+    for on in ["1", "true", "YES", " on "] { #expect(chatEnabled(toml: nil, env: [chatEnv: on]), "\(on)") }
+    for off in ["0", "false", "off", "2"] { #expect(!chatEnabled(toml: "[app]\nchat = true\n", env: [chatEnv: off]), "\(off)") }
+    #expect(chatEnabled(toml: "[app]\nchat = true\n", env: [chatEnv: ""]), "blank is unset")
+}
+
+// Without the chat every layout shows the agent's own terminal where the
+// chat was, Chat First is not offered, and a saved Chat First is IDE.
+@Test func benchWithoutChat() {
+    let p = BenchParts(files: "files|local|r1", shell: "local|p2", chat: chatKey("local|p1"), agent: "local|p1")
+    for l in BenchLayout.allCases {
+        let (root, _, hidden) = benchArrangement(l, p, chat: false)
+        #expect(hidden == [p.chat], "\(l)")
+        #expect(Set(root.panes) == Set(p.all), "\(l): every part still in the tree")
+    }
+    #expect(BenchLayout.offered(chat: false) == [.ide, .agent, .jetbrains])
+    #expect(BenchLayout.offered(chat: true) == BenchLayout.allCases)
+    #expect(BenchLayout.chat.shown(chat: false) == .ide && BenchLayout.chat.shown(chat: true) == .chat)
+
+    var layout = Layout()
+    layout.openBench(.chat, p, chat: false)
+    let t = layout.tabs[layout.active]
+    #expect(t.bench == .ide && !t.shows(p.chat) && t.shows(p.agent) && t.focused == p.agent)
+    layout.setBench(.agent, chat: true)
+    #expect(layout.tabs[layout.active].shows(p.chat), "turned back on")
+
+    #expect(!paletteCommandItems(chat: false).contains { $0.title.contains("Chat First") })
+    #expect(paletteCommandItems(chat: true).contains { $0.title.contains("Chat First") })
+}

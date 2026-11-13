@@ -135,6 +135,11 @@ type AppCfg struct {
 	// "tiles" white on a square of that colour, as System Settings does;
 	// "" plain, in the text's.
 	IconStyle string `toml:"icon_style,omitempty"`
+	// Chat turns on the workbench's chat, an agent's conversation drawn as
+	// messages: a preview in 0.2.0, off unless true (or CONCH_CHAT=1), its
+	// Stop too slow to rely on. Off, the agent's own terminal takes its
+	// place. The app reads it; conch only keeps it.
+	Chat bool `toml:"chat,omitempty"`
 }
 
 // The range the app keeps the window's text size and the terminal's font
