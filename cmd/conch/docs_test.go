@@ -273,3 +273,54 @@ func TestDocsLinksResolve(t *testing.T) {
 		t.Fatal("no docs links found — the regexp or the pages moved")
 	}
 }
+
+// TestDocsHideCloud: Conch Cloud is not enabled in this release, so the
+// website does not offer it. Its pages stay, for whoever turns it on, but
+// the sidebar leaves them out, each says it is not enabled, and no other
+// page — nor the site's components — names it, except the Command line
+// page's own section about its commands.
+func TestDocsHideCloud(t *testing.T) {
+	nav, err := os.ReadFile("../../web/src/lib/docs.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/docs/cloud", "/docs/cloud-machine"} {
+		if strings.Contains(string(nav), `href: "`+p+`"`) {
+			t.Errorf("the docs sidebar lists %s", p)
+		}
+		b, err := os.ReadFile("../../web/src/app" + p + "/page.mdx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), "Conch Cloud is not enabled in this release") {
+			t.Errorf("%s does not say Conch Cloud is not enabled", p)
+		}
+	}
+	cloud := regexp.MustCompile(`(?i)conch cloud|/docs/cloud\b`)
+	var files []string
+	_ = filepath.WalkDir("../../web/src", func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && (strings.HasSuffix(path, ".mdx") || strings.HasSuffix(path, ".tsx") || strings.HasSuffix(path, ".ts")) {
+			files = append(files, path)
+		}
+		return nil
+	})
+	for _, f := range files {
+		if strings.Contains(f, "/docs/cloud/") || strings.Contains(f, "/docs/cloud-machine/") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		if strings.HasSuffix(f, "/docs/cli/page.mdx") {
+			if i := strings.Index(src, "## Conch Cloud commands"); i >= 0 {
+				src = src[:i] // the one place the commands are described
+			}
+		}
+		for _, m := range cloud.FindAllStringIndex(src, -1) {
+			line := strings.Count(src[:m[0]], "\n") + 1
+			t.Errorf("%s:%d names Conch Cloud", f, line)
+		}
+	}
+}
