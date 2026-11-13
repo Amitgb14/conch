@@ -203,7 +203,7 @@ func InstallApp(ctx context.Context, version, app string, say func(string)) erro
 		return fmt.Errorf("unpack Conch %s: %s", version, firstLine(out, err))
 	}
 	next := filepath.Join(stage, "Conch.app")
-	got, ok := bundleVersion(next)
+	got, ok := AppVersion(next)
 	if !ok {
 		return fmt.Errorf("the release's archive has no Conch.app in it")
 	}
@@ -226,7 +226,7 @@ func previousApp(app string) string {
 
 // PreviousApp is the version of the app kept from the last update, if any.
 func PreviousApp(app string) (string, bool) {
-	return bundleVersion(previousApp(app))
+	return AppVersion(previousApp(app))
 }
 
 // replaceApp moves app aside as the previous one — dropping the one kept
@@ -253,7 +253,7 @@ func replaceApp(app, next string) error {
 // the release just undone is kept in turn and can be gone forward to.
 func RollbackApp(app string) error {
 	prev := previousApp(app)
-	if _, ok := bundleVersion(prev); !ok {
+	if _, ok := AppVersion(prev); !ok {
 		return errors.New("no previous Conch.app is kept to go back to")
 	}
 	if err := AppReplaceable(app); err != nil {
@@ -273,9 +273,9 @@ func RollbackApp(app string) error {
 
 var plistVersion = regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]*)</string>`)
 
-// bundleVersion reads an app's CFBundleShortVersionString; ok is false
+// AppVersion reads an app's CFBundleShortVersionString; ok is false
 // when there is no bundle there.
-func bundleVersion(app string) (string, bool) {
+func AppVersion(app string) (string, bool) {
 	b, err := os.ReadFile(filepath.Join(app, "Contents", "Info.plist"))
 	if err != nil {
 		return "", false

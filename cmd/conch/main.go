@@ -339,6 +339,11 @@ Usage:
                                 prints the command without starting it); ls says which terminals are
                                 here, install adds it to the desktop's applications with its icon,
                                 remove takes it out
+  conch app update check [-json] [-version V] | install [-app PATH] VERSION | rollback [-app PATH]
+                                Conch.app's own update, which the app runs: check asks GitHub for a
+                                newer release (a build from source never asks), install downloads it,
+                                checks its checksum, signature, team and notarization and puts it in
+                                place of the app, keeping the one before for rollback
   conch [-m MACHINE] autopilot push
                                 hand the server the autopilot policy config.toml's [verify]
                                 sets, as the TUI does when it connects; for a window that is
