@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -197,7 +198,7 @@ func (b *fsnotifyBackend) unwatch(root string) {
 }
 
 func (b *fsnotifyBackend) missed() bool {
-	b.drops.report(watchLogf)
+	b.drops.report(log.Printf)
 	return b.lost.Swap(false)
 }
 

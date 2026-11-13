@@ -91,7 +91,7 @@ When a stopped sandbox starts, conch offers to start again the agents and termin
 ```sh
 conch sandbox -provider daytona create -label fix-login   # make one, install conch, add it as a machine
 conch -m fix-login task -cwd /home/daytona/api "Fix the flaky tests"
-conch sandbox -provider daytona ls             # conch's sandboxes and their state
+conch sandbox -provider daytona ls             # conch's sandboxes and their state (deleting: just rm'd)
 conch sandbox stats                            # every provider at once
 conch sandbox -provider daytona ssh fix-login  # a shell in it
 conch sandbox -provider daytona stop fix-login
@@ -99,8 +99,6 @@ conch sandbox -provider daytona start fix-login
 conch sandbox -provider daytona rm fix-login
 conch sandbox -provider P add ID               # make one ls lists a machine
 ```
-
-A sandbox `rm` has just deleted is listed as `deleting` while its provider finishes the job: Daytona deletes in the background and lists it as running for a few seconds more.
 
 Flags are on [Command line](/docs/cli#sandbox).
 

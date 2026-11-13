@@ -490,10 +490,6 @@ func skipPath(rel string, ignored []string) bool {
 	return false
 }
 
-// watchLogf is where the watcher's lines go; a variable so a test can read
-// them.
-var watchLogf = log.Printf
-
 // dropLog counts the paths a backend threw away because the reader was
 // behind, so a burst — a large node_modules rewritten — is one line in
 // server.log rather than one per path (#199). Backends add as they drop

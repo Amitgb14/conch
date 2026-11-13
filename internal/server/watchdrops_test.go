@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"testing"
 )
@@ -40,24 +43,32 @@ func TestBackendReportsDropsWhenAsked(t *testing.T) {
 		t.Skip("no watch backend here:", err)
 	}
 	defer be.close()
-	var lines []string
-	old := watchLogf
-	watchLogf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
-	t.Cleanup(func() { watchLogf = old })
+	// The log is shared with whatever else runs now, and writes to it are
+	// serialised by the log package; only this backend's paths are counted.
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	restored := false
+	restore := func() string {
+		if !restored {
+			log.SetOutput(os.Stderr)
+			restored = true
+		}
+		return buf.String()
+	}
+	t.Cleanup(func() { restore() })
+	ours := func(s string) int { return strings.Count(s, "/drops-test/") }
 	d := be.(interface{ noteDropped(string) })
 	for i := range 300 {
-		d.noteDropped(fmt.Sprintf("/w/f%d", i))
-	}
-	if len(lines) != 0 {
-		t.Fatalf("logged as dropped: %d lines", len(lines))
+		d.noteDropped(fmt.Sprintf("/drops-test/f%d", i))
 	}
 	if !be.missed() {
 		t.Fatal("drops not owned up to")
 	}
-	if len(lines) != 1 || !strings.Contains(lines[0], "dropped 300 events") {
-		t.Fatalf("lines %q", lines)
+	if be.missed() {
+		t.Fatal("owned up to twice")
 	}
-	if be.missed() || len(lines) != 1 {
-		t.Fatalf("reported twice: %q", lines)
+	out := restore()
+	if ours(out) != 1 || !strings.Contains(out, "dropped 300 events, the first for /drops-test/f0") {
+		t.Fatalf("log:\n%s", out)
 	}
 }

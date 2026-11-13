@@ -3,6 +3,7 @@
 package server
 
 import (
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -58,7 +59,7 @@ func (b *fseventsBackend) cost(root string, ignored []string) (int, int) { retur
 func (b *fseventsBackend) paths() <-chan string                          { return b.out }
 
 func (b *fseventsBackend) missed() bool {
-	b.drops.report(watchLogf)
+	b.drops.report(log.Printf)
 	return b.lost.Swap(false)
 }
 
