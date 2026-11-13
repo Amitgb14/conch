@@ -191,14 +191,16 @@ func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + 
 func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) }
 func subagentID(mid, pane, id string) string { return paneNodeID(mid, pane) + "/sub/" + id }
 
-func jobID(mid, pane string, pid int) string { return paneNodeID(mid, pane) + "/job/" + strconv.Itoa(pid) }
-func moreID(mid, pid string) string          { return "more:" + scoped(mid, pid) }
-func looseTerminalsID(mid string) string     { return machineID(mid) + "/terminals" }
-func looseSSHID(mid string) string           { return machineID(mid) + "/ssh" }
-func savedSSHID(target string) string        { return "sshsaved:" + target }
-func cliID(mid string) string                { return machineID(mid) + "/cli" }
-func workspaceID(mid string) string          { return machineID(mid) + "/workspace" }
-func machineFilesID(mid string) string       { return machineID(mid) + "/files" }
+func jobID(mid, pane string, pid int) string {
+	return paneNodeID(mid, pane) + "/job/" + strconv.Itoa(pid)
+}
+func moreID(mid, pid string) string      { return "more:" + scoped(mid, pid) }
+func looseTerminalsID(mid string) string { return machineID(mid) + "/terminals" }
+func looseSSHID(mid string) string       { return machineID(mid) + "/ssh" }
+func savedSSHID(target string) string    { return "sshsaved:" + target }
+func cliID(mid string) string            { return machineID(mid) + "/cli" }
+func workspaceID(mid string) string      { return machineID(mid) + "/workspace" }
+func machineFilesID(mid string) string   { return machineID(mid) + "/files" }
 
 // sshFilesRow is the Files row of the host a terminal is logged in to
 // with ssh: a machine's files view, reached through the pane (fs.ssh.v1).
