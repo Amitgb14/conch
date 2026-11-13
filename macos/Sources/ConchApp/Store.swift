@@ -1312,7 +1312,7 @@ final class Store: ObservableObject {
             if primary, let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) ?? parseMobileKey(o) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else if let t = parseTaskKey(o) {
                     if t.machine == machine { openTask(t.machine, t.group, t.branch) } // a task's page
