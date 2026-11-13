@@ -14,8 +14,9 @@ import (
 
 // mergeFixture is a server with git projects api, web and specs, a group
 // clinic holding them and a task on feat across all three — recorded as
-// made, since merging needs only its pull requests — and a gh that merges
-// any pull request but #9. Reading GitHub is held off for good, so the
+// made, since merging needs only its pull requests, and the branch feat in
+// each, which its pull requests are at — and a gh that merges any pull
+// request but #9. Reading GitHub is held off for good, so the
 // pull requests are what the test says they are.
 func mergeFixture(t *testing.T) (s *Server, ps map[string]*project, calls string) {
 	t.Helper()
@@ -34,6 +35,7 @@ func mergeFixture(t *testing.T) (s *Server, ps map[string]*project, calls string
 	}
 	for _, p := range ps {
 		holdPRs(t, p)
+		apBranch(t, p, "feat")
 	}
 	calls = fakeMergeGH(t)
 	s.groups.mu.Lock()
@@ -53,9 +55,14 @@ func holdPRs(t *testing.T, p *project) {
 	p.mu.Unlock()
 }
 
+// setPR sets branch's pull request; an open one with no head given is at
+// the branch's own commit, as an agent's here is.
 func setPR(p *project, branch string, pr proto.PRInfo) {
 	if pr.State == "" {
 		pr.State = "OPEN"
+	}
+	if pr.Head == "" && pr.State == "OPEN" {
+		pr.Head = branchHead(p, branch)
 	}
 	p.mu.Lock()
 	if p.prs == nil {
@@ -92,7 +99,8 @@ func merges(calls string) []string {
 // says it is merged.
 func TestGroupMergeWaitsForEveryRepoThenMergesInOrder(t *testing.T) {
 	s, ps, calls := mergeFixture(t)
-	setPR(ps["api"], "feat", proto.PRInfo{Number: 1, Checks: "pass", Head: "a1"})
+	setPR(ps["api"], "feat", proto.PRInfo{Number: 1, Checks: "pass"})
+	a1 := branchHead(ps["api"], "feat")
 	setPR(ps["web"], "feat", proto.PRInfo{Number: 2, Checks: "pending"})
 	setPR(ps["specs"], "feat", proto.PRInfo{Number: 3, Checks: "pass"})
 	info, perr := s.groups.armMerge(proto.GroupTaskMergeParams{Group: "clinic", Branch: "feat",
@@ -119,7 +127,7 @@ func TestGroupMergeWaitsForEveryRepoThenMergesInOrder(t *testing.T) {
 	if m := strings.Join(merges(calls), ","); m != "3,1,2" {
 		t.Fatalf("merged in the order %s, not specs, api, web", m)
 	}
-	if !strings.Contains(readCalls(calls), "pr merge 1 --merge --match-head-commit a1") {
+	if !strings.Contains(readCalls(calls), "pr merge 1 --merge --match-head-commit "+a1) {
 		t.Fatalf("merged without the head its checks passed for: %s", readCalls(calls))
 	}
 	if m := taskMerge(t, s); m.Why != "" || len(m.Merged) != 3 {
@@ -173,6 +181,42 @@ func TestGroupMergeHoldsRefusesAndCarriesOn(t *testing.T) {
 	}
 	if _, perr := s.groups.armMerge(proto.GroupTaskMergeParams{Group: "clinic", Branch: "feat"}); perr == nil {
 		t.Fatal("armed a task that is all merged")
+	}
+}
+
+// Merge All holds, as the autopilot does, a pull request whose head is
+// not on the branch here — pushed from somewhere else — and says so; once
+// the branch has that commit, it merges.
+func TestGroupMergeOnlyItsOwnCommits(t *testing.T) {
+	s, ps, calls := mergeFixture(t)
+	stranger := strings.Repeat("ab", 20) // a commit id these repositories have never had
+	setPR(ps["api"], "feat", proto.PRInfo{Number: 1, Checks: "pass", Head: stranger})
+	setPR(ps["web"], "feat", proto.PRInfo{Number: 2, Checks: "pass"})
+	setPR(ps["specs"], "feat", proto.PRInfo{Number: 3, Checks: "pass", Head: "--all"})
+	if _, perr := s.groups.armMerge(proto.GroupTaskMergeParams{Group: "clinic", Branch: "feat",
+		Order: []string{ps["api"].id, ps["web"].id, ps["specs"].id}}); perr != nil {
+		t.Fatal(perr)
+	}
+	a5WaitFor(t, "the stranger's commit held", func() bool {
+		return taskMerge(t, s).Why == "api: #1 is at abababa, which is not on feat here: conch merges only commits it has"
+	})
+	// web is green and its own, but nothing merges while any one holds.
+	if m := merges(calls); len(m) != 0 {
+		t.Fatalf("merged %v", m)
+	}
+	setPR(ps["api"], "feat", proto.PRInfo{Number: 1, Checks: "pass", Head: ""})
+	s.groups.merges()
+	a5WaitFor(t, "an unreadable head held", func() bool {
+		return taskMerge(t, s).Why == "specs: the commit #3 would merge could not be read"
+	})
+	if m := merges(calls); len(m) != 0 {
+		t.Fatalf("merged %v", m)
+	}
+	setPR(ps["specs"], "feat", proto.PRInfo{Number: 3, Checks: "pass"})
+	s.groups.merges()
+	a5WaitFor(t, "every one merged", func() bool { return taskMerge(t, s).State == proto.MergeMerged })
+	if m := strings.Join(merges(calls), ","); m != "1,2,3" {
+		t.Fatalf("merged %s", m)
 	}
 }
 
@@ -250,7 +294,7 @@ func TestGroupMergeThenRemovesTheTask(t *testing.T) {
 	for i, name := range []string{"api", "web", "specs"} {
 		p := ps[name]
 		wt := filepath.Join(filepath.Dir(p.root), name+"-feat")
-		mergeGit(t, p.root, "worktree", "add", "-q", "-b", "feat", wt)
+		mergeGit(t, p.root, "worktree", "add", "-q", wt, "feat")
 		setPR(p, "feat", proto.PRInfo{Number: i + 1, Checks: "pass"})
 	}
 	folder := filepath.Join(s.configDir, "tasks", "clinic", "feat")

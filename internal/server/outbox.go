@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"log"
 	"net"
 	"sync"
@@ -30,10 +31,17 @@ var (
 	// piles up is events and replies — a few KB each — and only from a
 	// client that has stopped reading.
 	outboxMax = 32 << 20
-	// writeWait is how long one write may take. A client reading at all
-	// drains a frame in milliseconds, even over a slow ssh link.
+	// writeWait is how long a write may go without progress: each
+	// writeChunk of a message must be taken within it. A client reading
+	// at all drains a frame in milliseconds, even over a slow ssh link —
+	// but a reply of megabytes (fs.read's Whole, up to 4 MB) can take far
+	// longer than any one deadline across one, and was cut off half way
+	// while it was still being read.
 	writeWait = 10 * time.Second
 )
+
+// writeChunk is how much of a message is written under one deadline.
+const writeChunk = 64 << 10
 
 // replyWait is how long the server waits for what it has queued for a
 // client to be written before it stops or reloads.
@@ -139,8 +147,7 @@ func (c *client) writeLoop() {
 		o.size -= msgSize(m)
 		o.mu.Unlock()
 
-		_ = o.nc.SetWriteDeadline(time.Now().Add(o.wait))
-		err := c.conn.Write(m)
+		err := o.write(m)
 
 		o.mu.Lock()
 		o.written++
@@ -151,6 +158,27 @@ func (c *client) writeLoop() {
 			return
 		}
 	}
+}
+
+// write writes m as proto.Conn would — JSON and a newline — a chunk at a
+// time, each with its own deadline: a client still reading keeps getting
+// a message however big, and one that has stopped is cut off after
+// o.wait whatever the size. Only the writer goroutine writes to o.nc.
+func (o *outbox) write(m proto.Message) error {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	for len(b) > 0 {
+		n := min(len(b), writeChunk)
+		_ = o.nc.SetWriteDeadline(time.Now().Add(o.wait))
+		if _, err := o.nc.Write(b[:n]); err != nil {
+			return err
+		}
+		b = b[n:]
+	}
+	return nil
 }
 
 // cut drops c's queue and closes its connection; its serve loop then

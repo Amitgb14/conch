@@ -272,6 +272,11 @@ func (s *Server) writeRange(c *client, wp proto.FSWriteRangeParams) (proto.FSWri
 		return proto.FSWriteResult{}, proto.Errorf(proto.ErrBadRequest, "%d bytes is more than fs.write_range takes (%d)", len(wp.Data), proto.FSWriteMax)
 	case wp.Offset < 0 || wp.Length < 0:
 		return proto.FSWriteResult{}, proto.Errorf(proto.ErrBadRequest, "a range can't be negative")
+	case wp.Length > proto.FSWriteMax:
+		// What it replaces is read whole to be checked, and a range comes
+		// from one fs.lines, which is far less: a length past this is a
+		// mistake or an attempt to make the server allocate it.
+		return proto.FSWriteResult{}, proto.Errorf(proto.ErrBadRequest, "a range of %d bytes is more than fs.write_range replaces (%d)", wp.Length, proto.FSWriteMax)
 	case wp.Base == "":
 		return proto.FSWriteResult{}, proto.Errorf(proto.ErrBadRequest, "fs.write_range needs the fingerprint of what it replaces")
 	}
@@ -287,7 +292,9 @@ func (s *Server) writeRange(c *client, wp proto.FSWriteRangeParams) (proto.FSWri
 		return proto.FSWriteResult{}, perr
 	}
 	defer f.Close()
-	if wp.Offset+wp.Length > info.Size() {
+	// Compared without adding: Offset+Length can overflow into a negative
+	// that passes, and the read below would then allocate whatever it says.
+	if size := info.Size(); wp.Length > size || wp.Offset > size-wp.Length {
 		return proto.FSWriteResult{}, proto.Errorf(proto.ErrFileChanged, "%s is shorter than it was when read", wp.Path)
 	}
 	old := make([]byte, wp.Length)

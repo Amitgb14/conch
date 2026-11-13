@@ -413,8 +413,9 @@ type AgentsCfg struct {
 	PermissionMode string `toml:"permission_mode,omitempty"`
 	// UnrestrictedLaunch lets an agent calling conch from its pane start
 	// panes however it likes: any command, environment and flags — a
-	// helper told to ask nobody before it acts among them. Off, an agent
-	// may choose only which agent to start and its --model
+	// helper told to ask nobody before it acts among them — and type into
+	// shells. Off, an agent may choose only which agent to start and its
+	// --model, and types only into panes running an agent
 	// (internal/server/launchrule.go).
 	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
 }
