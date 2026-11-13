@@ -2,8 +2,9 @@ import Foundation
 
 /// How a workbench tab arranges an agent's branch: its files (the Files
 /// view, tree and editor), a terminal in its checkout, the agent as a chat,
-/// and the agent's own terminal. Every layout holds all four; what differs
-/// is where each sits and which start hidden. The mock is "Conch — one
+/// the agent's own terminal, and — for this Mac's projects — the app on a
+/// phone simulator. Every layout holds all of them; what differs is where
+/// each sits and which start hidden. The mock is "Conch — one
 /// window: files, chat, terminal".
 public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
     /// Files and editor, the terminal below them, the chat on the right.
@@ -16,6 +17,9 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
     /// IntelliJ's: the editor in the middle and the rest tool windows docked
     /// round it, opened and closed from a strip of icons down each edge.
     case jetbrains
+    /// For a mobile app: files and the editor, the chat, and the phone
+    /// running the app beside them.
+    case mobile
 
     /// A saved choice; anything else, an older build's or none, is IDE.
     public init(setting: String?) {
@@ -28,6 +32,7 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
         case .chat: return "Chat First"
         case .agent: return "Agent"
         case .jetbrains: return "JetBrains"
+        case .mobile: return "Mobile"
         }
     }
 
@@ -37,6 +42,7 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
         case .chat: return "The chat in the middle, files and a terminal beside it"
         case .agent: return "The chat and the agent's own terminal side by side, files and a terminal below"
         case .jetbrains: return "Tool windows round the editor, opened from strips down each edge"
+        case .mobile: return "Files and the editor, the chat, and the app on a phone beside them"
         }
     }
 
@@ -66,21 +72,24 @@ public func chatEnabled(toml: String?, env: [String: String]) -> Bool {
     return tomlSetting("app", "chat", in: toml) != "false"
 }
 
-/// The four parts of a workbench, by their layout keys.
+/// The parts of a workbench, by their layout keys: four always, and a
+/// phone (a Mobile Preview's key) for a project on this Mac.
 public struct BenchParts: Equatable, Sendable {
     public var files: String
     public var shell: String
     public var chat: String
     public var agent: String
+    public var phone: String?
 
-    public init(files: String, shell: String, chat: String, agent: String) {
+    public init(files: String, shell: String, chat: String, agent: String, phone: String? = nil) {
         self.files = files
         self.shell = shell
         self.chat = chat
         self.agent = agent
+        self.phone = phone
     }
 
-    public var all: [String] { [files, shell, chat, agent] }
+    public var all: [String] { [files, shell, chat, agent] + (phone.map { [$0] } ?? []) }
 }
 
 /// A layout's arrangement of the parts: the split tree, each split's
@@ -88,13 +97,39 @@ public struct BenchParts: Equatable, Sendable {
 /// terminal are the same conversation, so where only one has room the other
 /// waits hidden beside it, a click away (Chat ⇄ Terminal).
 public func benchArrangement(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
+    var (root, weights, hidden) = baseArrangement(l, p, chat: chat)
+    guard let phone = p.phone, l != .mobile || !root.panes.contains(phone) else { return (root, weights, hidden) }
+    // Every other layout keeps the phone hidden at the end of its first
+    // row of columns, a click in the bar away.
+    if case .split(.horizontal, let kids) = root {
+        root = .split(.horizontal, kids + [.leaf(phone)])
+        weights[""] = (weights[""] ?? kids.map { _ in 1 }) + [0.24]
+    } else if case .split(.vertical, var rows) = root, case .split(.horizontal, let cols) = rows[0] {
+        rows[0] = .split(.horizontal, cols + [.leaf(phone)])
+        root = .split(.vertical, rows)
+        weights["0"] = (weights["0"] ?? cols.map { _ in 1 }) + [0.3]
+    } else {
+        root = .split(.horizontal, [root, .leaf(phone)])
+        weights = ["": [0.76, 0.24]]
+    }
+    hidden.insert(phone)
+    return (root, weights, hidden)
+}
+
+private func baseArrangement(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
     // Without the chat its place is the agent's own terminal's, which the
     // layouts keep beside it for that: the chat waits hidden instead.
     guard chat else {
-        let (root, weights, _) = benchArrangement(l.shown(chat: false), p)
+        let (root, weights, _) = baseArrangement(l.shown(chat: false), p)
         return (root, weights, [p.chat])
     }
     switch l {
+    case .mobile:
+        // The phone's column is narrow and tall, as a phone is; without
+        // one (another machine's agent) this is IDE.
+        guard let phone = p.phone else { return baseArrangement(.ide, p) }
+        let root = SplitNode.split(.horizontal, [.split(.vertical, [.leaf(p.files), .leaf(p.shell)]), .leaf(p.chat), .leaf(p.agent), .leaf(phone)])
+        return (root, ["": [0.46, 0.29, 0.29, 0.25], "0": [0.7, 0.3]], [p.agent])
     case .ide, .jetbrains:
         let root = SplitNode.split(.horizontal, [.split(.vertical, [.leaf(p.files), .leaf(p.shell)]), .leaf(p.chat), .leaf(p.agent)])
         return (root, ["": [0.68, 0.32, 0.32], "0": [0.7, 0.3]], [p.agent])
@@ -215,9 +250,10 @@ extension Layout {
         guard tabs.indices.contains(i), let agent = tabs[i].benchAgent else { return nil }
         let leaves = tabs[i].root.panes
         let files = leaves.first { parseFilesKey($0) != nil }
-        let shell = leaves.first { $0 != agent && parseChatKey($0) == nil && parseFilesKey($0) == nil }
+        let phone = leaves.first { parseMobileKey($0) != nil }
+        let shell = leaves.first { $0 != agent && parseChatKey($0) == nil && parseFilesKey($0) == nil && parseMobileKey($0) == nil }
         guard let files, let shell else { return nil }
-        return BenchParts(files: files, shell: shell, chat: chatKey(agent), agent: agent)
+        return BenchParts(files: files, shell: shell, chat: chatKey(agent), agent: agent, phone: phone)
     }
 
     private mutating func arrange(_ i: Int, _ l: BenchLayout, _ p: BenchParts, chat: Bool) {

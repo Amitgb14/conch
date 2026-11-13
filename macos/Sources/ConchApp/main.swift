@@ -397,8 +397,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         styleMenu = styles
         let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
         styleItem.submenu = styles
-        // A workbench: an agent's files, a terminal, its chat and its own
-        // terminal in one tab, in one of four layouts.
+        // A workbench: an agent's files, a terminal, its chat, its own
+        // terminal and, on this Mac, the phone in one tab, in one of five
+        // layouts.
         let bench = NSMenu(title: "Workbench")
         bench.addItem(item("Open Workbench", "b", [.command, .option], "workbench"))
         bench.addItem(.separator())

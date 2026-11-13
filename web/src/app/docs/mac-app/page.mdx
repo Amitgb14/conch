@@ -109,7 +109,7 @@ Each waiting agent is a card under **Needs you**, its choices as buttons.
 
 An agent's files, a terminal and its chat in one tab.
 
-**How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘4 pick a layout.
+**How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘5 pick a layout.
 
 **The chat:** attach files with ⇧⌘A. Off: `[app] chat = false`.
 
@@ -124,14 +124,6 @@ A web page in a tab beside the agents.
   alt="Conch.app with a browser tab on a dev server"
   caption="A dev server beside its agents."
 />
-
-## Mobile preview
-
-Right-click a project on this Mac → **Mobile Preview** opens the app on an iPhone in a tab beside its agents: the real iOS simulator running it, not a drawing of its layout, so what you see is what the app does as the agent edits it. The tab's menu picks the simulator — every iPhone and iPad Xcode has, running ones first — and one that is shut down is started from the tab (**Start iPhone 16 Pro**). Its screen is taken again a few times a second while the tab is on screen, and not at all while it is hidden; the header says what kind of app the project is (Expo, React Native, Flutter or Xcode). The tab shows iOS only; Android's emulators and phones are reached from the command line, with [`conch preview`](/docs/cli#preview).
-
-A click on the screen taps the simulator there, the field at the foot types into it, and the header's button presses Home. **To agent** takes a screenshot and puts its path in one of the project's agents' prompts, as dropping the file would, for you to say what to look at. An agent can do the same by itself with [`conch preview shot`](/docs/cli#preview).
-
-The screen is the simulator's own, with the device's rounded corners and Dynamic Island, drawn inside a phone's body. It needs Xcode, which brings the simulators; conch finds it in Applications even when `xcode-select` points at the Command Line Tools, and **Settings → Mobile preview** names another. A simulator can be watched with Xcode alone, but tapping and typing into one needs a tool that drives it: [AXe](https://github.com/cameroncooke/AXe) (`brew install cameroncooke/axe/axe`), or [idb](https://fbidb.io); without either the tab says so. Simulators are this Mac's own, so another machine's projects do not offer the tab.
 
 ## Commits
 

@@ -7,7 +7,8 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
 @Test func benchLayoutSettings() {
     #expect(BenchLayout(setting: "jetbrains") == .jetbrains && BenchLayout(setting: " CHAT ") == .chat)
     #expect(BenchLayout(setting: nil) == .ide && BenchLayout(setting: "") == .ide && BenchLayout(setting: "vim") == .ide)
-    #expect(BenchLayout.allCases.map(\.label) == ["IDE", "Chat First", "Agent", "JetBrains"])
+    #expect(BenchLayout.allCases.map(\.label) == ["IDE", "Chat First", "Agent", "JetBrains", "Mobile"])
+    #expect(BenchLayout(setting: "mobile") == .mobile)
     #expect(BenchLayout.allCases.filter(\.stripes) == [.jetbrains])
     #expect(BenchLayout.allCases.allSatisfy { !$0.detail.isEmpty })
 }
@@ -446,7 +447,7 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
         #expect(hidden == [p.chat], "\(l)")
         #expect(Set(root.panes) == Set(p.all), "\(l): every part still in the tree")
     }
-    #expect(BenchLayout.offered(chat: false) == [.ide, .agent, .jetbrains])
+    #expect(BenchLayout.offered(chat: false) == [.ide, .agent, .jetbrains, .mobile])
     #expect(BenchLayout.offered(chat: true) == BenchLayout.allCases)
     #expect(BenchLayout.chat.shown(chat: false) == .ide && BenchLayout.chat.shown(chat: true) == .chat)
 
@@ -488,4 +489,74 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     let before = layout
     layout.hideChat()
     #expect(layout == before, "nothing to do the second time")
+}
+
+// A project's app on a phone as a fifth part: shown beside the editor and
+// the chat in the Mobile layout, waiting hidden in the others, so a click
+// in the bar brings it out wherever the workbench is.
+private let phoneParts = BenchParts(files: parts.files, shell: parts.shell, chat: parts.chat, agent: parts.agent, phone: mobileKey("local", "pr1"))
+
+@Test func benchWithAPhone() {
+    #expect(phoneParts.all.count == 5 && phoneParts.all.last == mobileKey("local", "pr1"))
+    for l in BenchLayout.allCases {
+        let (root, weights, hidden) = benchArrangement(l, phoneParts)
+        #expect(Set(root.panes) == Set(phoneParts.all) && root.panes.count == 5, "\(l)")
+        #expect(!hidden.contains(phoneParts.chat), "\(l)")
+        #expect(hidden.contains(phoneParts.phone!) == (l != .mobile), "\(l): the phone shows in Mobile alone")
+        for (path, w) in weights { #expect(!w.isEmpty && w.allSatisfy { $0 > 0 }, "\(l) \(path)") }
+        // Every split's shares are one a child.
+        func check(_ n: SplitNode, _ path: String) {
+            guard case .split(_, let kids) = n else { return }
+            if let w = weights[path] { #expect(w.count == kids.count, "\(l) \(path)") }
+            for (i, k) in kids.enumerated() { check(k, path.isEmpty ? "\(i)" : "\(path).\(i)") }
+        }
+        check(root, "")
+    }
+    // Mobile: files and the terminal, the chat, then the phone at the end;
+    // the agent's terminal waits behind the chat.
+    let m = benchArrangement(.mobile, phoneParts)
+    #expect(m.root.panes == [parts.files, parts.shell, parts.chat, parts.agent, phoneParts.phone!])
+    #expect(m.hidden == [parts.agent])
+    // The phone's column is narrower than the editor's.
+    let shares = shownShares(m.weights[""]!, shown: shownKids({ if case .split(_, let k) = m.root { return k }; return [] }(), hidden: m.hidden))
+    #expect(shares.count == 3 && shares[2] < shares[0] && shares[2] > 0.1)
+    // Without a phone (another machine's agent) Mobile is IDE.
+    #expect(benchArrangement(.mobile, parts).root == benchArrangement(.ide, parts).root)
+    #expect(benchArrangement(.mobile, parts).hidden == benchArrangement(.ide, parts).hidden)
+}
+
+@Test func benchPartsFindThePhone() {
+    var l = Layout()
+    l.openBench(.ide, phoneParts)
+    // The phone is not taken for the terminal, whatever order the leaves are in.
+    #expect(l.benchParts(l.active) == phoneParts)
+    #expect(l.current?.shows(phoneParts.phone!) == false)
+    l.setBench(.mobile)
+    #expect(l.current?.bench == .mobile && l.current?.shows(phoneParts.phone!) == true)
+    l.toggleHidden(phoneParts.phone!)
+    #expect(l.current?.shows(phoneParts.phone!) == false)
+    // A workbench without one reads as before.
+    var plain = Layout()
+    plain.openBench(.mobile, parts)
+    #expect(plain.benchParts(plain.active) == parts)
+}
+
+// The chat off and a phone on: Mobile keeps its phone beside the files,
+// the agent's own terminal in the chat's place; the other layouts keep the
+// phone hidden as before; and hiding the chat keeps a workbench's phone.
+@Test func mobileWithoutChat() {
+    let p = BenchParts(files: "files|local|r1", shell: "local|p2", chat: chatKey("local|p1"), agent: "local|p1", phone: mobileKey("local", "r1"))
+    let m = benchArrangement(.mobile, p, chat: false)
+    #expect(m.hidden == [p.chat] && Set(m.root.panes) == Set(p.all))
+    for l in BenchLayout.offered(chat: false) where l != .mobile {
+        let (root, _, hidden) = benchArrangement(l, p, chat: false)
+        #expect(hidden == [p.chat, p.phone!], "\(l)")
+        #expect(Set(root.panes) == Set(p.all), "\(l)")
+    }
+    var layout = Layout()
+    layout.openBench(.mobile, p, chat: true)
+    #expect(layout.current?.shows(p.chat) == true && layout.current?.shows(p.phone!) == true)
+    layout.hideChat()
+    #expect(layout.current?.shows(p.chat) == false && layout.current?.shows(p.agent) == true)
+    #expect(layout.current?.shows(p.phone!) == true && layout.benchParts(layout.active) == p, "the phone survives hiding the chat")
 }
