@@ -711,7 +711,9 @@ struct ChatView: View {
                       onEscape: {
                           if model.pickerKey(.close) { return true }
                           guard busy || stopping else { return false }
-                          model.interrupt()
+                          // Escape is the gentle stop: ctrl+c is the
+                          // button's, pressed on purpose (twice ends Claude).
+                          if model.stop.phase != .harder { model.interrupt() }
                           return true
                       },
                       onCursor: { text, cursor in model.cursorMoved(text, cursor) },
