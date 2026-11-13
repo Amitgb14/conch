@@ -224,6 +224,27 @@ func TestGroupTask(t *testing.T) {
 	if got.Group != "clinic" || got.Prompt != "Add patient search" || got.Branch != "add-search" || got.Agent != "codex" || !got.Each || !slices.Equal(got.Projects, []string{"r1", "r2"}) {
 		t.Fatalf("%+v", got)
 	}
+	// Flags after the name are flags, not the prompt; after "--" the
+	// prompt may start with a dash.
+	a4Capture(t, "", func() {
+		err = runGroup([]string{"task", "clinic", "-agent", "codex", "-each", "fix", "login", "-branch", "b2"})
+	})
+	f.mu.Lock()
+	got = f.tasks[len(f.tasks)-1]
+	f.mu.Unlock()
+	if err != nil || got.Prompt != "fix login" || got.Agent != "codex" || !got.Each || got.Branch != "b2" {
+		t.Fatalf("flags after the name: %v %+v", err, got)
+	}
+	a4Capture(t, "", func() { err = runGroup([]string{"task", "-agent", "codex", "clinic", "--", "-v", "is", "broken"}) })
+	f.mu.Lock()
+	got = f.tasks[len(f.tasks)-1]
+	f.mu.Unlock()
+	if err != nil || got.Prompt != "-v is broken" || got.Agent != "codex" {
+		t.Fatalf("after --: %v %+v", err, got)
+	}
+	if err := runGroup([]string{"task", "clinic", "-nope", "x"}); err == nil || !strings.Contains(err.Error(), "-nope") {
+		t.Fatalf("an unknown flag after the name: %v", err)
+	}
 	if err := runGroup([]string{"task", "clinic"}); err == nil || !strings.Contains(err.Error(), "usage") {
 		t.Fatalf("no prompt: %v", err)
 	}
@@ -268,6 +289,13 @@ func TestGroupMerge(t *testing.T) {
 	if len(got) != 3 || !slices.Equal(got[0].Order, []string{"r2", "r1"}) || !got[0].RemoveTask || got[0].Group != "clinic" || got[0].Branch != "add-search" ||
 		len(got[1].Order) != 0 || got[1].RemoveTask || !got[2].Stop {
 		t.Fatalf("%+v", got)
+	}
+	a4Capture(t, "", func() { err = runGroup([]string{"merge", "clinic", "add-search", "-stop"}) })
+	f.mu.Lock()
+	last := f.merges[len(f.merges)-1]
+	f.mu.Unlock()
+	if err != nil || !last.Stop || last.Branch != "add-search" {
+		t.Fatalf("-stop after the branch: %v %+v", err, last)
 	}
 	if err := runGroup([]string{"merge", "clinic"}); err == nil || !strings.Contains(err.Error(), "usage") {
 		t.Fatalf("no branch: %v", err)
