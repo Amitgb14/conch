@@ -1316,6 +1316,8 @@ final class FakeServer: @unchecked Sendable {
     #expect(closesOnExit(pane(code: 127, age: 11), now: now)) // past the window
     #expect(!closesOnExit(pane("check · feat", code: 1, age: 600), now: now))
     #expect(closesOnExit(pane("check · feat", code: 0, age: 600), now: now))
+    #expect(!closesOnExit(pane("sandbox create · Daytona", code: 1, age: 90), now: now)) // set-up failed: the reason stays
+    #expect(closesOnExit(pane("sandbox create · Daytona", code: 0, age: 90), now: now))
     #expect(!closesOnExit(pane(code: 0, age: 600, state: "running"), now: now))
     var none = PaneInfo(id: "p2", name: "x", state: "exited")
     none.exitCode = 2

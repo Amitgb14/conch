@@ -1168,7 +1168,10 @@ public func closesOnExit(_ p: PaneInfo, now: Date = Date()) -> Bool {
     guard p.state == "exited" else { return false }
     let code = p.exitCode ?? 0
     if code != 0, let c = p.created, now.timeIntervalSince(c) < launchWindow { return false }
-    if code != 0, p.name.hasPrefix("check · ") { return false }
+    // A check, or a sandbox New Sandbox… is making, that failed: its last
+    // lines say why, and a sandbox that failed to set up ran for a minute
+    // first — past the launch window — so its tab closed with the reason.
+    if code != 0, p.name.hasPrefix("check · ") || p.name.hasPrefix("sandbox create · ") { return false }
     return true
 }
 
