@@ -57,8 +57,10 @@ type Server struct {
 	projects  *projectManager
 	// procSeen is when each process ps could not date was first seen,
 	// for counting an agent's background jobs (background.go).
-	bgMu     sync.Mutex
-	procSeen map[int]time.Time
+	// lastPorts is what the last look found listening, by pid.
+	bgMu      sync.Mutex
+	procSeen  map[int]time.Time
+	lastPorts map[int][]int
 	groups   *groupBook
 	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
 	secrets secretCache

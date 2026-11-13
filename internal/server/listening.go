@@ -224,6 +224,9 @@ func (s *Server) lookListening(ctx context.Context) {
 			children[ppid] = append(children[ppid], pid)
 		}
 	}
+	s.bgMu.Lock()
+	s.lastPorts = byPid
+	s.bgMu.Unlock()
 	var procs map[int]psRow
 	looked, lookOK := false, false
 	for _, e := range entries {

@@ -278,11 +278,15 @@ func TestBackgroundJobsOfAnIdleAgent(t *testing.T) {
 	if *calls != n {
 		t.Fatal("looked for jobs of an agent that is working")
 	}
-	// Done again: the job comes back at the next look.
+	// Done again: the job is looked for as the turn ends, not at the next
+	// look, so what announces the end — a notification — can say it,
+	// with the ports the last look found.
 	bgReport(t, s, info.ID, "Stop")
-	s.lookListening(context.Background())
-	if a := e.info().Agent; a.Background != 1 {
+	if a := e.info().Agent; a.Background != 1 || len(a.Jobs) != 1 || !slices.Equal(a.Jobs[0].Ports, []int{5173}) {
 		t.Fatalf("done agent %+v", a)
+	}
+	if *calls != n+1 {
+		t.Fatalf("%d looks at the end of the turn, want 1", *calls-n)
 	}
 
 	// The pane stops being an agent: no agent, nothing said of jobs.

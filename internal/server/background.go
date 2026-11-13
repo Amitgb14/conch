@@ -402,3 +402,31 @@ func (s *Server) dropJob(e *entry, pid int) {
 		s.reshown(e)
 	}
 }
+
+// jobsAtTurnEnd looks for an agent's jobs as it stops working, rather than
+// at the next look a few seconds on, so the update that says it finished —
+// and the notification a client makes of it — can say what it left
+// running. The ports are the last look's; the next one brings them up to
+// date. The caller holds e.evalMu.
+func (s *Server) jobsAtTurnEnd(e *entry, agent string) {
+	s.mu.Lock()
+	anyone := len(s.clients) > 0
+	s.mu.Unlock()
+	root := e.p.Info().PID
+	if !anyone || root <= 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	procs, ok := s.processesSeen(ctx)
+	if !ok {
+		return
+	}
+	s.bgMu.Lock()
+	ports := s.lastPorts
+	s.bgMu.Unlock()
+	jobs := agentJobs(root, e.explain().Process.PID, s.manifests[agent], procs, ports, time.Now())
+	e.mu.Lock()
+	e.jobs = steadySince(e.jobs, jobs)
+	e.mu.Unlock()
+}

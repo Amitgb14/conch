@@ -282,10 +282,14 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Program:    s.heldBack(e, programReport(e.p), at),
 	})
 	// Going back to work after a question was answered is the same turn.
-	if now := e.tracker.Status().State; now == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {
+	st := e.tracker.Status()
+	if st.State == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {
 		e.turns++
 	}
 	e.mu.Unlock()
+	if prevState == proto.AgentWorking && st.Agent != "" && st.State != proto.AgentWorking {
+		s.jobsAtTurnEnd(e, st.Agent)
+	}
 
 	info := e.info()
 	if s.alive(e) {
