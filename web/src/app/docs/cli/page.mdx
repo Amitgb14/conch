@@ -540,6 +540,22 @@ In the TUI the same thing is `,` → **Report a problem…**, which shows the re
 
 `conch ask -suggest [-pane ID] [EARLIER REQUEST...]` prints, as JSON, what the Ask window offers: the agents by state, which model would plan, and what is worth asking now, each saying whether it is answered at once or planned by the model. The requests after it are earlier ones, oldest first, offered back as recent. It asks no model, so it works with none set up. [Conch.app](/docs/mac-app)'s ✦ Ask draws its list from it.
 
+### preview
+
+`conch preview` reaches the phones a mobile app is tried on, on this computer: the iOS simulators Xcode installs and the Android emulators and phones `adb` sees. It is what [Conch.app](/docs/mac-app#mobile-preview)'s **Mobile Preview** tab draws beside an agent, and how an agent looks at its own work. It runs the platforms' own tools (`xcrun simctl`, `adb`, `emulator`, found in the Android SDK where Android Studio puts it as well as on `PATH`) and asks no server, so `-m` is refused: run it on the machine with the simulators.
+
+- `conch preview devices [-json]` lists them, running ones first, with the ID each other command takes. `-json` prints `{devices, notes}`; a platform whose tool failed is left out and said in `notes`.
+- `conch preview boot DEVICE` starts one, by name or ID: a simulator boots with no Simulator window, an emulator is left running.
+- `conch preview shot [-device D] [-o FILE]` saves a PNG of the screen and prints its path. Without `-device` it is the device that is running.
+- `conch preview tap [-device D] X Y` touches the screen at pixels of that picture; `type [-device D] TEXT` types into the field with the focus; `button [-device D] home|back` presses a button (back is Android's). An iOS simulator can be looked at with Xcode alone but touched only with [idb](https://fbidb.io): `brew install facebook/fb/idb-companion && pip3 install fb-idb`.
+- `conch preview detect [DIR]` says, as JSON, what kind of mobile app a folder is — Expo, React Native, Flutter, Xcode or Android — and the command that starts its dev server.
+
+```sh
+conch preview boot "iPhone 16 Pro"
+conch preview shot            # an agent then reads the picture at the printed path
+conch preview tap 540 1200
+```
+
 ### commit-message
 
 `conch commit-message [-context TEXT]` reads a diff on stdin and prints a commit message for it — a subject line, a blank line and a body — written by the brain set in `[brain]`; `-context` adds what the agent that made the change said it was doing. An empty diff is refused. Conch.app's **✦ Write** runs it.
