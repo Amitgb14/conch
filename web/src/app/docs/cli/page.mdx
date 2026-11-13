@@ -191,7 +191,7 @@ Projects kept together because they change together — an API, its web app, the
 
 ### task
 
-`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-account NAME] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-account` on that [account](/docs/agents#several-accounts) of the agent's; `-at` later, `-every` again and again, `-queue` when the project has room, `-after` once other work has finished, on top of it: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
+`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-account NAME] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-account` on that [account](/docs/agents#several-accounts) of the agent's; `-at` later, `-every` again and again, `-queue` when the project has room, `-after` once other work has finished, on top of it: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
 
 | Flag | Default |
 | --- | --- |
@@ -201,6 +201,27 @@ Projects kept together because they change together — an API, its web app, the
 | `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`, or several separated by commas; default: `[agents] default`, and with none chosen Claude Code — or, on a machine last found without it, an agent it has (the server knows once anything has asked: opening conch, `conch doctor` or `conch agent status`). An agent this machine is known not to have is refused with how to install it, rather than started to die with *command not found*; after one dies that way, a task naming no agent looks for the others — and from that look on, the missing one is refused by name |
 | `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
 | `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
+| `-issue N` | work on that GitHub issue, read with `gh`: its title and body are the prompt, and any `PROMPT` is added |
+| `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address — read by the server with the key in [`[trackers]`](/docs/configuration#trackers): its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
+
+### ticket
+
+Tickets in Linear and Jira, through the server on the project's machine and the key in [`[trackers]`](/docs/configuration#trackers). Each command takes `-cwd DIR`; outside a project, name the tracker (`linear:ENG-123`). conch changes a ticket only when one of these is run.
+
+| Command | Description |
+| --- | --- |
+| `conch ticket ls [-tracker linear\|jira] [-mine] [-n N] [-json]` | the project's open tickets, most recently changed first; `-mine` those assigned to you |
+| `conch ticket show [-json] TICKET` | a ticket: status, address, body, comments and links |
+| `conch ticket comment TICKET TEXT...` | add a comment |
+| `conch ticket status TICKET STATUS...` | move it to a status as the tracker names it (`In Review`, `Done`); Jira takes the transition that leads there |
+| `conch ticket link [-title T] TICKET URL` | attach a link — a pull request, a branch — to the ticket |
+
+```sh
+conch task -ticket ENG-123
+conch branch pr -title "ENG-123: Export as CSV"
+conch ticket link ENG-123 https://github.com/acme/api/pull/42
+conch ticket status ENG-123 "In Review"
+```
 
 ### branch
 
