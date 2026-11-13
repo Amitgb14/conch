@@ -164,6 +164,10 @@ email = ""             # your Atlassian account's email
 api_token_env = "JIRA_API_TOKEN"
 project = ""           # the project whose tickets are listed: "PROJ"
 
+[preview]              # where the phones of a mobile preview come from
+xcode = ""             # Xcode.app for the iOS simulators; "" finds it in /Applications
+android_sdk = ""       # the Android SDK, for conch preview's emulators; "" finds it
+
 [[actions]]            # your own commands on the row menus; none by default
 name = "Run tests"     # the label on the menu
 run = "go test ./..."  # the command, as a shell reads it
@@ -332,6 +336,15 @@ key = "ENG"            # its team (Linear) or project (Jira); "" is the default 
 ```
 
 conch never moves or comments on a ticket by itself: `conch ticket` does, when you (or an agent you asked) run it. OAuth sign-in is not supported yet; a personal key is.
+
+## `[preview]`
+
+Where the phones of a mobile preview come from — Conch.app's [Mobile Preview](/docs/mac-app#mobile-preview) and [`conch preview`](/docs/cli#preview). **Settings → Mobile preview**, or the settings page.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `xcode` | `""` | the Xcode whose iPhone and iPad simulators are shown: `Xcode.app`, or its `Contents/Developer` folder. `""` uses the Xcode `xcode-select` chose, or `DEVELOPER_DIR` — and when `xcode-select` points at the Command Line Tools, which have no simulators, the Xcode in `/Applications` (`Xcode.app` before a beta). One that is not an Xcode is said in the preview rather than used |
+| `android_sdk` | `""` | the Android SDK, for `conch preview`'s emulators and phones; `""` looks in `ANDROID_HOME`, `ANDROID_SDK_ROOT` and where Android Studio installs it |
 
 ## `[[actions]]`
 

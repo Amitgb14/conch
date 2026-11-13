@@ -50,16 +50,72 @@ type Tools struct {
 	Adb      string
 	Emulator string
 	Idb      string
+	// DeveloperDir is the Xcode the programs are told to use
+	// (DEVELOPER_DIR), when xcode-select's own choice would not reach the
+	// simulators; "" leaves it to xcode-select.
+	DeveloperDir string
+	// XcodeProblem says why the Xcode in the settings was not used.
+	XcodeProblem string
 	// Run runs a program to its end and answers its standard output;
 	// Start leaves one running (an emulator). Tests replace both.
 	Run   func(ctx context.Context, name string, args ...string) ([]byte, error)
 	Start func(name string, args ...string) error
 }
 
-// Find looks for the tools on PATH and where the Android SDK keeps its
-// own (it is seldom on PATH: Android Studio installs it in the home
-// folder), given the environment as KEY=VALUE pairs.
-func Find(env []string) *Tools {
+// Options are the settings ([preview] in config.toml): where Xcode and
+// the Android SDK are, when conch should not find them by itself.
+type Options struct {
+	Xcode      string // Xcode.app, or its Contents/Developer folder
+	AndroidSDK string
+}
+
+// Where xcode-select keeps its choice, and where Xcode is installed; a
+// test points them elsewhere.
+var (
+	xcodeSelectLink = "/var/db/xcode_select_link"
+	applicationsDir = "/Applications"
+)
+
+// Find is FindWith and no settings.
+func Find(env []string) *Tools { return FindWith(env, Options{}) }
+
+// developerDir is the Xcode the simulators are reached through. The
+// setting first; else DEVELOPER_DIR, or xcode-select pointing at an
+// Xcode, is left as it is; else — no choice made, or the Command Line
+// Tools chosen, which have no simulators — the Xcode in /Applications,
+// Xcode.app before any other.
+func developerDir(get func(string) string, setting string) (dir, problem string) {
+	if setting != "" {
+		d := strings.TrimSuffix(setting, "/")
+		if strings.HasSuffix(d, ".app") {
+			d = filepath.Join(d, "Contents", "Developer")
+		}
+		if st, err := os.Stat(filepath.Join(d, "usr", "bin")); err == nil && st.IsDir() {
+			return d, ""
+		}
+		return "", fmt.Sprintf("%s is not an Xcode (Settings → Mobile preview)", setting)
+	}
+	if get("DEVELOPER_DIR") != "" {
+		return "", ""
+	}
+	if l, err := os.Readlink(xcodeSelectLink); err == nil && strings.Contains(l, ".app/") {
+		return "", ""
+	}
+	apps, _ := filepath.Glob(filepath.Join(applicationsDir, "Xcode*.app"))
+	sort.SliceStable(apps, func(i, j int) bool { return filepath.Base(apps[i]) == "Xcode.app" && filepath.Base(apps[j]) != "Xcode.app" })
+	for _, a := range apps {
+		d := filepath.Join(a, "Contents", "Developer")
+		if st, err := os.Stat(filepath.Join(d, "usr", "bin")); err == nil && st.IsDir() {
+			return d, ""
+		}
+	}
+	return "", ""
+}
+
+// FindWith looks for the tools on PATH and where the Android SDK keeps
+// its own (it is seldom on PATH: Android Studio installs it in the home
+// folder), given the environment as KEY=VALUE pairs and the settings.
+func FindWith(env []string, opt Options) *Tools {
 	get := func(k string) string {
 		for _, kv := range env {
 			if v, ok := strings.CutPrefix(kv, k+"="); ok {
@@ -86,6 +142,9 @@ func Find(env []string) *Tools {
 		return ""
 	}
 	var sdks []string
+	if opt.AndroidSDK != "" {
+		sdks = append(sdks, opt.AndroidSDK)
+	}
 	for _, k := range []string{"ANDROID_HOME", "ANDROID_SDK_ROOT"} {
 		if v := get(k); v != "" {
 			sdks = append(sdks, v)
@@ -109,6 +168,10 @@ func Find(env []string) *Tools {
 	// /usr/bin/xcrun is there without Xcode, and only answers that simctl
 	// is missing; that is said when it is used, which is when it matters.
 	t.Xcrun = look("xcrun")
+	t.DeveloperDir, t.XcodeProblem = developerDir(get, opt.Xcode)
+	if t.DeveloperDir != "" {
+		env = append(append([]string(nil), env...), "DEVELOPER_DIR="+t.DeveloperDir)
+	}
 	t.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, name, args...)
 		cmd.Env = env
@@ -173,6 +236,9 @@ var ErrNoTools = errors.New("no iOS simulator or Android tools found: install Xc
 func (t *Tools) Devices(ctx context.Context) (devs []Device, notes []string, err error) {
 	if t.Xcrun == "" && t.Adb == "" && t.Emulator == "" {
 		return nil, nil, ErrNoTools
+	}
+	if t.XcodeProblem != "" {
+		notes = append(notes, "iOS: "+t.XcodeProblem)
 	}
 	if t.Xcrun != "" {
 		d, err := t.simulators(ctx)
@@ -412,7 +478,10 @@ func (t *Tools) Shot(ctx context.Context, d Device, path string) error {
 	}
 	switch d.Platform {
 	case "ios":
-		_, err := t.Run(ctx, t.Xcrun, "simctl", "io", d.ID, "screenshot", "--type=png", path)
+		// The device's own mask: its round corners and the Dynamic Island
+		// drawn black, as the phone shows them, rather than a square
+		// framebuffer that reads as no iPhone at all.
+		_, err := t.Run(ctx, t.Xcrun, "simctl", "io", d.ID, "screenshot", "--type=png", "--mask=black", path)
 		return err
 	case "android":
 		out, err := t.Run(ctx, t.Adb, "-s", d.ID, "exec-out", "screencap", "-p")

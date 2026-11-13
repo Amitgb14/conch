@@ -107,7 +107,7 @@ func TestPreviewShotTapTypeButton(t *testing.T) {
 			t.Errorf("printed %q", got)
 		}
 	}
-	if last := (*ran)[len(*ran)-1]; !strings.HasPrefix(last, "xcrun simctl io A1 screenshot --type=png ") || !strings.HasSuffix(last, "/s.png") {
+	if last := (*ran)[len(*ran)-1]; !strings.HasPrefix(last, "xcrun simctl io A1 screenshot --type=png --mask=black ") || !strings.HasSuffix(last, "/s.png") {
 		t.Errorf("ran %q", last)
 	}
 	// No -o: a fresh file in the temporary folder.
@@ -186,5 +186,24 @@ func TestPreviewDetectAndMachine(t *testing.T) {
 	machineFlag = "busybox"
 	if err := runPreview([]string{"devices"}); err == nil || !strings.Contains(err.Error(), "busybox itself") {
 		t.Errorf("-m: %v", err)
+	}
+}
+
+// The settings' [preview] reach the tools: an Xcode named there is the
+// one the simulators are listed through.
+func TestPreviewToolsReadSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CONCH_HOME", home)
+	xcode := filepath.Join(t.TempDir(), "Xcode.app")
+	os.MkdirAll(filepath.Join(xcode, "Contents", "Developer", "usr", "bin"), 0o755)
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[preview]\nxcode = \""+xcode+"\"\n"), 0o644)
+	if got := previewTools().DeveloperDir; got != filepath.Join(xcode, "Contents", "Developer") {
+		t.Errorf("DeveloperDir %q", got)
+	}
+	// A broken config.toml is not a reason to stop: the defaults are used.
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[preview\n"), 0o644)
+	if previewTools() == nil {
+		t.Error("no tools")
 	}
 }

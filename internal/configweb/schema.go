@@ -239,6 +239,13 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
+		{ID: "preview", Key: "preview", Title: "Mobile preview", Icon: "tablet-smartphone", Description: "The phone simulators Conch.app's Mobile Preview and conch preview show your app on.",
+			Fields: []Field{
+				{Key: "xcode", Label: "Xcode", Kind: KindString, Placeholder: "found by itself: /Applications/Xcode.app",
+					Help: "Where the iPhone and iPad simulators come from: Xcode.app, or its Contents/Developer folder. Empty finds Xcode in Applications, even when xcode-select points at the Command Line Tools, which have no simulators."},
+				{Key: "android_sdk", Label: "Android SDK", Kind: KindString, Placeholder: "found by itself: ~/Library/Android/sdk",
+					Help: "For conch preview's Android emulators and phones. Empty looks in ANDROID_HOME and where Android Studio installs it."},
+			}},
 		cloudSection(c.Cloud),
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{

@@ -144,8 +144,8 @@ final class MobilePreviewModel: ObservableObject {
         }
     }
 
-    func tap(at p: CGPoint, in box: CGSize) {
-        guard let d = device, d.booted, let px = devicePixel(at: p, image: imageSize, box: box) else { return }
+    func tap(at p: CGPoint, screen: CGRect) {
+        guard let d = device, d.booted, let px = devicePixel(at: p, image: imageSize, screen: screen) else { return }
         act(previewArgs("tap", device: d.id, [String(px.x), String(px.y)]))
     }
 
@@ -258,19 +258,28 @@ struct MobilePreviewView: View {
         if let d = model.device, d.booted, let img = model.image {
             GeometryReader { geo in
                 let box = CGSize(width: geo.size.width - 32, height: geo.size.height - 32)
-                let r = aspectFit(model.imageSize, in: box)
-                Image(nsImage: img)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: r.width, height: r.height)
-                    // A phone's screen has round corners; the shot is square.
-                    .clipShape(RoundedRectangle(cornerRadius: r.width * 0.12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: r.width * 0.12, style: .continuous).stroke(Theme.line2, lineWidth: 1))
-                    .position(x: 16 + r.midX, y: 16 + r.midY)
-                    .contentShape(Rectangle())
-                    .onTapGesture(coordinateSpace: .local) { p in
-                        model.tap(at: CGPoint(x: p.x - 16, y: p.y - 16), in: box)
-                    }
+                let l = phoneLayout(image: model.imageSize, box: box, tablet: d.name.hasPrefix("iPad"))
+                ZStack(alignment: .topLeading) {
+                    // The phone's body; the shot brings its own corners
+                    // and Dynamic Island, masked black by the simulator.
+                    RoundedRectangle(cornerRadius: l.bodyRadius, style: .continuous)
+                        .fill(Color.black)
+                        .overlay(RoundedRectangle(cornerRadius: l.bodyRadius, style: .continuous).stroke(Color(white: 0.32), lineWidth: 1.5))
+                        .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+                        .frame(width: l.body.width, height: l.body.height)
+                        .offset(x: 16 + l.body.minX, y: 16 + l.body.minY)
+                    Image(nsImage: img)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: l.screen.width, height: l.screen.height)
+                        .clipShape(RoundedRectangle(cornerRadius: l.screenRadius, style: .continuous))
+                        .offset(x: 16 + l.screen.minX, y: 16 + l.screen.minY)
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .onTapGesture(coordinateSpace: .local) { p in
+                    model.tap(at: CGPoint(x: p.x - 16, y: p.y - 16), screen: l.screen)
+                }
             }
         } else {
             VStack(spacing: 12) {

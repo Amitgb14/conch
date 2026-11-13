@@ -542,7 +542,7 @@ In the TUI the same thing is `,` → **Report a problem…**, which shows the re
 
 ### preview
 
-`conch preview` reaches the phones a mobile app is tried on, on this computer: the iOS simulators Xcode installs and the Android emulators and phones `adb` sees. It is what [Conch.app](/docs/mac-app#mobile-preview)'s **Mobile Preview** tab draws beside an agent, and how an agent looks at its own work. It runs the platforms' own tools (`xcrun simctl`, `adb`, `emulator`, found in the Android SDK where Android Studio puts it as well as on `PATH`) and asks no server, so `-m` is refused: run it on the machine with the simulators.
+`conch preview` reaches the phones a mobile app is tried on, on this computer: the iOS simulators Xcode installs and the Android emulators and phones `adb` sees. It is what [Conch.app](/docs/mac-app#mobile-preview)'s **Mobile Preview** tab draws beside an agent, and how an agent looks at its own work. It runs the platforms' own tools (`xcrun simctl` from Xcode — the one in `/Applications` when `xcode-select` points at the Command Line Tools — and `adb` and `emulator`, found in the Android SDK where Android Studio puts it as well as on `PATH`; `[preview]` in [config.toml](/docs/configuration#preview) names either) and asks no server, so `-m` is refused: run it on the machine with the simulators.
 
 - `conch preview devices [-json]` lists them, running ones first, with the ID each other command takes. `-json` prints `{devices, notes}`; a platform whose tool failed is left out and said in `notes`.
 - `conch preview boot DEVICE` starts one, by name or ID: a simulator boots with no Simulator window, an emulator is left running.

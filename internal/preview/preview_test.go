@@ -212,7 +212,7 @@ func TestShot(t *testing.T) {
 	if err := tl.Shot(ctx, Device{ID: "U", Platform: "ios", State: "booted"}, p); err != nil {
 		t.Fatal(err)
 	}
-	if last := f.ran[len(f.ran)-1]; last != "xcrun simctl io U screenshot --type=png "+p {
+	if last := f.ran[len(f.ran)-1]; last != "xcrun simctl io U screenshot --type=png --mask=black "+p {
 		t.Errorf("ran %q", last)
 	}
 	if err := tl.Shot(ctx, Device{ID: "U", Name: "iPhone SE", Platform: "ios", State: "shutdown"}, p); err == nil || !strings.Contains(err.Error(), `conch preview boot "iPhone SE"`) {
@@ -382,5 +382,81 @@ func TestDetect(t *testing.T) {
 	}
 	if p := Detect(filepath.Join(t.TempDir(), "missing")); p.Kind != "" {
 		t.Errorf("a missing folder: %+v", p)
+	}
+}
+
+// Xcode is found where xcode-select's link does not lead to it: a Mac
+// whose tools point at the Command Line Tools, with Xcode installed, is
+// where simctl was "not found" though every simulator was there.
+func TestFindXcode(t *testing.T) {
+	apps, link := t.TempDir(), filepath.Join(t.TempDir(), "xcode_select_link")
+	oldApps, oldLink := applicationsDir, xcodeSelectLink
+	t.Cleanup(func() { applicationsDir, xcodeSelectLink = oldApps, oldLink })
+	applicationsDir, xcodeSelectLink = apps, link
+	mkXcode := func(name string) string {
+		dev := filepath.Join(apps, name, "Contents", "Developer")
+		if err := os.MkdirAll(filepath.Join(dev, "usr", "bin"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dev
+	}
+	beta := mkXcode("Xcode-beta.app")
+	if got := FindWith(nil, Options{}).DeveloperDir; got != beta {
+		t.Errorf("only a beta installed: %q", got)
+	}
+	main := mkXcode("Xcode.app")
+	// No link at all: Xcode.app before a beta.
+	if got := FindWith(nil, Options{}).DeveloperDir; got != main {
+		t.Errorf("no link: %q", got)
+	}
+	// The link at the Command Line Tools: Xcode all the same.
+	os.Symlink("/Library/Developer/CommandLineTools", link)
+	if got := FindWith(nil, Options{}).DeveloperDir; got != main {
+		t.Errorf("link at the CLT: %q", got)
+	}
+	// The link at an Xcode: left to xcode-select, as somebody chose it.
+	os.Remove(link)
+	os.Symlink(beta, link)
+	if got := FindWith(nil, Options{}).DeveloperDir; got != "" {
+		t.Errorf("link at an Xcode: %q", got)
+	}
+	// DEVELOPER_DIR in the environment wins over looking.
+	if got := FindWith([]string{"DEVELOPER_DIR=/x"}, Options{}).DeveloperDir; got != "" {
+		t.Errorf("DEVELOPER_DIR set: %q", got)
+	}
+	// The setting wins over everything: the app or its Developer folder.
+	for _, s := range []string{filepath.Join(apps, "Xcode-beta.app"), beta, beta + "/"} {
+		if got := FindWith([]string{"DEVELOPER_DIR=/x"}, Options{Xcode: s}).DeveloperDir; got != beta {
+			t.Errorf("setting %q: %q", s, got)
+		}
+	}
+	// A setting that is no Xcode is not used, and Devices says so.
+	f := FindWith(nil, Options{Xcode: filepath.Join(apps, "Nope.app")})
+	if f.DeveloperDir != "" || f.XcodeProblem == "" || !strings.Contains(f.XcodeProblem, "Nope.app") {
+		t.Errorf("a wrong setting: %+v", f)
+	}
+	f.Run = (&fake{}).tools("", "", "", "").Run
+	f.Xcrun = "xcrun"
+	if _, notes, _ := f.Devices(context.Background()); len(notes) == 0 || !strings.Contains(notes[0], "Nope.app") {
+		t.Errorf("notes %q", notes)
+	}
+	// The programs it runs are told which Xcode.
+	bin := t.TempDir()
+	writeExec(t, filepath.Join(bin, "xcrun"), `echo "$DEVELOPER_DIR"`)
+	g := FindWith([]string{"PATH=" + bin}, Options{Xcode: main})
+	out, err := g.Run(context.Background(), g.Xcrun)
+	if err != nil || strings.TrimSpace(string(out)) != main {
+		t.Errorf("xcrun saw DEVELOPER_DIR=%q, %v", out, err)
+	}
+}
+
+// The Android SDK of the setting is looked in before the usual places.
+func TestFindAndroidSDKSetting(t *testing.T) {
+	sdk := t.TempDir()
+	writeExec(t, filepath.Join(sdk, "platform-tools", "adb"), "true")
+	writeExec(t, filepath.Join(sdk, "emulator", "emulator"), "true")
+	f := FindWith([]string{"PATH=", "HOME=" + t.TempDir()}, Options{AndroidSDK: sdk})
+	if f.Adb != filepath.Join(sdk, "platform-tools", "adb") || f.Emulator != filepath.Join(sdk, "emulator", "emulator") {
+		t.Errorf("found %q %q", f.Adb, f.Emulator)
 	}
 }
