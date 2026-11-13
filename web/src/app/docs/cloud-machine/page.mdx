@@ -2,6 +2,8 @@ export const metadata = { title: "Cloud machine image", description: "Build a ma
 
 # Cloud machine image
 
+> Conch Cloud is not enabled in this release: set `CONCH_CLOUD=1`, or `enabled = true` under `[cloud]` in `config.toml`, to try it ([more](/docs/cli#conch-cloud-commands)).
+
 A Conch Cloud machine is a VM with conch in it. Its host — Tensorlake, Hetzner or any provider the control plane drives — boots it from an image, writes a small file into it, and from then on the machine looks after itself: **`conch cloud agent`** starts the machine's conch server, tells the control plane it is up, reports what its agents are doing so an idle machine can sleep, and joins the relay so your laptop and phone reach the server through an end-to-end encrypted tunnel.
 
 This page is for whoever builds that image.
