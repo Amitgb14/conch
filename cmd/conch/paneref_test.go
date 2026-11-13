@@ -68,7 +68,17 @@ func TestMachinePaneRef(t *testing.T) {
 		// Disagreeing with -m is said, not guessed at.
 		{cmd: "read", machine: "local", args: []string{"busybox:p3"}, bad: "and -m says local"},
 		{cmd: "read", machine: "busybox", args: []string{"local:p3"}, bad: "and -m says busybox"},
-		{cmd: "show", args: []string{"busybox:p3", "local:p4"}, bad: "and -m says " + bb.ID},
+		{cmd: "show", args: []string{"busybox:p3", "local:p4"}, bad: "busybox:p3 and local:p4 are panes on different machines"},
+		// A bare pane beside a ref elsewhere would be looked for on the
+		// ref's machine: said, not guessed at.
+		{cmd: "show", args: []string{"p5", "busybox:p3"}, bad: "p5 names no machine, so it is a pane on this computer, and busybox:p3 is on another"},
+		{cmd: "show", args: []string{"busybox:p3", "p5"}, bad: "p5 names no machine"},
+		{cmd: "show", machine: "local", args: []string{"p5", "busybox:p3"}, bad: "and -m says local"},
+		{cmd: "show", args: []string{"local:p3", "busybox:p4", "p5"}, bad: "different machines"},
+		// ...and fine where they are on the same machine.
+		{cmd: "show", args: []string{"p5", "local:p3"}, want: []string{"p5", "p3"}, wantMachine: "local"},
+		{cmd: "show", machine: "busybox", args: []string{"p5", "busybox:p3"}, want: []string{"p5", "p3"}, wantMachine: bb.ID},
+		{cmd: "show", machine: bb.ID, args: []string{"busybox:p3", "p5"}, want: []string{"p3", "p5"}, wantMachine: bb.ID},
 	} {
 		got, m, err := machinePane(c.cmd, c.args, c.machine)
 		if c.bad != "" {
