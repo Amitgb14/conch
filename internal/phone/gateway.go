@@ -57,6 +57,8 @@ type Gateway struct {
 	done chan struct{}
 
 	publicOrigin string // see AllowOrigin
+	// called is when each device's calls were last recorded as seen.
+	called map[string]time.Time
 
 	pushAllowed func(endpoint string) bool
 	pushClient  *http.Client
@@ -404,7 +406,31 @@ func (g *Gateway) authenticate(r *http.Request, need string) (Device, string, *A
 	if !allows(dev.Permission, need) {
 		return Device{}, "", apiErr(CodeForbidden, "this device has the "+dev.Permission+" permission; that needs "+need)
 	}
+	g.calledBy(dev.ID, routeOf(r))
 	return dev, ck.Value, nil
+}
+
+// calledBy records a device as seen by a call, not only by its socket: a
+// phone that only made calls was listed as seen "never" (#199). Each
+// record is a write of the store, so a device's are a minute apart.
+func (g *Gateway) calledBy(id, route string) {
+	now := g.now()
+	g.mu.Lock()
+	if g.called == nil {
+		g.called = map[string]time.Time{}
+	}
+	last, ok := g.called[id]
+	fresh := !ok || now.Sub(last) >= time.Minute || now.Before(last)
+	if fresh {
+		g.called[id] = now
+	}
+	g.mu.Unlock()
+	if !fresh {
+		return
+	}
+	if err := g.store.Called(os.Getpid(), id, route, now); err != nil {
+		g.logf("recording %s's call: %v", id, err)
+	}
 }
 
 // AllowOrigin names the address phones open the gateway at when it isn't
@@ -608,6 +634,9 @@ func (g *Gateway) servePair(w http.ResponseWriter, r *http.Request) {
 	if codeDigits(req.Code) == "" {
 		g.fail(w, r, apiErr(CodeBadRequest, "a pairing code is needed"))
 		return
+	}
+	if strings.TrimSpace(req.DeviceName) == "" {
+		req.DeviceName = req.Name
 	}
 	if len(req.DeviceName) > pairNameMax {
 		req.DeviceName = req.DeviceName[:pairNameMax]
