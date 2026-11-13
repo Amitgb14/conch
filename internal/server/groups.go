@@ -328,7 +328,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 			continue // not registered now: not part of this task
 		}
 		if !p.snapshot().Git {
-			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each", p.snapshot().Name)
+			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each (%s)", p.snapshot().Name, notGitHint)
 		}
 		projects = append(projects, p)
 	}

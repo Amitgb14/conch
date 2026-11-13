@@ -39,6 +39,9 @@ public enum RowAction: Equatable, Sendable {
     /// is named.
     case commits(project: String, branch: String?)
     case newTask(project: String)
+    /// A project that is a plain folder made a git repository: git init
+    /// and an empty first commit (project.git_init.v1), after asking.
+    case gitInit(project: String)
     case copy(String)
     /// A folder on this Mac shown in the Finder.
     case reveal(String)
@@ -283,6 +286,7 @@ extension Snapshot {
                    RowMenuItem("Start an Agent in Project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
                    RowMenuItem("Open Terminal in Project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
+            if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]

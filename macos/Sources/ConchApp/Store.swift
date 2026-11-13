@@ -80,6 +80,9 @@ final class Store: ObservableObject {
     private var tuiWorkspace = "first"
     @Published var questions: [String: Question] = [:]
     @Published var sessions: [String: Int] = [:]
+    /// Projects whose sessions are to be counted again (Sessions+Store).
+    var sessionRecounts = SessionRecounts()
+    var sessionRecountTask: Task<Void, Never>?
     /// The TUI's folds (ui.json), and the ones chosen here, which are kept
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
@@ -1586,6 +1589,9 @@ final class Store: ObservableObject {
             let before = snap.pane(p.id)
             let was = before?.agent?.state
             snap.upsert(p)
+            // An agent that stopped working may have saved its first
+            // conversation in the project: its Sessions row is counted again.
+            if sessionsMayHaveChanged(old: before, new: p), let pr = p.projectID { recountSessions(key(machine, pr)) }
             attention(machine, old: before, new: p)
             if scratch == k, scratchLost(scratch, pane: p) { dropScratch() }
             // Exited on its own — a shell's exit, an ssh logout, an agent's
@@ -1624,6 +1630,8 @@ final class Store: ObservableObject {
             questions.removeValue(forKey: k)
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
+                // A project added since the connection was counted: count it.
+                if snap.project(p.id) == nil { recountSessions(key(machine, p.id), after: 0) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
@@ -1634,7 +1642,10 @@ final class Store: ObservableObject {
             if let l = try? dec.decode(GroupList.self, from: data) { snap.groups = l.groups ?? [] }
         case "project.removed":
             struct Ref: Decodable { var id: String }
-            if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
+            if let r = try? dec.decode(Ref.self, from: data) {
+                snap.remove(project: r.id)
+                sessionRecounts.drop(key(machine, r.id))
+            }
         case "review.changed":
             // A note answered, sent or resolved elsewhere — an agent's
             // reply above all: the open tab of that branch reads its
@@ -1682,7 +1693,7 @@ final class Store: ObservableObject {
         }
         for pr in snapshots[machine]?.projects ?? [] {
             Task {
-                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: 500), as: SessionCount.self) {
+                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: sessionCountLimit), as: SessionCount.self) {
                     sessions[key(machine, pr.id)] = n.count
                 }
             }
@@ -2157,6 +2168,7 @@ final class Store: ObservableObject {
         let (m, pid) = unkey(pk)
         let k = sessionsKey(m, pid)
         if layout.tab(showing: k) != nil { sessionViews[k]?.load() }
+        recountSessions(pk, after: 0)
         layout.open(k)
         terminalHasKeyboard = false
     }
@@ -2495,6 +2507,7 @@ final class Store: ObservableObject {
         case .changes(let pr, let b): openChanges(project: pr, branch: b)
         case .commits(let pr, let b): openCommits(project: pr, branch: b)
         case .newTask(let pr): newTask(project: pr)
+        case .gitInit(let pr): gitInitProject(pr)
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -3040,9 +3053,15 @@ final class Store: ObservableObject {
         return (try? await c.call("project.issues", P(project_id: pr, limit: 50), as: R.self))?.issues ?? []
     }
 
-    func startTask(_ d: TaskDraft) {
+    /// checked says a plain-folder project has been dealt with: made a git
+    /// repository, or the person asked for the folder itself.
+    func startTask(_ d: TaskDraft, checked: Bool = false) {
         let (m, pr) = unkey(d.project)
         guard let c = conns[m] else { return }
+        guard checked else {
+            whenBranchable(machine: m, projects: [pr], inFolder: { self.startTaskInFolder(d) }) { self.startTask(d, checked: true) }
+            return
+        }
         // An issue or a time other than now: `conch task`, which reads the
         // issue and the time's words the way the TUI does.
         if (d.issue ?? 0) > 0 || !taskWhenArgs(d.when).isEmpty {
@@ -3540,19 +3559,23 @@ extension Store {
         let agent = agents.indices.contains(pick.indexOfSelectedItem) ? agents[pick.indexOfSelectedItem].name : nil
         let b = branch.stringValue.trimmingCharacters(in: .whitespaces)
         struct Result: Decodable { var panes: [PaneInfo]? }
-        say("Starting the task across \(picked.count) repos…", .info)
-        Task {
-            do {
-                let res = try await c.call("group.task", Params(group: name, prompt: what, branch: b.isEmpty ? nil : b, agent: agent,
-                                                                 projects: picked.count == repos.count ? [] : picked, each: each.state == .on, cols: 120, rows: 40),
-                                           as: Result.self)
-                for p in res.panes ?? [] {
-                    snapshots[machine, default: Snapshot()].upsert(p)
-                    layout.open(key(machine, p.id))
+        // A plain folder among them has no branch to make: made a
+        // repository first, after asking.
+        whenBranchable(machine: machine, projects: picked) {
+            self.say("Starting the task across \(picked.count) repos…", .info)
+            Task {
+                do {
+                    let res = try await c.call("group.task", Params(group: name, prompt: what, branch: b.isEmpty ? nil : b, agent: agent,
+                                                                     projects: picked.count == repos.count ? [] : picked, each: each.state == .on, cols: 120, rows: 40),
+                                               as: Result.self)
+                    for p in res.panes ?? [] {
+                        self.snapshots[machine, default: Snapshot()].upsert(p)
+                        self.layout.open(key(machine, p.id))
+                    }
+                    self.focusTerminal()
+                } catch {
+                    self.say("Could not start the task: \(error)", .err)
                 }
-                focusTerminal()
-            } catch {
-                say("Could not start the task: \(error)", .err)
             }
         }
     }
