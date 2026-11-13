@@ -187,10 +187,9 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider daytona|boat|devin|tensorlake create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
-                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI,
-                                Tensorlake: $TENSORLAKE_API_KEY and your ssh key registered with it)
+                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another

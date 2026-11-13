@@ -85,3 +85,25 @@ func TestStatesLabelsAndPeriods(t *testing.T) {
 		t.Fatalf("the list is not a copy: %v", again)
 	}
 }
+
+// Offered is what a menu makes a sandbox with: every provider conch knows,
+// in order, but Tensorlake, which stays known for its sandboxes' sake.
+func TestOfferedLeavesTensorlakeOut(t *testing.T) {
+	names := Names
+	t.Cleanup(func() { Names = names })
+	Names = func() []string { return []string{"daytona", "boat", "devin", "tensorlake", "fly"} }
+	if got := strings.Join(Offered(), ","); got != "daytona,boat,devin,fly" {
+		t.Errorf("offered: %s", got)
+	}
+	if !Known("tensorlake") || !Builtin("tensorlake") {
+		t.Error("tensorlake should stay known")
+	}
+	Names = func() []string { return nil }
+	if got := Offered(); len(got) != 0 {
+		t.Errorf("none known, offered %v", got)
+	}
+	Names = func() []string { return []string{"tensorlake"} }
+	if got := Offered(); len(got) != 0 {
+		t.Errorf("only tensorlake, offered %v", got)
+	}
+}
