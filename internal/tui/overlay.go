@@ -1448,6 +1448,9 @@ var helpGroups = []helpGroup{{
 		{keys: "tree", what: "an agent started by another is listed under it, folding away with it", more: []string{
 			"elsewhere — another section, another machine — it says ↳ for the pane that started it, and that pane counts them (⑂2, amber with ! when one of them is waiting); Q, ! and notifications name it too",
 		}},
+		{keys: "tree", what: "⟳2 on an agent: two things it left running — a dev server, a watcher — listed under it", more: []string{
+			"command, ports and how long it has run; its menu (m) stops one; notifications say what is still running",
+		}},
 		{keys: "Sessions", what: "what each saved conversation cost, or the tokens it generated"},
 		{what: "a task warns before it starts when that agent's plan window is nearly used; it never refuses"},
 	},

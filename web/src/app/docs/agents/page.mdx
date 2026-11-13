@@ -77,6 +77,14 @@ conch never edits an agent's own configuration or answers its trust prompts for 
 
 A desktop notification fires when an agent you aren't viewing needs you (see [notification settings](/docs/interface#notifications)). `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
 
+### Left running in the background
+
+An agent that is not working can still have something running below it — a background shell from Claude Code's `run_in_background`, a dev server, a test watcher. Its row then says **⟳2** beside its state, each one is listed under it with its command, ports and how long it has run, and the *done* or *waiting* notification adds *1 still running (npm run dev)*. The phone's card, the Mac app's pill (*idle · 2 running*) and `conch status` say the same.
+
+It is read from the process tree: what runs below the agent's own process for more than a few seconds, less the helpers it keeps for itself — MCP servers, language servers, `caffeinate`, conch's own hooks. A shell you started yourself in the same pane is not the agent's and is not counted. An agent's manifest can name more helpers with `helpers = ["name"]`.
+
+**How:** the job's row menu (`m`) → **Stop it**, or click the pill in the Mac app; it ends that job and what it started.
+
 ### How the state is decided
 
 Most reliable first:
