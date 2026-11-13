@@ -97,7 +97,10 @@ type Server struct {
 }
 
 type client struct {
+	// conn is written only by the outbox's writer (outbox.go): everything
+	// else sends.
 	conn *proto.Conn
+	out  *outbox
 	// pane is the pane the connection comes from, as the kernel says; ""
 	// from outside the panes. See scope.go.
 	pane string
@@ -361,9 +364,13 @@ func (s *Server) shutdown() {
 		go func() { defer wg.Done(); e.p.Close() }()
 	}
 	wg.Wait()
+	// What was said before stopping — pane.exited for every pane just
+	// closed — goes out first, as it did when writes were made in place.
 	for _, c := range clients {
-		c.conn.Close()
+		wg.Add(1)
+		go func() { defer wg.Done(); c.flush(replyWait); c.close() }()
 	}
+	wg.Wait()
 	log.Printf("server stopped")
 }
 
@@ -371,6 +378,7 @@ func (s *Server) serve(nc net.Conn) {
 	pid := peerPID(nc)
 	s.noteCaller(pid) // CONCH_LOG_CALLER=1; see scope.go
 	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid), root: peerUID(nc) == 0}
+	c.startOutbox(nc)
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -384,7 +392,7 @@ func (s *Server) serve(nc net.Conn) {
 		s.sizes.forget(c)
 		s.unsubscribeAll(c)
 		s.uploads.dropClient(c)
-		c.conn.Close()
+		c.close()
 	}()
 
 	for {
@@ -448,14 +456,16 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 			resp.Result = json.RawMessage("{}")
 		}
 	}
-	if err := c.conn.Write(resp); err != nil {
+	if !c.send(resp) {
 		return false
 	}
 	if msg.Method == proto.MethodServerStop && perr == nil { // refused (scope.go), it stays up
+		c.flush(replyWait) // the answer is out before the server goes
 		s.Stop()
 	}
 	if msg.Method == proto.MethodServerReload && perr == nil {
 		if r, ok := result.(proto.ServerReloadResult); ok {
+			c.flush(replyWait)
 			go s.reload(r.Binary)
 		}
 	}
@@ -1733,7 +1743,7 @@ func (s *Server) broadcast(event string, data any) {
 	}
 	s.mu.Unlock()
 	for _, c := range clients {
-		_ = c.conn.Write(msg)
+		c.send(msg) // queued: a client that stopped reading holds up nobody
 	}
 }
 
@@ -1759,7 +1769,7 @@ func (s *Server) subscribe(c *client, e *entry) {
 			changed := p.Changed() // grab before rendering so no change is missed
 			frame := p.FrameAt(sub.anchoredOffset(p.History()))
 			sub.settle(frame)
-			if err := c.conn.Write(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(frame)}); err != nil {
+			if !c.sendWait(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(frame)}) {
 				return
 			}
 			sent := time.Now()
