@@ -1,13 +1,16 @@
 import AppKit
 import ConchKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// An agent's conversation, read from what it saves (agent.chat), kept up
 /// to date while it is on screen: asked for every second while the agent
-/// works and every few while it rests, one request at a time, and sent only
-/// what changed. The terminal is still the agent: a message sent here is
-/// typed into it (agent.prompt), Stop is its escape key, and a question is
-/// answered with its keys.
+/// works and every few while it rests — five times a second while it is
+/// being stopped — one request at a time, and sent only what changed. The
+/// terminal is still the agent: a message sent here is typed into it
+/// (agent.prompt), with its attachments as paths at its end; Stop is the
+/// agent's own interrupt key (agent.interrupt), and a question is answered
+/// with its keys.
 @MainActor
 final class ChatModel: ObservableObject {
     let key: String
@@ -22,18 +25,55 @@ final class ChatModel: ObservableObject {
     @Published private(set) var blocks: [ChatBlock] = []
     @Published var error = ""
     @Published var draft = ""
+    /// Files on the message being written: chips above it.
+    @Published var attachments: [ChatAttachment] = []
+    /// The checkout's files the @ picker offers, or nil when it is shut.
+    @Published var picker: AtPicker?
+    /// Stop, from the press until the agent says it has stopped.
+    @Published private(set) var stop = ChatStop()
     /// Messages sent and not yet in the conversation: shown at once, as a
     /// chat does, and dropped when the agent's transcript has them.
     @Published private(set) var pending: [PendingMessage] = []
+    /// Files sent from outside the checkout, now in it: offered again by @.
+    @Published private(set) var recent: [ChatAttachment] = []
     private var inFlight = false
     private var timer: Timer?
     private var running = false
+    /// Where the conversation was when Stop was pressed: an "Interrupted"
+    /// after it says the stop took.
+    private var stopMark: ChatMark?
+    private var finds = 0
+    /// The composer's text view, for the @ button to type into.
+    weak var input: NSTextView?
 
     struct PendingMessage: Identifiable, Equatable {
         let id = UUID()
         var text: String
+        var attachments: [ChatAttachment] = []
         var after: ChatMark
         var failed: String?
+    }
+
+    /// The @ picker: what is typed after the @, where, and what it found.
+    struct AtPicker: Equatable {
+        var range: NSRange
+        var query: String
+        var found: [String] = []
+        var selected = 0
+        var note: String?
+        /// Recently attached files that match, then the checkout's.
+        var items: [AtItem] = []
+    }
+
+    enum AtItem: Equatable, Identifiable {
+        case file(String)
+        case recent(ChatAttachment)
+        var id: String {
+            switch self {
+            case .file(let p): return "f:" + p
+            case .recent(let a): return "r:" + a.id.uuidString
+            }
+        }
     }
 
     init(key: String, store: Store) {
@@ -48,7 +88,7 @@ final class ChatModel: ObservableObject {
         schedule()
     }
 
-    func stop() {
+    func stopPolling() {
         running = false
         timer?.invalidate()
         timer = nil
@@ -59,12 +99,20 @@ final class ChatModel: ObservableObject {
         guard running else { return }
         let state = store.pane(pane)?.agent?.state
         let busy = chatBusy(state: state, pending: pending.count, turns: log.turns)
-        timer = Timer.scheduledTimer(withTimeInterval: busy ? 1 : 4, repeats: false) { [weak self] _ in
+        let every = stop.active ? ChatStop.poll : busy ? 1 : 4
+        timer = Timer.scheduledTimer(withTimeInterval: every, repeats: false) { [weak self] _ in
             Task { @MainActor in
+                self?.checkStop()
                 self?.load()
                 self?.schedule()
             }
         }
+    }
+
+    private var machine: String { unkey(pane).machine }
+
+    private func can(_ cap: String) -> Bool {
+        store.connection(machine)?.hello?.capabilities?.contains(cap) == true
     }
 
     /// Asks for what changed. One request at a time: the first read of a
@@ -92,29 +140,45 @@ final class ChatModel: ObservableObject {
                 if next.apply(got) || !log.loaded { log = next }
                 pending.removeAll { $0.failed == nil && log.has(sent: $0.text, after: $0.after) }
                 error = ""
+                checkStop()
             } catch {
                 self.error = "\(error)"
             }
         }
     }
 
-    /// The draft typed into the agent and submitted, as if at its prompt.
+    /// The agent's checkout and its own folder, for the paths it is given.
+    var checkout: (root: String?, cwd: String?) {
+        let p = store.pane(pane)
+        let proj = p?.projectID.flatMap { store.snapshots[machine]?.project($0) }
+        return (chatCheckout(cwd: p?.cwd, project: proj), p?.cwd)
+    }
+
+    /// The draft and its attachments typed into the agent and submitted,
+    /// as if at its prompt. Files from outside the checkout are copied into
+    /// it first; one that cannot be leaves the message unsent, to retry.
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let atts = attachmentsToSend(attachments)
+        guard !text.isEmpty || !atts.isEmpty else { return }
         let (m, id) = unkey(pane)
         guard let c = store.connection(m) else { return }
-        guard c.hello?.capabilities?.contains("agent.prompt.v1") == true else {
+        guard can("agent.prompt.v1") else {
             error = "The server on \(store.label(m)) predates prompting an agent; reload it"
             return
         }
-        let msg = PendingMessage(text: text, after: log.mark)
+        let msg = PendingMessage(text: text, attachments: atts, after: log.mark)
         pending.append(msg)
         draft = ""
+        picker = nil
+        // An amber chip stays, saying it was not sent.
+        attachments.removeAll { a in atts.contains { $0.id == a.id } }
         struct P: Encodable { var id: String; var text: String }
         Task {
             do {
-                try await c.call("agent.prompt", P(id: id, text: text))
+                let refs = try await deliver(atts, c)
+                let agent = store.pane(pane)?.agent?.name ?? ""
+                try await c.call("agent.prompt", P(id: id, text: attachmentPrompt(text, refs, agent: agent)))
                 schedule()
             } catch {
                 if let i = pending.firstIndex(where: { $0.id == msg.id }) { pending[i].failed = "\(error)" }
@@ -122,20 +186,271 @@ final class ChatModel: ObservableObject {
         }
     }
 
+    struct AttachError: LocalizedError, CustomStringConvertible {
+        let description: String
+        var errorDescription: String? { description }
+    }
+
+    /// The attachments as the agent finds them: a checkout's file by its
+    /// path; anything else copied into the checkout's .conch/attachments
+    /// (agent.attach makes the folder), here by a copy and on another
+    /// machine through its server (conch upload, fs.upload in chunks).
+    private func deliver(_ atts: [ChatAttachment], _ c: Connection) async throws -> [AttachedRef] {
+        let (root, cwd) = checkout
+        let copied = atts.filter(\.copied)
+        let names = uniqueNames(copied.map { attachmentFileName($0.name) })
+        var folder: AttachFolder?
+        if !copied.isEmpty {
+            guard can("agent.attach.v1") else {
+                throw AttachError(description: "the server on \(store.label(machine)) is from before attachments; reload it (right-click \(store.label(machine)) → Reload Server) to send files from outside the checkout")
+            }
+            struct P: Encodable { var id: String }
+            folder = try await c.call("agent.attach", P(id: unkey(pane).id), as: AttachFolder.self)
+        }
+        var refs: [AttachedRef] = []
+        var k = 0
+        for a in atts {
+            if case .checkout(let rel) = a.source {
+                refs.append(AttachedRef(path: checkoutPath(root: root ?? cwd ?? "", cwd: cwd, rel), image: a.image))
+                continue
+            }
+            guard let f = folder else { continue }
+            let name = names[k]
+            k += 1
+            let landed = try await copy(a, into: f.dir, as: name)
+            refs.append(AttachedRef(path: attachedPath(folder: f, name: landed), image: a.image))
+            let rel = pathFor(agentIn: f.root, (f.dir as NSString).appendingPathComponent(landed))
+            remember(ChatAttachment(name: a.name, size: a.size, source: .checkout(rel)))
+        }
+        return refs
+    }
+
+    /// One file put in the folder, by name; the name it landed as.
+    private func copy(_ a: ChatAttachment, into dir: String, as name: String) async throws -> String {
+        let fm = FileManager.default
+        if machine == "local" {
+            let dest = (dir as NSString).appendingPathComponent(name)
+            switch a.source {
+            case .data(let d): try d.write(to: URL(fileURLWithPath: dest))
+            case .file(let p): try fm.copyItem(atPath: p, toPath: dest)
+            case .checkout: break
+            }
+            return name
+        }
+        guard let b = store.binary else { throw AttachError(description: "conch was not found to copy files to \(store.label(machine))") }
+        // conch upload names the copy after the file, so it goes from a
+        // folder of its own under the name it is to have.
+        let tmp = fm.temporaryDirectory.appendingPathComponent("conch-attach-" + UUID().uuidString)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        let local = tmp.appendingPathComponent(name)
+        switch a.source {
+        case .data(let d): try d.write(to: local)
+        case .file(let p): try fm.copyItem(atPath: p, toPath: local.path)
+        case .checkout: break
+        }
+        let out = try await runConch(b, onMachine(machine, ["upload", "-to", dir, "-f", local.path]))
+        guard let there = uploadedPaths(String(decoding: out, as: UTF8.self)).first else {
+            throw AttachError(description: "\(a.name) did not reach \(store.label(machine))")
+        }
+        return (there as NSString).lastPathComponent
+    }
+
+    private func remember(_ a: ChatAttachment) {
+        recent.removeAll { $0.source == a.source }
+        recent.insert(a, at: 0)
+        if recent.count > 5 { recent.removeLast(recent.count - 5) }
+    }
+
     func retry(_ m: PendingMessage) {
         pending.removeAll { $0.id == m.id }
         draft = m.text
+        attachments = m.attachments + attachments
         send()
     }
 
     func discard(_ m: PendingMessage) { pending.removeAll { $0.id == m.id } }
 
-    /// Stops what the agent is doing: its escape key, as in its terminal.
+    // MARK: attachments
+
+    /// Files from Finder, a picker or a paste: a file inside the checkout
+    /// is named by its path (on this Mac only — elsewhere the checkout is
+    /// another computer's), anything else copied when the message goes.
+    func attach(_ urls: [URL]) {
+        let root = machine == "local" ? checkout.root.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } : nil
+        var skipped: [String] = []
+        for u in urls where u.isFileURL {
+            let path = u.resolvingSymlinksInPath().path
+            var dir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &dir), !dir.boolValue else {
+                skipped.append(u.lastPathComponent)
+                continue
+            }
+            let size = ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.int64Value ?? 0
+            let name = u.lastPathComponent
+            if let root, isInside(path, root), path != root {
+                add(ChatAttachment(name: name, size: size, source: .checkout(pathFor(agentIn: root, path))))
+            } else {
+                add(ChatAttachment(name: name, size: size, source: .file(path)))
+            }
+        }
+        if !skipped.isEmpty {
+            error = "Folders are not attached (\(skipped.joined(separator: ", "))): attach the files in them"
+        }
+    }
+
+    /// A picture pasted, as a PNG.
+    func attachImage(_ png: Data) {
+        let n = attachments.filter { if case .data = $0.source { return true }; return false }.count + 1
+        add(ChatAttachment(name: pastedImageName(at: Date(), n: n), size: Int64(png.count), source: .data(png)))
+    }
+
+    /// A file of the checkout, by its path there; its size is not known.
+    func attachCheckout(_ rel: String) {
+        add(ChatAttachment(name: (rel as NSString).lastPathComponent, size: -1, source: .checkout(rel)))
+    }
+
+    private func add(_ a: ChatAttachment) {
+        if case .checkout = a.source, attachments.contains(where: { $0.source == a.source }) { return }
+        attachments.append(a)
+    }
+
+    func remove(_ a: ChatAttachment) { attachments.removeAll { $0.id == a.id } }
+
+    /// The text or cursor moved: the @ picker opens on an "@word", follows
+    /// it, and shuts when there is none.
+    func cursorMoved(_ text: String, _ cursor: Int) {
+        guard let (range, query) = atQuery(text, cursor: cursor) else {
+            if picker != nil { picker = nil }
+            return
+        }
+        if picker?.query == query && picker?.range == range { return }
+        var p = picker ?? AtPicker(range: range, query: query)
+        p.range = range
+        p.query = query
+        p.selected = 0
+        picker = p
+        find(query)
+    }
+
+    /// The @ button: an @ typed at the end of the message, the keyboard
+    /// put there, and the picker opened.
+    func startAt() {
+        draft += draft.isEmpty || draft.hasSuffix(" ") || draft.hasSuffix("\n") ? "@" : " @"
+        if let tv = input {
+            tv.string = draft
+            tv.window?.makeFirstResponder(tv)
+            tv.setSelectedRange(NSRange(location: (draft as NSString).length, length: 0))
+        }
+        cursorMoved(draft, (draft as NSString).length)
+    }
+
+    private func find(_ q: String) {
+        guard let root = checkout.root else {
+            picker?.note = "This agent is not in a project's checkout"
+            relist()
+            return
+        }
+        guard can("fs.find.v1"), let c = store.connection(machine) else {
+            picker?.note = "The server on \(store.label(machine)) is from before finding files; reload it"
+            relist()
+            return
+        }
+        finds += 1
+        let n = finds
+        struct P: Encodable { var root: String; var query: String; var limit: Int }
+        Task {
+            let r = try? await c.call("fs.find", P(root: root, query: q, limit: 8), as: FindResult.self)
+            guard n == finds, picker != nil else { return }
+            picker?.found = r?.paths ?? []
+            picker?.note = r == nil ? "Could not search \((root as NSString).lastPathComponent)" : nil
+            relist()
+        }
+        relist()
+    }
+
+    private func relist() {
+        guard var p = picker else { return }
+        let q = p.query.lowercased()
+        let rec = recent.filter { q.isEmpty || $0.name.lowercased().contains(q) }.prefix(3).map { AtItem.recent($0) }
+        p.items = p.found.map { AtItem.file($0) } + rec
+        p.selected = min(p.selected, max(p.items.count - 1, 0))
+        picker = p
+    }
+
+    enum PickerKey { case up, down, choose, close }
+
+    /// A key while the picker is open; false when it is not, for the
+    /// text to take.
+    func pickerKey(_ k: PickerKey) -> Bool {
+        guard let p = picker else { return false }
+        switch k {
+        case .up: picker?.selected = max(p.selected - 1, 0)
+        case .down: picker?.selected = min(p.selected + 1, max(p.items.count - 1, 0))
+        case .close: picker = nil
+        case .choose:
+            guard p.items.indices.contains(p.selected) else { picker = nil; return true }
+            choose(p.items[p.selected])
+        }
+        return true
+    }
+
+    func choose(_ item: AtItem) {
+        guard let p = picker else { return }
+        draft = removingAt(draft, p.range)
+        picker = nil
+        switch item {
+        case .file(let rel): attachCheckout(rel)
+        case .recent(let a): add(ChatAttachment(name: a.name, size: a.size, source: a.source))
+        }
+    }
+
+    // MARK: Stop
+
+    /// Stop pressed, by the button or escape: the agent's interrupt at
+    /// once, then watched closely until it says it stopped.
     func interrupt() {
+        let wasIdle = stop.phase == .idle || stop.phase == .stuck
+        let act = stop.press(at: Date())
+        if wasIdle && act == .interrupt { stopMark = log.mark }
+        perform(act)
+        schedule()
+    }
+
+    /// A look at whether the stop took.
+    func checkStop() {
+        guard stop.phase != .idle else { return }
+        guard let p = store.pane(pane), p.running else {
+            stop.reset()
+            return
+        }
+        let interrupted = stopMark.map { log.interrupted(after: $0) } ?? false
+        let act = stop.check(at: Date(), stopped: p.agent?.state != .working || interrupted)
+        perform(act)
+    }
+
+    private func perform(_ act: ChatStopAction) {
+        guard act != .none else { return }
         let (m, id) = unkey(pane)
         guard let c = store.connection(m) else { return }
-        struct P: Encodable { var id: String; var keys: [String] }
-        Task { try? await c.call("pane.send_keys", P(id: id, keys: ["escape"])) }
+        let hard = act == .hard
+        if can("agent.interrupt.v1") {
+            struct P: Encodable { var id: String; var hard: Bool? }
+            struct R: Decodable { var keys: [String]?; var state: String? }
+            Task {
+                do {
+                    let r = try await c.call("agent.interrupt", P(id: id, hard: hard ? true : nil), as: R.self)
+                    if !hard { stop.sent = stopKeysText(r.keys ?? ["escape"]) }
+                    checkStop()
+                } catch {
+                    self.error = "Could not stop the agent: \(error)"
+                }
+            }
+        } else {
+            // A server from before agent.interrupt: the key as any key.
+            struct P: Encodable { var id: String; var keys: [String] }
+            Task { try? await c.call("pane.send_keys", P(id: id, keys: [hard ? "ctrl+c" : "escape"])) }
+        }
     }
 }
 
@@ -149,6 +464,8 @@ struct ChatView: View {
     /// here, each change redrew the list, which moved the end in or out of
     /// view again — a loop that kept the window at full processor.
     @State private var follow = FollowState()
+    /// Files dragged over the composer: how many, and how many pictures.
+    @State private var drop = DropState()
 
     var body: some View {
         let p = store.pane(model.pane)
@@ -172,8 +489,8 @@ struct ChatView: View {
         .contentShape(Rectangle())
         .onTapGesture { store.focus(model.key) }
         .onAppear { model.start() }
-        .onDisappear { model.stop() }
-        .onChange(of: p?.agent?.state) { _ in model.load() }
+        .onDisappear { model.stopPolling() }
+        .onChange(of: p?.agent?.state) { _ in model.checkStop(); model.load() }
     }
 
     var squared: Bool { Theme.style == .jetbrains }
@@ -251,12 +568,18 @@ struct ChatView: View {
     func block(_ b: ChatBlock, live: Bool) -> some View {
         switch b {
         case .user(let s, _):
+            let (text, refs) = splitAttached(s)
             HStack {
                 Spacer(minLength: 40)
-                Text(s).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
-                    .padding(.horizontal, 11).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: squared ? 6 : 12).fill(Theme.raise))
-                    .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 12).stroke(Theme.line))
+                VStack(alignment: .trailing, spacing: 6) {
+                    if !text.isEmpty {
+                        Text(text).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
+                    }
+                    if !refs.isEmpty { sentChips(refs.map { SentChip(name: ($0.path as NSString).lastPathComponent, image: $0.image, path: $0.path) }) }
+                }
+                .padding(.horizontal, 11).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: squared ? 6 : 12).fill(Theme.raise))
+                .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 12).stroke(Theme.line))
             }
         case .agent(let s, _):
             HStack(alignment: .top, spacing: 9) {
@@ -326,7 +649,12 @@ struct ChatView: View {
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 4) {
-                Text(m.text).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if !m.text.isEmpty {
+                        Text(m.text).font(.ui(size: 13)).foregroundStyle(Theme.text).textSelection(.enabled)
+                    }
+                    if !m.attachments.isEmpty { sentChips(m.attachments.map { SentChip(name: $0.name, image: $0.image, attachment: $0) }) }
+                }
                     .padding(.horizontal, 11).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: squared ? 6 : 12).fill(Theme.raise))
                     .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 12).stroke(m.failed == nil ? Theme.line : Theme.err.opacity(0.6)))
@@ -364,33 +692,56 @@ struct ChatView: View {
     func composer(_ p: PaneInfo?) -> some View {
         let lines = max(model.draft.components(separatedBy: "\n").count, 1) + model.draft.count / 70
         let height = min(max(CGFloat(lines) * 17 + 8, 26), 150)
-        let empty = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let toSend = attachmentsToSend(model.attachments)
+        let empty = model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && toSend.isEmpty
         let busy = chatBusy(state: p?.agent?.state, pending: model.pending.count, turns: model.log.turns)
+        let name = p?.agent.map { agentDisplayName($0.name) } ?? "the agent"
+        let stopping = model.stop.phase != .idle
         return VStack(alignment: .leading, spacing: 6) {
-            ChatInput(text: $model.draft, placeholder: "Reply to \(p?.agent.map { agentDisplayName($0.name) } ?? "the agent")…",
+            if !model.attachments.isEmpty {
+                ChoiceFlow(spacing: 6) {
+                    ForEach(model.attachments) { a in
+                        AttachmentChip(attachment: a, problem: attachmentProblem(model.attachments, a), root: model.checkout.root,
+                                       local: unkey(model.pane).machine == "local") { model.remove(a) }
+                    }
+                }
+            }
+            ChatInput(text: $model.draft, placeholder: "Reply to \(name)…",
                       onSend: { model.send() },
                       onEscape: {
-                          guard busy else { return false }
+                          if model.pickerKey(.close) { return true }
+                          guard busy || stopping else { return false }
                           model.interrupt()
                           return true
-                      })
+                      },
+                      onCursor: { text, cursor in model.cursorMoved(text, cursor) },
+                      onPicker: { model.pickerKey($0) },
+                      onPasteFiles: { model.attach($0) },
+                      onPasteImage: { model.attachImage($0) },
+                      onMake: { model.input = $0 })
                 .frame(height: height)
             HStack(spacing: 8) {
-                Text(busy ? "Working · what you send is queued · esc stops" : "⏎ send · ⇧⏎ new line")
-                    .font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
-                Spacer()
-                if busy {
-                    // As other agent chats: Stop where Send is while it works,
-                    // and Send beside it once there is something to queue.
-                    Button { model.interrupt() } label: {
-                        Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Theme.selectedText).frame(width: 26, height: 24)
-                            .background(RoundedRectangle(cornerRadius: squared ? 4 : 7).fill(Theme.err))
-                    }
-                    .buttonStyle(.plain)
-                    .help("Stop what the agent is doing (its escape key)")
+                Button { pickFiles() } label: {
+                    Image(systemName: "paperclip").font(.system(size: 12)).frame(width: 24, height: 22)
+                        .background(RoundedRectangle(cornerRadius: squared ? 4 : 6).stroke(Theme.line2))
                 }
-                if !busy || !empty {
+                .buttonStyle(.plain).foregroundStyle(Theme.text2)
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .help("Attach files (⌘⇧A) · or paste, or drop them here")
+                Button { model.startAt() } label: {
+                    Text("@").font(.ui(size: 12, weight: .semibold)).frame(width: 24, height: 22)
+                        .background(RoundedRectangle(cornerRadius: squared ? 4 : 6).stroke(Theme.line2))
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.text2)
+                .help("A file in the agent's checkout")
+                Text(hint(busy: busy, name: name))
+                    .font(.ui(size: 11)).foregroundStyle(model.stop.phase == .stuck || model.stop.phase == .harder ? Theme.warn : Theme.muted)
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer()
+                if busy || stopping {
+                    stopButton
+                }
+                if !(busy || stopping) || !empty {
                 Button { model.send() } label: {
                     Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Theme.selectedText).frame(width: 26, height: 24)
@@ -404,12 +755,272 @@ struct ChatView: View {
         .padding(10)
         .background(RoundedRectangle(cornerRadius: squared ? 6 : 11).fill(Theme.raise))
         .overlay(RoundedRectangle(cornerRadius: squared ? 6 : 11).stroke(Theme.line2))
+        .overlay {
+            if drop.count != nil {
+                RoundedRectangle(cornerRadius: squared ? 6 : 11).strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                    .background(RoundedRectangle(cornerRadius: squared ? 6 : 11).fill(Theme.accent.opacity(0.08)))
+                    .overlay(Text(dropOverlayText(count: drop.count ?? 0, images: drop.images))
+                        .font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.accent))
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if let pk = model.picker { atPicker(pk).offset(y: -8).alignmentGuide(.top) { $0[.bottom] } }
+        }
+        .onDrop(of: [.fileURL, .image], delegate: AttachDrop(state: $drop, model: model))
         .padding([.horizontal, .bottom], 10)
+    }
+
+    func hint(busy: Bool, name: String) -> String {
+        if let h = model.stop.hint(agent: name) { return h }
+        if model.picker != nil { return "↑↓ choose · ⏎ attach · esc close" }
+        return busy ? "Working · what you send is queued · esc stops"
+            : "Paste or drop images and files · @ for a file in the checkout · ⏎ send"
+    }
+
+    /// Stop while the agent works: Stopping… at once, then Stop harder.
+    var stopButton: some View {
+        let st = model.stop
+        return Button { model.interrupt() } label: {
+            HStack(spacing: 5) {
+                if st.phase == .idle || st.phase == .stuck {
+                    Image(systemName: "stop.fill").font(.system(size: 10, weight: .bold))
+                } else if st.phase != .harder {
+                    ProgressView().controlSize(.mini)
+                }
+                if st.phase != .idle { Text(st.label).font(.ui(size: 11.5, weight: .semibold)) }
+            }
+            .foregroundStyle(st.pressable ? Theme.selectedText : Theme.text2)
+            .padding(.horizontal, st.phase == .idle ? 0 : 9).frame(minWidth: 26, minHeight: 24)
+            .background(RoundedRectangle(cornerRadius: squared ? 4 : 7).fill(st.pressable ? Theme.err : Theme.err.opacity(0.3)))
+        }
+        .buttonStyle(.plain)
+        .disabled(!st.pressable)
+        .help(st.phase == .harder ? "Send ctrl+c: some agents need it to stop" : "Stop what the agent is doing (its interrupt key, esc)")
+        .accessibilityLabel(st.label)
+    }
+
+    /// The checkout's files matching what is typed after the @, above the
+    /// composer.
+    func atPicker(_ pk: ChatModel.AtPicker) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Files in \((model.checkout.root.map { ($0 as NSString).lastPathComponent }) ?? "the checkout")")
+                .font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(Theme.muted).textCase(.uppercase)
+                .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 2)
+            if pk.items.isEmpty {
+                Text(pk.note ?? (pk.query.isEmpty ? "Type to find a file" : "No file matches “\(pk.query)”"))
+                    .font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(.horizontal, 8).padding(.vertical, 5)
+            }
+            ForEach(Array(pk.items.enumerated()), id: \.element.id) { i, item in
+                Button { model.choose(item) } label: {
+                    HStack(spacing: 8) {
+                        switch item {
+                        case .file(let path):
+                            FileMark(name: path)
+                            Text(path).font(.ui(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                        case .recent(let a):
+                            Image(systemName: a.image ? "photo" : "clock").font(.system(size: 11)).foregroundStyle(Theme.muted).frame(width: 14)
+                            Text(a.name).font(.ui(size: 12, design: .monospaced)).lineLimit(1)
+                            Text("recently attached").font(.ui(size: 10.5)).foregroundStyle(Theme.muted)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(i == pk.selected ? Theme.text : Theme.text2)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(i == pk.selected ? Theme.accent.opacity(0.16) : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(5)
+        .frame(width: 340, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise2))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line2))
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
+    }
+
+    func pickFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.message = "Attach files to your message"
+        panel.prompt = "Attach"
+        if let r = model.checkout.root, unkey(model.pane).machine == "local" { panel.directoryURL = URL(fileURLWithPath: r) }
+        if panel.runModal() == .OK { model.attach(panel.urls) }
+    }
+
+    /// Chips under a sent message: what went with it.
+    func sentChips(_ chips: [SentChip]) -> some View {
+        ChoiceFlow(spacing: 5) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, c in
+                HStack(spacing: 6) {
+                    AttachmentThumb(name: c.name, image: c.image, file: c.file(cwd: store.pane(model.pane)?.cwd, local: unkey(model.pane).machine == "local"),
+                                    data: c.data, side: 20)
+                    Text(c.name).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                }
+                .padding(.leading, 3).padding(.trailing, 7).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window.opacity(0.6)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
+                .frame(maxWidth: 220)
+            }
+        }
     }
 
     func note(_ s: String) -> some View {
         VStack { Text(s).font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(20); Spacer() }.frame(maxWidth: .infinity)
     }
+}
+
+/// An attachment under a sent message: by its path in the message, or
+/// the attachment itself while the message is on its way.
+struct SentChip {
+    var name: String
+    var image: Bool
+    var path: String?
+    var attachment: ChatAttachment?
+
+    init(name: String, image: Bool, path: String? = nil, attachment: ChatAttachment? = nil) {
+        self.name = name
+        self.image = image
+        self.path = path
+        self.attachment = attachment
+    }
+
+    var data: Data? {
+        if case .data(let d)? = attachment?.source { return d }
+        return nil
+    }
+
+    /// The file on this Mac a thumbnail is drawn from, where there is one.
+    func file(cwd: String?, local: Bool) -> String? {
+        if case .file(let p)? = attachment?.source { return p }
+        guard local, image, let path else { return nil }
+        if path.hasPrefix("/") { return path }
+        guard let cwd else { return nil }
+        return (cwd as NSString).appendingPathComponent(path)
+    }
+}
+
+/// A picture's thumbnail, or a file's mark, in a square.
+struct AttachmentThumb: View {
+    @Environment(\.conchTheme) private var look
+    let name: String
+    let image: Bool
+    var file: String?
+    var data: Data?
+    var side: CGFloat = 28
+
+    var body: some View {
+        let _ = look
+        let img: NSImage? = image ? (data.flatMap { NSImage(data: $0) } ?? file.flatMap { NSImage(contentsOfFile: $0) }) : nil
+        Group {
+            if let img {
+                Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
+            } else {
+                FileMark(name: name)
+            }
+        }
+        .frame(width: side, height: side)
+        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise2))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+/// An attachment on the message being written: its thumbnail or mark,
+/// name, where it came from and size — amber when it will not be sent —
+/// and ✕.
+struct AttachmentChip: View {
+    @Environment(\.conchTheme) private var look
+    let attachment: ChatAttachment
+    let problem: String?
+    let root: String?
+    let local: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        let _ = look
+        let a = attachment
+        HStack(spacing: 7) {
+            AttachmentThumb(name: a.name, image: a.image, file: file, data: data)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(a.name).font(.ui(size: 12)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                Text(problem.map { "\(fileSize(a.size)) · \($0)" } ?? (a.size >= 0 ? "\(a.origin) · \(fileSize(a.size))" : a.origin))
+                    .font(.ui(size: 10.5)).foregroundStyle(problem == nil ? Theme.muted : Theme.warn).lineLimit(1)
+            }
+            Button(action: onRemove) {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.muted)
+            }
+            .buttonStyle(.plain).help("Take it off the message")
+        }
+        .padding(.leading, 4).padding(.trailing, 8).padding(.vertical, 4)
+        .frame(maxWidth: 240, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.window.opacity(0.7)))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(problem == nil ? Theme.line : Theme.warn.opacity(0.6)))
+        .help(problem.map { "\(a.name) is \($0)" } ?? a.name)
+    }
+
+    var data: Data? {
+        if case .data(let d) = attachment.source { return d }
+        return nil
+    }
+
+    var file: String? {
+        switch attachment.source {
+        case .file(let p): return p
+        case .checkout(let rel): return local ? root.map { ($0 as NSString).appendingPathComponent(rel) } : nil
+        case .data: return nil
+        }
+    }
+}
+
+/// What is being dragged over the composer, while it is.
+struct DropState: Equatable {
+    var count: Int?
+    var images = 0
+}
+
+/// Files dropped on the composer: from Finder by their URLs, pictures
+/// from elsewhere (a browser, a screenshot thumbnail) as PNGs.
+struct AttachDrop: DropDelegate {
+    @Binding var state: DropState
+    let model: ChatModel
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.fileURL, .image]) }
+
+    func dropEntered(info: DropInfo) {
+        let files = info.itemProviders(for: [.fileURL, .image])
+        let images = files.filter { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }.count
+        state = DropState(count: files.count, images: images)
+    }
+
+    func dropExited(info: DropInfo) { state = DropState() }
+
+    func performDrop(info: DropInfo) -> Bool {
+        state = DropState()
+        let providers = info.itemProviders(for: [.fileURL, .image])
+        for p in providers {
+            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    Task { @MainActor in model.attach([url]) }
+                }
+            } else if p.canLoadObject(ofClass: NSImage.self) {
+                _ = p.loadObject(ofClass: NSImage.self) { img, _ in
+                    guard let png = (img as? NSImage).flatMap(pngData) else { return }
+                    Task { @MainActor in model.attachImage(png) }
+                }
+            }
+        }
+        return !providers.isEmpty
+    }
+}
+
+/// A picture as PNG.
+func pngData(_ img: NSImage) -> Data? {
+    guard let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
+    return rep.representation(using: .png, properties: [:])
 }
 
 /// Whether a chat's end is on screen; changed only when it changes.
@@ -752,7 +1363,9 @@ struct ChatTerminalSwitch: View {
 }
 
 /// A text field of several lines that sends on return and takes a new line
-/// on shift-return, as a chat's box does.
+/// on shift-return, as a chat's box does. Pasted files and pictures go on
+/// the message as attachments rather than into the text, and while the @
+/// picker is open the arrows, return and escape are its.
 struct ChatInput: NSViewRepresentable {
     /// Read so its text takes a new theme's colour.
     @Environment(\.conchTheme) private var look
@@ -762,16 +1375,33 @@ struct ChatInput: NSViewRepresentable {
     /// Escape: true when it was taken (the agent stopped), so the key does
     /// nothing else.
     var onEscape: () -> Bool = { false }
+    /// The text and the cursor (UTF-16), after either moves.
+    var onCursor: (String, Int) -> Void = { _, _ in }
+    /// A key for the @ picker: true when it took it.
+    var onPicker: (ChatModel.PickerKey) -> Bool = { _ in false }
+    var onPasteFiles: ([URL]) -> Void = { _ in }
+    var onPasteImage: (Data) -> Void = { _ in }
+    /// The text view, once made: for the @ button to put the keyboard in it.
+    var onMake: (NSTextView) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scroll = NSTextView.scrollableTextView()
+        let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        let tv = scroll.documentView as! NSTextView
+        let tv = AttachingTextView(frame: .zero)
+        tv.minSize = NSSize(width: 0, height: 0)
+        tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        tv.isVerticallyResizable = true
+        tv.isHorizontallyResizable = false
+        tv.autoresizingMask = [.width]
+        tv.textContainer?.widthTracksTextView = true
+        tv.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        scroll.documentView = tv
         tv.delegate = context.coordinator
+        tv.coordinator = context.coordinator
         tv.drawsBackground = false
         tv.isRichText = false
         tv.allowsUndo = true
@@ -782,7 +1412,11 @@ struct ChatInput: NSViewRepresentable {
         tv.insertionPointColor = Theme.fg
         tv.textContainerInset = NSSize(width: 0, height: 3)
         tv.string = text
+        // A drop is the composer's, to attach the files, not the text's,
+        // which would type their paths in.
+        tv.unregisterDraggedTypes()
         context.coordinator.placeholder(tv)
+        onMake(tv)
         return scroll
     }
 
@@ -804,9 +1438,28 @@ struct ChatInput: NSViewRepresentable {
             guard let tv = n.object as? NSTextView else { return }
             parent.text = tv.string
             placeholder(tv)
+            parent.onCursor(tv.string, tv.selectedRange().location)
+        }
+
+        func textViewDidChangeSelection(_ n: Notification) {
+            guard let tv = n.object as? NSTextView else { return }
+            // After the update that may have moved it (the text replaced
+            // from the model), not during it.
+            let (text, at, report) = (tv.string, tv.selectedRange().location, parent.onCursor)
+            DispatchQueue.main.async { report(text, at) }
         }
 
         func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
+            if !tv.hasMarkedText() {
+                switch sel {
+                case #selector(NSResponder.moveUp(_:)): if parent.onPicker(.up) { return true }
+                case #selector(NSResponder.moveDown(_:)): if parent.onPicker(.down) { return true }
+                case #selector(NSResponder.insertTab(_:)): if parent.onPicker(.choose) { return true }
+                case #selector(NSResponder.insertNewline(_:)):
+                    if !NSEvent.modifierFlags.contains(.shift), parent.onPicker(.choose) { return true }
+                default: break
+                }
+            }
             if sel == #selector(NSResponder.insertNewline(_:)) {
                 // Return mid-composition (an input method) is the method's.
                 if tv.hasMarkedText() { return false }
@@ -823,10 +1476,34 @@ struct ChatInput: NSViewRepresentable {
             return false
         }
 
+        /// A paste: files as attachments, a picture as one, text as text.
+        func paste(from pb: NSPasteboard) -> Bool {
+            let urls = (pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+            if !urls.isEmpty {
+                parent.onPasteFiles(urls)
+                return true
+            }
+            if pb.availableType(from: [.png, .tiff]) != nil, let img = NSImage(pasteboard: pb), let png = pngData(img) {
+                parent.onPasteImage(png)
+                return true
+            }
+            return false
+        }
+
         func placeholder(_ tv: NSTextView) {
             let p = tv.string.isEmpty ? parent.placeholder : ""
             if tv.placeholderString != p { tv.placeholderString = p }
         }
+    }
+}
+
+/// The composer's text view: a paste of files or a picture attaches them.
+final class AttachingTextView: NSTextView {
+    weak var coordinator: ChatInput.Coordinator?
+
+    override func paste(_ sender: Any?) {
+        if coordinator?.paste(from: .general) == true { return }
+        pasteAsPlainText(sender)
     }
 }
 
