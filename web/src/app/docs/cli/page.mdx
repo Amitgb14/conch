@@ -595,3 +595,30 @@ conch cloud git-credential [-socket PATH] get              # git's credential he
 Once signed in, the account's machines are in conch's machines (`conch machine ls`, the TUI's tree, Conch.app's sidebar) as `conch:<id>`, named as on the account, and `-m NAME` reaches one. They are reached through Conch Cloud's relay rather than ssh: `exec` and `bridge` ask the control plane for a ticket and the machine's key, check the key against the one kept from the first connection (`cloud-keys.json`; a different key on a machine that was not recreated is refused), and open an end-to-end encrypted tunnel to the machine's conch. A background connection never wakes a machine that sleeps — it is shown asleep — but `exec` and `bridge`, asked for by you, wake it and wait.
 
 `conch cloud agent` is the machine's side of Conch Cloud, and runs **inside** a cloud machine: its host starts it (the `conch-cloud-agent` systemd unit — see [Cloud machine image](/docs/cloud-machine)) after writing `/run/conch-cloud/boot.json`. It refuses a `boot.json` anyone but its owner can read, keeps the machine's Noise key in `/var/lib/conch/cloud/noise.key` (0600, made once), starts the machine's conch server as `-user` (`conch` when it runs as root), says hello to the control plane, reports what the agents are doing so an idle machine sleeps, and joins the relay as the room's gateway so clients reach the server through an end-to-end encrypted tunnel. Agents it starts are given the account's env secrets (a shell is not, and only the server it registered with may ask for them); the machine token and those secrets are never written to disk, though a running agent's environment, and the token git is handed, are readable by processes of the same user — see [Cloud machine image](/docs/cloud-machine). It exits 3 when the control plane refuses its token — each inject gives the machine a new one and restarts the agent — and 4 when the control plane refuses the machine itself. `install` readies a machine image: it writes the `conch-cloud-agent` unit (running this conch), enables it and makes `/var/lib/conch/cloud`; the user (`conch` by default) must exist. `git-credential` is what git asks for the git proxy's password: the machine token, from the agent's memory.
+
+## Agent accounts
+
+An account is a configuration folder of the agent's own: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex. Its sign-in, settings and conversations live there, so each account is signed in once and keeps its own history. Gemini CLI, OpenCode and Devin keep one account each: conch knows no clean way to give them a second.
+
+```sh
+conch account add claude work                  # a folder of conch's for it
+conch account add claude home -dir ~/.claude-home
+conch new -agent claude -account work          # start it there, and /login once
+conch account pin ~/src/acme work              # agents started in acme use work
+conch task -account home "Fix the flaky test"  # this task's agent uses home
+conch account list                             # each one's 5h and 7d usage, and its agents
+```
+
+An agent starts on the account it is asked for (`-account`, `default` for the agent's own), else the one its folder is pinned to, else the agent's own. The longest pin wins, so a worktree or a task folder can differ from its project.
+
+A pin names an account by name: a project pinned to `work` uses Claude's `work` and Codex's `work`, and an agent with none by that name keeps its own.
+
+**Plan limits are per account.** The status bar shows the account of the agent in view (`Claude work 5h 88%`), the limits window lists every account, and an alert says which account passed the line. **Settings → Agents → Agent accounts…** lists each machine's accounts with their usage and how many agents run on each.
+
+**Failover.** With `conch account failover 90` (or the Failover row in Settings), a new agent whose account is past 90% of a plan window starts on the agent's next account: its own first, then the others in the order added. A running agent is never moved, since its conversation lives in its account's folder.
+
+**Sessions** are read from every account's folder, say which account they belong to, and resume on that account whatever the folder is pinned to now.
+
+Accounts are kept by each machine's server in `~/.config/conch/accounts.json`, so `conch -m box account add claude work` makes one on `box`. Removing an account forgets it and leaves its folder, sign-in and conversations where they are.
+
+An account's folder starts empty: your `CLAUDE.md`, skills and settings in `~/.claude` are not in it until you copy or link them there.
