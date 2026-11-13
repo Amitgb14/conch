@@ -7,9 +7,17 @@ import SwiftUI
 // everything inside (Views.swift).
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    /// The first window's store, which says what is said once for every
+    /// window (Windows+Store.swift).
     let store = Store()
-    var window: NSWindow!
+    /// Every window, the first one's first (AppWindow.swift).
+    var windows: [AppWindow] = []
+    var window: NSWindow! { windows.first?.window }
+    /// The store of the window the menus act on: the key window's.
+    var keyStore: Store { AppWindows.shared.keyStore ?? store }
+    /// Where the windows are kept when the app quits, to open again.
+    static let windowsKey = "conch.windows"
     /// Under Quit: how many panes go on running without the app.
     let runOnItem: NSMenuItem = {
         let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -35,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     /// [app]'s parts AppKit draws: the toolbar's height, option-space
     /// from anywhere.
     func applyAppLook(_ look: AppLook) {
-        window?.toolbarStyle = look.compact ? .unifiedCompact : .unified
+        for w in windows { w.window.toolbarStyle = look.compact ? .unifiedCompact : .unified }
         #if GHOSTTY
         GhosttyRuntime.shared.setFontSize(look.fontSize)
         #endif
@@ -43,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         // build still draws with it — take it too, or ⌘+ said a size it
         // never applied.
         PaneTerminal.fontSize = look.fontSize
-        for t in store.terminals.values { t.setFontSize(look.fontSize) }
+        for s in AppWindows.shared.stores { for t in s.terminals.values { t.setFontSize(look.fontSize) } }
         // Not for a -background run: the key is global, so a scripted copy
         // beside the person's own Conch would take their ⌥Space — and come
         // to the front with it, taking the keys typed next.
@@ -55,90 +63,151 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         NSApp.appearance = NSAppearance(named: store.theme.light ? .aqua : .darkAqua)
         buildMenu()
 
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
-                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                          backing: .buffered, defer: false)
-        window.title = "conch"
-        window.titleVisibility = .hidden
-        // Meadow paints its own sky behind the toolbar.
-        window.titlebarAppearsTransparent = store.style.paintsTitleBar
-        window.backgroundColor = Theme.ns(store.theme.chrome)
-        window.minSize = NSSize(width: 760, height: 440)
-        window.setFrameAutosaveName("conch.main")
-        window.delegate = self
-
-        let toolbar = NSToolbar(identifier: "conch.toolbar")
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = false
-        toolbar.centeredItemIdentifiers = [.search]
-        window.toolbar = toolbar
-        window.toolbarStyle = .unified
-
-        store.mainWindow = window
-        // Notifications, and the pane a clicked one opens.
+        NSWindow.allowsAutomaticWindowTabbing = false
+        AppWindows.shared.onBringForward = { [weak self] s in self?.bringForward(s) }
+        AppWindows.shared.onOpenWindow = { [weak self] ws, project in self?.openWindow(workspace: ws, project: project) }
+        let main = AppWindow(store: store, app: self, frame: nil)
+        windows = [main]
+        // Notifications, and the pane a clicked one opens: in the window
+        // that holds it, its project or its workspace (windowFor).
         Notifier.shared.onOpen = { [weak self] k in
-            self?.store.open(k)
-            self?.store.focusTerminal()
+            guard let self else { return }
+            let s = AppWindows.shared.store(forPane: k) ?? self.store
+            self.bringForward(s)
+            s.open(k)
+            s.focusTerminal()
         }
         Notifier.shared.start()
-        store.onThemeChoice = { [weak self] in self?.updateThemeMenu() }
-        let host = NSHostingView(rootView: MainView(store: store))
-        // The window's size is its own (minSize above), not the view's: by
-        // default a hosting view measures its whole tree for a minimum,
-        // ideal and maximum size on every layout, and a spinner's frame is
-        // a layout — which kept the app near a whole core while agents
-        // worked.
-        host.sizingOptions = []
-        window.contentView = host
-        store.onTheme = { [weak self] t in
-            NSApp.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
-            self?.window.backgroundColor = Theme.ns(t.chrome)
-            self?.updateThemeMenu()
-        }
-        store.onStyle = { [weak self] st in self?.window.titlebarAppearsTransparent = st.paintsTitleBar }
-        store.onAppLook = { [weak self] look in self?.applyAppLook(look) }
-        store.onThemeList = { [weak self] in self?.fillThemeMenu() }
         ScratchHotKey.shared.fire = { [weak self] in
+            guard let self else { return }
             NSApp.activate(ignoringOtherApps: true)
-            self?.window.makeKeyAndOrderFront(nil)
-            self?.store.toggleScratch()
+            let s = self.keyStore
+            self.bringForward(s)
+            s.toggleScratch()
         }
         applyAppLook(store.appLook)
         let settings = SettingsWindow(store: store)
         settingsWindow = settings
-        store.onOpenSettings = { settings.show(section: $0) }
-        // "Same as conch (Night Owl)" names conch's theme as it changes.
-        store.onConfigChange = { [weak self] in self?.updateThemeMenu() }
-        if !window.setFrameUsingName("conch.main") { window.center() }
         if UserDefaults.standard.bool(forKey: "background") {
             // -background YES: opened behind whatever is in front and not
             // made active, for a scripted run beside somebody at work —
             // it takes neither their keyboard nor their screen.
-            window.orderBack(nil)
+            main.window.orderBack(nil)
         } else {
-            window.makeKeyAndOrderFront(nil)
+            main.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
         store.connect()
+        // The windows open when the app last quit, behind the first.
+        for saved in loadSavedWindows(UserDefaults.standard.data(forKey: Self.windowsKey)) {
+            let s = Store(windowID: saved.id, workspace: saved.workspace, project: saved.project, layout: saved.layout.layout())
+            let w = AppWindow(store: s, app: self, frame: saved.frame)
+            windows.append(w)
+            w.window.orderBack(nil)
+            s.connect()
+        }
+        main.window.orderFront(nil)
+    }
+
+    /// What every window's store is told, wherever it was set: a theme,
+    /// a style, the Settings window, the menus' ticks.
+    func wire(_ s: Store, _ w: AppWindow) {
+        s.onThemeChoice = { [weak self] in self?.updateThemeMenu() }
+        s.onTheme = { [weak self, weak w] t in
+            NSApp.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
+            w?.window.backgroundColor = Theme.ns(t.chrome)
+            self?.updateThemeMenu()
+        }
+        s.onStyle = { [weak w] st in w?.window.titlebarAppearsTransparent = st.paintsTitleBar }
+        s.onAppLook = { [weak self] look in self?.applyAppLook(look) }
+        s.onThemeList = { [weak self] in self?.fillThemeMenu() }
+        s.onOpenSettings = { [weak self] in self?.settingsWindow?.show(section: $0) }
+        // "Same as conch (Night Owl)" names conch's theme as it changes.
+        s.onConfigChange = { [weak self] in self?.updateThemeMenu() }
+    }
+
+    // MARK: windows
+
+    func bringForward(_ s: Store) {
+        guard let w = windows.first(where: { $0.store === s })?.window else { return }
+        if w.isMiniaturized { w.deminiaturize(nil) }
+        if !w.isVisible { reopen(windows.first { $0.store === s }) }
+        w.makeKeyAndOrderFront(nil)
+    }
+
+    /// File → New Window: the first window again if it was closed, else a
+    /// window of its own on the key window's workspace — or, from a
+    /// project's row or a workspace's menu, on that.
+    func openWindow(workspace: String? = nil, project: String? = nil) {
+        if workspace == nil, project == nil, let main = windows.first, !main.window.isVisible {
+            reopen(main)
+            main.window.makeKeyAndOrderFront(nil)
+            return
+        }
+        let from = keyStore
+        let s = Store(windowID: "w-" + UUID().uuidString.prefix(8).lowercased(),
+                      workspace: workspace ?? from.homeWs?.id ?? "first", project: project)
+        let w = AppWindow(store: s, app: self, frame: nil)
+        if let at = from.mainWindow {
+            w.window.setFrame(at.frame, display: false)
+            w.window.setFrameTopLeftPoint(at.cascadeTopLeft(from: NSPoint(x: at.frame.minX, y: at.frame.maxY)))
+        }
+        windows.append(w)
+        w.window.makeKeyAndOrderFront(nil)
+        s.connect()
+        saveWindows()
+    }
+
+    /// The first window shown again after it was closed: what other
+    /// windows took meanwhile stays with them.
+    private func reopen(_ w: AppWindow?) {
+        guard let w else { return }
+        w.store.dropHeldElsewhere()
+        w.window.makeKeyAndOrderFront(nil)
+    }
+
+    /// A window closed. The first is kept, to come back with its tabs
+    /// (File → New Window, the Dock); any other ends, and is not opened
+    /// again with the app.
+    func closed(_ w: AppWindow) {
+        guard w.store !== store else { return }
+        windows.removeAll { $0 === w }
+        AppWindows.shared.remove(w.store)
+        w.store.closeWindow()
+        saveWindows()
+    }
+
+    /// The windows besides the first, kept for the next launch.
+    func saveWindows() {
+        let saved = windows.dropFirst().filter { $0.window.isVisible || $0.window.isMiniaturized }
+            .map { $0.store.saved(frame: $0.window.frameDescriptor) }
+        UserDefaults.standard.set(encodeSavedWindows(Array(saved)), forKey: Self.windowsKey)
+    }
+
+    /// ⌘` and ⇧⌘`: the next window, round the end (nextWindow).
+    func cycleWindows(back: Bool) {
+        let shown = windows.filter { $0.window.isVisible && !$0.window.isMiniaturized }
+        let cur = shown.first { $0.window.isKeyWindow }?.store.windowID
+        guard let id = nextWindow(after: cur, in: shown.map(\.store.windowID), back: back),
+              let w = shown.first(where: { $0.store.windowID == id }) else { NSSound.beep(); return }
+        w.window.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { reopen(windows.first) }
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
     /// Quitting with edits not saved — a file in a Files tab or a
-    /// workbench, a task's brief — asks first. Saving is waited for, and a
-    /// save that fails keeps the app open with the edits still there.
+    /// workbench, a task's brief, in any window — asks first. Saving is
+    /// waited for, and a save that fails keeps the app open with the edits
+    /// still there.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let items = store.unsaved()
+        let items = AppWindows.shared.stores.flatMap { $0.unsaved() }
         guard !items.isEmpty else { return .terminateNow }
-        let q = unsavedQuestion(items.map(\.name))
-        let a = NSAlert()
-        a.messageText = q.title
-        a.informativeText = q.info
-        a.addButton(withTitle: items.count == 1 ? "Save" : "Save All")
-        a.addButton(withTitle: "Don't Save")
-        a.addButton(withTitle: "Cancel")
-        switch a.runModal() {
+        switch askUnsaved(items) {
         case .alertFirstButtonReturn:
             Task { @MainActor in
                 NSApp.reply(toApplicationShouldTerminate: await saveAll(items))
@@ -151,53 +220,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         }
     }
 
-    /// Closing the window is quitting (it is the last), so with edits not
-    /// saved it is asked as quitting is; the window stays when that is
-    /// cancelled. Otherwise it closed first, and a cancelled quit left the
-    /// app running with no window.
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard sender === window, !store.unsaved().isEmpty else { return true }
-        NSApp.terminate(nil)
-        return false
+    /// Save, Don't Save or Cancel, for edits that would be lost.
+    func askUnsaved(_ items: [Unsaved]) -> NSApplication.ModalResponse {
+        let q = unsavedQuestion(items.map(\.name))
+        let a = NSAlert()
+        a.messageText = q.title
+        a.informativeText = q.info
+        a.addButton(withTitle: items.count == 1 ? "Save" : "Save All")
+        a.addButton(withTitle: "Don't Save")
+        a.addButton(withTitle: "Cancel")
+        return a.runModal()
     }
 
-    func applicationWillTerminate(_ notification: Notification) { store.shutdown() }
-
-    /// The TUI may have changed workspaces or the theme while this window
-    /// was in the background.
-    func windowDidBecomeKey(_ notification: Notification) {
-        store.loadWorkspaces()
-        store.loadTheme()
-        updateThemeMenu()
-    }
-
-    // MARK: toolbar
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.workspaces, .flexibleSpace, .search, .counts]
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.workspaces, .flexibleSpace, .search, .flexibleSpace, .counts]
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar: Bool) -> NSToolbarItem? {
-        let item = NSToolbarItem(itemIdentifier: id)
-        let view: NSView
-        switch id {
-        case .workspaces: view = WorkspacesHost(rootView: WorkspacesControl(store: store))
-        case .search: view = NSHostingView(rootView: SearchField(store: store))
-        case .counts: view = NSHostingView(rootView: Counts(store: store).fixedSize())
-        default: return nil
+    /// A window closing (AppWindow's windowShouldClose). The last one on
+    /// screen is quitting, so with edits not saved anywhere it is asked as
+    /// quitting is, and the window stays when that is cancelled —
+    /// otherwise it closed first, and a cancelled quit left the app running
+    /// with no window. Any other window but the first ends with its store,
+    /// so its own edits are asked about; the first is kept, edits and all.
+    func shouldClose(_ w: AppWindow) -> Bool {
+        let others = windows.filter { $0 !== w && ($0.window.isVisible || $0.window.isMiniaturized) }
+        if others.isEmpty {
+            guard !AppWindows.shared.stores.flatMap({ $0.unsaved() }).isEmpty else { return true }
+            NSApp.terminate(nil)
+            return false
         }
-        view.setFrameSize(view.fittingSize)
-        item.view = view
-        item.visibilityPriority = .high
-        // No glass bubble round it: the header is the mock's band, with the
-        // controls drawn on it as they are (macOS 26 wraps each toolbar
-        // item in one otherwise).
-        item.isBordered = false
-        return item
+        guard w.store !== store else { return true }
+        let items = w.store.unsaved()
+        guard !items.isEmpty else { return true }
+        switch askUnsaved(items) {
+        case .alertFirstButtonReturn:
+            Task { @MainActor in if await saveAll(items) { w.window.close() } }
+            return false
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        saveWindows()
+        for s in AppWindows.shared.stores { s.shutdown() }
     }
 
     // MARK: menu
@@ -230,6 +294,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         ])
         main.items.first?.submenu?.delegate = self
         menu("File", [
+            item("New Window", "n", [.command, .option], "newWindow"),
+            .separator(),
             item("New Task…", "n", .command, "newTask"),
             item("Start Agent", "n", [.command, .shift], "startAgent"),
             item("New Terminal Tab", "t", .command, "newTab"),
@@ -328,6 +394,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         updateThemeMenu()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
+        windowMenu.addItem(.separator())
+        // Here rather than left to macOS, so a terminal that takes ⌘` for
+        // itself cannot keep it from the windows.
+        windowMenu.addItem(item("Cycle Through Windows", "`", .command, "cycleWindows"))
+        windowMenu.addItem(item("Cycle Back Through Windows", "~", [.command, .shift], "cycleWindowsBack"))
+        windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
+        windowMenu.addItem(.separator())
         let wtop = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         wtop.submenu = windowMenu
         main.addItem(wtop)
@@ -347,7 +420,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     /// A tick on the layout of the workbench on screen, else the one a new
     /// workbench takes.
     func updateBenchMenu() {
-        let cur = store.layout.current?.bench ?? store.benchLayout
+        let cur = keyStore.layout.current?.bench ?? keyStore.benchLayout
         for m in benchMenu?.items ?? [] {
             guard let c = m.representedObject as? String, c.hasPrefix("bench:") else { continue }
             m.state = c == "bench:" + cur.rawValue ? .on : .off
@@ -357,7 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     var styleMenu: NSMenu?
 
     @objc func chooseStyle(_ sender: NSMenuItem) {
-        store.chooseStyle(AppStyle(setting: sender.representedObject as? String))
+        // The app's look is every window's.
+        for s in AppWindows.shared.stores { s.chooseStyle(AppStyle(setting: sender.representedObject as? String)) }
         updateStyleMenu()
         updateThemeMenu()
     }
@@ -371,7 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     var settingsWindow: SettingsWindow?
 
     @objc func chooseTheme(_ sender: NSMenuItem) {
-        store.chooseTheme(sender.representedObject as? String ?? "")
+        for s in AppWindows.shared.stores { s.chooseTheme(sender.representedObject as? String ?? "") }
         updateThemeMenu()
     }
 
@@ -430,7 +504,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
 
     @objc func runCommand(_ sender: NSMenuItem) {
         guard let cmd = sender.representedObject as? String else { return }
+        // A window's command is the key window's; the app's (Settings) are
+        // the first window's store's, which the Settings window shows.
+        let store = keyStore
         switch cmd {
+        case "newWindow": openWindow()
+        case "cycleWindows": cycleWindows(back: false)
+        case "cycleWindowsBack": cycleWindows(back: true)
+        case "settings": self.store.command(cmd)
         case "palette": store.paletteOpen.toggle()
         case let t where t.hasPrefix("tab"):
             if let n = Int(t.dropFirst(3)) {

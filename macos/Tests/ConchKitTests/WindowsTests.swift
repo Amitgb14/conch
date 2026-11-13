@@ -139,3 +139,13 @@ import Testing
     #expect(nextWindow(after: "gone", in: ["a", "b"]) == "a")
     #expect(nextWindow(after: nil, in: []) == nil)
 }
+
+@Test func projectRowOpensInNewWindow() {
+    let s = fixture()
+    let api = projects(s.tree(machine: "box"))[0]
+    let pm = s.menu(for: api, machine: "box")
+    let i = pm.firstIndex { $0.action == .openWindow(project: "box|r1") }
+    #expect(i != nil)
+    #expect(i.map { pm[$0].title } == "Open in New Window")
+    #expect(i.map { pm[$0 - 1] } == RowMenuItem("", .divider), "set apart from starting things")
+}

@@ -69,6 +69,7 @@ final class Store: ObservableObject {
             // (restored, another workspace's, opened again). Setting layout
             // here does not run didSet again.
             if !offersChat, layout.showsChat { layout.hideChat() }
+            claimPanes(since: oldValue)
         }
     }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
@@ -78,9 +79,9 @@ final class Store: ObservableObject {
         didSet { swapTabs() }
     }
     /// Each workspace's tabs while another is on screen, by its id.
-    private var parkedTabs: [String: Layout] = [:]
+    var parkedTabs: [String: Layout] = [:]
     /// The workspace whose tabs `layout` holds.
-    private var tabsOwner = "first"
+    var tabsOwner = "first"
     /// The workspace the TUI was last on (ui.json's active_space): where
     /// the tabs it shows are put.
     private var tuiWorkspace = "first"
@@ -202,15 +203,34 @@ final class Store: ObservableObject {
     var onTheme: ((ConchTheme) -> Void)?
 
     let binary: String?
-    private var conns: [String: Connection] = [:]
+    var conns: [String: Connection] = [:]
     private(set) var terminals: [String: PaneTerminal] = [:]
     private(set) var changeViews: [String: ChangesModel] = [:]
     private(set) var sessionViews: [String: SessionsModel] = [:]
     private(set) var commitViews: [String: CommitsModel] = [:]
     private var asking: Set<String> = []
 
-    init() {
+    /// Which window this store is (Windows+Store.swift): "main" for the
+    /// first, which also says what is said once for every window — a
+    /// notification, the Dock's badge, a plan limit — and takes in the
+    /// TUI's tabs at launch.
+    let windowID: String
+    let primary: Bool
+    /// The project this window shows alone ("machine|id"), for a window
+    /// opened from a project's row; nil shows a workspace.
+    @Published var projectScope: String?
+    /// Its window closed for good: nothing is reached again.
+    var windowClosed = false
+
+    init(windowID: String = "main", workspace: String = "first", project: String? = nil, layout saved: Layout? = nil) {
+        self.windowID = windowID
+        primary = windowID == "main"
+        projectScope = project
+        tabsOwner = workspace
         binary = conchBinary()
+        if let saved { layout = saved }
+        // The welcome is the app's, said in its first window only.
+        if !primary { welcomeOpen = false }
         loadWorkspaces()
         Theme.style = style
         if style.roster { sidebarVisible = false }
@@ -245,7 +265,7 @@ final class Store: ObservableObject {
     private var configStamp = ""
     private var machinesStamp = ""
     private var machinesFile: String { (conchDir as NSString).appendingPathComponent("machines.json") }
-    private var configTimer: Timer?
+    var configTimer: Timer?
     private var phonesStamp = ""
     private var phonesTick = 0
     private var phonesFile: String { (conchDir as NSString).appendingPathComponent("phone.json") }
@@ -360,7 +380,17 @@ final class Store: ObservableObject {
 
     // MARK: what the window shows
 
-    var ws: Workspace? { workspaces.indices.contains(workspace) ? workspaces[workspace] : nil }
+    /// What this window shows: its project alone, for a project's window,
+    /// else the workspace on screen. Read by everything that lists; what
+    /// writes ui.json goes by homeWs, since a project's window is no
+    /// workspace there.
+    var ws: Workspace? {
+        if let p = projectScope { return projectWorkspace(p, name: scopeName(p)) }
+        return homeWs
+    }
+
+    /// The workspace on screen, as ui.json has it.
+    var homeWs: Workspace? { workspaces.indices.contains(workspace) ? workspaces[workspace] : nil }
 
     /// What workspace i holds that runs, across every machine, for its tab.
     func workspaceSummary(_ i: Int) -> WorkspaceSummary {
@@ -484,6 +514,7 @@ final class Store: ObservableObject {
     /// The machines the workspace on screen lists, as the TUI's
     /// showsMachine: every one while there is only one workspace.
     var shownMachines: [MachineLink] {
+        if let p = projectScope { return machines.filter { $0.id == unkey(p).machine } }
         guard workspaces.count > 1 else { return machines }
         return machines.filter { workspaceShows(machine: $0.id, snapshot: snapshots[$0.id] ?? Snapshot(), in: ws, all: workspaces) }
     }
@@ -498,7 +529,7 @@ final class Store: ObservableObject {
     /// it listed it (the TUI's joinMachine).
     func bringMachine(_ id: String) {
         let had = workspaceShows(machine: id, snapshot: snapshots[id] ?? Snapshot(), in: workspaces.first, all: workspaces)
-        let w = ws?.id ?? "first"
+        let w = homeWs?.id ?? "first"
         _ = editUI("show \(id) here") { try joiningMachine(id, workspace: w, keepInFirst: had, in: $0) }
     }
 
@@ -509,7 +540,7 @@ final class Store: ObservableObject {
 
     func expectMachine() {
         guard workspaces.count > 1 else { return }
-        addingMachine = (ws?.id ?? "first", Set(catalog.map(\.id)), Date())
+        addingMachine = (homeWs?.id ?? "first", Set(catalog.map(\.id)), Date())
     }
 
     /// The sidebar: a tree per machine, this computer first.
@@ -1150,6 +1181,7 @@ final class Store: ObservableObject {
 
     /// This computer, and every enabled machine in machines.json.
     func connect() {
+        guard !windowClosed else { return }
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json"))
         catalog = MachineEntry.all(machinesJSON: data)
         if let a = addingMachine {
@@ -1196,6 +1228,7 @@ final class Store: ObservableObject {
     }
 
     private func connect(_ machine: String) async {
+        guard !windowClosed else { return }
         setState(machine, "connecting")
         do {
             let c: Connection
@@ -1237,10 +1270,12 @@ final class Store: ObservableObject {
             }
             // The tabs the TUI is showing here, once a launch: the window
             // opens on the same work, with nothing given the keyboard.
-            if !viewAdopted.contains(machine), c.hello?.capabilities?.contains("view.v1") == true,
+            if primary, !viewAdopted.contains(machine), c.hello?.capabilities?.contains("view.v1") == true,
                let v = try? await c.call("view.get", as: ViewState.self) {
                 viewAdopted.insert(machine)
+                // Not what another window shows already: a pane is in one place.
                 let alive = Set((snapshots[machine]?.panes ?? []).filter(\.running).map { key(machine, $0.id) })
+                    .filter { AppWindows.shared.holder(of: $0, except: self) == nil }
                 // Into the workspace the TUI is on, which may not be this one.
                 if tuiWorkspace == tabsOwner {
                     layout.adopt(v, machine: machine, alive: alive)
@@ -1254,7 +1289,7 @@ final class Store: ObservableObject {
             // — to that agent, which took it as accepting its suggestion.
             // Asked for by name at launch (`-open p3`, `-open busybox|p3`),
             // a pane is shown — still without the keyboard.
-            if let o = UserDefaults.standard.string(forKey: "open") {
+            if primary, let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
                 } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
@@ -1554,6 +1589,7 @@ final class Store: ObservableObject {
     /// this computer's soon and then less often (a reload is back in a
     /// moment), one elsewhere in a while.
     private func closed(_ machine: String, why: String) {
+        guard !windowClosed else { return }
         guard conns[machine] != nil || machines.first(where: { $0.id == machine })?.state == "connecting" else { return }
         conns[machine] = nil
         let reason = why.split(separator: "\n").last.map(String.init) ?? ""
@@ -1874,7 +1910,10 @@ final class Store: ObservableObject {
     /// app leaves the notification to it rather than saying it twice.
     func attention(_ machine: String, old: PaneInfo?, new p: PaneInfo) {
         let k = key(machine, p.id)
-        let looking = NSApp.isActive && (mainWindow?.isKeyWindow ?? false) && layout.focused == k
+        // One window says it, for all of them: the first, which every
+        // store hears the same events as.
+        guard primary else { return }
+        let looking = NSApp.isActive && AppWindows.shared.looking(at: k)
         let newly = p.agent?.state == .blocked && old?.agent?.state != .blocked
         defer { updateBadge(newlyWaiting: newly) }
         guard let alert = attentionAlert(old: old, new: p, machine: machine == "local" ? nil : label(machine),
@@ -1895,7 +1934,7 @@ final class Store: ObservableObject {
     /// raises its own, so the notification is left to it.
     func alertLimits() {
         let s = notifySettings
-        guard s.limits else { return }
+        guard s.limits, primary else { return }
         let now = Date()
         var seen = pruneLimitAlerts(limitSeen, now: now)
         var alerts: [LimitAlert] = []
@@ -1919,6 +1958,7 @@ final class Store: ObservableObject {
 
     /// The Dock's badge: agents waiting, on every machine and workspace.
     func updateBadge(newlyWaiting: Bool = false) {
+        guard primary else { return }
         let n = machines.reduce(0) { acc, m in acc + (snapshots[m.id]?.panes.filter { $0.agent?.state == .blocked && $0.running }.count ?? 0) }
         Notifier.shared.badge(waiting: n, newlyWaiting: newlyWaiting)
     }
@@ -2050,6 +2090,14 @@ final class Store: ObservableObject {
     }
 
     func open(_ k: String) {
+        // Shown in another window: that window comes forward with it,
+        // rather than the pane leaving it.
+        if layout.tab(showing: k) == nil, let other = AppWindows.shared.holder(of: k, except: self) {
+            other.layout.focus(k)
+            AppWindows.shared.bringForward(other)
+            other.focusTerminal()
+            return
+        }
         layout.open(k)
         focusTerminal()
     }
@@ -2528,6 +2576,7 @@ final class Store: ObservableObject {
         case .commits(let pr, let b): openCommits(project: pr, branch: b)
         case .newTask(let pr): newTask(project: pr)
         case .gitInit(let pr): gitInitProject(pr)
+        case .openWindow(let pr): AppWindows.shared.openWindow(project: pr, from: self)
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -2636,7 +2685,7 @@ final class Store: ObservableObject {
 
     /// A project added from a workspace after the first joins it (ui.json).
     func joinWorkspace(machine: String, project id: String) {
-        guard let w = ws, !w.first else { return }
+        guard let w = homeWs, !w.first else { return }
         let path = (conchDir as NSString).appendingPathComponent("ui.json")
         do {
             let data = try Workspace.addingProject(Workspace.key(project: id, machine: machine), to: w.id, in: FileManager.default.contents(atPath: path))
@@ -3305,10 +3354,13 @@ final class Store: ObservableObject {
     /// Shows the tabs of the workspace on screen, putting away the ones of
     /// the workspace that was. Nothing is given the keyboard.
     private func swapTabs() {
-        let id = ws?.id ?? "first"
+        let id = homeWs?.id ?? "first"
         guard id != tabsOwner else { return }
         parkedTabs[tabsOwner] = layout
-        layout = parkedTabs.removeValue(forKey: id) ?? Layout()
+        var next = parkedTabs.removeValue(forKey: id) ?? Layout()
+        // What another window took while these were put away stays there.
+        for k in next.tabs.flatMap(\.root.panes) where AppWindows.shared.holder(of: k, except: self) != nil { next.close(k) }
+        layout = next
         tabsOwner = id
     }
 
@@ -3316,7 +3368,7 @@ final class Store: ObservableObject {
     /// started there in the TUI does — unless its project is in it already,
     /// which shows it anyway. Written into ui.json, which the TUI merges.
     func joinWorkspace(machine: String, pane: PaneInfo) {
-        guard let w = ws, !w.first else { return }
+        guard let w = homeWs, !w.first else { return }
         if let pr = pane.projectID, snapshots[machine]?.project(pr).map({ w.shows($0, machine: machine) }) == true { return }
         let path = (conchDir as NSString).appendingPathComponent("ui.json")
         do {
@@ -3396,6 +3448,12 @@ extension Store {
         let (m, id) = unkey(pk)
         return snapshots[m]?.project(id)?.name ?? id
     }
+
+    /// A project's name, for a window that shows it alone.
+    func scopeName(_ pk: String) -> String { projectName(pk) }
+
+    /// A pane's terminal forgotten (Windows+Store.swift's release).
+    func dropTerminal(_ k: String) { terminals.removeValue(forKey: k) }
 
     /// New Project Group…: a name, the projects in it ticked off a list
     /// (two at least), and notes for the agents.
