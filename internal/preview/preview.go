@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,8 @@ type Device struct {
 	Platform string `json:"platform"` // ios, android
 	Kind     string `json:"kind"`     // simulator, emulator, device
 	OS       string `json:"os,omitempty"`
+	// Type is a simulator's device type, which says its screen's scale.
+	Type string `json:"type,omitempty"`
 	// State is booted, shutdown, or what adb says of a device it cannot
 	// use (offline, unauthorized).
 	State string `json:"state"`
@@ -50,6 +53,8 @@ type Tools struct {
 	Adb      string
 	Emulator string
 	Idb      string
+	// Axe drives an iOS simulator (taps, typing, buttons), before idb.
+	Axe string
 	// DeveloperDir is the Xcode the programs are told to use
 	// (DEVELOPER_DIR), when xcode-select's own choice would not reach the
 	// simulators; "" leaves it to xcode-select.
@@ -167,6 +172,11 @@ func FindWith(env []string, opt Options) *Tools {
 		Emulator: look("emulator", in("emulator", "emulator")...),
 		Idb:      look("idb"),
 	}
+	if home := get("HOME"); home != "" {
+		t.Axe = look("axe", filepath.Join(home, ".local", "bin", "axe"), "/opt/homebrew/bin/axe")
+	} else {
+		t.Axe = look("axe", "/opt/homebrew/bin/axe")
+	}
 	// /usr/bin/xcrun is there without Xcode, and only answers that simctl
 	// is missing; that is said when it is used, which is when it matters.
 	t.Xcrun = look("xcrun")
@@ -271,6 +281,7 @@ func (t *Tools) Devices(ctx context.Context) (devs []Device, notes []string, err
 type simList struct {
 	Devices map[string][]struct {
 		UDID        string `json:"udid"`
+		DeviceType  string `json:"deviceTypeIdentifier"`
 		Name        string `json:"name"`
 		State       string `json:"state"`
 		IsAvailable *bool  `json:"isAvailable"`
@@ -314,7 +325,7 @@ func (t *Tools) simulators(ctx context.Context) ([]Device, error) {
 			if d.State == "Booted" {
 				state = "booted"
 			}
-			devs = append(devs, Device{ID: d.UDID, Name: d.Name, Platform: "ios", Kind: "simulator", OS: osName, State: state})
+			devs = append(devs, Device{ID: d.UDID, Name: d.Name, Platform: "ios", Kind: "simulator", OS: osName, State: state, Type: d.DeviceType})
 		}
 	}
 	return devs, nil
@@ -508,13 +519,67 @@ func writeFile(path string, b []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// needIdb says how to get idb: simctl can look at a simulator but not
-// touch it.
-func (t *Tools) needIdb() error {
-	if t.Idb == "" {
-		return errors.New("touching an iOS simulator needs idb: brew install facebook/fb/idb-companion && pip3 install fb-idb")
+// needTouch says how to get a tool that touches an iOS simulator:
+// simctl can look at one but not touch it.
+func (t *Tools) needTouch() error {
+	if t.Axe == "" && t.Idb == "" {
+		return errors.New("touching an iOS simulator needs AXe (brew install cameroncooke/axe/axe) or idb")
 	}
 	return nil
+}
+
+// profileDirs are where the simulators' device types are described: the
+// system's, and the Xcode's own.
+var profileDirs = func(developerDir string) []string {
+	if developerDir == "" {
+		developerDir = "/Applications/Xcode.app/Contents/Developer"
+	}
+	return []string{
+		"/Library/Developer/CoreSimulator/Profiles/DeviceTypes",
+		filepath.Join(developerDir, "Platforms", "iPhoneOS.platform", "Library", "Developer", "CoreSimulator", "Profiles", "DeviceTypes"),
+	}
+}
+
+// simScale is a simulator's pixels per point, from its device type's
+// profile (mainScreenScale): the bundle named after the type first
+// (iPhone-17-Pro → "iPhone 17 Pro"), else every bundle's identifier read
+// until one is the type — "iPhone SE (3rd generation)" is not named so.
+func (t *Tools) simScale(ctx context.Context, d Device) (float64, error) {
+	read := func(bundle string) (float64, error) {
+		out, err := t.Run(ctx, "plutil", "-extract", "mainScreenScale", "raw", "-o", "-", bundle+"/Contents/Resources/profile.plist")
+		if err != nil {
+			return 0, err
+		}
+		return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	}
+	if d.Type != "" {
+		guess := strings.ReplaceAll(strings.TrimPrefix(d.Type, "com.apple.CoreSimulator.SimDeviceType."), "-", " ") + ".simdevicetype"
+		for _, dir := range profileDirs(t.DeveloperDir) {
+			if b := filepath.Join(dir, guess); isDir(b) {
+				if s, err := read(b); err == nil && s > 0 {
+					return s, nil
+				}
+			}
+		}
+		for _, dir := range profileDirs(t.DeveloperDir) {
+			bundles, _ := filepath.Glob(filepath.Join(dir, "*.simdevicetype"))
+			for _, b := range bundles {
+				id, err := t.Run(ctx, "plutil", "-extract", "CFBundleIdentifier", "raw", "-o", "-", b+"/Contents/Info.plist")
+				if err != nil || strings.TrimSpace(string(id)) != d.Type {
+					continue
+				}
+				if s, err := read(b); err == nil && s > 0 {
+					return s, nil
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("could not tell %s's screen scale (device type %q)", d.Name, d.Type)
+}
+
+func isDir(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
 }
 
 // Tap touches the screen at x, y in the screenshot's pixels — the
@@ -531,7 +596,18 @@ func (t *Tools) Tap(ctx context.Context, d Device, x, y int) error {
 		_, err := t.Run(ctx, t.Adb, "-s", d.ID, "shell", "input", "tap", strconv.Itoa(x), strconv.Itoa(y))
 		return err
 	case "ios":
-		if err := t.needIdb(); err != nil {
+		if err := t.needTouch(); err != nil {
+			return err
+		}
+		if t.Axe != "" {
+			// AXe taps in points; the screenshot is in pixels.
+			scale, err := t.simScale(ctx, d)
+			if err != nil {
+				return err
+			}
+			px := strconv.Itoa(int(math.Round(float64(x) / scale)))
+			py := strconv.Itoa(int(math.Round(float64(y) / scale)))
+			_, err = t.Run(ctx, t.Axe, "tap", "-x", px, "-y", py, "--udid", d.ID)
 			return err
 		}
 		// idb taps in points; the screenshot is in pixels.
@@ -585,7 +661,11 @@ func (t *Tools) Type(ctx context.Context, d Device, text string) error {
 		_, err := t.Run(ctx, t.Adb, "-s", d.ID, "shell", "input", "text", adbText(text))
 		return err
 	case "ios":
-		if err := t.needIdb(); err != nil {
+		if err := t.needTouch(); err != nil {
+			return err
+		}
+		if t.Axe != "" {
+			_, err := t.Run(ctx, t.Axe, "type", text, "--udid", d.ID)
 			return err
 		}
 		_, err := t.Run(ctx, t.Idb, "ui", "text", "--udid", d.ID, text)
@@ -634,7 +714,11 @@ func (t *Tools) Button(ctx context.Context, d Device, name string) error {
 		if name != "home" {
 			return fmt.Errorf("an iPhone has no %q button (home)", name)
 		}
-		if err := t.needIdb(); err != nil {
+		if err := t.needTouch(); err != nil {
+			return err
+		}
+		if t.Axe != "" {
+			_, err := t.Run(ctx, t.Axe, "button", "home", "--udid", d.ID)
 			return err
 		}
 		_, err := t.Run(ctx, t.Idb, "ui", "button", "--udid", d.ID, "HOME")
