@@ -378,3 +378,34 @@ func TestPaneIDs(t *testing.T) {
 		t.Fatal("FirstLine")
 	}
 }
+
+// The pool's own way to a machine passes the options the catalog keeps
+// for it, as every reader of machines.json must: a machine behind a jump
+// host was otherwise reachable from the TUI and not from here.
+func TestDefaultConnectCarriesMachineOpts(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CONCH_HOME", filepath.Join(dir, "conch"))
+	t.Setenv("CONCH_SOCKET", "")
+	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_SSH_CONFIG", "")
+	log := filepath.Join(dir, "ssh.log")
+	ssh := filepath.Join(dir, "ssh")
+	if err := os.WriteFile(ssh, []byte("#!/bin/sh\necho \"$@\" >> '"+log+"'\nexit 255\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CONCH_SSH", ssh)
+	p := New(Options{})
+	defer p.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	m := remote.Machine{ID: "box", Label: "box", Target: "me@box", Enabled: true, Opts: []string{"-J", "jump.example", "-o", "Port=2222"}}
+	if c, err := p.o.Connect(ctx, m); err == nil {
+		c.Close()
+		t.Fatal("connected through an ssh that fails")
+	}
+	got, _ := os.ReadFile(log)
+	if !strings.Contains(string(got), "-J jump.example -o Port=2222") || !strings.Contains(string(got), "me@box") {
+		t.Fatalf("ssh was run as:\n%s", got)
+	}
+}
