@@ -126,9 +126,35 @@ func newWorktreeWatcher(announce func(proto.WorktreeChanged), request func(strin
 		log.Printf("worktree watch unavailable: %v", err)
 		return nil
 	}
-	return &worktreeWatcher{be: be, announce: announce, request: request,
+	w := &worktreeWatcher{be: be, announce: announce, request: request,
 		maxDirs: watchMaxDirs, maxFDs: watchMaxFDs,
 		roots: map[string]*watchRoot{}, dirty: map[string]*watchEdits{}}
+	if c, ok := be.(interface {
+		setCharge(func(root string, dirs, fds int) bool)
+	}); ok {
+		c.setCharge(w.charge)
+	}
+	return w
+}
+
+// charge takes room in the budget for directories a backend adds to a
+// watched root after it was walked, and says whether there was room. The
+// next walk of the root counts it afresh, replacing these charges.
+func (w *worktreeWatcher) charge(root string, dirs, fds int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	r := w.roots[root]
+	if r == nil || !r.watched {
+		return false
+	}
+	if w.nDirs+dirs > w.maxDirs || (w.be.budgeted() && w.nFDs+fds > w.maxFDs) {
+		return false
+	}
+	w.nDirs += dirs
+	w.nFDs += fds
+	r.dirs += dirs
+	r.fds += fds
+	return true
 }
 
 // run reads events until quit is closed.

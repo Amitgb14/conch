@@ -253,7 +253,7 @@ func (p *Pool) ensure(mc *conn, m remote.Machine) {
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), p.o.ConnectWait())
 		defer cancel()
-		c, err := p.o.Connect(ctx, m)
+		c, err := usable(p.o.Connect(ctx, m))
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		mc.busy = false
@@ -275,6 +275,26 @@ func (p *Pool) ensure(mc *conn, m remote.Machine) {
 			changed = true
 		}
 	}()
+}
+
+// usable is what a connection attempt gave, as the pool keeps it. A
+// server older than this conch comes back connected *and* with an
+// *OutdatedServerError: that client works, and what it lacks is said by
+// the caller against its handshake (the phone's Behind), so it is kept —
+// dropped, it was never closed, and a bridge's ssh was left running at
+// every retry while the machine showed as offline. A client returned with
+// any other error is closed.
+func usable(c *client.Client, err error) (*client.Client, error) {
+	var outdated *remote.OutdatedServerError
+	switch {
+	case err == nil:
+		return c, nil
+	case c != nil && errors.As(err, &outdated):
+		return c, nil
+	case c != nil:
+		c.Close()
+	}
+	return nil, err
 }
 
 // Note records why a machine could not be used, and drops a connection
@@ -313,7 +333,7 @@ func (p *Pool) Dial(id string) (*client.Client, error) {
 		if m.ID == id {
 			ctx, cancel := context.WithTimeout(context.Background(), p.o.ConnectWait())
 			defer cancel()
-			return p.o.Connect(ctx, m)
+			return usable(p.o.Connect(ctx, m))
 		}
 	}
 	return nil, fmt.Errorf("no machine %q", id)

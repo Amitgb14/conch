@@ -22,8 +22,11 @@ func (m Model) sidebarInner() (w, h int) {
 	return max(m.sidebarW-2, 1), max(m.height-statusHeight-2, 1)
 }
 
-// View renders the whole screen.
-func (m Model) View() string {
+// View renders the whole screen, as the terminal may be given it
+// (safeView).
+func (m Model) View() string { return safeView(m.view()) }
+
+func (m Model) view() string {
 	if m.width == 0 || m.height == 0 {
 		return ""
 	}

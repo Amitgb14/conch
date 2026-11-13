@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,8 +11,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
+
+	"github.com/Amitgb14/conch/internal/gitx"
 )
 
 // The watch backend for everywhere but macOS: fsnotify, which is inotify on
@@ -50,6 +54,13 @@ type fsnotifyBackend struct {
 	mu      sync.Mutex
 	ignored map[string][]string // root → directories not to watch
 	dirs    map[string]string   // watched directory → its root
+	// charge asks the watcher for room for a directory made after its
+	// root was walked (see addLater); nil allows it, as tests that make
+	// a backend alone want.
+	charge func(root string, dirs, fds int) bool
+	// ignores is whether git ignores a directory, rel to root; a field so
+	// tests can answer without git.
+	ignores func(root, rel string) bool
 }
 
 func newBackend() (watchBackend, error) {
@@ -60,6 +71,7 @@ func newBackend() (watchBackend, error) {
 	b := &fsnotifyBackend{
 		fsw: fsw, out: make(chan string, 256), stop: make(chan struct{}),
 		ignored: map[string][]string{}, dirs: map[string]string{},
+		ignores: gitIgnoresDir,
 	}
 	go b.pump()
 	return b, nil
@@ -93,12 +105,77 @@ func (b *fsnotifyBackend) cost(root string, ignored []string) (dirs, fds int) {
 	return dirs, fds
 }
 
+// watch watches root bar ignored. Called again for a root already watched
+// (the resync), it also lets go of what is no longer wanted: a directory
+// gone, or one git has come to ignore — a node_modules made since the last
+// walk — so what is watched is what the walk counted.
 func (b *fsnotifyBackend) watch(root string, ignored []string) error {
 	b.mu.Lock()
 	b.ignored[root] = ignored
+	var stale []string
+	for d, r := range b.dirs {
+		if r != root {
+			continue
+		}
+		if st, err := os.Lstat(d); err != nil || !st.IsDir() || skipRel(root, d, ignored) {
+			stale = append(stale, d)
+		}
+	}
+	for _, d := range stale {
+		delete(b.dirs, d)
+	}
 	b.mu.Unlock()
+	for _, d := range stale {
+		_ = b.fsw.Remove(d)
+	}
 	b.addTree(root, root)
 	return nil
+}
+
+// setCharge is how the watcher hands over its budget (watch.go).
+func (b *fsnotifyBackend) setCharge(charge func(root string, dirs, fds int) bool) {
+	b.mu.Lock()
+	b.charge = charge
+	b.mu.Unlock()
+}
+
+// gitIgnoresDir asks git, briefly: a folder whose answer does not come is
+// watched, as it would have been.
+func gitIgnoresDir(root, rel string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	ignored, err := gitx.IgnoresDir(ctx, root, rel)
+	return err == nil && ignored
+}
+
+// addLater watches a directory made inside a watched one since its root
+// was walked — mkdir, a package unpacked, a build's output folder — but
+// only what git does not ignore, and only as far as the budget goes. The
+// walk that counted the root never saw it: added unasked, one npm install
+// put hundreds of folders and thousands of files under watch on kqueue,
+// past the budget and past select's descriptor limit, which once crashed
+// the server. What does not fit is left to the next resync, which counts
+// it, and the reader is told something changed meanwhile.
+func (b *fsnotifyBackend) addLater(root, dir string) {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || b.ignores(root, filepath.ToSlash(rel)) {
+		return
+	}
+	b.mu.Lock()
+	ignored, charge := b.ignored[root], b.charge
+	b.mu.Unlock()
+	if skipRel(root, dir, ignored) {
+		return
+	}
+	// cost walks dir alone, so the ignored list (relative to root) is
+	// applied by addTree as it adds; what it skips was over-counted, which
+	// errs on the side of the budget.
+	dirs, fds := b.cost(dir, nil)
+	if charge != nil && !charge(root, dirs, fds) {
+		b.lost.Store(true)
+		return
+	}
+	b.addTree(root, dir)
 }
 
 func (b *fsnotifyBackend) unwatch(root string) {
@@ -206,7 +283,7 @@ func (b *fsnotifyBackend) pump() {
 			// watch, so it is walked rather than only added.
 			if ev.Has(fsnotify.Create) {
 				if st, err := os.Lstat(ev.Name); err == nil && st.IsDir() {
-					b.addTree(root, ev.Name)
+					b.addLater(root, ev.Name)
 				}
 			}
 			if ev.Has(fsnotify.Remove) || ev.Has(fsnotify.Rename) {

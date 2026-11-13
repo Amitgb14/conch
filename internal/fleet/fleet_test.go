@@ -66,9 +66,14 @@ type rig struct {
 	mu      sync.Mutex
 	saved   []remote.Machine
 	failing map[string]error
-	block   chan struct{} // when set, connecting waits for it
-	tries   atomic.Int32
-	changed atomic.Int32
+	// alongside is an error returned *with* a connected client, as
+	// remote.Connect does for an outdated server; made records each
+	// client handed out, to see which were closed.
+	alongside map[string]error
+	made      []*client.Client
+	block     chan struct{} // when set, connecting waits for it
+	tries     atomic.Int32
+	changed   atomic.Int32
 }
 
 // release opens the gate set in block, once.
@@ -89,7 +94,7 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { local.Close() })
-	r := &rig{local: local, clock: &clock{t: time.Unix(1_000_000, 0)}, failing: map[string]error{}}
+	r := &rig{local: local, clock: &clock{t: time.Unix(1_000_000, 0)}, failing: map[string]error{}, alongside: map[string]error{}}
 	r.pool = New(Options{
 		Local:     func() (*client.Client, error) { return local, nil },
 		DialLocal: func() (*client.Client, error) { return client.Dial(sock, "own") },
@@ -108,7 +113,15 @@ func newRig(t *testing.T) *rig {
 			if fail != nil {
 				return nil, fail
 			}
-			return client.Dial(m.Target, "fleet-test")
+			c, err := client.Dial(m.Target, "fleet-test")
+			if err != nil {
+				return nil, err
+			}
+			r.mu.Lock()
+			r.made = append(r.made, c)
+			also := r.alongside[m.ID]
+			r.mu.Unlock()
+			return c, also
 		},
 		Catalog: func() ([]remote.Machine, error) {
 			r.mu.Lock()

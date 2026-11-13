@@ -48,3 +48,18 @@ func IgnoredPaths(ctx context.Context, dir string) ([]string, error) {
 	}
 	return paths, nil
 }
+
+// IgnoresDir reports whether git ignores the directory rel (relative to
+// the checkout at dir, slash-separated) — as a directory, so a rule like
+// `build/` counts, and whether or not anything is in it yet. IgnoredDirs
+// cannot say this about a folder just made: an empty one is left out of
+// its list.
+func IgnoresDir(ctx context.Context, dir, rel string) (bool, error) {
+	// check-ignore refuses GIT_LITERAL_PATHSPECS (gitEnv), which it has no
+	// use for: it takes a path, never a pattern.
+	_, code, err := runCodes(ctx, dir, []int{1}, "--no-literal-pathspecs", "check-ignore", "-q", "--no-index", "--", strings.TrimSuffix(rel, "/")+"/")
+	if err != nil {
+		return false, err
+	}
+	return code == 0, nil
+}
