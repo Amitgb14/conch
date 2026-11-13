@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -722,6 +722,9 @@ type PaneInfo struct {
 	Created  time.Time `json:"created"`
 	// Agent is set while an agent is detected in the pane.
 	Agent *AgentStatus `json:"agent,omitempty"`
+	// Account is the account its agent was started on, "" for the agent's
+	// own (CapAccounts).
+	Account string `json:"account,omitempty"`
 	// Title is the terminal title with decoration (spinners, the agent's
 	// default title) stripped; agents set it to a summary of their task.
 	Title string `json:"title,omitempty"`
@@ -1011,6 +1014,7 @@ type GroupTaskParams struct {
 	Prompt   string   `json:"prompt"`
 	Branch   string   `json:"branch,omitempty"`
 	Agent    string   `json:"agent,omitempty"`
+	Account  string   `json:"account,omitempty"` // as PaneCreateParams has it
 	Projects []string `json:"projects,omitempty"`
 	Each     bool     `json:"each,omitempty"`
 	Cols     int      `json:"cols,omitempty"`
@@ -2006,6 +2010,8 @@ type TaskCreateParams struct {
 	Branch    string `json:"branch,omitempty"`
 	Base      string `json:"base,omitempty"`
 	Agent     string `json:"agent,omitempty"` // default: the server's first agent (claude)
+	// Account is the agent's account, as PaneCreateParams has it.
+	Account string `json:"account,omitempty"`
 	// Name names the pane, as pane.rename does, so it can be addressed
 	// by it; see IsPaneID.
 	Name string `json:"name,omitempty"`
@@ -2311,7 +2317,10 @@ type LimitWindow struct {
 // agent last reported it: Claude's 5-hour and weekly windows, Codex's
 // primary and secondary windows, or a gateway spend limit.
 type PlanLimits struct {
-	Agent    string       `json:"agent"`
+	Agent string `json:"agent"`
+	// Account is which of the agent's accounts, "" for its own
+	// (CapAccounts): each has a plan of its own.
+	Account  string       `json:"account,omitempty"`
 	FiveHour *LimitWindow `json:"five_hour,omitempty"`
 	Week     *LimitWindow `json:"week,omitempty"`
 	Spend    *LimitWindow `json:"spend,omitempty"`
@@ -2374,7 +2383,10 @@ type SessionListParams struct {
 
 // SessionInfo is a saved agent conversation.
 type SessionInfo struct {
-	Agent   string    `json:"agent"`
+	Agent string `json:"agent"`
+	// Account is the account whose folder holds the conversation, "" for
+	// the agent's own (CapAccounts); resuming it starts on that account.
+	Account string    `json:"account,omitempty"`
 	ID      string    `json:"id,omitempty"` // "" for an interrupted run whose conversation wasn't found
 	Dir     string    `json:"dir"`
 	Branch  string    `json:"branch,omitempty"`
@@ -2655,10 +2667,13 @@ type SessionList struct {
 // SessionRef names a session to resume or dismiss.
 type SessionRef struct {
 	Agent string `json:"agent"`
-	ID    string `json:"id,omitempty"`
-	Dir   string `json:"dir"`
-	Cols  int    `json:"cols,omitempty"`
-	Rows  int    `json:"rows,omitempty"`
+	// Account is the session's own (SessionInfo.Account). The server finds
+	// it when it is not given, so an older client resumes on the right one.
+	Account string `json:"account,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Dir     string `json:"dir"`
+	Cols    int    `json:"cols,omitempty"`
+	Rows    int    `json:"rows,omitempty"`
 }
 
 // AgentSetupParams asks what agents load when started in Dir. Agent limits
@@ -2915,6 +2930,9 @@ type PaneCreateParams struct {
 	Name      string `json:"name,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	AgentArgs string `json:"agent_args,omitempty"` // shell words, e.g. "--model opus"
+	// Account is which of the agent's accounts it starts on (CapAccounts):
+	// "" is the folder's pin, else the agent's own; "default" is its own.
+	Account string `json:"account,omitempty"`
 	// Prompt is a first message for the agent, passed the way it expects.
 	Prompt  string   `json:"prompt,omitempty"`
 	Command []string `json:"command,omitempty"`
