@@ -1,0 +1,41 @@
+export const metadata = { title: "Why conch", description: "What conch does that other agent orchestrators leave to you." }
+
+# Why conch
+
+Plenty of tools run coding agents side by side. conch goes further in the places where the work actually stalls: waiting on CI, losing agents to an update, guessing what an agent is doing, and being away from the laptop.
+
+## It finishes the job without you
+
+Most tools stop when the agent stops. In conch, a failed check or a failed CI run goes back to the branch's agent with the log, the agent fixes it, and the pull request merges once it is green. The machine's conch server does this, not a window you have to keep open, so it carries on with your laptop shut. Drafts, requested changes, conflicts and open review threads hold a merge back, and nothing is merged unless you turned it on. See [Sending a failure back](/docs/interface#sending-a-failure-back).
+
+## Updating never stops your agents
+
+conch reloads its server onto a new build and keeps every terminal open, so an agent halfway through a task does not notice. That is the default, not an experiment, and the TUI picks up the new build by itself. See [Updating without stopping agents](/docs/installation#updating-without-stopping-agents).
+
+## It hears from the agent, not just its screen
+
+conch is the terminal, so an agent can tell it what it is doing — working, waiting for permission, done — through the Program Status Protocol (OSC 7501), and conch answers when the agent asks whether anyone is listening. Hooks and the screen come after that, not instead of it. conch then passes one overall state up to the terminal you run it in, so a Ghostty or kitty tab says when an agent waits. See [Agent states](/docs/agents#agent-states).
+
+## Agents can run agents, and stay in their lane
+
+An agent can start a reviewer, prompt it, wait for it and read what it said, through the CLI or `conch mcp`, and six bundled skills turn that into a review loop, a team or a factory. An agent calling from its own pane reaches only the panes it started and its own project, so a helper cannot wander into the rest of your work. See [What an agent may do](/docs/agents-together#what-an-agent-may-do).
+
+## A cloud sandbox is just another machine
+
+conch creates a sandbox at Daytona, boat.dev, Tensorlake or Devin Cloud, installs itself there, and puts it in the tree beside your own machines — start a task on it, move a worktree to it, stop it when you are done. A provider conch has no code for can be described in a file. See [Sandboxes](/docs/sandboxes).
+
+## Every conversation, from every agent, in one place
+
+The Sessions view lists what Claude Code, Codex, Gemini CLI, OpenCode and Devin saved for a project: search them, resume one, delete one, or hand it to a different agent, even on another machine. Runs a crash or a reboot interrupted are remembered and come back with one key. See [Sessions](/docs/sessions).
+
+## Your phone, without anyone else's server
+
+Answer a waiting agent from your phone over Tailscale, or through a relay you run yourself. The connection is encrypted end to end, so the relay cannot read it, and there is no account to make. See [Phone](/docs/phone).
+
+## Built for the terminal, and for ssh
+
+The TUI is conch, not a fallback for a desktop app, so it works the same from a laptop or over ssh from anywhere. conch installs itself on every machine you add and shows them all in one tree, and the [Mac app](/docs/mac-app) is a window on the same servers rather than a second product. See [Remote machines](/docs/remote-machines).
+
+## Ask in plain words, approve before anything runs
+
+Tell the [brain](/docs/brain) what you want — "start Claude on a fix for the login bug" — and it proposes the actions. Nothing runs until you press Enter, with whichever model you choose. See [Brain](/docs/brain).
