@@ -4,6 +4,27 @@
   "fps": 30,
   "videos": [
     {
+      "name": "conch-desktop-intro",
+      "title": "Introducing Conch.app",
+      "scenes": [
+        { "kind": "title", "title": "Conch.app", "sub": "conch's agents, in a native Mac window.", "hold": 2.8 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "caption": "Every agent you run, in one window", "sub": "Claude, Codex, Gemini, OpenCode and Devin.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 290, 246, 380], "ring": true, "caption": "Machines, projects, branches, agents", "sub": "Each agent on a branch and worktree of its own.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [8, 88, 246, 168], "ring": true, "click": [130, 185], "caption": "Answer a waiting agent from the sidebar", "sub": "Its choices are buttons; the agent carries on.", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-agents.png", "focus": [450, 12, 420, 30], "ring": true, "caption": "⌘K finds any agent, branch, file or action", "hold": 2.8 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "caption": "A branch in a tab: Overview, Changes, Graph", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [272, 145, 256, 250], "ring": true, "caption": "Tick files or hunks, then commit", "sub": "✦ Write drafts the message.", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [540, 345, 475, 195], "ring": true, "caption": "Leave a note on a line — the agent answers", "hold": 3.8 },
+        { "kind": "window", "image": "web/src/images/desktop-git.png", "focus": [1045, 602, 255, 185], "click": [1066, 746], "caption": "Approve the pull request right here", "sub": "CI checks and the review sit beside the diff.", "hold": 3.4 },
+        { "kind": "window", "image": "web/src/images/desktop-files.png", "focus": [270, 95, 1045, 390], "caption": "The checkout in an editor", "sub": "⌘P goes to a file, ⌘I edits it with an agent.", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-browser.png", "focus": [270, 90, 1045, 520], "caption": "Your dev server in a tab beside its agent", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-skills.png", "focus": [405, 110, 760, 375], "caption": "Skills and MCP servers for every agent", "hold": 3.2 },
+        { "kind": "window", "image": "web/src/images/desktop-settings.png", "focus": [405, 148, 760, 110], "ring": true, "caption": "Autopilot: review, PR, fix CI, merge", "sub": "Run by conch's server — closing the window stops nothing.", "hold": 3.6 },
+        { "kind": "window", "image": "web/src/images/desktop-limits.png", "focus": [770, 795, 548, 24], "ring": true, "caption": "Plan limits in the status bar", "hold": 2.8 },
+        { "kind": "title", "title": "Conch.app", "sub": "In beta, for Apple Silicon Macs on macOS 14 or later.", "url": "amitgb14.github.io/conch/docs/mac-app", "hold": 3.2 }
+      ]
+    },
+    {
       "name": "conch-in-a-minute",
       "title": "conch in a minute",
       "scenes": [
