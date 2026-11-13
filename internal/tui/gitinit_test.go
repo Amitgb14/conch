@@ -11,7 +11,7 @@ import (
 // asked only once the person confirms, and an older server is named as the
 // reason rather than asked.
 func TestGitInitFromProjectMenu(t *testing.T) {
-	m, peer := plainTaskModel(t)
+	m, _ := plainTaskModel(t)
 	find := func(r row) *menuItem {
 		for _, it := range newRowMenu(*m, r, 0, 0).items {
 			if strings.HasPrefix(it.label, "Make it a git repository") {
@@ -33,7 +33,7 @@ func TestGitInitFromProjectMenu(t *testing.T) {
 		t.Fatalf("old server: overlay %T flash %q", m.overlay, m.flash)
 	}
 
-	m, peer = harvestModel(t, harvestCapability, proto.CapProjectGitInit)
+	m, peer := harvestModel(t, harvestCapability, proto.CapProjectGitInit)
 	m.machines[0].projects = append(m.machines[0].projects, proto.ProjectInfo{ID: "n1", Name: "notes", Path: "/src/notes"})
 	m.rebuild()
 	it = find(row{kind: kindProject, machine: localMachine, projectID: "n1"})
