@@ -110,6 +110,7 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 	closed := g.closed
 	if !closed {
 		g.sockets[s] = struct{}{}
+		g.handlers.Add(1) // under mu, so Close's Wait sees every Add
 	}
 	g.mu.Unlock()
 	if closed {
@@ -124,6 +125,7 @@ func (g *Gateway) serveSocket(w http.ResponseWriter, r *http.Request) {
 		g.mu.Unlock()
 		g.seen(dev.ID, "", false)
 		g.logf("socket %s closed", dev.ID)
+		g.handlers.Done()
 	}()
 
 	// This computer must answer: without it there is nothing to show. The
