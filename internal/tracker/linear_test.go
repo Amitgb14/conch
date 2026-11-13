@@ -228,7 +228,7 @@ func TestLinearErrors(t *testing.T) {
 	if _, err := NewLinear(junk.URL, "k").Get(context.Background(), "ENG-1"); err == nil {
 		t.Error("junk reply was taken")
 	}
-	boom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", 502) }))
+	boom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "down", http.StatusBadGateway) }))
 	defer boom.Close()
 	if _, err := NewLinear(boom.URL, "k").Get(context.Background(), "ENG-1"); err == nil || !strings.Contains(err.Error(), "502") {
 		t.Errorf("server error: %v", err)
