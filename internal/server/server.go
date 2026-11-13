@@ -61,7 +61,7 @@ type Server struct {
 	bgMu      sync.Mutex
 	procSeen  map[int]time.Time
 	lastPorts map[int][]int
-	groups   *groupBook
+	groups    *groupBook
 	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
 	secrets secretCache
 	// cloud is the cloud agent beside this server, on a Conch Cloud
