@@ -1487,6 +1487,7 @@ struct TaskSheet: View {
     @ObservedObject var store: Store
     @State var draft: TaskDraft
     @State private var issues: [IssueInfo] = []
+    @State private var tickets: [TicketInfo] = []
     @FocusState private var promptFocused: Bool
 
     var project: ProjectInfo? {
@@ -1525,6 +1526,14 @@ struct TaskSheet: View {
                     .frame(maxWidth: 300)
                     .help("Work on a GitHub issue: its title and body are the prompt, and anything typed above is added")
                 }
+                if !tickets.isEmpty {
+                    Picker("Ticket", selection: Binding(get: { draft.ticket }, set: { draft.ticket = $0; if !$0.isEmpty { draft.issue = nil } })) {
+                        Text("None").tag("")
+                        ForEach(tickets) { Text($0.label).lineLimit(1).tag($0.ref) }
+                    }
+                    .frame(maxWidth: 300)
+                    .help("Work on a Linear or Jira ticket: its title, body and comments are the prompt, and anything typed above is added")
+                }
                 TextField("When: now, 14:05, +30m, every 1d, queue, after BRANCH", text: $draft.when)
                     .frame(maxWidth: 360)
                     .help("Later is kept by the server, and starts with conch closed too")
@@ -1534,14 +1543,18 @@ struct TaskSheet: View {
                 Button("Cancel") { store.taskDraft = nil }.keyboardShortcut(.cancelAction)
                 Button(taskWhenArgs(draft.when).isEmpty ? "Start" : "Schedule") { store.startTask(draft) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0)
+                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0 && draft.ticket.isEmpty)
             }
             Text("⌘↩ starts it").font(.ui(size: 11)).foregroundStyle(.secondary)
         }
         .padding(18)
         .frame(width: 560)
         .onAppear { promptFocused = true }
-        .task { issues = await store.issues(for: draft.project) }
+        .task {
+            async let i = store.issues(for: draft.project)
+            async let t = store.tickets(for: draft.project)
+            (issues, tickets) = await (i, t)
+        }
     }
 }
 

@@ -2521,6 +2521,28 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(i == [IssueInfo(number: 7, title: "Crash on start")] || i.first?.number == 7)
 }
 
+// A Linear or Jira ticket picked in the task sheet becomes -ticket, named
+// with its tracker so a project with both set up still reads the right
+// one; a list from project.tickets reads as the server sends it.
+@Test func taskFromATicket() throws {
+    #expect(taskArgs(dir: "/d", prompt: "", agent: "claude", branch: "", issue: nil, ticket: "linear:ENG-7", when: "")
+            == ["task", "-cwd", "/d", "-agent", "claude", "-ticket", "linear:ENG-7"])
+    #expect(taskArgs(dir: "/d", prompt: " keep it small ", agent: "codex", branch: "", issue: nil, ticket: "jira:P-2", when: "queue")
+            == ["task", "-cwd", "/d", "-agent", "codex", "-ticket", "jira:P-2", "-queue", "keep it small"])
+    // Blank is none; an issue and a ticket both is the ticket alone, since conch task refuses both.
+    #expect(!taskArgs(dir: "/d", prompt: "x", agent: "a", branch: "", issue: nil, ticket: "  ", when: "").contains("-ticket"))
+    let both = taskArgs(dir: "/d", prompt: "", agent: "a", branch: "", issue: 4, ticket: "linear:ENG-7", when: "")
+    #expect(both.contains("-ticket") && !both.contains("-issue"))
+
+    let list = try JSONDecoder().decode(TicketList.self, from: Data(#"{"tracker":"linear","tickets":[{"tracker":"linear","key":"ENG-7","title":"Export as CSV","status":"Todo","url":"https://linear.app/a/issue/ENG-7"},{"tracker":"linear","key":"ENG-9","title":"Dark mode"}]}"#.utf8))
+    #expect(list.tracker == "linear" && list.tickets.count == 2)
+    let t = list.tickets[0]
+    #expect(t.ref == "linear:ENG-7" && t.id == "linear:ENG-7" && t.status == "Todo")
+    #expect(t.label == "ENG-7 Export as CSV · Todo" && list.tickets[1].label == "ENG-9 Dark mode")
+    // An empty reply, and one with no tickets at all.
+    #expect(try JSONDecoder().decode(TicketList.self, from: Data(#"{}"#.utf8)).tickets.isEmpty)
+}
+
 // Saved ssh hosts as the TUI keeps them in ui.json: read in order with
 // their names and options, saved and forgotten leaving the rest of the
 // file, listed under this computer's CLI while no session is open to them.
