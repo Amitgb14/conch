@@ -312,8 +312,18 @@ func TestFind(t *testing.T) {
 		t.Errorf("a file that is not executable was taken for idb: %q", tl.Idb)
 	}
 	_, notes, err := tl.Devices(context.Background())
-	if err != nil || len(notes) != 1 || notes[0] != `iOS: xcrun: xcrun: error: unable to find utility "simctl"` {
+	if err != nil || len(notes) != 1 || notes[0] != "iOS: "+noSimctl {
 		t.Errorf("err %v notes %q", err, notes)
+	}
+	// Another program's failure keeps its own words, named once.
+	other := t.TempDir()
+	writeExec(t, filepath.Join(other, "adb"), `echo "adb: device offline" >&2; exit 1`)
+	if _, err := tl.Run(context.Background(), filepath.Join(other, "adb"), "devices"); err == nil || err.Error() != "adb: device offline" {
+		t.Errorf("adb's own words: %v", err)
+	}
+	writeExec(t, filepath.Join(other, "idb"), `echo "no companion" >&2; exit 1`)
+	if _, err := tl.Run(context.Background(), filepath.Join(other, "idb"), "ui"); err == nil || err.Error() != "idb: no companion" {
+		t.Errorf("named once: %v", err)
 	}
 	if err := tl.Start(tl.Emulator, "-avd", "P"); err != nil {
 		t.Fatal(err)
