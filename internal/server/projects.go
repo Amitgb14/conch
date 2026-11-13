@@ -963,7 +963,7 @@ func (pm *projectManager) diff(dp proto.DiffParams) (proto.DiffResult, *proto.Er
 // the branch from base if needed. A taken directory gets a numeric suffix.
 func (pm *projectManager) addWorktree(p *project, branch, base string) (path string, copied []string, perr *proto.Error) {
 	if !p.snapshot().Git {
-		return "", nil, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository", p.root)
+		return "", nil, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository, and a branch needs one: %s", p.root, notGitHint)
 	}
 	if wt, ok := p.branchWorktree(branch); ok {
 		return "", nil, proto.Errorf(proto.ErrBadRequest, "branch %s is already checked out at %s", branch, wt.Path)
