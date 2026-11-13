@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -162,4 +163,126 @@ func firstLine(out []byte, err error) string {
 		}
 	}
 	return err.Error()
+}
+
+// appArch is the Mac's architecture; a variable so tests are Apple Silicon.
+var appArch = runtime.GOARCH
+
+// appRename is os.Rename, which tests make fail halfway through a swap.
+var appRename = os.Rename
+
+// InstallApp replaces the Conch.app at app with release version: it
+// downloads the release's archive and checks its checksum, unpacks it
+// beside the app (the same volume, so the swap is a rename), checks the
+// version inside and its signature, and then swaps the two, keeping the
+// one it replaces for RollbackApp. Anything refused leaves the app as it
+// was and nothing beside it. The running app carries on from the files it
+// has open; the new one runs from its next launch.
+func InstallApp(ctx context.Context, version, app string, say func(string)) error {
+	version = strings.TrimPrefix(version, "v")
+	if err := AppReplaceable(app); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp("", "conch-app-update-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	say("downloading Conch " + version)
+	zip, err := remote.FetchApp(ctx, version, appArch, tmp)
+	if err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(app), ".Conch-update-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage)
+	say("unpacking it")
+	if out, err := appTool(ctx, "ditto", "-x", "-k", zip, stage); err != nil {
+		return fmt.Errorf("unpack Conch %s: %s", version, firstLine(out, err))
+	}
+	next := filepath.Join(stage, "Conch.app")
+	got, ok := bundleVersion(next)
+	if !ok {
+		return fmt.Errorf("the release's archive has no Conch.app in it")
+	}
+	if got != version {
+		return fmt.Errorf("the Conch.app in release %s says it is %s", version, got)
+	}
+	say("checking its signature")
+	if err := VerifyApp(ctx, next, app); err != nil {
+		return err
+	}
+	say("installing it")
+	return replaceApp(app, next)
+}
+
+// previousApp is where the app an update replaced is kept: beside it,
+// hidden, and without .app so LaunchServices offers no second Conch.
+func previousApp(app string) string {
+	return filepath.Join(filepath.Dir(app), "."+filepath.Base(app)+".previous")
+}
+
+// PreviousApp is the version of the app kept from the last update, if any.
+func PreviousApp(app string) (string, bool) {
+	return bundleVersion(previousApp(app))
+}
+
+// replaceApp moves app aside as the previous one — dropping the one kept
+// before, since one is kept — and next into its place; if that second
+// rename fails the first is undone.
+func replaceApp(app, next string) error {
+	prev := previousApp(app)
+	if err := os.RemoveAll(prev); err != nil {
+		return fmt.Errorf("remove the Conch.app kept from before: %w", err)
+	}
+	if err := appRename(app, prev); err != nil {
+		return fmt.Errorf("move Conch.app aside: %w", err)
+	}
+	if err := appRename(next, app); err != nil {
+		if rerr := appRename(prev, app); rerr != nil {
+			return fmt.Errorf("put the new Conch.app in place: %w; and putting the old one back: %v (it is at %s)", err, rerr, prev)
+		}
+		return fmt.Errorf("put the new Conch.app in place: %w", err)
+	}
+	return nil
+}
+
+// RollbackApp swaps the app with the one kept from the last update, so
+// the release just undone is kept in turn and can be gone forward to.
+func RollbackApp(app string) error {
+	prev := previousApp(app)
+	if _, ok := bundleVersion(prev); !ok {
+		return errors.New("no previous Conch.app is kept to go back to")
+	}
+	if err := AppReplaceable(app); err != nil {
+		return err
+	}
+	aside := filepath.Join(filepath.Dir(app), ".Conch-rollback")
+	os.RemoveAll(aside)
+	if err := appRename(app, aside); err != nil {
+		return err
+	}
+	if err := appRename(prev, app); err != nil {
+		appRename(aside, app)
+		return err
+	}
+	return appRename(aside, prev)
+}
+
+var plistVersion = regexp.MustCompile(`<key>CFBundleShortVersionString</key>\s*<string>([^<]*)</string>`)
+
+// bundleVersion reads an app's CFBundleShortVersionString; ok is false
+// when there is no bundle there.
+func bundleVersion(app string) (string, bool) {
+	b, err := os.ReadFile(filepath.Join(app, "Contents", "Info.plist"))
+	if err != nil {
+		return "", false
+	}
+	m := plistVersion.FindSubmatch(b)
+	if m == nil {
+		return "", true
+	}
+	return string(m[1]), true
 }
