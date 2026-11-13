@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -34,6 +35,10 @@ func TestTreeShowsBackgroundJobs(t *testing.T) {
 	p9.Agent.Jobs = nil
 	if got := row("p9"); !strings.Contains(got, "⟳2") {
 		t.Fatalf("count without details: %q", got)
+	}
+	p9.Agent.Background = 120
+	if got := row("p9"); !strings.Contains(got, "⟳120") {
+		t.Fatalf("a count past two digits: %q", got)
 	}
 	// An exited pane runs nothing.
 	p9.State = proto.PaneExited
@@ -81,5 +86,94 @@ func TestAttentionBodySaysWhatIsStillRunning(t *testing.T) {
 		if got := attentionBody(info); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.a, got, c.want)
 		}
+	}
+}
+
+// What it left running is listed under the agent, as its subagents are:
+// the command, its ports and how long it has run, a row each.
+func TestTreeListsJobsUnderTheAgent(t *testing.T) {
+	in := sampleInput()
+	a := in.machines[0].panes[0].Agent
+	a.State, a.Background = proto.AgentDone, 2
+	a.Subagents = []proto.Subagent{{ID: "s1"}}
+	a.Jobs = []proto.BackgroundJob{{PID: 41, Command: "npm run dev", Ports: []int{5173}}, {PID: 42, Command: "pytest -f"}}
+	rows := buildTree(in)
+	got := render(rows)
+	want := "        pane:p1\n          " + subagentID(localMachine, "p1", "s1") + "\n          " + jobID(localMachine, "p1", 41) +
+		"\n          " + jobID(localMachine, "p1", 42) + "\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("not under the agent:\n%s\nwant\n%s", got, want)
+	}
+	r := rows[indexOfRow(rows, jobID(localMachine, "p1", 41))]
+	if r.kind != kindJob || r.paneID != "p1" || r.label != "41" || !r.nested || r.expandable() {
+		t.Fatalf("job row %+v", r)
+	}
+	if rows[indexOfRow(rows, paneNodeID(localMachine, "p1"))].kids != 3 {
+		t.Fatal("the agent's row counts its jobs")
+	}
+	// The count alone, from a server that sent no list: no rows to make.
+	a.Jobs = nil
+	if strings.Contains(render(buildTree(in)), "/job/") {
+		t.Fatal("rows without jobs")
+	}
+}
+
+func TestJobRow(t *testing.T) {
+	m, peer := monitorFixture(t, proto.CapAgentBackground)
+	p := &m.machines[0].panes[0]
+	p.Agent = &proto.AgentStatus{Name: "claude", State: proto.AgentIdle, Background: 1,
+		Jobs: []proto.BackgroundJob{{PID: 41, Command: "npm run dev", Ports: []int{5173, 8080}, Since: time.Now().Add(-3 * time.Minute)}}}
+	m.rebuild()
+	i := indexOfRow(m.rows, jobID(localMachine, p.ID, 41))
+	if i < 0 {
+		t.Fatalf("no job row in\n%s", render(m.rows))
+	}
+	g, _, label, _, right := m.rowParts(m.rows[i])
+	if g != "⟳" || label != "npm run dev" || ansi.Strip(right) != ":5173 :8080 3m" {
+		t.Fatalf("job row: %q %q %q", g, label, ansi.Strip(right))
+	}
+	// A job the server no longer lists draws as gone, not as a crash.
+	if _, _, label, _, _ := m.rowParts(row{kind: kindJob, machine: localMachine, paneID: p.ID, label: "99"}); label != "ended" {
+		t.Fatalf("a job that has gone: %q", label)
+	}
+
+	// Its menu stops it, through the server.
+	m.cursor = m.rows[i].id
+	menu := newRowMenu(*m, m.rows[i], 0, 0)
+	var stop *menuItem
+	for k := range menu.items {
+		if strings.HasPrefix(menu.items[k].label, "Stop") {
+			stop = &menu.items[k]
+		}
+	}
+	if stop == nil {
+		t.Fatalf("no stop in %+v", menu.items)
+	}
+	cmd := stop.run(m)
+	if cmd == nil {
+		t.Fatal("no call")
+	}
+	cmd()
+	peer.waitMethod(t, proto.MethodAgentBackgroundStop, `{"id":"`+p.ID+`","pid":41}`)
+	if !strings.Contains(m.flash, "npm run dev") {
+		t.Fatalf("flash %q", m.flash)
+	}
+
+	// Enter on it goes to its agent, which is what has a screen.
+	if a := m.agentRowOf(m.rows[i]); a.kind != kindPane || a.paneID != p.ID {
+		t.Fatalf("its agent's row: %+v", a)
+	}
+}
+
+func TestStopJobOldServer(t *testing.T) {
+	m, _ := monitorFixture(t, "pane.v1")
+	if m.stopJob(localMachine, m.machines[0].panes[0].ID, 41) != nil {
+		t.Fatal("called a server without agent.background")
+	}
+	if !m.flashIsErr || !strings.Contains(m.flash, "too old") {
+		t.Fatalf("flash %q", m.flash)
+	}
+	if m.stopJob("elsewhere", "p1", 41) != nil {
+		t.Fatal("an unknown machine")
 	}
 }

@@ -199,6 +199,16 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			title = "subagent of " + p.DisplayName()
 		}
 		items = []menuItem{{"enter", "Open its agent", enter}}
+	case kindJob: // something its agent left running
+		title = "running in the background"
+		if p := m.pane(r.machine, r.paneID); p != nil {
+			title = "left running by " + p.DisplayName()
+		}
+		mid, pane, pid := r.machine, r.paneID, atoiOr(r.label)
+		items = []menuItem{
+			{"enter", "Open its agent", enter},
+			{"", "Stop it (and what it started)", func(m *Model) tea.Cmd { return m.stopJob(mid, pane, pid) }},
+		}
 	case kindBranch:
 		title = r.branch
 		items = []menuItem{

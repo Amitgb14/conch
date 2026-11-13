@@ -357,6 +357,8 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 		return g, style, p.DisplayName(), labelStyle, joinRight(right, m.costChip(paneUsage(*p)))
 	case kindSubagent:
 		return m.subagentParts(r)
+	case kindJob:
+		return m.jobParts(r)
 	}
 	return "", glyphStyle, r.id, labelStyle, ""
 }
