@@ -2741,15 +2741,15 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
     let i = snap.projects.firstIndex { $0.id == "r1" }!
     snap.projects[i].git = true
-    let items = snap.menu(for: node, machine: "local")
+    let items = snap.menu(for: node, machine: "local", offerCloud: true)
     let move = items.firstIndex(of: RowMenuItem("Move to Another Machine…", .moveProject(project: "local|r1")))
-    // Next to it, this Mac's projects can go to Conch Cloud.
+    // Next to it, this Mac's projects can go to Conch Cloud (when offered).
     #expect(move != nil && items[move! + 1] == RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: "local|r1")))
     let there = TreeNode(id: "p:box|r1", kind: .project("box|r1"), title: "api")
-    #expect(!snap.menu(for: there, machine: "box").contains { if case .moveToCloud = $0.action { return true }; return false })
+    #expect(!snap.menu(for: there, machine: "box", offerCloud: true).contains { if case .moveToCloud = $0.action { return true }; return false })
     snap.projects[i].git = false
     #expect(!snap.menu(for: node, machine: "local").contains { if case .moveProject = $0.action { return true }; return false })
-    #expect(!snap.menu(for: node, machine: "local").contains { if case .moveToCloud = $0.action { return true }; return false })
+    #expect(!snap.menu(for: node, machine: "local", offerCloud: true).contains { if case .moveToCloud = $0.action { return true }; return false })
 }
 
 // A project row's menu ends with Remove Project.

@@ -9,10 +9,11 @@ import SwiftUI
 extension Store {
     var cloudSignedIn: Bool { CloudModel.signedIn(conchDir: conchDir) }
 
-    /// Asks conch for the account and its machines again; with no sign-in
-    /// it forgets what it had and asks nothing.
+    /// Asks conch for the account and its machines again; with no sign-in,
+    /// or Conch Cloud hidden (offersCloud), it forgets what it had and asks
+    /// nothing.
     func refreshCloud() {
-        guard cloudSignedIn else {
+        guard cloudSignedIn, offersCloud else {
             cloud = nil
             cloudMachines = []
             return

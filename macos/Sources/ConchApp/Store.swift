@@ -244,6 +244,10 @@ final class Store: ObservableObject {
     /// account as conch last said it, nil until asked — and never asked
     /// while there is no sign-in — its machines, and a sign-in under way.
     @Published var cloud: CloudAccount?
+    /// Whether Conch Cloud is offered (ConchKit's cloudEnabled: CONCH_CLOUD,
+    /// else [cloud] enabled), read with the theme. Hidden in this release;
+    /// a cloud machine already in machines.json keeps working either way.
+    @Published var offersCloud = false
     @Published var cloudMachines: [CloudMachine] = []
     @Published var cloudLogin: CloudLoginState = .idle
     @Published var cloudError = ""
@@ -861,6 +865,8 @@ final class Store: ObservableObject {
             Theme.icons = icons
         }
         notifySettings = NotifySettings(toml: toml)
+        let offers = cloudEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
+        if offers != offersCloud { offersCloud = offers }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
         let cost = showsCost(toml: toml ?? "")
@@ -2374,7 +2380,8 @@ final class Store: ObservableObject {
         let s = snapshots[m] ?? Snapshot()
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
-                           canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true)
+                           canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
+                           offerCloud: offersCloud)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2538,8 +2545,9 @@ final class Store: ObservableObject {
     /// Add project…: a sheet to open a folder, clone a repository or make
     /// a new one (AddProjectSheet), for that machine.
     func addProject(on machine: String = "local") {
-        // A cloud machine asleep is readied by the sheet itself.
-        if conns[machine] == nil, let id = catalog.first(where: { $0.id == machine })?.cloudID {
+        // A cloud machine asleep is readied by the sheet itself — with
+        // Conch Cloud offered; hidden, it is a machine to wake first.
+        if offersCloud, conns[machine] == nil, let id = catalog.first(where: { $0.id == machine })?.cloudID {
             addProjectTarget = AddProjectTarget(id: machine, cloud: id)
             refreshCloud()
             return
@@ -2684,7 +2692,7 @@ final class Store: ObservableObject {
 
     /// Reads the sizes a new cloud machine can be, once.
     func refreshCloudSizes() {
-        guard cloudSignedIn, cloudSizes.isEmpty, let b = binary else { return }
+        guard cloudSignedIn, offersCloud, cloudSizes.isEmpty, let b = binary else { return }
         Task {
             guard let out = try? await runConch(b, ["cloud", "machine", "sizes", "-json"]),
                   let s = try? conchDecoder().decode(CloudSizes.self, from: out) else { return }

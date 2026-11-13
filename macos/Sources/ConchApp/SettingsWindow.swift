@@ -587,10 +587,11 @@ struct SectionForm: View {
                     PhonesList(store: model.store).padding(12)
                 }
             case "cloud":
-                // The server to sign in to, then the account and its
-                // machines (CloudSettings.swift).
+                // The switch and the server to sign in to (conch's schema
+                // leaves only the switch while Cloud is hidden), then the
+                // account and its machines (CloudSettings.swift) once it is on.
                 card(nil, fields)
-                CloudCard(store: model.store)
+                if model.store.offersCloud { CloudCard(store: model.store) }
             case "sandbox":
                 // Which providers there are, built in and adapted, and the
                 // way to add one conch does not know.

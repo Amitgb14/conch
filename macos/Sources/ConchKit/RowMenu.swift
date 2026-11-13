@@ -197,10 +197,11 @@ extension Snapshot {
     /// would start something there.
     /// among is every machine in machines.json, for paneRef.
     /// folders is ui.json's (loadFolders) and savedHosts this computer's,
-    /// for what goes in a folder and where it is now.
+    /// for what goes in a folder and where it is now. offerCloud is
+    /// whether Conch Cloud is enabled (cloudEnabled), for Move to it.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
-                     canGroup: Bool = true, canGroupTask: Bool = true) -> [RowMenuItem] {
+                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -291,7 +292,8 @@ extension Snapshot {
             if pr.git != false {
                 out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))]
                 // This Mac's project, before the lid closes.
-                if machine == "local" { out.append(RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: pk))) }
+                // Not while Conch Cloud is hidden (cloudEnabled).
+                if machine == "local" && offerCloud { out.append(RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: pk))) }
             }
             out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:
