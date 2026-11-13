@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -147,6 +148,9 @@ func newRig(t *testing.T) *rig {
 	}
 	dir, _ = filepath.EvalSymlinks(dir)
 	t.Cleanup(func() { os.RemoveAll(dir) })
+	// After the agent has stopped (cleanups run last first), so it cannot
+	// start another, and before the folder goes.
+	t.Cleanup(func() { stopServer(t, filepath.Join(dir, "s.sock")) })
 	t.Setenv("CONCH_HOME", dir)
 	r := &rig{t: t, home: home, dir: dir, cloud: newFakeCloud(t, "ccm_first"), log: &syncLog{}}
 	state := filepath.Join(home, "state")
@@ -177,6 +181,25 @@ func (r *rig) writeBoot(token string) {
 	}
 	if err := os.Rename(tmp, r.opts.BootPath); err != nil {
 		r.t.Fatal(err)
+	}
+}
+
+// stopServer stops the server that answers on sock, if one does: one the
+// agent started is a process of its own, detached, which nothing else
+// ends. It is never this process (startServer's has stopped by then).
+func stopServer(t *testing.T, sock string) {
+	c, err := client.Dial(sock, "test")
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	pid := c.Server.PID
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c.Call(ctx, proto.MethodServerStop, nil, nil)
+	if pid > 0 && pid != os.Getpid() && !gone(pid, 5*time.Second) {
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Errorf("the server the agent started (%d) did not stop", pid)
 	}
 }
 
@@ -593,12 +616,7 @@ func TestAgentStartsTheServer(t *testing.T) {
 	r := newRig(t)
 	r.run()
 	r.cloud.waitFor("POST /v1/vm/hello", 1, 20*time.Second)
-	r.connect()
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		r.c.Call(ctx, proto.MethodServerStop, nil, nil)
-	})
+	r.connect() // the rig stops the server
 	if !slices.Contains(r.c.Server.Capabilities, proto.CapCloudAgent) {
 		t.Fatalf("the server started does not say cloud.agent.v1: %v", r.c.Server.Capabilities)
 	}
