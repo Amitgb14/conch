@@ -229,7 +229,7 @@ Each release from v0.1.9 carries `Conch_<version>_macos_arm64.zip` on its [GitHu
 2. Drag Conch.app into **Applications** — the system's `/Applications`. In `~/Applications` it has the same name, to a Mac, as the launcher [`conch app install`](/docs/cli#app) writes there, so that launcher is not added; install and remove never touch Conch.app.
 3. Open it. The app is signed with a Developer ID and notarized by Apple, so macOS only asks the usual *downloaded from the internet* question the first time — no "could not verify" warning, and nothing to allow in System Settings.
 
-To update, download the next release's zip and replace the app; your agents keep running through it, since the server holds them, not the window. A machine you reach over ssh gets the released conch of the same version when the app upgrades it. Report what breaks with **⊙** in the status bar.
+To update, **Conch → Check for Updates…**: Install verifies the release, swaps the app and relaunches ([more](/docs/configuration#app)); your agents keep running through it, since the server holds them, not the window. A machine you reach over ssh gets the released conch of the same version when the app upgrades it. Report what breaks with **⊙** in the status bar.
 
 ## Building it
 
