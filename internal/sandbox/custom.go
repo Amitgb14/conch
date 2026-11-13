@@ -907,10 +907,28 @@ func (c *Custom) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	_, err := c.do(ctx, c.f.Delete, vars{"{id}": id})
-	if err == nil || errors.Is(err, ErrNotFound) {
-		return err
+	if errors.Is(err, ErrNotFound) {
+		// A 404 says the sandbox is gone — or that the file's route is
+		// wrong, which reads the same. Every caller takes ErrNotFound as
+		// "already deleted" and forgets the machine, so a wrong [delete]
+		// would leave a sandbox running and billing with nothing to say
+		// so. Ask whether it is still there.
+		s, gerr := c.Get(ctx, id)
+		switch {
+		case errors.Is(gerr, ErrNotFound):
+			return ErrNotFound
+		case gerr != nil:
+			return fmt.Errorf("delete sandbox: %s's [delete] call (%s) answered 404, and asking whether %s is still there failed: %w", c.f.Name, c.f.Delete.Call, id, gerr)
+		case s.State.Going():
+			return nil
+		default:
+			return fmt.Errorf("delete sandbox: %s's [delete] call (%s) answered 404, but %s is still there (%s): the provider file's [delete] call may be wrong — check it, and delete the sandbox in the provider's console meanwhile", c.f.Name, c.f.Delete.Call, id, s.State)
+		}
 	}
-	return fmt.Errorf("delete sandbox: %w", err)
+	if err != nil {
+		return fmt.Errorf("delete sandbox: %w", err)
+	}
+	return nil
 }
 
 func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {

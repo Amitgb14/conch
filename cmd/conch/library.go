@@ -25,6 +25,12 @@ const libraryUsage = `usage: conch agent library [list]
        conch agent library import AGENT
        conch agent library plan | apply | undo [-stamp S]`
 
+// plainWarning is said wherever a token is chosen to be kept in plain
+// text: besides each agent's file, Claude Code is given it on claude mcp
+// add-json's command line — it has no other way in — so for that moment
+// anybody logged in to the machine can read it in the process list.
+const plainWarning = "conch: -plain writes the token as it is into each agent's file (readable by you alone), and hands it to Claude Code on its command line, where anybody else logged in to this machine can see it in the process list for that moment; on a machine others use, keep it in the Keychain (Conch.app) or in a ${VAR} set in the environment instead"
+
 // agentLibrary manages the MCP servers and skills conch keeps for the
 // agents, and gives each agent what the library says. Editing the library
 // writes to no agent; plan says what apply would write.
@@ -93,6 +99,7 @@ func runLibrary(c *client.Client, w io.Writer, cmd string, args []string) error 
 				return errors.New("this machine's conch server is from before -plain: reload it (conch server reload)")
 			}
 			s.Plain = true
+			fmt.Fprintln(os.Stderr, plainWarning)
 		}
 		rest := fs.Args()[1:]
 		if len(rest) > 0 && rest[0] == "--" {

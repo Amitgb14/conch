@@ -112,12 +112,21 @@ func parseFlags(args []string, off int, valued map[string]bool) (int, map[string
 // command takes a pane (paneArgs), and only a machine conch has (or
 // local): text that merely looks like one is left alone. machine is the
 // -m already given; a ref on another machine than that one is an error.
+// A command reaches one machine, so refs to two machines are refused, and
+// so is a bare pN beside a ref elsewhere: it means a pane of -m's machine
+// (this computer without -m), and would have been looked for on the
+// ref's instead.
 func machinePane(cmd string, args []string, machine string) ([]string, string, error) {
 	var out []string
+	given := machine
+	var bare, ref string // a pane named without a machine, and the first with one
 	for _, i := range paneArgs(cmd, args) {
 		a := args[i]
 		m := machinePaneRef.FindStringSubmatch(a)
 		if m == nil {
+			if bare == "" {
+				bare = a
+			}
 			continue
 		}
 		on := m[1]
@@ -128,10 +137,14 @@ func machinePane(cmd string, args []string, machine string) ([]string, string, e
 			}
 			on = mach.ID
 		}
-		if machine != "" && machine != on {
-			if mach, ok := remote.LookupMachine(machine); machine == remote.LocalID || !ok || mach.ID != on {
-				return nil, "", fmt.Errorf("%s is a pane on %s, and -m says %s", a, m[1], machine)
+		if machine != "" && !sameMachine(machine, on) {
+			if ref != "" {
+				return nil, "", fmt.Errorf("%s and %s are panes on different machines: conch %s reaches one machine at a time", ref, a, cmd)
 			}
+			return nil, "", fmt.Errorf("%s is a pane on %s, and -m says %s", a, m[1], machine)
+		}
+		if ref == "" {
+			ref = a
 		}
 		if out == nil {
 			out = append([]string{}, args...)
@@ -146,5 +159,25 @@ func machinePane(cmd string, args []string, machine string) ([]string, string, e
 	if out == nil {
 		return args, machine, nil
 	}
+	if bare != "" && !sameMachine(firstNonEmptyStr(given, remote.LocalID), machine) {
+		where := "this computer"
+		if given != "" {
+			where = given
+		}
+		return nil, "", fmt.Errorf("%s names no machine, so it is a pane on %s, and %s is on another: conch %s reaches one machine at a time — name it as machine:%s", bare, where, ref, cmd, bare)
+	}
 	return out, machine, nil
+}
+
+// sameMachine says whether a, as -m or a ref gives it, is the machine
+// whose ID (or local) is id.
+func sameMachine(a, id string) bool {
+	if a == id {
+		return true
+	}
+	if a == remote.LocalID || id == remote.LocalID {
+		return false
+	}
+	mach, ok := remote.LookupMachine(a)
+	return ok && mach.ID == id
 }

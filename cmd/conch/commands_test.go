@@ -21,6 +21,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/brain"
 	"github.com/Amitgb14/conch/internal/buildinfo"
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -135,6 +136,46 @@ func TestA4ProjectCommands(t *testing.T) {
 	if srv.params(t, proto.MethodProjectClone, &clp); clp.Path != "~/work/b" {
 		t.Fatalf("clone into ~: %+v", clp)
 	}
+	// On another machine: the default is its home's ~/NAME, and ~/DIR or
+	// an absolute DIR are taken as they are, for its server to resolve; a
+	// relative DIR would mean this computer's folder and is refused.
+	func() {
+		old := machineFlag
+		machineFlag = "gpu"
+		defer func() { machineFlag = old }()
+		rc, err := client.Dial(config.SocketPath(), "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rc.Close()
+		clone := func(args ...string) error {
+			var err error
+			a4Capture(t, "", func() { err = projectClone(rc, args) })
+			return err
+		}
+		for _, c := range []struct {
+			args []string
+			want string
+		}{
+			{[]string{"https://github.com/Amitgb14/conch.git"}, "~/conch"},
+			{[]string{"git@github.com:a/b.git", "~/work/b"}, "~/work/b"},
+			{[]string{"git@github.com:a/b.git", "~"}, "~"},
+			{[]string{"git@github.com:a/b.git", "/srv/b"}, "/srv/b"},
+		} {
+			if err := clone(c.args...); err != nil {
+				t.Fatalf("clone %v on gpu: %v", c.args, err)
+			}
+			if srv.params(t, proto.MethodProjectClone, &clp); clp.Path != c.want {
+				t.Fatalf("clone %v on gpu: %+v, want %s", c.args, clp, c.want)
+			}
+		}
+		for _, dir := range []string{"src/b", "~bob/b", "./b"} {
+			err := clone("git@github.com:a/b.git", dir)
+			if err == nil || !strings.Contains(err.Error(), "under ~") || strings.Contains(err.Error(), "-cwd") {
+				t.Fatalf("clone into %q on gpu: %v", dir, err)
+			}
+		}
+	}()
 	if _, err := run("clone", "https://example.com/private.git"); err == nil || !strings.Contains(err.Error(), "Authentication failed") {
 		t.Fatalf("clone failure: %v", err)
 	}
@@ -1212,8 +1253,17 @@ func TestA4AgentLibrary(t *testing.T) {
 	}
 	// -plain marks a token written out as the person's choice; without it
 	// nothing is marked.
-	if _, err := run("add", "-plain", "-header", "Authorization=Bearer tok-1", "gh", "https://x.example/mcp"); err != nil {
-		t.Fatal(err)
+	// It also says that Claude is handed the token on a command line others
+	// on the machine can read.
+	var plainErr error
+	_, stderr := a4Capture(t, "", func() {
+		plainErr = runAgent([]string{"library", "add", "-plain", "-header", "Authorization=Bearer tok-1", "gh", "https://x.example/mcp"})
+	})
+	if plainErr != nil {
+		t.Fatal(plainErr)
+	}
+	if !strings.Contains(stderr, "process list") || !strings.Contains(stderr, "${VAR}") {
+		t.Fatalf("-plain said:\n%s", stderr)
 	}
 	if got := lib.Servers[0]; !got.Plain || got.Headers["Authorization"] != "Bearer tok-1" {
 		t.Fatalf("plain %+v", got)

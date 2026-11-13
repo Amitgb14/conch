@@ -523,11 +523,11 @@ struct ServerFormView: View {
         let a = NSAlert()
         a.messageText = "Keep this token securely?"
         if model.canKeepTokens {
-            a.informativeText = "Yes keeps it in this Mac's Keychain as \(variable): agents conch starts are given it, and their files only name it.\n\nNo writes it in plain text into each agent's config file, where anything that can read those files can read it."
+            a.informativeText = "Yes keeps it in this Mac's Keychain as \(variable): agents conch starts are given it, and their files only name it.\n\nNo writes it in plain text into each agent's config file, where anything running as you can read it — and Claude Code is handed it on its command line, so anybody else logged in to this Mac can see it in the process list for that moment."
             a.addButton(withTitle: "Yes, Use the Keychain")
             a.addButton(withTitle: "No, Save as Plain Text")
         } else {
-            a.informativeText = "The Keychain is this Mac's, and \(model.store.label(model.machine)) cannot reach it. Saved, the token is written in plain text into each agent's config file there, where anything that can read those files can read it."
+            a.informativeText = "The Keychain is this Mac's, and \(model.store.label(model.machine)) cannot reach it. Saved, the token is written in plain text into each agent's config file there, where anything running as you can read it — and Claude Code is handed it on its command line, so anybody else logged in to that machine can see it in the process list for that moment. On a machine others use, set it as a variable in the environment its conch server starts with instead."
             a.addButton(withTitle: "Save as Plain Text")
         }
         a.addButton(withTitle: "Cancel")

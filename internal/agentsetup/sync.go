@@ -932,7 +932,7 @@ func planServerJSON(path string, c SyncChange, t agentFiles, s mcpServer) SyncCh
 		if out == nil {
 			return nil // somebody declared it meanwhile
 		}
-		return writeFile(path, SyncMCP, out)(u)
+		return writeFileAs(path, SyncMCP, out, literalIn(s) != "")(u)
 	}
 	return c
 }
@@ -1023,7 +1023,7 @@ func planServerTOML(path string, c SyncChange, t agentFiles, s mcpServer) SyncCh
 			out = append(out, '\n')
 		}
 		out = append(out, tomlServer(t.mcpKey, s)...)
-		return writeFile(path, SyncMCP, out)(u)
+		return writeFileAs(path, SyncMCP, out, literalIn(s) != "")(u)
 	}
 	return c
 }
@@ -1113,6 +1113,14 @@ func plural(n int) string {
 
 // writeFile records what was there and writes the new content.
 func writeFile(path, kind string, content []byte) func(*undoLog) error {
+	return writeFileAs(path, kind, content, false)
+}
+
+// writeFileAs is writeFile for content that may hold a secret written
+// out — a plain server's token — when secret is set: the file is then
+// made readable by its owner alone, a new one 0600 and one already there
+// narrowed to it before the token goes in. A mode is never widened.
+func writeFileAs(path, kind string, content []byte, secret bool) func(*undoLog) error {
 	return func(u *undoLog) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
@@ -1120,8 +1128,34 @@ func writeFile(path, kind string, content []byte) func(*undoLog) error {
 		if err := u.writing(path, kind); err != nil {
 			return err
 		}
-		return os.WriteFile(path, content, 0o644)
+		perm := os.FileMode(0o644)
+		if secret {
+			perm = 0o600
+			if st, err := os.Stat(path); err == nil && st.Mode().Perm()&0o077 != 0 {
+				if err := os.Chmod(path, st.Mode().Perm()&^0o077); err != nil {
+					return err
+				}
+			}
+		}
+		return os.WriteFile(path, content, perm)
 	}
+}
+
+// literalIn names a variable or header of s that holds a value written
+// out rather than a ${VAR} — what only a server marked plain may have —
+// or "" for none.
+func literalIn(s mcpServer) string {
+	for _, k := range sortedStrings(s.Env) {
+		if !safeValue(s.Env[k]) {
+			return k
+		}
+	}
+	for _, k := range sortedStrings(s.Headers) {
+		if !safeValue(s.Headers[k]) {
+			return "the " + k + " header"
+		}
+	}
+	return ""
 }
 
 // legacyUndoDir is where a sync's record was kept by builds before
@@ -1404,7 +1438,13 @@ func undoFrom(e Env, recordDir, root, stamp, where string) (SyncResult, error) {
 			}
 		default:
 			c.Detail = "put back as it was"
-			err = os.WriteFile(target, []byte(f.Before), 0o644)
+			// A server's file may hold a plain token: one that has gone
+			// meanwhile comes back readable by its owner alone.
+			perm := os.FileMode(0o644)
+			if f.Kind == SyncMCP {
+				perm = 0o600
+			}
+			err = os.WriteFile(target, []byte(f.Before), perm)
 		}
 		if err != nil {
 			c.Error = err.Error()

@@ -736,3 +736,45 @@ func TestWithConchIsIdempotent(t *testing.T) {
 		t.Errorf("a hand-written entry: %+v", lib.Servers)
 	}
 }
+
+// A plain server's token reaches Claude as before, through claude mcp
+// add-json (its only way in), while the agents whose files conch writes
+// get it in a file only their owner can read — a new one 0600, one
+// already there narrowed to that. A server holding only ${VAR}s leaves a
+// file's mode alone.
+func TestLibraryPlainTokenFilesOwnerOnly(t *testing.T) {
+	home, e := libHome(t)
+	log := fakeClaude(t, e)
+	const tok = "plain-sekrit-123"
+	gemini := filepath.Join(home, ".gemini", "settings.json")
+	write(t, gemini, "{}\n")
+	os.Chmod(gemini, 0o644)
+	codex := filepath.Join(home, ".codex", "config.toml")
+	write(t, codex, "model = \"o3\"\n")
+	os.Chmod(codex, 0o644)
+	wiki := LibServer{Name: "wiki", URL: "https://wiki.example/mcp", Plain: true, Headers: map[string]string{"Authorization": "Bearer " + tok},
+		Agents: []string{"claude", "gemini", "opencode"}}
+	docs := LibServer{Name: "docs", URL: "https://docs.example/mcp", Headers: map[string]string{"Authorization": "Bearer ${DOCS_TOKEN}"},
+		Agents: []string{"codex"}}
+	mustSave(t, Library{Servers: []LibServer{wiki, docs}})
+	res := mustApply(t, e)
+	if c := find(t, res, "claude", SyncMCP, "wiki"); c.Action != ActionCreate || !c.Done {
+		t.Fatalf("claude: %+v", c)
+	}
+	if got := read(t, log); !strings.Contains(got, "mcp add-json wiki ") || !strings.Contains(got, tok) {
+		t.Fatalf("claude was asked:\n%s", got)
+	}
+	opencode := filepath.Join(home, ".config", "opencode", "opencode.json")
+	for _, f := range []string{gemini, opencode} {
+		st, err := os.Stat(f)
+		if err != nil || !strings.Contains(read(t, f), tok) {
+			t.Fatalf("%s: %v\n%s", f, err, read(t, f))
+		}
+		if st.Mode().Perm() != 0o600 {
+			t.Errorf("%s holds the token at %v", f, st.Mode().Perm())
+		}
+	}
+	if st, _ := os.Stat(codex); st.Mode().Perm() != 0o644 || !strings.Contains(read(t, codex), "docs") {
+		t.Errorf("codex, given only a ${VAR}: %v\n%s", st.Mode().Perm(), read(t, codex))
+	}
+}
