@@ -568,3 +568,30 @@ func TestBuildCapabilitiesLeaveOutTheOptional(t *testing.T) {
 		t.Fatal("BuildCapabilities shares the announced list")
 	}
 }
+
+// A chat's Stop and attachments: names the Mac app spells out, and the
+// limits it keeps to.
+func TestAgentInterruptAttachWire(t *testing.T) {
+	if MethodAgentInterrupt != "agent.interrupt" || CapAgentInterrupt != "agent.interrupt.v1" ||
+		MethodAgentAttach != "agent.attach" || CapAgentAttach != "agent.attach.v1" || AttachDir != ".conch/attachments" {
+		t.Fatal("wire names changed")
+	}
+	if AttachMaxSize != 20<<20 || AttachMaxFiles != 10 || AttachKeep != 7*24*time.Hour {
+		t.Fatal("limits changed")
+	}
+	b, _ := json.Marshal(AgentInterruptParams{ID: "p1"})
+	if string(b) != `{"id":"p1"}` {
+		t.Fatalf("params: %s", b)
+	}
+	b, _ = json.Marshal(AgentAttachResult{Dir: "/w/.conch/attachments/ab", Root: "/w", Cwd: "/w", MaxSize: 1, MaxFiles: 2})
+	if string(b) != `{"dir":"/w/.conch/attachments/ab","root":"/w","cwd":"/w","max_size":1,"max_files":2}` {
+		t.Fatalf("result: %s", b)
+	}
+	have := map[string]bool{}
+	for _, c := range Capabilities {
+		have[c] = true
+	}
+	if !have[CapAgentInterrupt] || !have[CapAgentAttach] {
+		t.Fatal("not announced")
+	}
+}
