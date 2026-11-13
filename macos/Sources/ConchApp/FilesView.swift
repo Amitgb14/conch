@@ -15,17 +15,6 @@ import SwiftUI
 /// What the side of the Files tab shows.
 enum FilesSide { case tree, search }
 
-/// An open file's state while another is shown.
-struct FileBuffer {
-    var preview: FSRead?
-    var previewError = ""
-    var text = ""
-    var original = ""
-    var baseHash: String?
-    var diskChanged = false
-    var dirty: Bool { preview?.editable == true && text != original }
-}
-
 @MainActor
 final class FilesModel: ObservableObject {
     let key: String
@@ -239,8 +228,13 @@ final class FilesModel: ObservableObject {
         showSource = false
     }
 
+    /// Whether any file open here has edits not saved.
+    var anyDirty: Bool { dirty || tabs.paths.contains(where: isDirty) }
+
     /// Whether edits not saved may be left: asked, when there are some.
-    func confirmLeaving(_ doing: String) -> Bool {
+    /// Saving is waited for: what is left behind is only left once its
+    /// edits are written, and a save that fails stays here and says so.
+    func confirmLeaving(_ doing: String) async -> Bool {
         let others = tabs.paths.filter { $0 != selected && isDirty($0) }
         if !others.isEmpty {
             let a = NSAlert()
@@ -259,8 +253,11 @@ final class FilesModel: ObservableObject {
         a.addButton(withTitle: "Cancel")
         switch a.runModal() {
         case .alertFirstButtonReturn:
-            save()
-            return true
+            guard let t = save() else {
+                store.say("\((path as NSString).lastPathComponent) can't be saved here, so it was not left", .err)
+                return false
+            }
+            return await t.value
         case .alertSecondButtonReturn:
             text = original
             return true
@@ -374,33 +371,77 @@ final class FilesModel: ObservableObject {
 
     /// ⌘S: the edits written, if the file is still what they began from;
     /// otherwise asked whether to take what is on disk or keep these.
-    func save(force: Bool = false) {
-        guard let c = store.connection(machine), let path = selected, canSave, dirty || force, !saving else { return }
-        struct Params: Encodable { var root: String; var path: String; var data: String; var base: String?; var force: Bool? }
-        let data = text
+    /// What is written, and where, is taken now: by the time the answer
+    /// comes another file or checkout may be shown. The task says whether
+    /// the edits were written in the end; nil when there was no save.
+    @discardableResult
+    func save(force: Bool = false) -> Task<Bool, Never>? {
+        guard let path = selected, canSave, dirty || force, !saving else { return nil }
+        let at = root, data = text, base = baseHash
         saving = true
-        Task {
+        return Task {
             defer { saving = false }
-            do {
-                let r = try await c.call("fs.write", Params(root: root, path: path, data: data, base: baseHash, force: force ? true : nil), as: FSWriteResult.self)
-                original = data
-                baseHash = r.hash
-                if mediaHasSource(path) {
-                    // The page shown again as saved: a copy fetched afresh from another machine.
-                    if machine == "local" { mediaVersion += 1 } else { mediaFor = nil; fetchMedia(path, size: Int64(data.utf8.count)) }
-                }
-                diskChanged = false
-                store.say("Saved \((path as NSString).lastPathComponent)")
-            } catch let e as ConchError where e.code == "file_changed" {
-                conflict(path)
-            } catch {
-                store.say("Could not save \((path as NSString).lastPathComponent): \(error)", .err)
+            switch await write(path, root: at, data: data, base: base, force: force) {
+            case .saved: return true
+            case .changed: return await conflict(path, root: at, data: data)
+            case .failed: return false
             }
         }
     }
 
+    enum WriteOutcome { case saved, changed, failed }
+
+    /// One file's edits written to the checkout they were made in, and the
+    /// answer applied to that file — shown, put aside, or nowhere any more.
+    func write(_ path: String, root at: String, data: String, base: String?, force: Bool) async -> WriteOutcome {
+        let name = (path as NSString).lastPathComponent
+        guard let c = store.connection(machine) else {
+            store.say("Could not save \(name): \(store.label(machine)) is not connected", .err)
+            return .failed
+        }
+        struct Params: Encodable { var root: String; var path: String; var data: String; var base: String?; var force: Bool? }
+        do {
+            let r = try await c.call("fs.write", Params(root: at, path: path, data: data, base: base, force: force ? true : nil), as: FSWriteResult.self)
+            switch savedFileAt(path: path, root: at, nowRoot: root, selected: selected, aside: buffers[path] != nil) {
+            case .shown:
+                original = data
+                baseHash = r.hash
+                diskChanged = false
+                if mediaHasSource(path) {
+                    // The page shown again as saved: a copy fetched afresh from another machine.
+                    if machine == "local" { mediaVersion += 1 } else { mediaFor = nil; fetchMedia(path, size: Int64(data.utf8.count)) }
+                }
+            case .aside:
+                buffers[path]?.saved(data, hash: r.hash)
+            case .gone:
+                break
+            }
+            store.say("Saved \(name)")
+            return .saved
+        } catch let e as ConchError where e.code == "file_changed" {
+            markChanged(path, root: at)
+            return .changed
+        } catch {
+            store.say("Could not save \(name): \(error)", .err)
+            return .failed
+        }
+    }
+
+    /// A file's edits said to be against an older version than what is on disk.
+    private func markChanged(_ path: String, root at: String) {
+        switch savedFileAt(path: path, root: at, nowRoot: root, selected: selected, aside: buffers[path] != nil) {
+        case .shown: diskChanged = true
+        case .aside: buffers[path]?.diskChanged = true
+        case .gone: break
+        }
+    }
+
     /// The file changed on disk since it was opened — an agent wrote it.
-    func conflict(_ path: String) {
+    /// Asked about the file the save was for, which may no longer be the
+    /// one shown: reloading drops that file's edits, overwriting writes the
+    /// text that was being saved. Whether its edits are settled — written,
+    /// or dropped for what is on disk — is returned.
+    func conflict(_ path: String, root at: String, data: String) async -> Bool {
         let a = NSAlert()
         a.messageText = "\((path as NSString).lastPathComponent) changed on disk since you opened it"
         a.informativeText = "Something else — an agent, most likely — wrote it. Reload it to see their version (your edits are dropped), or overwrite it with yours (theirs is lost)."
@@ -409,19 +450,79 @@ final class FilesModel: ObservableObject {
         a.addButton(withTitle: "Cancel")
         switch a.runModal() {
         case .alertFirstButtonReturn:
-            text = original
-            read(path)
+            switch savedFileAt(path: path, root: at, nowRoot: root, selected: selected, aside: buffers[path] != nil) {
+            case .shown:
+                text = original
+                read(path)
+            case .aside:
+                // Read afresh when it is next shown.
+                buffers[path] = nil
+            case .gone:
+                break
+            }
+            return true
         case .alertSecondButtonReturn:
-            save(force: true)
+            return await write(path, root: at, data: data, base: nil, force: true) == .saved
         default:
-            diskChanged = true
+            return false
         }
     }
 
-    /// Another checkout of the project: a branch's worktree, or the main one.
+    /// Every file open here with edits not saved, to be saved before the
+    /// app quits.
+    func unsaved() -> [Unsaved] {
+        let at = root
+        return tabs.paths.filter(isDirty).map { path in
+            Unsaved(name: (path as NSString).lastPathComponent) { [weak self] in
+                await self?.saveForQuit(path, root: at) ?? true
+            }
+        }
+    }
+
+    /// One file's edits written before quitting. A file that changed on disk
+    /// is not overwritten unasked: quitting stops, and the file says so.
+    private func saveForQuit(_ path: String, root at: String) async -> Bool {
+        guard root == at else { return true } // its checkout was left, and its edits with it
+        let name = (path as NSString).lastPathComponent
+        let edits: (text: String, base: String?, editable: Bool)
+        if selected == path {
+            edits = (text, baseHash, dirty)
+        } else if let b = buffers[path] {
+            edits = (b.text, b.baseHash, b.dirty)
+        } else {
+            return true
+        }
+        guard edits.editable else { return true }
+        guard has("fs.write.v1") else {
+            store.say("\(name) can't be saved: conch on \(store.label(machine)) is older than this app", .err)
+            return false
+        }
+        switch await write(path, root: at, data: edits.text, base: edits.base, force: false) {
+        case .saved: return true
+        case .changed:
+            store.say("\(name) changed on disk since you opened it: not quitting, so you can choose which to keep", .err)
+            return false
+        case .failed: return false
+        }
+    }
+
+    /// Another checkout of the project: a branch's worktree, or the main
+    /// one. With edits not saved, it is only switched once they are saved
+    /// (or dropped), and not at all when saving them fails.
     func choose(_ co: Checkout) {
-        guard let path = co.path, path != root, confirmLeaving("to \(co.branch)") else { return }
+        guard let path = co.path, path != root else { return }
+        guard anyDirty else { return show(co) }
+        let from = root
+        Task {
+            guard await confirmLeaving("to \(co.branch)"), root == from else { return }
+            show(co)
+        }
+    }
+
+    private func show(_ co: Checkout) {
+        guard let path = co.path else { return }
         checkoutPath = co.main ? nil : path
+        _ = reads.next() // a read of the last checkout's file is not this one's
         showSource = false
         dirs = [:]
         open = []
