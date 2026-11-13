@@ -27,43 +27,41 @@ func TestDocsSidebarPages(t *testing.T) {
 	}
 }
 
-// TestDocsComparePage: the comparison with other agent orchestrators is in
-// the sidebar, has its table with a column for each tool, and says when it
-// was written — what the others do changes weekly, so an undated table
-// would read as current long after it is not.
-func TestDocsComparePage(t *testing.T) {
+// TestDocsWhyPage: the page on what conch does that other agent
+// orchestrators do not is in the sidebar, in place of the comparison table
+// it replaced, and every point on it links to the page that explains it.
+func TestDocsWhyPage(t *testing.T) {
 	nav, err := os.ReadFile("../../web/src/lib/docs.ts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(nav), `href: "/docs/compare"`) {
-		t.Fatal("the docs sidebar does not list /docs/compare")
+	if !strings.Contains(string(nav), `href: "/docs/why"`) {
+		t.Fatal("the docs sidebar does not list /docs/why")
 	}
-	page, err := os.ReadFile("../../web/src/app/docs/compare/page.mdx")
+	if strings.Contains(string(nav), "/docs/compare") {
+		t.Error("the docs sidebar still lists /docs/compare")
+	}
+	if _, err := os.Stat("../../web/src/app/docs/compare"); err == nil {
+		t.Error("the compare page is still there")
+	}
+	page, err := os.ReadFile("../../web/src/app/docs/why/page.mdx")
 	if err != nil {
 		t.Fatal(err)
 	}
-	header := regexp.MustCompile(`(?m)^\|[^\n]*conch[^\n]*\|\n\| ?---`).Find(page)
-	if header == nil {
-		t.Fatal("no comparison table with a conch column")
+	points := regexp.MustCompile(`(?m)^## (.+)\n\n((?:.+\n?)+)`).FindAllStringSubmatch(string(page), -1)
+	if len(points) < 5 {
+		t.Fatalf("expected at least 5 points, found %d", len(points))
 	}
-	for _, tool := range []string{"herdr", "T3 Code", "Orca"} {
-		if !strings.Contains(string(header), tool) {
-			t.Errorf("comparison table has no %s column: %s", tool, header)
+	for _, p := range points {
+		if !strings.Contains(p[2], "](/docs/") {
+			t.Errorf("point %q links to no page explaining it", p[1])
 		}
 	}
-	if !regexp.MustCompile(`As of \w+ \d{4}`).Match(page) {
-		t.Error("comparison page does not say when it was written")
+	intro, err := os.ReadFile("../../web/src/app/docs/page.mdx")
+	if err != nil {
+		t.Fatal(err)
 	}
-	// Every row has as many cells as the header, or a cell renders under
-	// the wrong tool.
-	start := strings.Index(string(page), string(header))
-	table, _, _ := strings.Cut(string(page)[start:], "\n\n")
-	cells := func(l string) int { return strings.Count(strings.ReplaceAll(l, `\|`, ""), "|") }
-	lines := strings.Split(strings.TrimSpace(table), "\n")
-	for _, l := range lines[1:] {
-		if cells(l) != cells(lines[0]) {
-			t.Errorf("row has %d cells, header %d: %s", cells(l)-1, cells(lines[0])-1, l)
-		}
+	if strings.Contains(string(intro), "/docs/compare") || !strings.Contains(string(intro), "](/docs/why)") {
+		t.Error("the introduction should link to /docs/why, not /docs/compare")
 	}
 }
