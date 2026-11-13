@@ -460,3 +460,83 @@ func TestFindAndroidSDKSetting(t *testing.T) {
 		t.Errorf("found %q %q", f.Adb, f.Emulator)
 	}
 }
+
+// AXe drives an iOS simulator where it is installed, before idb: taps in
+// points, the device's scale read from its type's profile.
+func TestAXeTapsTypesAndPresses(t *testing.T) {
+	profiles := t.TempDir()
+	old := profileDirs
+	t.Cleanup(func() { profileDirs = old })
+	profileDirs = func(string) []string { return []string{filepath.Join(profiles, "none"), profiles} }
+	for _, n := range []string{"iPhone 17 Pro", "iPhone SE (3rd generation)"} {
+		os.MkdirAll(filepath.Join(profiles, n+".simdevicetype", "Contents", "Resources"), 0o755)
+	}
+	pro := filepath.Join(profiles, "iPhone 17 Pro.simdevicetype")
+	se := filepath.Join(profiles, "iPhone SE (3rd generation).simdevicetype")
+	f := &fake{answers: map[string]string{
+		"plutil -extract mainScreenScale raw -o - " + pro + "/Contents/Resources/profile.plist": "3\n",
+		// The SE's file name is not its identifier's: found by reading each bundle's.
+		"plutil -extract CFBundleIdentifier raw -o - " + pro + "/Contents/Info.plist":          "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro\n",
+		"plutil -extract CFBundleIdentifier raw -o - " + se + "/Contents/Info.plist":           "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation\n",
+		"plutil -extract mainScreenScale raw -o - " + se + "/Contents/Resources/profile.plist": "2\n",
+	}}
+	tl := f.tools("xcrun", "", "", "idb")
+	tl.Axe = "axe"
+	ctx := context.Background()
+	pro17 := Device{ID: "U", Platform: "ios", State: "booted", Type: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"}
+	seDev := Device{ID: "S", Platform: "ios", State: "booted", Type: "com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation"}
+	for _, err := range []error{
+		tl.Tap(ctx, pro17, 1017, 1263), // pixels → 339, 421 points
+		tl.Tap(ctx, seDev, 100, 50),    // → 50, 25
+		tl.Type(ctx, pro17, "hello world"),
+		tl.Button(ctx, pro17, "home"),
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var axe []string
+	for _, l := range f.ran {
+		if strings.HasPrefix(l, "axe ") {
+			axe = append(axe, l)
+		}
+		if strings.HasPrefix(l, "idb ") {
+			t.Errorf("idb ran with AXe there: %q", l)
+		}
+	}
+	want := []string{
+		"axe tap -x 339 -y 421 --udid U",
+		"axe tap -x 50 -y 25 --udid S",
+		"axe type hello world --udid U",
+		"axe button home --udid U",
+	}
+	if !reflect.DeepEqual(axe, want) {
+		t.Errorf("axe ran:\n%s", strings.Join(axe, "\n"))
+	}
+	// A device type with no profile found: said, not guessed.
+	odd := Device{ID: "X", Name: "Odd", Platform: "ios", State: "booted", Type: "com.example.Odd"}
+	if err := tl.Tap(ctx, odd, 1, 1); err == nil || !strings.Contains(err.Error(), "scale") {
+		t.Errorf("no profile: %v", err)
+	}
+	// Neither tool: the message names AXe first.
+	none := (&fake{}).tools("xcrun", "", "", "")
+	if err := none.Tap(ctx, pro17, 1, 1); err == nil || !strings.Contains(err.Error(), "AXe") {
+		t.Errorf("no tool: %v", err)
+	}
+}
+
+func TestSimulatorsKeepTheirType(t *testing.T) {
+	f := &fake{answers: map[string]string{"xcrun simctl list devices available -j": `{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-3":[{"udid":"U","name":"iPhone 17 Pro","state":"Booted","deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"}]}}`}}
+	devs, _, _ := f.tools("xcrun", "", "", "").Devices(context.Background())
+	if len(devs) != 1 || devs[0].Type != "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro" || devs[0].OS != "iOS 26.3" {
+		t.Errorf("devices %+v", devs)
+	}
+}
+
+func TestFindAXe(t *testing.T) {
+	home := t.TempDir()
+	writeExec(t, filepath.Join(home, ".local", "bin", "axe"), "true")
+	if got := FindWith([]string{"PATH=/nowhere", "HOME=" + home}, Options{}).Axe; got != filepath.Join(home, ".local", "bin", "axe") {
+		t.Errorf("axe in ~/.local/bin: %q", got)
+	}
+}

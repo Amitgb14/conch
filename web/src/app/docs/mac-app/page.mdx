@@ -131,7 +131,7 @@ Right-click a project on this Mac → **Mobile Preview** opens the app on an iPh
 
 A click on the screen taps the simulator there, the field at the foot types into it, and the header's button presses Home. **To agent** takes a screenshot and puts its path in one of the project's agents' prompts, as dropping the file would, for you to say what to look at. An agent can do the same by itself with [`conch preview shot`](/docs/cli#preview).
 
-The screen is the simulator's own, with the device's rounded corners and Dynamic Island, drawn inside a phone's body. It needs Xcode, which brings the simulators; conch finds it in Applications even when `xcode-select` points at the Command Line Tools, and **Settings → Mobile preview** names another. A simulator can be watched with Xcode alone, but tapping and typing into one needs [idb](https://fbidb.io) (`brew install facebook/fb/idb-companion && pip3 install fb-idb`); without it the tab says so. Simulators are this Mac's own, so another machine's projects do not offer the tab.
+The screen is the simulator's own, with the device's rounded corners and Dynamic Island, drawn inside a phone's body. It needs Xcode, which brings the simulators; conch finds it in Applications even when `xcode-select` points at the Command Line Tools, and **Settings → Mobile preview** names another. A simulator can be watched with Xcode alone, but tapping and typing into one needs a tool that drives it: [AXe](https://github.com/cameroncooke/AXe) (`brew install cameroncooke/axe/axe`), or [idb](https://fbidb.io); without either the tab says so. Simulators are this Mac's own, so another machine's projects do not offer the tab.
 
 ## Commits
 

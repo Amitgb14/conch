@@ -547,7 +547,7 @@ In the TUI the same thing is `,` → **Report a problem…**, which shows the re
 - `conch preview devices [-json]` lists them, running ones first, with the ID each other command takes. `-json` prints `{devices, notes}`; a platform whose tool failed is left out and said in `notes`.
 - `conch preview boot DEVICE` starts one, by name or ID: a simulator boots with no Simulator window, an emulator is left running.
 - `conch preview shot [-device D] [-o FILE]` saves a PNG of the screen and prints its path. Without `-device` it is the device that is running.
-- `conch preview tap [-device D] X Y` touches the screen at pixels of that picture; `type [-device D] TEXT` types into the field with the focus; `button [-device D] home|back` presses a button (back is Android's). An iOS simulator can be looked at with Xcode alone but touched only with [idb](https://fbidb.io): `brew install facebook/fb/idb-companion && pip3 install fb-idb`.
+- `conch preview tap [-device D] X Y` touches the screen at pixels of that picture; `type [-device D] TEXT` types into the field with the focus; `button [-device D] home|back` presses a button (back is Android's). An iOS simulator can be looked at with Xcode alone but touched only with a tool that drives it: [AXe](https://github.com/cameroncooke/AXe) (`brew install cameroncooke/axe/axe`, found on `PATH`, in `~/.local/bin` or Homebrew's folder), else [idb](https://fbidb.io). conch gives them the screenshot's pixels turned into the points they take, by the device's own scale.
 - `conch preview detect [DIR]` says, as JSON, what kind of mobile app a folder is — Expo, React Native, Flutter, Xcode or Android — and the command that starts its dev server.
 
 ```sh

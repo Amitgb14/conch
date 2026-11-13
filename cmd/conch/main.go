@@ -387,7 +387,7 @@ Usage:
                                 agent to look at its own work
   conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back
                                 touch, type or press a button on it; X Y are pixels of the shot
-                                (an iOS simulator needs idb for these)
+                                (an iOS simulator needs AXe or idb for these)
   conch preview detect [DIR]    what kind of mobile app a folder is and how its dev server starts
   conch commit-message [-context TEXT]
                                 write a commit message for the diff on stdin with the brain; prints it
