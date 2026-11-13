@@ -63,7 +63,7 @@ func TestChoose(t *testing.T) {
 	}{
 		{both, "web", "WEB-1", "jira", "WEB", ""},
 		{both, "web", "linear:ENG-1", "linear", "ENG", ""}, // the ref says otherwise: the tracker's own default
-		{both, "app", "", "linear", "ENG", ""},            // no key in the project: the tracker's
+		{both, "app", "", "linear", "ENG", ""},             // no key in the project: the tracker's
 		{both, "other", "X-1", "", "", "say which"},
 		{both, "other", "jira:X-1", "jira", "PROJ", ""},
 		{both, "other", "https://linear.app/a/issue/ENG-2", "linear", "ENG", ""},
