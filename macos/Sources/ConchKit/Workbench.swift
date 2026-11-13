@@ -193,6 +193,22 @@ extension Layout {
         arrange(active, l, parts, chat: chat)
     }
 
+    /// Whether any workbench tab shows its chat.
+    public var showsChat: Bool {
+        tabs.contains { t in t.benchAgent.map { t.shows(chatKey($0)) } ?? false }
+    }
+
+    /// Every workbench tab without its chat: arranged again with the
+    /// agent's own terminal in the chat's place. A tab that came back from
+    /// before the chat was turned off — restored, another workspace's, an
+    /// agent's workbench opened again — showed the chat still.
+    public mutating func hideChat() {
+        for i in tabs.indices {
+            guard let a = tabs[i].benchAgent, tabs[i].shows(chatKey(a)), let p = benchParts(i) else { continue }
+            arrange(i, tabs[i].bench ?? .ide, p, chat: false)
+        }
+    }
+
     /// A workbench tab's parts, read off its leaves.
     public func benchParts(_ i: Int) -> BenchParts? {
         guard tabs.indices.contains(i), let agent = tabs[i].benchAgent else { return nil }

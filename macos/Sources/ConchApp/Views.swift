@@ -1992,8 +1992,8 @@ struct PaneCard: View {
                     Text("exited \(p?.exitCode ?? 0)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                 }
                 // In a workbench where the chat and this terminal share a
-                // place, the way back to the chat.
-                if let t = store.layout.current, t.benchAgent == pane, t.bench != .agent {
+                // place, the way back to the chat — unless the chat is off.
+                if store.offersChat, let t = store.layout.current, t.benchAgent == pane, t.bench != .agent {
                     ChatTerminalSwitch(store: store, chat: false)
                 }
                 // What conch's commands call it — conch read p12 — a click away.

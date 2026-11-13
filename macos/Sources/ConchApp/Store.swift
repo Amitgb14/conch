@@ -63,7 +63,13 @@ final class Store: ObservableObject {
         // A tab came to the front — from ⌘K, a click in the review queue, a
         // port chip, ⌘1–9: the sidebar's cursor goes to its row rather than
         // staying on the row last clicked.
-        didSet { if layout.focused != oldValue.focused, let f = layout.focused { treeCursor = treeRow(forTab: f) } }
+        didSet {
+            if layout.focused != oldValue.focused, let f = layout.focused { treeCursor = treeRow(forTab: f) }
+            // The chat off: no workbench tab shows it, however the tab came
+            // (restored, another workspace's, opened again). Setting layout
+            // here does not run didSet again.
+            if !offersChat, layout.showsChat { layout.hideChat() }
+        }
     }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
     /// The workspace on screen. Each has tabs of its own, as in the TUI:
@@ -877,8 +883,9 @@ final class Store: ObservableObject {
         let chat = chatEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
         if chat != offersChat {
             offersChat = chat
-            // An open workbench follows: the chat shown or its terminal.
-            for i in layout.tabs.indices where layout.tabs[i].benchAgent != nil && i == layout.active { layout.setBench(layout.tabs[i].bench ?? .ide, chat: chat) }
+            // Open workbenches follow: the chat hidden in every one, or the
+            // one on screen shown its chat.
+            if !chat { layout.hideChat() } else if layout.current?.benchAgent != nil { layout.setBench(layout.current?.bench ?? .ide, chat: true) }
         }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }

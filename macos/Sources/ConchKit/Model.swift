@@ -1005,7 +1005,10 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
 /// Chat First layout.
 public func paletteCommandItems(chat: Bool = true) -> [PaletteItem] {
     paletteCommands.filter { chat || $0.id != "bench:" + BenchLayout.chat.rawValue }
-        .map { PaletteItem(title: $0.title, detail: "", kind: $0.keys, action: .command($0.id)) }
+        .map { c in
+            let title = chat || c.id != "workbench" ? c.title : "Open Workbench (Files, Terminal and Agent)"
+            return PaletteItem(title: title, detail: "", kind: c.keys, action: .command(c.id))
+        }
 }
 
 extension Snapshot {

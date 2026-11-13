@@ -455,6 +455,35 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     layout.setBench(.agent, chat: true)
     #expect(layout.tabs[layout.active].shows(p.chat), "turned back on")
 
-    #expect(!paletteCommandItems(chat: false).contains { $0.title.contains("Chat First") })
+    #expect(!paletteCommandItems(chat: false).contains { $0.title.contains("Chat") }, "no chat named in ⌘K")
     #expect(paletteCommandItems(chat: true).contains { $0.title.contains("Chat First") })
+}
+
+// A workbench tab that came back showing its chat — restored, another
+// workspace's, opened before the chat was turned off — loses it: the
+// agent's own terminal takes its place, keyboard and all. Seen in 0.2.0's
+// hands-on run: the chat still on screen with the switch off.
+@Test func hideChatInTabsThatShowIt() {
+    let p = BenchParts(files: "files|local|r1", shell: "local|p2", chat: chatKey("local|p1"), agent: "local|p1")
+    let q = BenchParts(files: "files|local|r2", shell: "local|p4", chat: chatKey("local|p3"), agent: "local|p3")
+    var layout = Layout()
+    layout.openBench(.chat, p, chat: true)   // as an older build left it
+    layout.tabs[layout.active].focused = p.chat
+    layout.openBench(.ide, q, chat: true)
+    layout.open("local|p9")                  // a plain tab beside them
+    #expect(layout.showsChat)
+
+    layout.hideChat()
+    #expect(!layout.showsChat)
+    for (i, parts) in [(0, p), (1, q)] {
+        let t = layout.tabs[i]
+        #expect(!t.shows(parts.chat) && t.shows(parts.agent), "tab \(i)")
+        #expect(t.bench != .chat, "tab \(i): Chat First is IDE")
+    }
+    #expect(layout.tabs[0].focused == p.agent, "the keyboard goes to the agent")
+    #expect(layout.tabs[2].root.panes == ["local|p9"], "other tabs untouched")
+
+    let before = layout
+    layout.hideChat()
+    #expect(layout == before, "nothing to do the second time")
 }
