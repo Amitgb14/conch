@@ -206,10 +206,14 @@ func (s *Server) Run() error {
 	}
 
 	// Loading runs git per project; don't make clients wait for it.
-	s.projects.background(func() {
+	loaded := s.projects.startLoading()
+	if !s.projects.background(func() {
 		s.projects.load()
+		loaded()
 		s.projects.run()
-	})
+	}) {
+		loaded()
+	}
 	go s.uploads.run(s.quit)
 	go s.packs.run(s.quit)
 	go s.sshFiles.run(s.quit)
