@@ -518,7 +518,7 @@ func TestA4DashMCwd(t *testing.T) {
 		t.Fatalf("remote agent: %+v %v", create, err)
 	}
 	create, _, err = newCreate()
-	if err != nil || create.Cwd != "" || !create.NoProject || strings.Join(create.Command, " ") != "/bin/sh -l" {
+	if err != nil || create.Cwd != "" || !create.NoProject || len(create.Command) != 0 { // that machine's own shell
 		t.Fatalf("remote shell: %+v %v", create, err)
 	}
 

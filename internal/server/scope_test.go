@@ -3,6 +3,8 @@ package server_test
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -98,7 +100,13 @@ func TestScopeHelper(t *testing.T) {
 		case proto.MethodViewShow:
 			params = proto.ViewShowParams{Panes: strings.Split(arg, ",")}
 		case proto.MethodPaneCreate:
-			params = proto.PaneCreateParams{Command: []string{"/bin/sleep", "60"}, Cwd: arg, Cols: 40, Rows: 5}
+			// A plain shell: all an agent may start without naming an
+			// agent (launchrule.go).
+			params = proto.PaneCreateParams{Cwd: arg, Cols: 40, Rows: 5}
+		case "launch": // pane.create with params of the test's choosing
+			b, _ := base64.StdEncoding.DecodeString(arg)
+			params = json.RawMessage(b)
+			f[0] = proto.MethodPaneCreate
 		case proto.MethodProjectRemove:
 			params = proto.ProjectRef{ID: arg}
 		case proto.MethodBranchDiscard:
