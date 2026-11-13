@@ -114,6 +114,10 @@ extension Store {
         windowClosed = true
         configTimer?.invalidate()
         configTimer = nil
+        questionTimer?.invalidate()
+        questionTimer = nil
+        for m in eventMonitors.compactMap({ $0 }) { NSEvent.removeMonitor(m) }
+        eventMonitors = []
         for (k, t) in terminals {
             t.stop()
             dropTerminal(k)

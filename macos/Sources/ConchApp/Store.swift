@@ -221,6 +221,8 @@ final class Store: ObservableObject {
     @Published var projectScope: String?
     /// Its window closed for good: nothing is reached again.
     var windowClosed = false
+    /// The clicks and keys it watches, taken away with its window.
+    var eventMonitors: [Any?] = []
 
     init(windowID: String = "main", workspace: String = "first", project: String? = nil, layout saved: Layout? = nil) {
         self.windowID = windowID
@@ -1059,7 +1061,7 @@ final class Store: ObservableObject {
     weak var mainWindow: NSWindow?
 
     private func watchClicks() {
-        NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
+        eventMonitors += [NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
             MainActor.assumeIsolated {
                 guard let self, let win = e.window, win === self.mainWindow,
                       let hit = win.contentView?.hitTest(e.locationInWindow) else { return }
@@ -1082,7 +1084,7 @@ final class Store: ObservableObject {
                 }
             }
             return e
-        }
+        }]
     }
 
     // MARK: the sidebar from the keyboard
@@ -1091,7 +1093,7 @@ final class Store: ObservableObject {
     /// has the keyboard, no palette, sheet or text field is up — the TUI's
     /// tree keys (TreeKey). Everything else passes through.
     private func watchTreeKeys() {
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+        eventMonitors += [NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             // The prefix first, wherever the keyboard is: it is how the TUI
             // reaches the tree from a pane, and a key after it is conch's
             // even where the tree would have taken it.
@@ -1112,7 +1114,7 @@ final class Store: ObservableObject {
                 return true
             }
             return taken ? nil : e
-        }
+        }]
     }
 
     var treeNav: TreeNav { TreeNav(tree, isOpen: { self.isOpen($0) }) }
@@ -1772,7 +1774,7 @@ final class Store: ObservableObject {
         }
     }
 
-    private var questionTimer: Timer?
+    var questionTimer: Timer?
 
     /// Reads each waiting agent's question again while it waits. It is
     /// waiting from the moment its hook says so, which is before its menu
