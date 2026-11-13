@@ -125,6 +125,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
+    /// Quitting with edits not saved — a file in a Files tab or a
+    /// workbench, a task's brief — asks first. Saving is waited for, and a
+    /// save that fails keeps the app open with the edits still there.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let items = store.unsaved()
+        guard !items.isEmpty else { return .terminateNow }
+        let q = unsavedQuestion(items.map(\.name))
+        let a = NSAlert()
+        a.messageText = q.title
+        a.informativeText = q.info
+        a.addButton(withTitle: items.count == 1 ? "Save" : "Save All")
+        a.addButton(withTitle: "Don't Save")
+        a.addButton(withTitle: "Cancel")
+        switch a.runModal() {
+        case .alertFirstButtonReturn:
+            Task { @MainActor in
+                NSApp.reply(toApplicationShouldTerminate: await saveAll(items))
+            }
+            return .terminateLater
+        case .alertSecondButtonReturn:
+            return .terminateNow
+        default:
+            return .terminateCancel
+        }
+    }
+
+    /// Closing the window is quitting (it is the last), so with edits not
+    /// saved it is asked as quitting is; the window stays when that is
+    /// cancelled. Otherwise it closed first, and a cancelled quit left the
+    /// app running with no window.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender === window, !store.unsaved().isEmpty else { return true }
+        NSApp.terminate(nil)
+        return false
+    }
+
     func applicationWillTerminate(_ notification: Notification) { store.shutdown() }
 
     /// The TUI may have changed workspaces or the theme while this window

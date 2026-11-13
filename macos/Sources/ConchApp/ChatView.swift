@@ -13,7 +13,13 @@ final class ChatModel: ObservableObject {
     let key: String
     let pane: String
     unowned let store: Store
-    @Published private(set) var log = ChatLog()
+    @Published private(set) var log = ChatLog() {
+        didSet { blocks = chatBlocks(log.turns) }
+    }
+    /// What the turns draw as, made again only when they change: the view
+    /// is redrawn on every change to the Store, and folding up to 1500
+    /// turns each time was work for nothing.
+    @Published private(set) var blocks: [ChatBlock] = []
     @Published var error = ""
     @Published var draft = ""
     /// Messages sent and not yet in the conversation: shown at once, as a
@@ -26,7 +32,7 @@ final class ChatModel: ObservableObject {
     struct PendingMessage: Identifiable, Equatable {
         let id = UUID()
         var text: String
-        var after: Int
+        var after: ChatMark
         var failed: String?
     }
 
@@ -102,7 +108,7 @@ final class ChatModel: ObservableObject {
             error = "The server on \(store.label(m)) predates prompting an agent; reload it"
             return
         }
-        let msg = PendingMessage(text: text, after: log.turns.count)
+        let msg = PendingMessage(text: text, after: log.mark)
         pending.append(msg)
         draft = ""
         struct P: Encodable { var id: String; var text: String }
@@ -197,7 +203,7 @@ struct ChatView: View {
     }
 
     func messages(_ p: PaneInfo?) -> some View {
-        let blocks = chatBlocks(model.log.turns)
+        let blocks = model.blocks
         let working = p?.agent?.state == .working
         let lastID = blocks.last?.id
         return ScrollViewReader { proxy in

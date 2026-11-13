@@ -2075,6 +2075,29 @@ final class Store: ObservableObject {
         terminalHasKeyboard = false
     }
 
+    /// Each task's brief being edited, by machine and folder: kept here so
+    /// the edits outlive the page that shows them.
+    private(set) var briefs: [String: TaskBriefModel] = [:]
+
+    func brief(machine: String, task: GroupTask) -> TaskBriefModel {
+        let k = key(machine, task.folder)
+        if let b = briefs[k] { return b }
+        let b = TaskBriefModel(machine: machine, folder: task.folder, branch: task.branch, store: self)
+        briefs[k] = b
+        return b
+    }
+
+    /// Everything with edits not saved — files open in Files tabs and
+    /// workbenches, tasks' briefs — for the question asked before quitting.
+    func unsaved() -> [Unsaved] {
+        var out = fileViews.keys.sorted().flatMap { fileViews[$0]!.unsaved() }
+        for k in briefs.keys.sorted() {
+            guard let b = briefs[k], b.draft.dirty else { continue }
+            out.append(Unsaved(name: "the brief of \(b.branch)") { [weak b] in await b?.save() ?? true })
+        }
+        return out
+    }
+
     /// The Files tab in front, if that is what is focused.
     var focusedFiles: FilesModel? {
         guard let k = layout.focused, parseFilesKey(k) != nil else { return nil }
@@ -3168,8 +3191,11 @@ final class Store: ObservableObject {
         guard i > 0, workspaces.indices.contains(i) else { return }
         let w = workspaces[i]
         let label = Workspace.label(i, w)
+        // What only this workspace shows, as the TUI counts it: a pane
+        // another workspace shows too is not ended, and one in this
+        // workspace's projects is counted though it was not started here.
         let running = machines.flatMap { m in
-            (snapshots[m.id]?.panes ?? []).filter { $0.running && w.panes.contains(key(m.id, $0.id)) }.map { (m.id, $0) }
+            (snapshots[m.id] ?? Snapshot()).onlyShown(by: i, of: workspaces, machine: m.id).filter(\.running).map { (m.id, $0) }
         }
         let a = NSAlert()
         a.messageText = "Close workspace \(label)?"

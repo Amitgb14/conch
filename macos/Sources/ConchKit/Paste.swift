@@ -19,3 +19,14 @@ public func pasteWarning(_ text: String) -> (title: String, info: String) {
     }
     return (title, "\(what) as soon as it is pasted: the program in this pane does not tell a paste from typing.\n\n\(preview)")
 }
+
+/// Whether a paste asked about may still be answered once the person has
+/// answered: only on the terminal it was asked for. While the question is
+/// up the app goes on running — the pane can end, its server reload — and
+/// its terminal be freed, taking the paste request with it; answering it
+/// then wrote into freed memory. A terminal gone or replaced is answered by
+/// nobody.
+public func pasteStillWanted<S: Equatable>(asked: S, now: S?) -> Bool {
+    guard let now else { return false }
+    return now == asked
+}

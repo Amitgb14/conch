@@ -653,17 +653,29 @@ final class GhosttyPaneView: NSView {
         // Copied now: Ghostty's buffer is only lent for the call.
         let text = String(decoding: UnsafeRawBufferPointer(start: first.pointee.data, count: first.pointee.len), as: UTF8.self)
         DispatchQueue.main.async {
-            guard let s = v.surface else { return }
+            guard let asked = v.surface else { return }
             let w = pasteWarning(text)
             let alert = NSAlert()
             alert.messageText = w.title
             alert.informativeText = w.info
             alert.addButton(withTitle: "Paste")
             alert.addButton(withTitle: "Cancel")
-            if alert.runModal() == .alertFirstButtonReturn {
-                complete(s, text: text, state: state, confirmed: true)
+            // Answered only if the terminal asking is still there: it may
+            // have been freed while the question was up.
+            let answer = { (r: NSApplication.ModalResponse) in
+                guard pasteStillWanted(asked: asked, now: v.surface), let s = v.surface else { return }
+                if r == .alertFirstButtonReturn {
+                    complete(s, text: text, state: state, confirmed: true)
+                } else {
+                    ghostty_surface_deny_clipboard_request(s, state)
+                }
+            }
+            // A sheet on the pane's window, as Ghostty's own asks: it holds
+            // up that window, not the whole app.
+            if let win = v.window {
+                alert.beginSheetModal(for: win, completionHandler: answer)
             } else {
-                ghostty_surface_deny_clipboard_request(s, state)
+                answer(alert.runModal())
             }
         }
     }
