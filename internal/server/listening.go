@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/detect"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // Which TCP ports a pane's programs listen on (pane.listening.v1), so a
@@ -221,15 +224,38 @@ func (s *Server) lookListening(ctx context.Context) {
 			children[ppid] = append(children[ppid], pid)
 		}
 	}
+	var procs map[int]psRow
+	looked, lookOK := false, false
 	for _, e := range entries {
-		info := e.p.Info()
+		info := e.info()
 		var now []int
 		if info.PID > 0 {
 			now = portsUnder(info.PID, children, byPid)
 		}
+		// What an agent that is not working left running: looked for
+		// only when there is such an agent, since it reads every
+		// process's command line.
+		var jobs []proto.BackgroundJob
+		keepJobs := false
+		if a := info.Agent; a != nil && a.State != detect.StateWorking && info.PID > 0 {
+			if !looked {
+				looked = true
+				procs, lookOK = s.processesSeen(ctx)
+			}
+			if lookOK {
+				jobs = agentJobs(info.PID, e.explain().Process.PID, s.manifests[a.Name], procs, byPid, time.Now())
+			} else {
+				keepJobs = true // a failed look changes nothing
+			}
+		}
 		e.mu.Lock()
 		same := slices.Equal(e.listening, now)
 		e.listening = now
+		if !keepJobs {
+			jobs = steadySince(e.jobs, jobs)
+			same = same && jobsKey(e.jobs) == jobsKey(jobs)
+			e.jobs = jobs
+		}
 		e.mu.Unlock()
 		if !same && s.alive(e) {
 			s.reshown(e)

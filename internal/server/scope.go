@@ -106,6 +106,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
 	proto.MethodAgentPrompt: scopePane,
+	// Ending what an agent left running is changing that pane.
+	proto.MethodAgentBackgroundStop: scopePane,
 	// An agent's hook asks for its own pane, and only its own.
 	proto.MethodAgentPermission: scopePane,
 	proto.MethodAgentBroadcast:  scopePanes,

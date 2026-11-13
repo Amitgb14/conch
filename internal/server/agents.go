@@ -37,7 +37,10 @@ type entry struct {
 	// listening is the TCP ports the pane's programs listen on, as the
 	// last look found them (listening.go).
 	listening []int
-	project   *project // nil when the pane is outside any project
+	// jobs is what the pane's agent left running below it, as the last
+	// look found them (background.go).
+	jobs    []proto.BackgroundJob
+	project *project // nil when the pane is outside any project
 
 	screen        []string // cached plain screen
 	screenVersion uint64
@@ -126,6 +129,13 @@ func (e *entry) info() proto.PaneInfo {
 	if info.State == proto.PaneRunning {
 		info.Listening = slices.Clone(e.listening)
 	}
+	var jobs []proto.BackgroundJob
+	if st.State != detect.StateWorking {
+		for _, j := range e.jobs {
+			j.Ports = slices.Clone(j.Ports)
+			jobs = append(jobs, j)
+		}
+	}
 	e.mu.Unlock()
 	if proj != nil {
 		info.ProjectID = proj.id
@@ -140,7 +150,7 @@ func (e *entry) info() proto.PaneInfo {
 		info.Agent = &proto.AgentStatus{
 			Name: st.Agent, State: st.State, Source: st.Source, Reason: gitx.Printable(st.Reason),
 			Message: gitx.Printable(st.Message), SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
-			Turn: turns, Subagents: subs,
+			Turn: turns, Subagents: subs, Background: len(jobs), Jobs: jobs,
 		}
 	}
 	return info
@@ -213,6 +223,7 @@ type shown struct {
 	// own (the Mac app's letterbox) hears that another changed it.
 	cols, rows int
 	listening  string
+	jobs       string
 }
 
 func shownOf(info proto.PaneInfo) shown {
@@ -228,6 +239,7 @@ func shownOf(info proto.PaneInfo) shown {
 		}
 		sa := subagents{list: a.Subagents}
 		sh.subagents = sa.key()
+		sh.jobs = jobsKey(a.Jobs)
 	}
 	return sh
 }
