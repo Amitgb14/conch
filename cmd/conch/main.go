@@ -172,7 +172,7 @@ Usage:
                 | merge [-order P,P] [-remove] [-stop] NAME BRANCH
                                 projects kept together because they change together (an API, its
                                 web app, their specs), each still a project of its own
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-account NAME] [-sandbox PROVIDER] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);
@@ -183,9 +183,14 @@ Usage:
                                 -after REF waits for that branch, pane or scheduled task to finish
                                 and starts from its branch (stacked work; -base to start elsewhere);
                                 -issue N works on that GitHub issue (PROMPT is then optional);
+                                -ticket KEY on that Linear or Jira ticket (ENG-123, linear:ENG-123,
+                                or its address), set up in [trackers] in config.toml;
                                 -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
+  conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL
+                                tickets in Linear or Jira ([trackers] in config.toml): list the
+                                project's open ones, read one, comment, move it, link a pull request
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
@@ -457,6 +462,8 @@ func main() {
 		err = runTask(args)
 	case "schedule":
 		err = runScheduleCmd(args)
+	case "ticket", "tickets":
+		err = runTicket(args)
 	case "branch":
 		err = runBranch(args)
 	case "review":

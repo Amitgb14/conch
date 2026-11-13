@@ -16,6 +16,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/tracker"
 	"github.com/Amitgb14/conch/internal/when"
 )
 
@@ -215,6 +216,7 @@ func runTask(args []string) error {
 	every := fs.String("every", "", "start it again this often, each on a branch of its own: 1h, 1d, weekly")
 	inSandbox := fs.String("sandbox", "", "run it in a new sandbox from this provider (daytona, boat…), cloned from the project's origin")
 	issue := fs.Int("issue", 0, "work on this GitHub issue: its title and body are the prompt (any PROMPT is added to it)")
+	ticket := fs.String("ticket", "", "work on this Linear or Jira ticket — ENG-123, linear:ENG-123 or its address: its title, body and comments are the prompt")
 	queue := fs.Bool("queue", false, "add it to the project's queue: it starts when fewer than -wip agents are running there")
 	wip := fs.Int("wip", 0, "with -queue, how many agents the project runs before it waits (default 3)")
 	account := fs.String("account", "", "the agents' account (conch account list); default: the folder's pin, else each agent's own")
@@ -223,11 +225,27 @@ func runTask(args []string) error {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
-	if prompt == "" && *issue <= 0 {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-account NAME] [-sandbox PROVIDER] PROMPT")
+	*ticket = strings.TrimSpace(*ticket)
+	if prompt == "" && *issue <= 0 && *ticket == "" {
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-sandbox PROVIDER] PROMPT")
 	}
 	if *issue < 0 {
 		return errors.New("-issue takes an issue's number")
+	}
+	var ticketKey string
+	if *ticket != "" {
+		if *issue > 0 {
+			return errors.New("-issue is a GitHub issue and -ticket a Linear or Jira one; give one of them")
+		}
+		_, key, err := tracker.ParseRef(*ticket)
+		if err != nil {
+			return fmt.Errorf("-ticket: %w", err)
+		}
+		if *inSandbox != "" {
+			// The sandbox's conch would read it, with a key it has not got.
+			return errors.New("-ticket reads the ticket with this machine's key, so it doesn't go with -sandbox yet")
+		}
+		ticketKey = key
 	}
 	*after = strings.TrimSpace(*after)
 	if *inSandbox != "" && (*at != "" || *every != "" || *queue || *after != "") {
@@ -285,6 +303,8 @@ func runTask(args []string) error {
 	}
 	dir := *cwd
 	switch {
+	case onRemoteMachine() && dir == "" && *ticket != "":
+		return errors.New("-ticket works in a project: give -cwd, a folder of the project on that machine")
 	case onRemoteMachine() && dir == "":
 		// Nothing here says where on that machine: the agent starts in its
 		// home, as a machine-level pane, like conch -m M new -agent.
@@ -316,6 +336,12 @@ func runTask(args []string) error {
 	if *issue > 0 && len(c.MissingCapabilities([]string{proto.CapIssues})) > 0 {
 		return errors.New("the conch server there predates tasks from issues; reload it with `conch server reload`")
 	}
+	if *ticket != "" && !proj.Git {
+		return errors.New("-ticket needs a git repository: the task works on a branch named from the ticket")
+	}
+	if *ticket != "" && len(c.MissingCapabilities([]string{proto.CapTickets})) > 0 {
+		return errors.New("the conch server there predates tasks from tickets; reload it with `conch server reload`")
+	}
 	if !proj.Git {
 		if later {
 			return errors.New("-at, -every, -queue and -after start a task on a branch of its own, so they need a git repository")
@@ -329,13 +355,16 @@ func runTask(args []string) error {
 		// title; several need a name to number from here, which is this.
 		branchFrom = fmt.Sprintf("issue %d", *issue)
 	}
+	if ticketKey != "" && *branch == "" {
+		branchFrom = ticketKey
+	}
 	attempts := attemptPlan(proj.Name, agents, *n, *branch, branchFrom, proj.Branches)
 	if *inSandbox != "" {
 		if len(attempts) > 1 {
 			return errors.New("-sandbox takes one attempt; leave out -n and give one agent")
 		}
 		task := proto.TaskCreateParams{Prompt: prompt, Branch: *branch, Base: *base, Agent: attempts[0].agent,
-			Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+			Name: *name, Cols: 120, Rows: 40, Issue: *issue, Ticket: *ticket}
 		return runSandboxTask(*inSandbox, proj, task)
 	}
 	if later {
@@ -349,7 +378,7 @@ func runTask(args []string) error {
 			return errors.New("the conch server there predates -after, and would start the task at once; reload it with `conch server reload`")
 		}
 		task := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base,
-			Agent: attempts[0].agent, Account: *account, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+			Agent: attempts[0].agent, Account: *account, Name: *name, Cols: 120, Rows: 40, Issue: *issue, Ticket: *ticket}
 		var it proto.ScheduledItem
 		if err := call(c, proto.MethodScheduleAdd, proto.ScheduledItem{At: start, EveryMinutes: everyMin, Task: &task, Queue: *queue, WIP: *wip, After: *after}, &it); err != nil {
 			return err
@@ -378,7 +407,7 @@ func runTask(args []string) error {
 	for _, at := range attempts {
 		var info proto.PaneInfo
 		params := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: at.branch,
-			Base: *base, Agent: at.agent, Account: *account, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+			Base: *base, Agent: at.agent, Account: *account, Name: *name, Cols: 120, Rows: 40, Issue: *issue, Ticket: *ticket}
 		if renameAfter {
 			params.Name = ""
 		}

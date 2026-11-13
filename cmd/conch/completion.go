@@ -50,6 +50,7 @@ var compCommands = []compItem{
 	{"review", "comments on a branch, sent to its agent"},
 	{"worktree", "list or clean up worktrees"},
 	{"schedule", "what the server will do later"},
+	{"ticket", "tickets in Linear and Jira"},
 	{"agent", "install, set up and drive agents"},
 	{"machine", "run agents on another machine, over ssh"},
 	{"sandbox", "hosted sandboxes as machines"},
@@ -116,6 +117,7 @@ var compSubcommands = map[string][]compItem{
 	"review":   {{"ls", "list comments"}, {"add", "comment on a file or line"}, {"rm", "remove a comment"}, {"send", "send them to the agent"}, {"reply", "answer a comment you were sent"}},
 	"worktree": {{"ls", "list worktrees"}, {"clean", "remove finished ones"}},
 	"schedule": {{"ls", "what is scheduled"}, {"rm", "cancel one"}},
+	"ticket":   {{"ls", "the project's open tickets"}, {"show", "read one"}, {"comment", "add a comment"}, {"status", "move it to a status"}, {"link", "attach a pull request or branch"}},
 	"machine": {
 		{"add", "add a machine reached over ssh"}, {"ls", "list machines"}, {"rm", "remove one"},
 		{"rename", "give one a new label"}, {"upgrade", "put this conch on it"}, {"hosts", "hosts from your ssh config"},
