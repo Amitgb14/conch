@@ -246,3 +246,32 @@ func TestGroupTaskBriefThroughFS(t *testing.T) {
 		t.Fatal("the folder above a task's was taken as a root")
 	}
 }
+
+// Codex refuses --add-dir in its read-only sandbox and exits (#190), so a
+// task's Codex is started in workspace-write with the worktrees — or in
+// danger-full-access when the person's config.toml already says so.
+func TestGroupTaskCodexSandbox(t *testing.T) {
+	for _, tc := range []struct{ config, want string }{
+		{"", "workspace-write"},
+		{`sandbox_mode = "danger-full-access"`, "danger-full-access"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			c, dir, log, _ := groupTaskFixture(t)
+			if tc.config != "" {
+				codexHome := filepath.Join(os.Getenv("HOME"), ".codex")
+				os.MkdirAll(codexHome, 0o755)
+				if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(tc.config), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var res proto.GroupTaskResult
+			if err := c.Call(a5Ctx(t), proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "Add patient search", Branch: "add-search", Agent: "codex", Cols: 80, Rows: 20}, &res); err != nil {
+				t.Fatal(err)
+			}
+			ran := waitRan(t, log, "--add-dir", filepath.Join(dir, "web.worktrees", "add-search"))
+			if !strings.Contains(ran, "--sandbox "+tc.want+" --add-dir") {
+				t.Fatalf("codex ran as:\n%s", ran)
+			}
+		})
+	}
+}
