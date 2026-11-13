@@ -366,7 +366,7 @@ func (m Model) Init() tea.Cmd {
 			cmds = append(cmds, mach.connect(false))
 		}
 	}
-	cmds = append(cmds, catalogTick(), cloudTick(), askCloud())
+	cmds = append(cmds, catalogTick(), cloudTick(), m.askCloud())
 	if m.uiSync != nil && m.statePath != "" {
 		cmds = append(cmds, uiSyncTick(m.statePath, m.uiSync))
 	}
@@ -835,7 +835,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(catalogTick(), m.syncCatalog())
 
 	case cloudTickMsg:
-		return m, tea.Batch(cloudTick(), askCloud())
+		return m, tea.Batch(cloudTick(), m.askCloud())
 
 	case cloudMachinesMsg:
 		return m, m.cloudMachines(msg)

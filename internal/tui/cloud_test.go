@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Amitgb14/conch/internal/cloud"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/remote"
 )
 
@@ -35,10 +36,11 @@ func cloudModel(t *testing.T) (*Model, *machine) {
 // no cloud rows.
 func TestCloudNothingWithoutAnAccount(t *testing.T) {
 	a2Isolate(t)
-	if cmd := askCloud(); cmd != nil {
+	t.Setenv("CONCH_CLOUD", "1")
+	m := a2Model()
+	if cmd := m.askCloud(); cmd != nil {
 		t.Fatal("asked Conch Cloud with no account")
 	}
-	m := a2Model()
 	for _, r := range m.rows {
 		_, _, _, _, rt := m.rowParts(r)
 		if strings.Contains(ansi.Strip(rt), "☁") {
@@ -138,12 +140,49 @@ func TestCloudAskSyncs(t *testing.T) {
 	t.Cleanup(func() { openCloud = old })
 	asked := 0
 	openCloud = func() (*cloud.Client, error) { asked++; return nil, cloud.ErrSignedOut }
-	cmd := askCloud()
+	m := a2Model()
+	// Signed in but Conch Cloud hidden, with no cloud machine: nothing.
+	if cmd := m.askCloud(); cmd != nil {
+		t.Fatal("asked Conch Cloud while it is hidden")
+	}
+	t.Setenv("CONCH_CLOUD", "1")
+	cmd := m.askCloud()
 	if cmd == nil {
 		t.Fatal("signed in, nothing asked")
 	}
 	msg := cmd().(cloudMachinesMsg)
 	if asked != 1 || !errors.Is(msg.err, cloud.ErrSignedOut) {
 		t.Fatalf("asked %d, %v", asked, msg.err)
+	}
+}
+
+// Hidden is not broken: a cloud machine already in the tree keeps being
+// asked about, and keeps its Wake, with Conch Cloud switched off.
+func TestCloudHiddenKeepsAMachineSomebodyHas(t *testing.T) {
+	m, mach := cloudModel(t)
+	if config.CloudEnabled(m.cfg) {
+		t.Fatal("the switch is on in this test")
+	}
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "cloud.json"), []byte(`{"api":"http://x","store":"file"}`), 0o600)
+	old := openCloud
+	t.Cleanup(func() { openCloud = old })
+	openCloud = func() (*cloud.Client, error) { return nil, cloud.ErrSignedOut }
+	if m.askCloud() == nil {
+		t.Fatal("a cloud machine in the tree is no longer asked about")
+	}
+	mach.connected(machineConnectedMsg{machine: mach.id, err: &remote.CloudAsleepError{Label: "box", State: "asleep"}})
+	r := row{id: machineID(mach.id), kind: kindMachine, machine: mach.id}
+	if menu := a2MenuLabels(newRowMenu(*m, r, 0, 0)); !strings.Contains(menu, "w Wake") {
+		t.Fatalf("an asleep cloud machine has no Wake: %s", menu)
+	}
+	// The command it names works only with the switch on, so it says so.
+	page := ansi.Strip(strings.Join(m.machineLines(mach, 120, 30), "\n"))
+	if !strings.Contains(page, "CONCH_CLOUD=1 conch cloud machine wake box") {
+		t.Fatalf("page:\n%s", page)
+	}
+	t.Setenv("CONCH_CLOUD", "1")
+	page = ansi.Strip(strings.Join(m.machineLines(mach, 120, 30), "\n"))
+	if !strings.Contains(page, "run: conch cloud machine wake box") {
+		t.Fatalf("on, page:\n%s", page)
 	}
 }
