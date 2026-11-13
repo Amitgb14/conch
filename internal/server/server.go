@@ -1186,7 +1186,11 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return nil, s.setFailover(fp)
 
 	case proto.MethodUsageHistory:
-		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now()), nil
+		var others []usage.Root
+		for _, a := range s.accountBook().Accounts {
+			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
+		}
+		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
 
 	case proto.MethodSessionList:
 		lp, perr := decode[proto.SessionListParams](msg)

@@ -59,11 +59,30 @@ type History struct {
 // NewHistory is an empty History.
 func NewHistory() *History { return &History{files: map[string]*histFile{}} }
 
+// Root is another of an agent's configuration folders: an account of its
+// own (internal/accounts), whose conversations count as the agent's.
+type Root struct {
+	Agent, Dir string
+}
+
+// rootsOf is own and every other folder of agent, each once.
+func rootsOf(agent, own string, others []Root) []string {
+	out := []string{own}
+	seen := map[string]bool{filepath.Clean(own): true}
+	for _, r := range others {
+		if r.Agent == agent && r.Dir != "" && !seen[filepath.Clean(r.Dir)] {
+			seen[filepath.Clean(r.Dir)] = true
+			out = append(out, r.Dir)
+		}
+	}
+	return out
+}
+
 // Summary is what each agent used in each period, by model, as of now.
 // home is the home directory whose agents' folders are read; env says
 // where an agent was told to keep them instead (CLAUDE_CONFIG_DIR,
-// CODEX_HOME).
-func (h *History) Summary(home string, env func(string) string, now time.Time) proto.UsageHistory {
+// CODEX_HOME); others are the agents' other accounts.
+func (h *History) Summary(home string, env func(string) string, now time.Time, others ...Root) proto.UsageHistory {
 	longest := time.Duration(historyPeriods[len(historyPeriods)-1]) * time.Hour
 	since := now.Add(-longest)
 	out := proto.UsageHistory{At: now}
@@ -81,19 +100,23 @@ func (h *History) Summary(home string, env func(string) string, now time.Time) p
 	defer h.mu.Unlock()
 	var claude, codex []message
 	seen := map[string]bool{}
-	for _, f := range recentFiles(filepath.Join(claudeRoot, "projects"), since) {
-		hf := h.read(f, readClaude)
-		for id, m := range hf.byID {
-			// A resumed conversation can carry earlier responses into a
-			// new file: each response is counted once.
-			if !seen[id] {
-				seen[id] = true
-				claude = append(claude, m)
+	for _, root := range rootsOf("claude", claudeRoot, others) {
+		for _, f := range recentFiles(filepath.Join(root, "projects"), since) {
+			hf := h.read(f, readClaude)
+			for id, m := range hf.byID {
+				// A resumed conversation can carry earlier responses into
+				// a new file: each response is counted once.
+				if !seen[id] {
+					seen[id] = true
+					claude = append(claude, m)
+				}
 			}
 		}
 	}
-	for _, f := range recentFiles(filepath.Join(codexRoot, "sessions"), since) {
-		codex = append(codex, h.read(f, readCodex).turns...)
+	for _, root := range rootsOf("codex", codexRoot, others) {
+		for _, f := range recentFiles(filepath.Join(root, "sessions"), since) {
+			codex = append(codex, h.read(f, readCodex).turns...)
+		}
 	}
 	if len(claude) > 0 {
 		out.Agents = append(out.Agents, summarise("claude", claude, now))
