@@ -30,6 +30,8 @@ type Config struct {
 	Web     WebCfg     `toml:"web"`
 	App     AppCfg     `toml:"app"`
 	Cloud   CloudCfg   `toml:"cloud"`
+	// Trackers are where tickets come from besides GitHub (trackers.go).
+	Trackers TrackersCfg `toml:"trackers"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.

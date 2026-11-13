@@ -1199,7 +1199,7 @@ final class FakeServer: @unchecked Sendable {
 // to something to draw; an unknown one draws as the cog.
 @Test func lucideIconsRead() {
     let names = ["folder", "folder-open", "git-branch", "terminal", "square-terminal", "history", "laptop", "server", "cloud", "globe", "layers",
-                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "settings",
+                 "palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "refresh-cw", "smartphone", "box", "zap", "lock", "ticket", "settings",
                  "plus", "ellipsis", "folder-plus", "key-round", "layout-grid"]
     for n in names {
         #expect(LucideIcons.all[n] != nil, "\(n)")
