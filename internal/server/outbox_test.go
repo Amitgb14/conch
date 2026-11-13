@@ -71,6 +71,38 @@ func TestOutboxWriteDeadline(t *testing.T) {
 	}
 }
 
+// A reply far bigger than one deadline's worth over a slow link — a whole
+// file over an ssh bridge — still arrives while the client keeps reading:
+// the deadline is for a write making no progress, not for the message.
+func TestOutboxSlowReaderGetsABigReply(t *testing.T) {
+	shortLimits(t, 32<<20, 200*time.Millisecond)
+	c, other := pipeClient(t)
+	body := strings.Repeat("x", 1<<20)
+	go c.send(proto.Message{ID: "1", Result: json.RawMessage(`"` + body + `"`)})
+	got := make([]byte, 0, len(body)+64)
+	buf := make([]byte, 16<<10)
+	start := time.Now()
+	for !strings.HasSuffix(string(got), "\n") {
+		other.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := other.Read(buf)
+		if err != nil {
+			t.Fatalf("after %d bytes in %s: %v", len(got), time.Since(start), err)
+		}
+		got = append(got, buf[:n]...)
+		time.Sleep(20 * time.Millisecond) // a slow link: 16 KB every 20ms
+	}
+	if time.Since(start) < 4*200*time.Millisecond {
+		t.Fatalf("read in %s: not slower than one deadline, so nothing was shown", time.Since(start))
+	}
+	var m proto.Message
+	if err := json.Unmarshal(got, &m); err != nil || m.ID != "1" || len(m.Result) != len(body)+2 {
+		t.Fatalf("the reply: %v (%d bytes)", err, len(m.Result))
+	}
+	if !c.send(proto.Message{Event: "after"}) {
+		t.Fatal("cut off while reading")
+	}
+}
+
 // A client that reads gets everything, in the order it was sent, and
 // sendWait returns once its message is through; flush waits for what was
 // queued before it.
