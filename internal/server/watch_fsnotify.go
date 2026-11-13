@@ -4,7 +4,6 @@ package server
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,7 +46,8 @@ type fsnotifyBackend struct {
 	stop chan struct{}
 	// lost says events were thrown away because the reader was behind;
 	// the watcher turns it into "these worktrees changed, paths unknown".
-	lost atomic.Bool
+	lost  atomic.Bool
+	drops dropLog
 
 	closeOnce sync.Once
 
@@ -196,7 +196,17 @@ func (b *fsnotifyBackend) unwatch(root string) {
 	}
 }
 
-func (b *fsnotifyBackend) missed() bool { return b.lost.Swap(false) }
+func (b *fsnotifyBackend) missed() bool {
+	b.drops.report(watchLogf)
+	return b.lost.Swap(false)
+}
+
+// noteDropped is a path thrown away: counted, and logged with the rest of
+// its burst when the watcher next asks.
+func (b *fsnotifyBackend) noteDropped(path string) {
+	b.lost.Store(true)
+	b.drops.add(path)
+}
 
 // loseOne says an event was dropped, without needing a flood to make
 // one happen: a test cannot reliably outrun a channel of 256.
@@ -297,8 +307,7 @@ func (b *fsnotifyBackend) pump() {
 				// The reader is behind. The path goes rather than the
 				// loop blocking; the fact that something changed does not
 				// (missed, and noteAll in watch.go).
-				b.lost.Store(true)
-				log.Printf("worktree watch: dropped an event for %s", ev.Name)
+				b.noteDropped(ev.Name)
 			}
 		case <-b.stop:
 			return

@@ -168,6 +168,7 @@ var ErrAlreadyRunning = errors.New("conch server is already running")
 // Run listens and serves until Stop is called or the process is signalled.
 func (s *Server) Run() error {
 	s.running.Store(true)
+	dropMallocStackLogging()
 	defer s.ranOnce.Do(func() { close(s.ran) })
 	// sockaddr_un.sun_path is 104 bytes on macOS (108 on Linux), NUL included.
 	if len(s.sockPath) > 103 {
