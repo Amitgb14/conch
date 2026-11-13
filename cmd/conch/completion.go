@@ -174,7 +174,7 @@ func compCandidates(done []string, cur string) []compItem {
 		if strings.HasPrefix(cur, "-") {
 			return compFilter([]compItem{{"-m", "run the command against another machine"}}, cur)
 		}
-		return compFilter(compCommands, cur)
+		return compFilter(offeredCommands(), cur)
 	}
 
 	last := done[len(done)-1]
@@ -203,6 +203,9 @@ func compCandidates(done []string, cur string) []compItem {
 	}
 
 	cmd, rest := done[0], compPositional(done[1:])
+	if cloudHidden(cmd) {
+		return nil // nothing of Conch Cloud while it is hidden
+	}
 	path := cmd
 	if len(rest) > 0 {
 		path = cmd + " " + rest[0]

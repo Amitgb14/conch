@@ -116,6 +116,9 @@ func commandHelp(cmd string) string {
 	if cmd == "help" {
 		return shortUsage
 	}
+	if cloudHidden(cmd) {
+		return cloudNotEnabled(cmd).Error() + "\n"
+	}
 	var b strings.Builder
 	for _, c := range compCommands {
 		if c.word == cmd {
@@ -153,7 +156,7 @@ func unknownCommand(word string) string {
 
 // nearestCommand is the command a mistyped word most likely meant, or "".
 func nearestCommand(word string) string {
-	names := append(compWords(compCommands), "ls", "worktrees", "machines", "sandboxes")
+	names := append(compWords(offeredCommands()), "ls", "worktrees", "machines", "sandboxes")
 	return helpCommand(nearestWord(word, names))
 }
 

@@ -41,6 +41,7 @@ func cloudIsolated(t *testing.T) (*cloudtest.Fake, *syncBuf) {
 	t.Setenv("CONCH_HOME", filepath.Join(dir, "conch"))
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_CLOUD", "1") // Cloud's own tests: the switch on
 	f := cloudtest.New(t)
 	out := &syncBuf{}
 	old := cloudOut

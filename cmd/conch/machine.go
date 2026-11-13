@@ -254,7 +254,7 @@ func transports(ctx context.Context, m remote.Machine) (watched, background remo
 func sandboxAdvice(err error, m remote.Machine) error {
 	var asleep *remote.CloudAsleepError
 	if errors.As(err, &asleep) {
-		return fmt.Errorf("%w; run: conch cloud machine wake %s", err, m.Label)
+		return fmt.Errorf("%w; run: %s", err, cloudWakeHint(m.Label))
 	}
 	var stopped *remote.SandboxStoppedError
 	if provider, _, ok := remote.ParseSandboxTarget(m.Target); ok && errors.As(err, &stopped) {

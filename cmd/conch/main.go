@@ -388,6 +388,11 @@ func main() {
 		fmt.Print(commandHelp(helpCommand(cmd)))
 		return
 	}
+	// Conch Cloud's commands, while it is hidden (cloudswitch.go).
+	if err := cloudGate(cmd, args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	var err error
 	switch cmd {
@@ -492,7 +497,7 @@ func main() {
 	case "help", "--help", "-h":
 		switch {
 		case len(args) > 0 && args[0] == "all":
-			fmt.Print(usage)
+			fmt.Print(fullUsage())
 		case len(args) > 0 && helpCommand(args[0]) != "":
 			fmt.Print(commandHelp(helpCommand(args[0])))
 		case len(args) > 0:
