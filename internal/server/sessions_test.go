@@ -121,6 +121,25 @@ func TestSessionsInterruptedAndResume(t *testing.T) {
 	if err := c.Call(ctx, proto.MethodSessionResume, ref, &info); err == nil || !strings.Contains(err.Error(), "no longer exists") {
 		t.Fatalf("resuming in a missing folder: %v", err)
 	}
+	// An id that is an option ("resume --yolo") is no session, and starts
+	// nothing.
+	panes := func() int {
+		var pl proto.PaneList
+		if err := c.Call(ctx, proto.MethodPaneList, nil, &pl); err != nil {
+			t.Fatal(err)
+		}
+		return len(pl.Panes)
+	}
+	before := panes()
+	for _, id := range []string{"--yolo", "-c", "--dangerously-bypass-approvals-and-sandbox"} {
+		err := c.Call(ctx, proto.MethodSessionResume, proto.SessionRef{Agent: "codex", ID: id, Dir: repo}, &info)
+		if err == nil || !strings.Contains(err.Error(), "is not a session id") {
+			t.Fatalf("resuming %q: %v", id, err)
+		}
+	}
+	if after := panes(); after != before {
+		t.Fatalf("a pane was started: %d → %d", before, after)
+	}
 }
 
 // TestSessionListReportsCost checks that a session's cost reaches the

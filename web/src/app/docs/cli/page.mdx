@@ -259,7 +259,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
-| `conch sandbox adapt [-agent A] [-name N] [-new] [-json] URL…` | teach conch a [provider it doesn't know](/docs/sandboxes#a-provider-conch-doesnt-know) — one the registry has is offered as an install instead, unless `-new`: it downloads the API docs, an agent (Claude by default) writes a provider file from them in a pane of its own, and conch checks the file and your key. Nothing is saved; on a terminal it asks. `-json` says each step as a line, for Conch.app |
+| `conch sandbox adapt [-agent A] [-name N] [-new] [-json] URL…` | teach conch a [provider it doesn't know](/docs/sandboxes#a-provider-conch-doesnt-know) — one the registry has is offered as an install instead, unless `-new`: it downloads the API docs, an agent (Claude by default) writes a provider file from them in a pane of its own, and conch checks the file. Your key is tried against the API only once you agree to which variable goes to which host; with `-json` it is not tried (`conch sandbox provider check NAME` does it). Nothing is saved; on a terminal it asks. `-json` says each step as a line, for Conch.app |
 | `conch sandbox adapt -revise TEXT NAME` | send TEXT to the agent that wrote NAME's draft, and check the draft again |
 | `conch sandbox provider check [-offline] [-json] NAME\|FILE` | what is wrong with a provider file, and (without `-offline`) whether the provider's list answers your key; exits 1 when the file is wrong |
 | `conch sandbox provider show\|save\|rm NAME` | print a provider file; make a draft a provider; forget one (refused while a machine here is one of its sandboxes, which are never touched) |

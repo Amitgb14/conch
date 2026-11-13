@@ -185,13 +185,39 @@ func TestScopeMethods(t *testing.T) {
 		{"hand a session to a new pane", msg(proto.MethodSessionShare, proto.SessionShareParams{ID: "s", To: "codex"}), true},
 		{"stop", msg(proto.MethodServerStop, nil), false},
 		{"reload", proto.Message{Method: proto.MethodServerReload}, false},
-		{"bad params", proto.Message{Method: proto.MethodPaneClose, Params: []byte(`{"id":`)}, true}, // the method's own error
+		{"bad params", proto.Message{Method: proto.MethodPaneClose, Params: []byte(`{"id":`)}, false},
 		{"a project that isn't there", msg(proto.MethodBranchDiscard, proto.BranchDiscardParams{ProjectID: "r404"}), true},
+		// A field the method doesn't have, of the wrong type, beside a
+		// target: the method's own decoding ignores it and would run.
+		{"typing into another's pane past a stray field", proto.Message{Method: proto.MethodPaneSendText, Params: []byte(`{"id":"p1","text":"x","undo":"yes"}`)}, false},
+		{"closing another's pane past a stray field", proto.Message{Method: proto.MethodPaneClose, Params: []byte(`{"id":"p1","ids":"p1"}`)}, false},
+		{"discarding another's branch past a stray field", proto.Message{Method: proto.MethodBranchDiscard, Params: []byte(`{"project_id":"r1","branch":"b","ids":5}`)}, false},
+		{"stopping the server past a stray field", proto.Message{Method: proto.MethodServerStop, Params: []byte(`{"apply":1}`)}, false},
+		{"scheduling past a stray field", proto.Message{Method: proto.MethodScheduleAdd, Params: []byte(`{"apply":1}`)}, false},
+		{"its own pane, params in good order", proto.Message{Method: proto.MethodPaneSendText, Params: []byte(`{"id":"p4","text":"x"}`)}, true},
+		{"its own pane, no params", proto.Message{Method: proto.MethodPaneMarkSeen}, true},
+		{"its own pane, null params", proto.Message{Method: proto.MethodPaneMarkSeen, Params: []byte(`null`)}, true},
+		{"an fs method with an ssh of the wrong type", proto.Message{Method: proto.MethodFSList, Params: []byte(`{"ssh":["p1"]}`)}, false},
+		{"an fs method on this machine", proto.Message{Method: proto.MethodFSList, Params: []byte(`{"path":"/tmp"}`)}, true},
 	} {
 		perr := s.inScope(p4, c.msg)
 		if (perr == nil) != c.ok {
 			t.Errorf("%s: %v, want ok=%v", c.name, perr, c.ok)
 		}
+	}
+	// The person — no pane above the connection — is never scoped, so
+	// bad params are still the method's own to report.
+	for _, m := range []proto.Message{
+		{Method: proto.MethodPaneClose, Params: []byte(`{"id":`)},
+		{Method: proto.MethodPaneSendText, Params: []byte(`{"id":"p1","undo":"yes"}`)},
+		{Method: proto.MethodFSList, Params: []byte(`{"ssh":5}`)},
+	} {
+		if perr := s.inScope(&client{}, m); perr != nil {
+			t.Errorf("%s from the person: %v", m.Method, perr)
+		}
+	}
+	if perr := s.inScope(p4, proto.Message{Method: proto.MethodPaneClose, Params: []byte(`{"id":5}`)}); perr == nil || perr.Code != proto.ErrBadRequest {
+		t.Errorf("bad params from an agent: %v, want a bad request", perr)
 	}
 
 	// A pane whose agent has gone — a shell again — is the person's.

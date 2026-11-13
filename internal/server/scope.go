@@ -195,8 +195,12 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 		return nil
 	}
 	var ref scopeRef
-	if len(msg.Params) > 0 && json.Unmarshal(msg.Params, &ref) != nil {
-		return nil // the method reports its own bad params
+	// Refused, not handed on for the method's own error: the method's
+	// decoding ignores fields it has no use for, so a field of the wrong
+	// type beside a good target ({"id":"p1","undo":"yes"}) fails here
+	// and still runs there — past this check, on a pane not the agent's.
+	if perr := decodeScopeRef(msg, &ref); perr != nil {
+		return perr
 	}
 	if writes, ok := writesHome[msg.Method]; ok && !writes(ref) {
 		return nil
@@ -239,6 +243,9 @@ type scopeCaller struct {
 // scopedCaller is who the connection is held to, if anyone: the agent it
 // acts for, else the agent running in its pane now.
 func (s *Server) scopedCaller(c *client) (scopeCaller, bool) {
+	if c == nil { // the server calling itself
+		return scopeCaller{}, false
+	}
 	c.mu.Lock()
 	actFor := c.actFor
 	c.mu.Unlock()
@@ -487,13 +494,28 @@ var fsMethods = map[string]bool{
 // another pane's ssh login is that person's way onto that host, not the
 // agent's.
 func (s *Server) sshInScope(c *client, msg proto.Message) *proto.Error {
-	var ref scopeRef
-	if len(msg.Params) == 0 || json.Unmarshal(msg.Params, &ref) != nil || ref.SSH == "" {
-		return nil
-	}
 	caller, ok := s.scopedCaller(c)
 	if !ok {
 		return nil
 	}
+	var ref scopeRef
+	if perr := decodeScopeRef(msg, &ref); perr != nil {
+		return perr // as inScope: what fails here would still run there
+	}
+	if ref.SSH == "" {
+		return nil
+	}
 	return s.paneInScope(caller, msg.Method, ref.SSH)
+}
+
+// decodeScopeRef reads a scoped caller's target, refusing params it
+// cannot read rather than letting them through unchecked.
+func decodeScopeRef(msg proto.Message, ref *scopeRef) *proto.Error {
+	if len(msg.Params) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(msg.Params, ref); err != nil {
+		return proto.Errorf(proto.ErrBadRequest, "%s: params conch cannot check this agent's scope against: %v", msg.Method, err)
+	}
+	return nil
 }

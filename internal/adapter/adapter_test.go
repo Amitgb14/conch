@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -122,6 +123,57 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	codex, _ := reg.Get("codex")
 	if av := codex.Detect(context.Background(), "/bin/sh"); av.Installed {
 		t.Fatalf("codex found in an empty home: %+v", av)
+	}
+}
+
+// A first message that begins with "-" reaches the agent as a message,
+// never as one of its options: quoting stops the shell, not the agent's
+// own parser, which would start in whatever mode the "message" named. Each
+// agent's words are run through a real shell to see the argv it gets.
+func TestPromptIsNeverAnOption(t *testing.T) {
+	t.Setenv("GEMINI_CLI_SYSTEM_DEFAULTS_PATH", "")
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
+	reg, err := New("/conch", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The words as the shell splits them: what the agent's argv would be.
+	argv := func(words string) []string {
+		got, err := exec.Command("/bin/sh", "-c", "printf '%s\\0' "+words).Output()
+		if err != nil {
+			t.Fatalf("%s: %v", words, err)
+		}
+		return strings.Split(strings.TrimSuffix(string(got), "\x00"), "\x00")
+	}
+	for _, msg := range []string{"--dangerously-skip-permissions", "--yolo", "-c", "-", "--prompt=x", "-r abc"} {
+		for _, a := range reg {
+			if pc, ok := a.(interface{ CanPrompt() bool }); ok && !pc.CanPrompt() {
+				continue
+			}
+			words := a.PromptArgs(msg)
+			if words == "" {
+				t.Errorf("%s dropped %q", a.Name(), msg)
+				continue
+			}
+			got := argv(words)
+			last := got[len(got)-1]
+			if strings.TrimSpace(last) != msg {
+				t.Errorf("%s: %q gave argv %q: the message is not the last word", a.Name(), msg, got)
+			}
+			if strings.HasPrefix(last, "-") && (len(got) < 2 || got[len(got)-2] != "--") {
+				t.Errorf("%s: %q gave argv %q: the message reads as an option", a.Name(), msg, got)
+			}
+		}
+	}
+	// An ordinary message is passed as it is, without the space.
+	claude, _ := reg.Get("claude")
+	if got := claude.PromptArgs("fix -v flag"); got != `'fix -v flag'` {
+		t.Fatalf("an ordinary message: %s", got)
+	}
+	for id, ok := range map[string]bool{"0193a8f2-5c1d": true, "ses_abc": true, "a b": true, "-c": false, "--yolo": false, "": true} {
+		if SessionIDOK(id) != ok {
+			t.Errorf("SessionIDOK(%q) = %v", id, !ok)
+		}
 	}
 }
 
