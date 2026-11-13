@@ -102,3 +102,19 @@ import Testing
     let there = projects(s.tree(machine: "box"))[0]
     #expect(!s.menu(for: there, machine: "box").contains { if case .mobilePreview = $0.action { return true }; return false })
 }
+
+// The tab shows iOS simulators alone: Android's devices and what went
+// wrong listing them are left out, iOS's own notes kept.
+@Test func previewShowsIOSOnly() {
+    let l = MobileDeviceList(devices: [
+        MobileDevice(id: "emu", name: "Pixel 9", platform: "android", kind: "emulator", state: "booted"),
+        MobileDevice(id: "A1", name: "iPhone 16 Pro", platform: "ios", state: "shutdown"),
+        MobileDevice(id: "A2", name: "iPad Air", platform: "ios", state: "booted"),
+    ], notes: ["Android: adb: cannot connect to daemon", "iOS: simctl not found: install Xcode"])
+    let shown = previewShown(l)
+    #expect(shown.devices.map(\.id) == ["A1", "A2"])
+    #expect(shown.notes == ["iOS: simctl not found: install Xcode"])
+    // With an Android phone running and no iPhone, nothing is picked.
+    #expect(previewChoice(previewShown(MobileDeviceList(devices: [l.devices[0]])).devices, chosen: "emu") == nil)
+    #expect(previewShown(MobileDeviceList(devices: [])).devices.isEmpty)
+}

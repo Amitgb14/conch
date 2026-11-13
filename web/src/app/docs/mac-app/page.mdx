@@ -127,11 +127,11 @@ A web page in a tab beside the agents.
 
 ## Mobile preview
 
-Right-click a project on this Mac → **Mobile Preview** opens the app on a phone in a tab beside its agents: the real iOS simulator or Android emulator running it, not a drawing of its layout, so what you see is what the app does as the agent edits it. The tab's menu picks the device — every iPhone and iPad simulator Xcode has, every Android emulator and any Android phone plugged in, running ones first — and one that is shut down is started from the tab (**Start iPhone 16 Pro**). Its screen is taken again a few times a second while the tab is on screen, and not at all while it is hidden; the header says what kind of app the project is (Expo, React Native, Flutter, Xcode or Android).
+Right-click a project on this Mac → **Mobile Preview** opens the app on an iPhone in a tab beside its agents: the real iOS simulator running it, not a drawing of its layout, so what you see is what the app does as the agent edits it. The tab's menu picks the simulator — every iPhone and iPad Xcode has, running ones first — and one that is shut down is started from the tab (**Start iPhone 16 Pro**). Its screen is taken again a few times a second while the tab is on screen, and not at all while it is hidden; the header says what kind of app the project is (Expo, React Native, Flutter or Xcode). The tab shows iOS only; Android's emulators and phones are reached from the command line, with [`conch preview`](/docs/cli#preview).
 
-A click on the screen taps the device there, the field at the foot types into it, and the header's buttons press Home and, on Android, Back. **To agent** takes a screenshot and puts its path in one of the project's agents' prompts, as dropping the file would, for you to say what to look at. An agent can do the same by itself with [`conch preview shot`](/docs/cli#preview).
+A click on the screen taps the simulator there, the field at the foot types into it, and the header's button presses Home. **To agent** takes a screenshot and puts its path in one of the project's agents' prompts, as dropping the file would, for you to say what to look at. An agent can do the same by itself with [`conch preview shot`](/docs/cli#preview).
 
-It runs the platforms' own tools: Xcode for iOS simulators, Android Studio's SDK for emulators and phones. An iOS simulator can be watched with Xcode alone, but tapping and typing into one needs [idb](https://fbidb.io) (`brew install facebook/fb/idb-companion && pip3 install fb-idb`); without it the tab says so. Simulators are this Mac's own, so another machine's projects do not offer the tab.
+It needs Xcode, which brings the simulators. A simulator can be watched with Xcode alone, but tapping and typing into one needs [idb](https://fbidb.io) (`brew install facebook/fb/idb-companion && pip3 install fb-idb`); without it the tab says so. Simulators are this Mac's own, so another machine's projects do not offer the tab.
 
 ## Commits
 

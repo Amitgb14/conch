@@ -2,8 +2,8 @@ import AppKit
 import ConchKit
 import SwiftUI
 
-// A project's app on a phone, in a tab beside its agents: the iOS
-// simulator's or Android emulator's own screen, taken again a few times a
+// A project's app on an iPhone, in a tab beside its agents: the iOS
+// simulator's own screen, taken again a few times a
 // second through `conch preview shot`, so an edit is seen landing. A click
 // on the picture is a tap there, the field below types into it, and "To
 // agent" hands the agent a screenshot to look at. Simulators are this
@@ -56,7 +56,7 @@ final class MobilePreviewModel: ObservableObject {
     func reload() {
         Task {
             do {
-                let l = try JSONDecoder().decode(MobileDeviceList.self, from: try await conch(["preview", "devices", "-json"]))
+                let l = previewShown(try JSONDecoder().decode(MobileDeviceList.self, from: try await conch(["preview", "devices", "-json"])))
                 devices = l.devices
                 notes = l.notes ?? []
                 if device?.booted == true { booting = false }
@@ -237,10 +237,6 @@ struct MobilePreviewView: View {
             if model.device?.booted == true {
                 Button { model.button("home") } label: { LucideIcon("circle", size: 12) }
                     .buttonStyle(.plain).help("Home")
-                if model.device?.isAndroid == true {
-                    Button { model.button("back") } label: { LucideIcon("arrow-left", size: 12) }
-                        .buttonStyle(.plain).help("Back")
-                }
                 let agents = model.agents
                 Menu {
                     ForEach(agents) { a in
@@ -268,8 +264,8 @@ struct MobilePreviewView: View {
                     .interpolation(.high)
                     .frame(width: r.width, height: r.height)
                     // A phone's screen has round corners; the shot is square.
-                    .clipShape(RoundedRectangle(cornerRadius: d.isAndroid ? r.width * 0.06 : r.width * 0.12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: d.isAndroid ? r.width * 0.06 : r.width * 0.12, style: .continuous).stroke(Theme.line2, lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: r.width * 0.12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: r.width * 0.12, style: .continuous).stroke(Theme.line2, lineWidth: 1))
                     .position(x: 16 + r.midX, y: 16 + r.midY)
                     .contentShape(Rectangle())
                     .onTapGesture(coordinateSpace: .local) { p in
@@ -290,8 +286,8 @@ struct MobilePreviewView: View {
                         if d.state == "shutdown" { Button("Start \(d.name)") { model.boot() }.controlSize(.large) }
                     }
                 } else {
-                    Text("No iOS simulator or Android emulator on this Mac.").foregroundStyle(Theme.text2)
-                    Text("Install Xcode for iOS simulators, or Android Studio for emulators, then list the devices again.")
+                    Text("No iOS simulator on this Mac.").foregroundStyle(Theme.text2)
+                    Text("Install Xcode, which brings the iPhone and iPad simulators, then list the devices again.")
                         .font(.ui(size: 12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     Button("List Devices Again") { model.reload() }
                 }
