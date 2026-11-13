@@ -148,9 +148,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let s = Store(windowID: "w-" + UUID().uuidString.prefix(8).lowercased(),
                       workspace: workspace ?? from.homeWs?.id ?? "first", project: project)
         let w = AppWindow(store: s, app: self, frame: nil)
-        if let at = from.mainWindow {
-            w.window.setFrame(at.frame, display: false)
-            w.window.setFrameTopLeftPoint(at.cascadeTopLeft(from: NSPoint(x: at.frame.minX, y: at.frame.maxY)))
+        // A step down and across from the window it came from, so both
+        // are seen, and kept on that window's screen.
+        if let at = from.mainWindow, at.isVisible {
+            var f = at.frame.offsetBy(dx: 28, dy: -28)
+            if let screen = at.screen { f = w.window.constrainFrameRect(f, to: screen) }
+            w.window.setFrame(f, display: false)
         }
         windows.append(w)
         w.window.makeKeyAndOrderFront(nil)
@@ -179,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// The windows besides the first, kept for the next launch.
     func saveWindows() {
+        guard !quitting else { return }
         let saved = windows.dropFirst().filter { $0.window.isVisible || $0.window.isMiniaturized }
             .map { $0.store.saved(frame: $0.window.frameDescriptor) }
         UserDefaults.standard.set(encodeSavedWindows(Array(saved)), forKey: Self.windowsKey)
@@ -200,20 +204,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
 
-    /// Quitting with edits not saved — a file in a Files tab or a
-    /// workbench, a task's brief, in any window — asks first. Saving is
-    /// waited for, and a save that fails keeps the app open with the edits
-    /// still there.
+    /// Quitting. The windows are saved first, while they are still on
+    /// screen — by applicationWillTerminate they have been taken down, and
+    /// each one's closing would take it out of what is saved. Then, with
+    /// edits not saved in any window — a file in a Files tab or a
+    /// workbench, a task's brief — it asks; saving is waited for, and a save
+    /// that fails keeps the app open with the edits still there.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        saveWindows()
         let items = AppWindows.shared.stores.flatMap { $0.unsaved() }
-        guard !items.isEmpty else { return .terminateNow }
+        guard !items.isEmpty else {
+            quitting = true
+            return .terminateNow
+        }
         switch askUnsaved(items) {
         case .alertFirstButtonReturn:
+            quitting = true
             Task { @MainActor in
-                NSApp.reply(toApplicationShouldTerminate: await saveAll(items))
+                let saved = await saveAll(items)
+                if !saved { self.quitting = false }
+                NSApp.reply(toApplicationShouldTerminate: saved)
             }
             return .terminateLater
         case .alertSecondButtonReturn:
+            quitting = true
             return .terminateNow
         default:
             return .terminateCancel
@@ -259,8 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    private var quitting = false
+
     func applicationWillTerminate(_ notification: Notification) {
-        saveWindows()
         for s in AppWindows.shared.stores { s.shutdown() }
     }
 
