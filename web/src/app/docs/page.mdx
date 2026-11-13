@@ -2,28 +2,28 @@ export const metadata = { title: "Introduction", description: "What conch is and
 
 # Introduction
 
-conch is a terminal orchestrator for AI coding agents. A background server owns the terminals your agents run in, so they keep working when you close the UI.
+conch is a terminal orchestrator for AI coding agents: a background server owns their terminals, so they keep working when you close the UI.
 
 <TuiShot
   id="project"
   title="conch — a project"
-  caption="A project in the TUI: its branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside them."
+  caption="A project in the TUI: its branches, agents and terminals in the tree, a tab per agent."
 />
 
 ## What's new
 
 <FeatureGrid>
 <Feature icon="workbench" title="Workbench, in Conch.app" href="/docs/mac-app#workbench" badge="desktop">
-An agent's whole branch in one tab: its files, a terminal in its checkout, the agent as a chat, and its own terminal, in four layouts.
+An agent's whole branch in one tab: its files, a terminal, the agent as a chat.
 </Feature>
 <Feature icon="git" title="A branch's changes and review" href="/docs/mac-app#a-branchs-changes" badge="desktop">
-Overview, changes and graph for a branch: commit single hunks, leave the agent a note on a line it answers in a thread, and see the pull request's checks.
+Commit single hunks, leave the agent a note on a line, see the pull request's checks.
 </Feature>
 <Feature icon="browser" title="Browser tabs" href="/docs/mac-app#browser-tabs" badge="desktop">
-Your dev server's page in a tab beside the agents, split and moved like any other.
+Your dev server's page in a tab beside the agents.
 </Feature>
 <Feature icon="files" title="Files and Edit with Agent" href="/docs/mac-app#files-and-sessions" badge="desktop">
-A project's files in a tab, each marked by its language, and any of them handed to the agent you pick.
+A project's files in a tab, any of them handed to the agent you pick.
 </Feature>
 <Feature icon="loop" title="Autopilot in the server" href="/docs/why#it-finishes-the-job-without-you">
 Failed CI goes back to the agent, and green pull requests merge, with every window closed.
@@ -35,36 +35,24 @@ Answer a waiting agent from your phone. Each phone sees only the machines you ga
 
 ## Is conch for you?
 
-**conch is for running several coding agents at once and keeping track of them.** If you have three or four going — on different branches, worktrees or machines — and the hard part is knowing which one is waiting on you, what each has changed, and getting back to it after your laptop slept, that is what this is. It assumes you live in a terminal, that you want work to survive the UI closing, and that you want to answer an agent's question from wherever you are, including [a phone](/docs/phone).
+- **Yes**, if you run several agents at once — on different branches, worktrees or machines — and need to know which one is waiting on you.
+- **No**, for one agent in one repo: run the agent's own CLI.
+- **No**, for unattended swarms: nothing runs until you confirm.
+- macOS and Linux only; on Windows, use WSL.
 
-**It is the wrong shape for several things, and here is what to use instead.**
-
-- **One agent, one repo, no branches.** conch adds a server, a tree and a key map you do not need. Run the agent's own CLI; add tmux if you want it to survive a dropped ssh session. conch earns its keep from the third agent, not the first.
-- **You handle git by hand.** Tasks, worktrees per branch and the harvest flow are most of conch. If you would rather branch and commit yourself, a plain multiplexer — tmux, zellij, Zellij's floating panes — gives you the panes without the opinions.
-- **Review is your bottleneck.** conch reads diffs properly now — [side by side](/docs/interface#changes-view) on a wide terminal, with what changed inside a line picked out, single hunks staged for a commit, and `e` to open the file at the hunk in your editor. What it still has none of: a review thread with another person (comments in conch are for the agent — written on a hunk or a line, kept by the server, sent to it as one message, and answered in the thread), a three-way editor for a merge conflict (conch merges and, when that conflicts, hands it to an agent or to the git window), or a diff between two arbitrary commits. **Reviewing the pull request itself is [Conch.app](/docs/mac-app#a-branchs-changes)'s**: its git tab submits approve, request changes or comment through `gh`, and shows GitHub's own comments on their lines with **Reply on GitHub**; from the TUI that is still `gh` or your forge. If the rest of those are your day, that is `gh`, your forge's web UI, or a graphical tool, and conch is the thing beside it rather than the thing it replaces.
-- **You want a desktop app, and you are not on a Mac.** [Conch.app](/docs/mac-app) is a native macOS window on the same servers — the tree, tabs and splits, panes drawn by Ghostty, a branch's changes and files in tabs — and it is in beta. There is no Windows or Linux window, and the [phone app](/docs/phone) is a companion for answering agents away from the laptop rather than a second home. Everywhere else, the TUI is conch.
-- **Windows.** conch does not build for Windows — it is macOS and Linux, and it uses unix sockets and pty internals that have no Windows equivalent here. WSL works, and is the supported answer.
-- **An agent conch does not support in full.** Five are [supported](/docs/agents#supported-agents) — adapter, detection, sessions that list and resume. Others **run here** from a manifest: conch starts and watches them and does not read their saved conversations. If what you need is deep support for a sixth agent, say so rather than assuming the manifest covers it.
-- **Unattended swarms.** conch waits for Enter on purpose: the [brain](/docs/brain) proposes actions and nothing runs until you confirm, and an agent's question stops the work until somebody answers it. If you want dozens of agents running without a person in the loop, conch is deliberately not that, and will not become it.
-
-The shortest version: **conch is a terminal multiplexer that understands agents and git branches.** Where it is the wrong tool, it is usually because you want fewer agents, a graphical diff, or no human in the loop. What it does that other tools leave to you is on [Why conch](/docs/why).
+What it does that other tools leave to you is on [Why conch](/docs/why).
 
 ## How it fits together
 
-conch has two parts:
-
-- **The server.** Each machine runs one conch server. It owns every pane — the pseudo-terminals your agents and shells run in — along with their screens, scrollback and agent states. It starts on its own the first time you run `conch`.
-- **The TUI.** Running `conch` opens a client that connects to the server. Press `q` to detach: the TUI exits, and the server and everything in it keep running. Run `conch` again to pick up where you left off.
+Each machine runs one conch **server** that owns every pane. Running `conch` opens the **TUI**, a client of that server; press `q` to detach, and run `conch` again to pick up where you left off.
 
 <Architecture />
 
-Because the server owns the panes, you can close your terminal, lose your ssh session or update conch without stopping an agent. The server on a [remote machine](/docs/remote-machines) keeps working when your laptop sleeps, and the TUI connects to every machine at once.
-
-The TUI is not the only client. [Conch.app](/docs/mac-app) is one, in a native macOS window; `conch web` is another, serving the same agents to [a phone](/docs/phone), so you can see what each one is doing and answer the question it is waiting on from somewhere else. The phone reaches your laptop directly over your own tailnet, or from any network through a [relay](/docs/phone#through-a-relay) you run yourself, which carries the traffic without being able to read it. Either way nothing goes through a service of conch's: there is no account, and no server of ours between you and your agents.
+[Conch.app](/docs/mac-app) and [your phone](/docs/phone) are clients of the same server.
 
 ## The tree
 
-The TUI organises everything as a tree beside a live view of whatever you select:
+Machines, then their projects, then each project's branches, agents and terminals. See [The interface](/docs/interface).
 
 ```text
 MACHINES
@@ -84,33 +72,15 @@ MACHINES
         › zsh
 ```
 
-- **Machines** — your own computer (`local`) and any machines you add over ssh.
-- **Workspace** — a machine's projects, grouped together.
-- **Projects** — git repositories (or plain folders) on a machine.
-- **Branches** — with uncommitted changes, commits ahead and behind, pull requests, and the agents working on them.
-- **Agents** and **Terminals** — the panes running in the project.
-- **CLI** — a machine's own agents and terminals, started outside any project.
-- **Sessions** — conversations agents saved, ready to resume.
-
-See [The interface](/docs/interface) for every detail of the tree.
-
 ## Agent states at a glance
 
 <AgentStates />
 
-`!` jumps to the next agent waiting for you, and a desktop notification fires when one you aren't viewing needs you. [Agents](/docs/agents#agent-states) explains how conch decides a state.
+`!` jumps to the next agent waiting for you. See [Agents](/docs/agents).
 
 ## Supported agents
 
-- **Claude Code**
-- **Codex**
-- **Gemini CLI**
-- **OpenCode**
-- **Devin** (preview)
-
-Others — Aider, Amp, Cursor CLI and more — run from a manifest: conch starts and watches them without reading their saved conversations.
-
-conch can install any of them for your user, on any machine, without root. See [Agents](/docs/agents).
+Claude Code, Codex, Gemini CLI, OpenCode and Devin (preview). Others — Aider, Amp, Cursor CLI and more — run from a manifest. See [Agents](/docs/agents).
 
 ## Where to go next
 

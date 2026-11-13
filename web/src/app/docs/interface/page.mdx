@@ -1,572 +1,151 @@
-export const metadata = { title: "The interface", description: "The tree, splits and tabs, scrollback and settings." }
+export const metadata = { title: "The interface", description: "The tree, splits and tabs, the review queue, files and settings." }
 
 # The interface
 
-The TUI shows a tree of machines, projects, branches, agents and terminals beside a main area with tabs and splits. This page covers each part and the settings that shape it.
+The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits; this page covers each part.
+
+<TuiShot id="working" title="conch" caption="The tree on the left, an agent's pane on the right." />
 
 ## The sidebar
 
-```text
-MACHINES
-▾ ● local                        ⠋1 ⚑1
-  ▾ ▤ Workspace                      2
-    ▾ ◆ api                      ⠋1 ⚑1
-      ▾ Branches                     7
-          ● main                    +1        checked out in the repo, uncommitted lines
-          ◇ conch/add-health-check  ⠋ ↑3      own worktree, agent working, 3 ahead of main
-          · feat/login          #12✓  ↑2      not checked out, pull request with passing checks
-          … 18 more
-      ▾ Agents                       2
-          ⠋ Add health check   conch/add-health-check
-          ! Fix flaky tests    fix/flaky
-      ▾ Terminals                    1
-          › dev-server         main
-    ▸ ◆ web
-  ▾ ❯ CLI                          2
-    ▾ Terminals                    1
-        › zsh
-    ▾ SSH                          3
-      ▾ prod                       2
-          › ssh dev@build-box
-          ○ prod db              saved
-        ○ ssh staging-1          saved
-```
+Each machine holds `Workspace` (its projects) and `CLI` (agents and terminals of no project). Badges: `⠋1` working, `⚑1` waiting, `✓1` done.
 
-The badges on a machine or project count its agents: `⠋1` working, `⚑1` waiting for an answer from you, `✓1` done — finished while nobody was looking; it turns idle once you open or type into it. The status bar adds them up across every machine (`⚑ 1 waiting · 1 done`), and clicking that, like `!`, goes to the next one. Beside it is the ID of the pane you are in or on — `p12`, or `busybox:p12` on another machine — which is what `conch read`, `send` and `wait` take; a click copies it, and so does **Copy pane ID** in a pane's menu, whose title says it too. It is the first thing the bar lets go of when it is short of room. Each split's border ends with its pane's ID too — `╭─ claude · working ──── p12 ─╮` — and a click on it copies it; on a narrow split the ID gives way to the title.
+**How:** `a` adds a project, `c` starts an agent, `n` a terminal. `!` goes to the next waiting agent.
 
-Each machine has two groups. `Workspace` holds its projects (folders you added with `a`); selecting it shows every project with what runs in it, and the tab bar lists the tabs of all of them. `CLI` holds a machine's agents and terminals that belong to no project. `n` or `c` on the machine (or on `CLI`) starts one there, in your home folder.
+<TuiShot id="project" title="A project" caption="A project's branches, agents and terminals." />
 
-Where you start conch counts. Run it in a project's folder (or anywhere in it, or in one of its worktrees) and the tree opens on that project, so `c` starts an agent there. Run it in a git repository that isn't a project yet and conch asks whether to add it: **Yes** adds it and selects it, **No** stops conch asking about that repository (kept in `ui.json`), and `esc` leaves the question for next time. A home folder kept in git is never offered, and a TUI restarting onto a new build keeps your place.
+## Workspaces
 
-### SSH sessions
+Each workspace shows only its own projects, agents, terminals, hosts and tabs.
 
-`H` (or **SSH to a host…** in the tab bar's `+` menu, or in the menu of `local` and its `CLI`) opens a terminal on this computer logged in to another host. Pick a host from your `~/.ssh/config` or one of your machines, or type `user@host`, an alias or `ssh://user@host:port`. It runs your own `ssh` with your config and keys, so password and host-key prompts appear in the terminal. Each session makes its own connection, as a plain `ssh` does — through a jump host too (`-J`, or `ProxyJump` in your config) — so a host that stopped answering never holds up the next login. Connection sharing you set up yourself in `~/.ssh/config` still applies. Nothing is installed on the host — unlike [adding a machine](/docs/remote-machines), which installs conch there to run agents. Sessions are listed under `CLI` → `SSH`, which has its own page and tabs like `Terminals`; closing the session (`exit`) closes its tab.
+**How:** `+` atop the sidebar or `ctrl+b N`; `ctrl+b (` and `)` switch.
 
-Before connecting, conch asks whether to save the host. The default is not to: `enter` (or `n`) just connects, `y` saves it too. A saved host stays listed under `CLI` → `SSH` every time conch opens, even with no session to it (the `○ … saved` row above); `enter` or a click on it connects again without asking, and `x` forgets it. While a session to it is running, the session's own row stands in for it; a login that failed stays on screen, exited, to show why, with the saved host beside it to try again. Saved hosts come first in the `H` menu, and are kept in `ui.json` in the conch config folder.
+## SSH sessions
 
-**SSH options.** Some hosts need more than a name: an old switch that only speaks an old key exchange, a port, a jump host. The **SSH options** field (when you type a host after `H`, and in the host editor) takes them as you would type them after `ssh`: `-o KexAlgorithms=+diffie-hellman-group14-sha1 -p 2222 -J bastion`. A word like `HostKeyAlgorithms=+ssh-rsa` on its own is taken as `-o HostKeyAlgorithms=+ssh-rsa`, as it is written in `ssh_config`. Only options are accepted — a stray word would be read by `ssh` as the host — and not those that would stop it logging in (`-F`, `-G`, `-V`, `-Q`, `-O`, `-W`). A saved host keeps its options and uses them on every connect; a session already open keeps the ones it started with.
+A terminal logged in to another host with your own `ssh`. Nothing is installed there.
 
-**Editing a host.** `e` on a saved host (or **Edit host…** in its menu) changes the host itself, a name to show in its place (`prod db` rather than `ssh admin@10.0.4.12`), its folder and its options. `e` on an open ssh session does the same for its host, saving it if it wasn't.
+**How:** `H`, then pick a host or type `user@host`; `y` saves it. On a saved host `K` sets up login without a password and `M` makes it a [machine](/docs/remote-machines).
 
-**Duplicating a host.** `d` on a saved host (or **Duplicate…** in its menu) offers its name, folder and ssh options again under a host of its own — the same machine reached as another user, on another port, or in through a jump host. The copy cannot keep the host it came from: conch tells saved hosts apart by the host, so `admin@10.0.4.12` saved twice is one row, and saving without changing it says *10.0.4.12 is already saved* rather than quietly replacing what is there. What it saves you is the options, which are the part worth not typing twice.
+## SSH folders
 
-**A second session to the same host.** `d` on an open ssh session (or **Another session to…** in its menu) opens one more terminal logged in to the same host, with the options that session was started with — one to tail a log while you work in the other, without going back through `H` and picking the host again. It asks nothing: whether to save the host was settled when the first session was made. Two sessions to one host are two terminals, not one row, so `r` gives either its own name. A session is duplicated by making another login, where a saved host is duplicated by copying its entry — which is why the same key does a different thing on each.
+Group saved hosts with their sessions — `eng`, `staging`, `prod`.
 
-**Conch Cloud machines.** Once this conch is [signed in to Conch Cloud](/docs/cloud) (`conch login`), the account's machines are in the tree like any other, with ☁ beside them and, when one is not connected, the control plane's word on it: `☁ asleep`, `☁ waking`, `☁ creating`, `☁ error`. A machine asleep is not woken by conch on its own — waking it counts toward the plan's hours — so its row waits for you: `m` → **Wake** wakes it and connects once it is up, and **Sleep** on a running one puts it to sleep (asking first while agents work). A machine woken elsewhere — by `conch cloud exec`, Conch.app or the web — connects by itself within a quarter of a minute. Without a sign-in none of this is there, and conch asks Conch Cloud nothing.
+**How:** `N` on `SSH`, `Agents` or `Terminals` makes a folder; drag hosts or panes into it.
 
-**A host as a machine.** An ssh session is a terminal on *this* computer, so what you start in it ends when the link does — a dropped network, a sleeping laptop, a closed session. `M` on a saved host or on a session logged in to one (or **Add as a machine…** in its menu, or **A host you already ssh to…** in the `M` menu anywhere) offers that same host as a [machine](/docs/remote-machines) instead: conch installs itself there, and that conch owns the terminals, so its agents keep running whether or not you are connected, and its projects, branches, sessions and token usage are read on the host. The **Add machine** dialog opens with the host and the ssh options it is saved with already filled in, so nothing is retyped; a machine keeps the options that say how to log in (a jump host, a port, a key, an old key exchange) and drops the ones that belong to a terminal's own session (a forward, a tty, agent forwarding). Nothing is taken away by it: the host stays saved under `SSH`, any session open to it keeps running, and the host's page then names the machine it also is — neither the page nor the status bar offers `M` there any more, and pressing it says which machine it already is and goes to it. A host that needs a password should get `K` first — a machine reconnects by itself. A sandbox is reached through its provider rather than a host of yours, so there is nothing there to promote.
+## Grouped by tab
 
-### SSH folders
+The tree lists a project's panes under the tab each is open in, as the tab bar does.
 
-`SSH` takes [folders](#folders-of-your-own) like `Agents` and `Terminals` — `eng`, `staging`, `prod`, one per cluster — and a folder there holds **saved hosts** as well as sessions. A saved host in a folder is listed in it while nothing is open to it, and every session to it is listed there instead, so a host and its sessions stay together and connecting again moves nothing. A session to a host you haven't saved goes in by itself, as any pane does.
+**How:** Settings → Tree grouping → By tab lists panes under their tab.
 
-- **Make one**: `N` on `SSH`, on a saved host or on a session (or **New folder…** in their menus) — or type a new folder's name in a host's editor.
-- **Drag a host in**: press on a saved host or a session to one, carry it onto a folder (the row under the pointer is marked), and let go; drop it on `SSH` itself to take it out. With a folder to drag to, a press and release on a saved host is still a click and connects; with none, the press connects as it always did.
-- **From the keyboard**: **Move to folder…** in the host's menu (`m`), or the **Folder** field of its editor (`e`). `a` on an SSH folder adds a saved host to it without connecting.
+## Git panel
 
-`x` on a folder removes it; the hosts and sessions in it go back to `SSH`, and nothing closes. Forgetting a host takes it out of its folder.
+Type git commands that run in a branch's worktree.
 
-### Login without a password
+**How:** `b` or `$` on a branch; `tab` lists everyday actions. With an agent on the branch, `ctrl+t` sends what you type to it instead.
 
-`K` on a saved host or an ssh session (**Set up login without a password** in its menu) opens a terminal that copies your public key to the host's `~/.ssh/authorized_keys` — what `ssh-copy-id` does, but through conch's ssh with the host's own options. It uses the first of `~/.ssh/id_ed25519.pub`, `id_ecdsa.pub` and `id_rsa.pub`; with none, it runs `ssh-keygen` to make `~/.ssh/id_ed25519` first, asking for a passphrase you may leave empty. The host asks for its password one last time; a key already there is not added twice. The terminal stays open to say whether it worked, until you press `enter`.
+## Changes view
 
-### Projects
+Selecting a branch shows its pull request, files and diffs, following the agent's edits live.
 
-Projects appear when you open a pane inside a git repository, or add them with `a`, which opens a folder browser on the selected machine (local or remote):
+<TuiShot id="diff" title="Changes" caption="A branch's diff, side by side." />
 
-| Key | In the folder browser |
+| Key | |
 | --- | --- |
-| `enter` | open a folder |
-| `←` | go up |
-| `a` | add the selected folder |
-| `.` | add the folder you're in |
-| `/` | filter |
-| `g` | jump to a typed path |
-| `n` | create a folder |
-| `p` | create a new project (a folder with a git repository and an initial commit) |
+| `a` / `S` | comment / send comments to the agent |
+| `c` / `p` | commit / push and open a PR |
 
-Git repositories show `◆ git`, existing projects `◆ project`. From the CLI: `conch project add PATH`, `conch project clone URL [DIR]` or `conch project create [-no-git] PATH`. Linked worktrees belong to their main repository. The list is kept in `~/.config/conch/projects.json`.
-
-### Branches
-
-An agent started by another agent is **listed under it**, indented, and folds away with it; the agent that started them shows **⑂N** for the helpers it has out — amber with `!` when one of them is waiting. Where a helper cannot be listed under its agent — another section, another machine, or narrowed away by a search — it says **↳ for** the pane that started it instead, as it always did. The subagents Claude Code runs inside its own process — its Agent tool, background tasks — are listed under it as well, with the task each was given, for as long as they run; selecting one shows its agent. See [Agents working together](/docs/agents-together).
-
-Each agent row shows what it has spent (Settings → Theme → Tree turns this off) — `$1.40` when the agent reports a cost (Claude Code and OpenCode do), otherwise what it has used, like `3.0k out` or `120k in` (Codex and Gemini CLI report no cost). The `Agents` section, the project and the machine show the total of the agents under them. This is only the usage conch has seen: plan windows are per account, so an agent you started outside conch spends the same window without appearing here. The project and machine pages spell that out in full.
-
-Branches list checked-out branches, the base branch, branches with panes and recent ones; the rest fold into `… N more`. Each shows uncommitted changes (`+42 −7`, `⚠` conflicts), commits ahead/behind the base (`↑2 ↓1`), and the state of agents working on it. Branch rows leave the cost out: they are busy enough, and the agents beneath them name their branch. Git state refreshes when git metadata changes, after an agent uses a tool, and every few seconds.
-
-### Pull requests
-
-Pull requests come from the `gh` CLI (your existing GitHub login): `#12✓` checks passing, `#13✗` failing, `#14●` running, purple when merged. `o` opens the branch's PR. They refresh every minute while agents work in the project, every five minutes otherwise, and on `R`. When one conch saw open is merged, conch fetches the branch it merged into from that branch's own remote, so `origin/main` and the merge commit GitHub made are in your checkout without a `git fetch` of your own; a fetch that fails (offline, a lock) is tried again at the next look, and nothing else is fetched for you.
-
-### Agents
-
-A click shows a pane and leaves the keyboard in the tree, where the row keys are; double-click (or `enter`) hands it to the pane. Agents are named after their task (Claude's title) until you rename them with `r`. A mark in front of the name says **which agent** it is, while the glyph before that says what it is **doing** — the thing worth seeing first. With `[ui] icons = "nerd"` the marks are Nerd Font glyphs, each the shape of that agent's own mark wherever a character comes close: Google's own logo for Gemini, a starburst for Claude Code (Anthropic's is one), a six-fold rosette for Codex (OpenAI's Blossom is three triangles woven into six), a cube for Cursor CLI, an ✕ for Grok (xAI's letter, and the slash through its mark), pixels for Kilo Code (its wordmark is built from them), a π for Pi, and a terminal for OpenCode, whose whole identity is the terminal. Only Aider, Amp and Devin have no shape to copy, and get a plain thing that suits them. A real logo would need a terminal's image protocol, which not every terminal has and ssh and tmux lose. Otherwise the marks are coloured dots — 🟠 Claude Code, 🟢 Codex, 🔵 Gemini CLI, 🟣 OpenCode, 🟡 Devin — which are emoji and so two cells wide; every line of the tree is measured and cut to fit, so a narrow sidebar shortens the name rather than spilling. The agents conch only [runs from a manifest](/docs/agents#two-tiers) get squares rather than circles, so the shape says which tier it is: 🟩 Aider, 🟧 Amp, 🧊 Cursor CLI (a cube, as its own mark is), 🟦 Grok (xAI's accent blue, since its own black and white would vanish on one background or the other), 🟨 Kilo Code (its own yellow) and 🟥 Pi (the salmon of its three-block mark, the blue of it being Grok's square already) — and 🤖 for an agent you described yourself, since a blank where every other agent has a mark would read as "conch does not think this is an agent". The colours are the agents' own where a brand publishes one; four of them are black and white, and four marks all in white would be one mark, so there the shape carries the agent and the colour is only chosen to be legible on a dark terminal and a light one. An agent that puts its own mark at the start of its window title — Pi titles its window `π - conch` — has that copy dropped from the name, since conch has just drawn one in front of it; only the very same character goes, never anything that merely looks like a symbol. `icons = "off"` leaves them out altogether. Their states are described in [Agents](/docs/agents#agent-states); every project also has a [Sessions](/docs/sessions) section.
-
-### conch inside conch
-
-`conch` refuses to open a TUI inside one of its own panes, and tells you how to do it anyway (`CONCH_PANE_ID= conch`) — useful when you want a second view without leaving the pane you are in. The one thing that view will not do is show **its own pane**: conch asks the server which pane it is running in and refuses, saying so, because a TUI resizes every pane it draws to the space it has for it — showing itself would shrink its own terminal, and then the space, and then the pane, down to nothing.
-
-### Checking conch
-
-A moment after conch starts it runs the same checks as [`conch doctor`](/docs/cli#doctor) in the background — config, socket, agents, git, gh, the terminal and the ssh your machines need. Anything they find is listed on **this computer's** page with its fix, and anything conch cannot work without (no agent installed, no git, a `config.toml` that does not parse) also puts **✗ N things to fix** on the status bar, which opens the list in a click. A warning alone stays off the bar: `gh` not installed can be a settled choice, and a bar that nags for ever is one nobody reads.
-
-`,` → **Check conch…** — or `!` on any Settings tab, since the item sits at the foot of the first — opens the list at any time and checks again, so it says how things stand after you have fixed one. A fix that is a command can be copied from there, ready to paste into a terminal (`n` opens one) — without the note beside it, which a shell would reject. Checking again also asks this computer's agent list again, so an agent you have just installed in a shell shows on the page and in the guide at once.
-
-### Reporting a problem
-
-**⊙** (GitHub's issue sign) on the status bar opens it in one click, when the window is wide enough to show it without pushing a key hint off; `,` → **Report a problem…** is the same thing from Settings. It shows what conch knows about itself — its build, the build of the server it is talking to (not always the same one), what is missing between them, how many panes and agents are running, how big the terminal is, and the last error it showed you — and offers to open a GitHub issue with it, copy it, or copy the path of the server's log. `conch bug` is the same thing from a terminal.
-
-The report carries **facts, not contents**. No path, no project, no branch, no pane title, nothing off a screen: that is what makes it safe behind one key, since nothing has to be read through before it is handed over. The log is the exception and is never included — it holds paths and branch names — so conch gives you its path and leaves it to you.
-
-Nothing is sent by conch. `-open` ends in a browser with every word visible, and you press submit.
-
-### Folders of your own
-
-conch groups panes by what they are and, with the setting below, by the tab they are open in. Neither says what *you* think belongs together, and names repeat across environments. **`N`** on Agents, Terminals or SSH — or on a pane in one — makes a folder; drag rows into it, and back onto the section to take them out. `x` on a folder removes it and its panes go back to the list; nothing closes. A folder of `SSH` holds saved hosts too, with their sessions: see [SSH folders](#ssh-folders).
-
-```
-Terminals
-  ▾ eng                 2
-      › vm1
-      › vm2
-  ▸ prod                1
-    › vm3
-```
-
-Folders come first, and a folder **starts folded**. Both follow from the same thing: a row one step out from an open folder's contents is not in that folder, but at a glance it can read as though it were. Folded, nothing is under a folder but its own; opened, you are the one who opened it. The panes in no folder are listed after the folders, as `vm3` is.
-
-A folder holds each pane **by name and by id**. The id says which pane, always — two terminals may share a name, and the id is the only thing that tells `vm1` in `eng` from `vm1` in `prod`. The name is for one moment: when conch connects to a machine and finds the ids it wrote down belong to a server that has since restarted, each folder looks for its panes by name **once** (`r` in the tree, or `conch rename`, gives a pane its name). What it finds then it keeps by id; what it cannot find it lets go. Two consequences worth knowing: a pane you never named is held by id alone and leaves its folder when the server goes, and if **two** panes answer to one name at that moment the folder keeps neither, there being nothing to choose by — and it does not come back for them later, so a terminal that merely outlives its namesake stays where you left it. Renaming a pane while it runs keeps it in its folder: the id still says which pane, and the folder takes the new name with it. A pane is in one folder at a time, and folders live in `ui.json` per machine, project and section, so they cost nothing to anyone who never makes one.
-
-### Grouped by tab
-
-A project lists its panes under **Agents** and **Terminals** — what each one is — with its **Branches** between them, then **Files** and **Sessions**: agents first, in the order Conch.app shows them. **Settings → Tree grouping → By tab** lists them under the tab each is open in instead, so the tree says what the tab bar says:
-
-```
-▾ ◆ conch
-  ▾ Tab 1  claude ⊞
-      › claude
-      › zsh
-  ▾ Tab 2  codex
-      › codex
-    Branches            13
-```
-
-Drag an agent or terminal row onto a tab's section to put it in that tab: it leaves whatever tab it was in — which closes if that was its last split — or, if it was open in none, it is opened there. The section under the pointer is marked while you hold.
-
-A tab's row is named as the bar names it, a renamed tab (`ctrl+b ,`) and the `⊞` for a tab of more than one split included, and it is numbered among that project's tabs. Panes open in **no** tab keep their Agents and Terminals sections below, so closing a tab never hides a pane. A tab holding panes from two projects, or from none, belongs under neither and is left out; its panes keep their sections. It is `[ui] tree_groups = "tabs"` in [config.toml](/docs/configuration).
-
-### Fold state
-
-Fold state and sidebar width are remembered in `~/.config/conch/ui.json`. With two conch windows open at once, each keeps its own tabs, workspaces and folds, while folders, saved ssh hosts and the repositories you said No to are shared: a change made in one shows in the other within a second, and neither writes over the other's. If both change the folders of one section in the same moment, the later change wins. A conch from before this was added still writes over the file, so restart an old window after upgrading.
-
-### Commit graph
-
-**Commit graph** on a project's menu (`m`, then `G`) opens its history in a window over the screen: every branch and tag of the repository, newest first, as `git log --graph` draws it — each commit a dot on its branch's lane (`◉` where HEAD is), lanes in the theme's colours joining where branches merge — with its short hash, its refs as git names them (`(HEAD → main, origin/main, tag: v1)`), subject, author and age. On a branch's menu it opens at that branch's newest commit. `↑↓` move, `enter` shows the changes of the branch a commit is the tip of, `y` copies its hash, `r` reads it again and `esc` closes; the wheel scrolls and a click picks a row. The newest 300 are read first and older ones as you scroll to the end, up to 2000. It needs a server with `project.log.v1`; an older one says to reload it. Conch.app draws the same graph in a tab of its own.
-
-### Git panel
-
-Press `b` or `$` on a branch — `$` in its changes, or **Git panel** from its menu — and a command window opens in the middle of the right-hand panel, while the branch's changes load behind it. A *click* on a branch shows its changes and leaves the window closed: opening a window over the right-hand side is more than one click on a row should do. The tree stays in view, and `b` on another branch moves the window to that one. On a screen too narrow for that, it takes the whole width. It opens empty and holds only what your commands print, and the prompt — the files and where the branch stands (upstream, base, its pull request) are on the branch's changes behind it.
-
-Type any git command — `log -5 --stat`, `switch -c spike`, `commit -m 'fix: the "quoted" bit'` — and it runs in that branch's worktree; a leading `git` is optional. Quotes group words as in a shell, but nothing is expanded, so `*.go` reaches git as it is. The command starts with git's subcommand: options before it, like `-C` or `-c`, are refused, so it can't reach another repository. Nothing waits for an editor or a password: a merge or `rebase --continue` takes git's own message, `commit` with no `-m` stops, and a fetch that needs credentials fails rather than hangs.
-
-A session in it reads as a transcript — what you typed, and what git printed:
-
-```
-status -sb
-## fix-login...origin/fix-login [ahead 1]
- M internal/tui/keys.go
-?? notes.md
-
-add -A
-
-commit -m 'fix: the "quoted" bit'
-[fix-login 9f3c1a2] fix: the "quoted" bit
- 2 files changed, 18 insertions(+), 3 deletions(-)
-
-push
-```
-
-`tab` shows the everyday ones in place of the output, each with a key: **Status**, **Log**, **Diff stat**, **Fetch**, **Pull** (rebasing, with your changes stashed around it), **Push**, **Commit…**, **Amend**, **Stash**, **Pop stash**, **Stashes**, **Branches**, **Rebase on** and **Merge in** the base, **Undo last commit** (the changes stay, staged), and **Discard changes…**. Amend, undo and discard ask first, and discard only takes `y`. Push and commit are the same as `P` and `c` in the changes view, so a push the remote is ahead of still offers to rebase. `tab` or `esc` goes back to the prompt.
-
-When a rebase, merge, cherry-pick or revert stops on conflicts, a line above the output says so, and the actions start with **Continue**, **Abort** and — with an agent on the branch — **Ask it to resolve**.
-
-With an agent working on the branch, `ctrl+t` (or a click on the prompt's label) sends what you type to it as its next message instead, and the actions become instructions for it: review the changes, commit its work, write tests, rebase on the base, resolve a conflict, or open its pane. An agent waiting on a question isn't sent anything, and the window says so.
-
-Servers older than the window still open it, with push, commit and messages for the agent; typed git commands need the server reloaded.
-
-### Changes view
-
-Selecting a branch shows its **changes**: its pull request (checks, review), uncommitted files (or files changed since the base when it isn't checked out), commits ahead, and diffs.
-
-**On a wide terminal the diff is side by side** — the old on the left, the new on the right — and unified below about 100 columns, where two columns would be two columns of wrapped code. **Settings → Diffs** makes that your choice rather than conch's: *side by side where there is room* (the default), *always side by side*, or *always one column*. `s` says otherwise for the file you are looking at, without writing anything down. A line too long for its column **wraps inside it** rather than being cut — the end of a line is often exactly where the change is. Within a run of removals and the additions after it, the first pairs with the first and so on; whatever is left over stands alone, which is the only pairing that can be made without guessing which line became which.
-
-**Inside a changed line, what changed is picked out.** Where one line replaces another, conch compares the two and marks only the part that differs — a renamed variable in a long line is two characters, and finding them by eye is the slow part. A block of removals followed by a block of additions is left plain: there is no "this became that" to show, and marking it would invent a pairing. So are two lines with nothing in common, where the `+` and `−` have said it already.
-
-| Key | In the changes view |
-| --- | --- |
-| `↑↓` | select a file |
-| `enter` | show its diff |
-| `space` | mark a file for the next commit (`✓` beside the cursor; clicking that column marks it too); inside a diff, the hunk the `▸` cursor is on |
-| `n` `N` | move to the next or previous hunk of an open diff (`[` and `]` too) |
-| `s` | side by side or unified, for this file (wide terminals start side by side) |
-| `a` | inside a diff, comment on the hunk the `▸` cursor is on (`✎` marks it; `a` again edits it, and an empty comment removes it). Only on a checked-out branch, since the comments are for the agent working in it |
-| `S` | send every comment on the branch to its agent as one message: each numbered, with the file, the hunk header and the hunk itself quoted (the first 40 lines), so a comment still makes sense after the agent rewrites the lines. With no agent on the branch, your default agent starts in its worktree with them. Refused while the agent waits on a question of its own, and the comments stay. They are cleared once sent |
-| `e` | open the file in the machine's own `$EDITOR`, at the hunk the `▸` cursor is on — in a pane of its own, so conch keeps running. From the file list it opens at the top. The editor runs on the machine the worktree is on, which is the machine whose `$EDITOR` and whose file they are. conch knows the line flag for vim, nano, emacs, VS Code, Cursor, Zed, Sublime, Helix and the JetBrains editors; anything else opens the file without a line rather than being handed a flag it would read as a file name |
-| `F` | inside a diff, follow what just changed (on until you scroll away) |
-| `R` | re-read the branch, or the open diff, now |
-| `c` | commit the marked files, or every change when none are marked |
-| `P` | push, setting the upstream the first time; when the remote has commits this checkout lacks, conch says so and offers to rebase onto them and push. A rebase that conflicts is undone — the branch and the remote stay as they were — and the notice says where to sort it out and what to run |
-| `p` | push and open a pull request into the base |
-| `M` | merge into the base |
-| `D` | discard the branch and its worktree (`x` in the tree does the same once a branch has no worktree left) |
-| `A` | compare the attempts at this task, when a prompt was tried several times |
-| `o` | open the PR |
-| `$` | the branch's [git window](#git-panel) |
-| `y` | copy the file path or the whole diff |
-| `esc` | back |
-
-These also sit in a branch's menu (`m`). See [Finishing a task](/docs/tasks#finishing-a-task) for what each one checks first.
-
-**Review comments are the server's, not this window's.** The machine's conch keeps them, so they are still there after you leave the changes view, quit conch or reload the server, and everything else that talks to that server sees the same ones: another conch window, [`conch review`](/docs/cli#review) in a shell — which is also how a reviewing agent leaves comments for you to read and send — and the [phone](/docs/phone#review-comments), which shows them on the agent's card and sends them with a tap. A branch that is merged or discarded takes its comments with it. A server from before this says so when you press `a`; `conch server reload` brings it up to date.
-
-**What reviewers said on the pull request is here too.** For a branch with an open pull request, conch reads its unresolved comments through `gh`, with your own login, about a minute after the pull request changes: each comment thread is marked `✎` on the hunk its line is in. A review's own summary is listed too, when it asked for changes or left a comment. The title counts them (`✎ 5 comments (3 from GitHub)`), and the lines under it say who wrote each one, where, and how many replies it has: `✎ alice on GitHub · line 42 · 1 reply: this swallows the timeout`. A comment whose lines have changed since it was written is marked *outdated* and listed under the hunk's comments, as are comments about the whole pull request. `S` sends them with conch's own, each with its replies and who wrote it. They are GitHub's: `a` doesn't edit them, and sending one doesn't resolve it on GitHub. A sent comment isn't sent again, and comes back only when somebody replies to its thread. A thread resolved on GitHub disappears here, and so does every GitHub comment once the pull request is merged or closed.
-
-#### Diffs as the agent writes them
-
-The server watches the worktrees of every project it knows, and says so the moment their files are written — a diff you have open re-reads itself about a tenth of a second later. It cannot wait for the file list to change: an agent rewriting a line leaves the file's `+`/`−` counts exactly as they were, so the diff on screen would quietly go stale.
-
-Only the branch you are looking at is re-read, and the open diff only when its own file was one of the ones that changed. Directories git ignores cost nothing — `node_modules` and `target` are never watched — and git's own metadata is left to the project's ordinary refresh. A machine that can give no file watches (an old kernel, or its watch budget already spent) says so in its capabilities, and conch falls back to re-reading the branch every two seconds instead; a remote on a build older than this feature does the same.
-
-Splits work the way you would want: put an agent's pane beside its branch's changes, or two branches side by side, and each half follows its own worktree — an event about one moves only the half showing it. Tabs are different, because only the tab on screen is read: one you come back to is re-read then, rather than left showing what it had when you switched away.
-
-The file list says where the work is happening: a file written in the last few seconds has its whole row washed in a faint tint of the theme's warn colour and is marked `▌` right beside its name — where your eye already is, rather than out by the `+`/`−` numbers, which on a wide split are most of a screen away — and the heading counts them (`· 2 changing`), so you can see which file an agent is in without opening each one. Lines the last re-read brought are marked `▌` in the gutter for a few seconds, and the header counts them — enough to see at a glance what the agent just wrote. The view follows them, scrolling to the first one when it is off screen; scrolling yourself stops it following, `g` or `F` starts again, and `F` turns it off while you read. Hunks you marked for a commit lose their mark when the agent rewrites them, rather than committing something you didn't read. When the file goes back to matching the branch — committed underneath, or the edit undone — the diff says so instead of going blank.
+All keys: [Keys and mouse](/docs/keys).
 
 ## Review queue
 
-`Q` opens the **review queue** in the focused split: one list of what needs a decision, across every machine, instead of walking the tree to find it.
+What needs a decision, across machines: waiting agents, failed checks, finished work.
 
-| Order | Row | Why |
-| --- | --- | --- |
-| `!` | an agent is waiting | it is blocked on an answer and nothing proceeds until you give one |
-| `✗` | its check failed | the project's command came back non-zero on that branch, or its pull request's CI failed |
-| `✓` | an agent finished | it is done and nobody has looked at what it did |
-| `↑` | commits not pushed or merged | work that is finished but hasn't shipped |
-| `·` | uncommitted changes | a worktree left dirty, with no agent running in it |
-| `⏲` | scheduled | a message or task the server will send or start later ([Later, and on a schedule](/docs/tasks#later-and-on-a-schedule)); `x` takes it off the schedule |
+**How:** `Q`; `enter` opens a row, `v` runs the check.
 
-Within each group the thing that has been waiting longest comes first, so nothing quietly rots at the bottom. Rows are gathered under the project they belong to — a repository is named once, however many of its branches need you — and the projects themselves are ordered by their most urgent row. Each row names the branch, what it is waiting on, what the agent has spent, and how long it has been there. It also says what you would open it to find out: a waiting agent's question in its own words (`waiting for an answer: Claude needs your permission to use Bash`), and how much is uncommitted on the branch (`3 files +42 −7`) — so coming back to a handful of agents is reading a list, not opening each one. `/` filters by any of it, the question included.
-
-**Merge trouble, before the merge.** Agents in parallel branches collide when their work is merged, and finding out then means untangling a conflict after the work is done. So a branch's row — and the top of its changes — says when another branch's checkout has touched the same files (`⚠ also changed on api/fix-login: auth.go`), and when merging it into the base would conflict, tried without merging anything (`⚠ conflicts with main in auth.go`, with git 2.38 or later). The row has one line for it; the changes page lists the files themselves, one to a line under the branch each collides with, and counts anything it has no room for. That is the moment to decide which agent goes first, or to have one rebase onto the other — `b` opens the git panel, which can hand the rebase to the branch's agent.
-
-`enter` goes where the answer is: a waiting agent opens its pane so you can reply, and anything else opens the branch's [changes](#changes-view), where committing, pushing and opening a PR already live. ### Checks
-
-A project can have a **check** — its own command, `go test ./...`, `npm test`, `make check` — which conch runs in a branch's worktree when the agent working there finishes. The queue then says what happened (`check passed`, `check failed (exit 1)`, `checking…`) instead of only that an agent stopped, and a branch whose check failed sorts to the top: that is the clearest call for your attention there is. A verdict is about the branch as it stood when the check ran, so a commit or an edit afterwards makes it read **check out of date** — it stops counting as a failure, and conch runs the check again once the branch has been quiet for half a minute and no agent is still writing in it. `v` runs one whenever you like.
-
-`v` on a row runs the check, or asks for the command when the project has none; `o` opens that check's terminal, which is where a failure's output is, and `ctrl+b b` comes back to the queue (pressing it again returns to the terminal). There is no default and nothing runs until you name one, since a project's own command can take minutes, touch a database or cost money. A project without a check is not scolded — its rows simply say nothing about checks. Each run happens in its own terminal. A run that **fails** keeps it — unlike a shell that exits — so the output is there to read; close it with `x` when you are done, or leave it: the next check on that branch takes its place. A run that **passes** closes its terminal as it ends, since the verdict is on the row and in the flash and nobody opens a passing run's output — otherwise every branch you ever checked would leave a dead terminal in the tree. conch also says what happened as it finishes, and a failure says where to look.
+<TuiShot id="queue" title="Review queue" caption="What needs you, most urgent first." />
 
 ### Sending a failure back
 
-`f` on a row that failed hands the failure to the agent on that branch, as its next message: which command, how it ended, the end of its output (the last 80 lines, at most 6 KB, colours stripped) and a request to fix the cause and run it again to show it passes. When nobody is working on the branch any more, `f` starts your default agent in its worktree with the same message. An agent waiting on a question of its own is left alone — answer that first.
+`f` on a failed row sends the failure to the branch's agent. `[verify]` automates it:
 
-The same goes for **CI**. A branch whose open pull request failed its checks is in the queue as `CI failed on #12`, even when everything is pushed, since fixing it is your move again; `f` on it reads the failed steps of the newest failed GitHub Actions run at the pull request's head commit, through `gh` on the machine the branch is on, and sends that. A check run by another service has no log conch can read, and conch says so.
-
-To have conch do this without asking, set how many times in a row it may in `config.toml`:
+<AutopilotLoop />
 
 ```toml
 [verify]
-auto_fix = 2   # send a failed check back to the branch's agent up to twice
+auto_fix = 2         # send a failed check back up to twice
+auto_pr = true       # push a finished branch and open its pull request
+auto_merge = true    # merge a pull request when it turns green
+auto_resolve = 2     # bring a conflicting branch up to date
 ```
-
-It only sends to an agent that has finished — never one still working or waiting on you, and never by starting an agent nobody asked for — and a check that passes resets the count. When the count runs out, conch says the failure is yours. The default, `0`, never sends on its own: a cap is the difference between an agent fixing a test and an agent spending a night of your plan on one it cannot fix.
-
-**This covers CI as well as the project's own check.** conch reads a pull request's checks every minute while you are working, and when a branch's checks turn red it hands the end of the failed run's log to that branch's agent, exactly as `f` would — same cap, same count, same guards. Both kinds share one count, since "a check failed, give it to the agent" is one idea, and green clears it, so a branch that goes red again gets the whole allowance rather than none. Only a change conch *watched* counts: reaching a machine that already has four red pull requests on it prompts nobody, because conch did not see those turn red and the work may be days old. They wait in the review queue, where `f` sends them when you say so.
-
-**And it can merge when they pass.** The other half of the same loop:
-
-```toml
-[verify]
-auto_merge = true   # a green pull request merges itself
-```
-
-On the turn to green — once, not on every poll — conch merges the pull request **on GitHub**, through `gh`, the way the repository allows: a merge commit, else a squash, else a rebase. It merges the commit whose checks passed, so a push in the meantime is not merged unchecked, and it leaves the branch in place, since a worktree may still be on it. Pull your base afterwards to have the merge locally.
-
-What holds it back, said once on the status bar rather than quietly: a **draft** is not finished whatever CI says; **changes requested** is a person asking for something, and green checks are not an answer to it; a pull request that **conflicts with its base** cannot be merged as it stands, so rebase it; an **unresolved thread** on the pull request is somebody still waiting, which catches the commoner case of a reviewer who left notes and no verdict (conch's own comments on the diff are not counted — those are your working notes, and a stale one would hold a branch for ever); this **project's own check failing** on the commit being merged while CI passes is a disagreement rather than a go-ahead — and with a check command, the pull request waits until that check has passed on the very commit being merged: while it is running; while it has not run on a commit that is checked out here, which conch runs it on; and while the commit is not checked out here at all — pushed by hand, say, or the branch has moved on since — which it says, since the check can only run where the commit is; a branch whose **agent is still working or waiting** may be mid-push; and a pull request whose **commit is not on the branch here** — pushed from somewhere else, or one GitHub would not name — is not what an agent here made, so it is held until the branch has it (a head the branch has moved past is still its own). A pull request from a **fork** is never taken for a branch here, whatever its branch is called: anyone can name a branch after one of yours. Held back is not given up: the pull request waits, and merges as soon as the hold is gone — the agent finishing, the thread resolved, the conflict rebased away and CI green again. If GitHub itself refuses (a branch protection rule, say), conch says why and tries again only when the pull request next turns green. A pull request that was already green when conch first read it is not merged — conch did not see it turn — and neither is one that arrives green, opened while the server was stopped or between two reads. The machine's conch has to be new enough to merge on GitHub; an older one is asked for nothing, and the status bar says to update it. It is off by default, because it writes to your base branch.
-
-**And it can open the pull request in the first place.** The start of the same loop:
-
-```toml
-[verify]
-auto_pr = true   # a finished branch is pushed and given a pull request
-```
-
-When a branch's agent finishes, the server runs the project's check there — in a terminal named `check · BRANCH`, as `v` does, which the review queue shows as its own, with git's pager off since nobody may be there to page it — and once it passes for the commit the branch is at, conch pushes the branch and opens a pull request titled from its commits (`gh pr create --fill`). A branch whose pull request is already open has its new commits pushed to it instead, which is how an agent's fix for red CI gets back to CI. Without a check command for the project it goes out as soon as the agent finishes. What it will not do, said once: push work that is **uncommitted** — the agent is asked, once for each commit it is at, to commit what belongs to the work, since which files belong is its call and not conch's; open a second pull request for a branch whose last one somebody **closed**; or push a branch whose agent is still working. The base branch is never pushed, and a branch with no commits of its own has nothing to send. Off by default: it publishes the agent's work.
-
-**What it asks of the work first.** Two gates decide whether a pull request conch opens may merge itself:
-
-```toml
-[verify]
-require_tests = true   # code with no test opens as a draft, and the agent is asked for one
-max_diff = 800         # so does a pull request bigger than this many changed lines
-```
-
-A pull request conch opens that fails one is opened **as a draft**, with the reason on the status bar; and any green pull request that fails one — whoever opened it, or one that has grown since — is held back from merging itself, saying which. With `require_tests` a branch that changes code — not documentation, configuration or data — and touches no test is one; its agent is asked once for the branch to add a test (or to say why it cannot be tested, which leaves the draft for you) that fails without the change, and the push that brings one marks the pull request ready. Tests are recognised by the usual conventions: a `test`, `tests`, `__tests__` or `spec` directory, or a name like `x_test.go`, `test_x.py`, `x.test.ts` or `FooTest.java`. With `max_diff` the line count is what is added and removed together, and the advice is to split it. A draft you made yourself is yours; conch marks ready only the ones it held.
-
-While `auto_pr` is on, a task's first message also ends with how its branch is shipped — the check that runs, and that the agent should write the failing test first, commit in small commits whose messages say why, leave nothing uncommitted, and never push, force-push, rebase onto the base or merge, since conch does those after checking. It is the same practice the messages conch sends later ask for, said at the start rather than learnt from a refusal.
-
-**And a conflict with the base need not stop it.** A pull request that conflicts cannot merge, whatever CI says:
-
-```toml
-[verify]
-auto_resolve = 2   # bring a conflicting branch up to date, asking its agent up to twice
-```
-
-When a pull request turns conflicting, the server rebases the branch onto the base as the remote has it, which is all most conflicts need — the base moved, and the branch did not touch the same lines. When the rebase stops on a real conflict it is undone, and the branch's agent is asked to do it: told which files, what the base did to them since the branch left it, and to keep both sides — every change the base made and every change the branch made, stopping to say so where they truly contradict rather than picking one, and never deleting a file or a test to get past a conflict. The rewritten branch then has to replace the pushed one, which is the step that could lose work, so it is checked first: the project's check must pass for the new commit; the base must be all there; nothing may be deleted that the branch did not delete before; and it is pushed with a lease, only while the remote still has what was there when the rebase began, so anybody else's push meanwhile is kept and the rewrite refused. Each refusal says why. A pull request already conflicting when conch first saw it is left to you, and so is one past the allowance.
-
-**It runs on the machine, not in your terminal.** Each machine's conch server does the sending back and the merging, so both carry on with the TUI closed, through a server reload, and with two TUIs open without either acting twice. The TUI hands each server your `auto_fix`, `auto_merge`, `auto_pr`, `auto_resolve`, `require_tests`, `max_diff` and check commands when it connects and whenever you change them in **Settings** (`,` → **Git** for merging, **Agents** for sending a failure back), and the server keeps them — with the CI each pull request last had, the count, and what waits to merge — in `autopilot.json` beside its other state. A machine whose server predates this is named on the Git tab: there the TUI still does both itself, and only while it is open. The project's check runs on the server too when an agent finishes; one you start yourself with `v` is reported to it, since a failed check is what holds a merge back.
-
-Together with `auto_fix`, `auto_pr` and `auto_resolve` that is the whole loop people write skills for — the agent finishes, its check passes, the branch is pushed and a pull request opened, CI goes red and the agent gets the log and fixes it, the base moves and the branch is brought up to date, CI goes green, it merges — except that nothing sits in a polling loop: conch reads pull requests every minute anyway, so no agent is kept awake and no tokens are spent waiting.
 
 ### A second opinion
 
-Name an agent to review finished work and conch asks it, on every branch whose agent finishes — once the check passes, where the project has one:
+A reviewer reads each finished branch; `R` hands its report to the writer.
 
 ```toml
 [verify]
-reviewer = "codex"   # Codex reads what Claude wrote; any agent conch runs will do
+reviewer = "codex"
 ```
-
-The reviewer starts in the branch's worktree, in a pane named `review · <branch>`, told to read the diff against the base, report what is wrong with a file and line for each finding, and not to edit anything. When it finishes, its row in the queue says `review ready`, and `R` there hands its report — its whole last message, read from its saved conversation rather than off its screen — to the agent that wrote the code, asking it to address each finding that holds up and say why where it disagrees. A branch is reviewed once per state: the reviewer finishing, or the writer finishing again with nothing changed, starts nothing; a branch already being reviewed is left to that reviewer. **A reviewer closes once its report is used**: after `R` hands it over (a send that fails keeps it), when the branch has changed and the next review starts (the last one goes as the new one begins), and when the branch is merged — by conch, `gh` or GitHub's page, seen the next time conch reads the pull requests — discarded, or its worktree removed. A finished reviewer no longer stops a worktree being removed or cleaned up; one still reading, asking you something or stopped by an error is left open for you to look at. Another vendor's model, with a fresh context, is the point — it catches what the writer's own context hides from it — but nothing stops you naming the same agent. Every review spends plan usage, so nothing is reviewed until you name a reviewer.
-
-A passing check means the tests passed. It does not mean the change is right, so it sorts the obvious failures out of your way rather than deciding anything for you.
-
-`/` filters the queue as you type — over the project, branch, agent, machine and the reason a row is there, so "onenutri failed" or "codex waiting" both work — and the count says how many rows it hides; `esc` clears the filter before it leaves the queue. `x` dismisses a row you have decided to leave alone; it comes back when what it says changes — another file edited, the agent finishing again — and dismissals are kept in `ui.json`, so they outlive the TUI; one is forgotten once the row it was about is gone. `esc` returns to the tree.
-
-The status bar counts what the queue holds (`3 to review`, beside `⚑ 1 waiting · 1 done`), so it is worth opening; clicking the count opens it, and `Q` works from a view as well as from the tree (inside a pane it is typed, like any other key). The queue keeps a tab of its own, so opening a row from it leaves the queue where it was to come back to.
-
-A branch with an open pull request and nothing unpushed is not in the queue — it is waiting on a reviewer, not on you. Nor is a machine that is offline, whose panes conch only holds a stale cache of. Branches the tree has stopped listing — nothing committed for a fortnight and not checked out — drop out too, so the queue stays a list of what to do now rather than a history of the repository. An agent waiting or finished is always listed, however old its branch.
 
 ## Files
 
-Every project has a **Files** row, and `f` opens it from anywhere in the tree: on a branch — or an agent or terminal working on one — it browses that branch's worktree, so "what did the agent on `fix-flaky` actually write?" is one key; anywhere else in a project it browses the main checkout. A branch with no worktree falls back to the main checkout and says so, and `w` moves through the project's checkouts. `w` says which checkout it landed on, since a project with four worktrees otherwise leaves you counting.
+Every project has a **Files** row: a checkout with each file's git status and a preview.
 
-```
- Files  conch · fix-flaky-tests   enter open · a → agent · y path · d diff · w checkout · / find
- ~/.conch/wt/conch-fix-flaky-tests › internal › tui · 3 changed
- ──────────────────────────────────────────┬─────────────────────────────────────
- ▾    internal/                          M │ queue.go · 472 lines · modified
-   ▾    tui/                             M │   1  package tui
-       go model.go                       M │   2
-       go queue.go                       M │   3  import (
-       tx app.tsx                        ? │   4    "fmt"
- ▸    web/                                 │   5    "sort"
-   rd README.md                            │
-```
-
-The tree opens a folder at a time, as you expand it, and the selected file shows beside it once the split is 100 columns wide; narrower, `enter` swaps the preview in and `esc` swaps it back. The letter on the right is the file's git status in the same letters as the [changes view](#changes-view) — `M` modified, `A` added, `?` untracked, `U` conflicted — and a folder carries the most telling one of what is in it. **Dotfiles are shown** — in a checkout `.github`, `.claude`, `.gitignore` and `.env` are the work, not clutter — and `.` hides them. What git ignores (`node_modules`, build output) is left out until `i` asks for it. Both choices are remembered, here and after a restart. `.git` is never listed: it is git's own, and a thousand objects nobody browses.
-
-**The explorer keeps itself current, three ways.** Edits in a watched worktree reach it on their own, about a tenth of a second after the file is written; a commit — which changes every status without writing a file — re-reads it too; and **coming back to it reads its folders again**, because the first two depend on conch watching that checkout, and a machine that gives conch no watches polls instead, an unwatched worktree waits for the slow poll, and a checkout changed by something outside conch is not announced at all. `r` reads it again whenever you want.
-
-`a` is the one to remember: it types the selected file's path into the prompt of the agent working in that checkout — the one beside the explorer if there is one, else the one busy most recently — on whichever machine the checkout is on, relative to where the agent runs. `d` opens the file's diff in its branch's changes, `e` opens it in that machine's own `$EDITOR` in a new terminal, and `y` copies its path.
-
-The preview is plain text with line numbers, the first 256 KB of a file; a binary file is described (`binary · image/png · 1.2 MB`) rather than shown. Where the server watches worktrees, what an agent writes appears on its own — the open folders are listed again and the file in the preview read again — and `r` reads the checkout again anywhere. The explorer only reads files, and only inside the project's checkouts: a path, or a symlink, that leads out of one is refused by the server. A machine on a conch from before the explorer says it needs updating rather than showing an empty repository.
-
-Each kind of file gets an icon, by its whole name first (`Dockerfile`, `go.mod`, `pom.xml`, `Jenkinsfile`, `.prettierrc`, `CHANGELOG.md`) and then its extension, coloured from the theme. The table covers about 220 extensions and 95 names — the languages, templates, manifests, lock files, tables, documents, media, bundles, keys and certificates a repository actually holds — with the glyphs taken from the Nerd Fonts glyph list and nvim-web-devicons, so a file looks here the way it looks in the editors you also have open. Anything unknown keeps the plain file icon. Settings → Theme chooses letters (`go`, `ts`, `tx` for `.tsx`, the default, since they read in any font), [Nerd Font](https://www.nerdfonts.com) glyphs — which need a Nerd Font in your terminal, and show as boxes without one — or none.
+**How:** `f` browses a branch's worktree; `a` types a file's path into the agent's prompt, `d` shows its diff, `e` opens it in `$EDITOR`.
 
 ### A machine's own files
 
-A machine elsewhere — an ssh host, a sandbox — has a **Files** row of its own, under its Workspace and CLI. It is the same explorer on the machine as a whole rather than a checkout: it starts in the home folder there, `-` (or `backspace`) goes up a folder and `~` comes back home, and there is no git to show. This computer has no such row: its files are a Finder away.
+A remote machine, and a terminal running `ssh host`, get a **Files** row of their own, which also copies files between there and here.
 
-A terminal where you typed `ssh host` — on this computer or any other — gets a **Files** row under it, naming the host, for as long as ssh is what is running in it; `f` on the terminal opens it. It is the same explorer on that host, with nothing of conch's needed there: conch makes a session of its own with what you typed (the host, user, port, key, jump host and `-F` config, leaving out forwards), and reaches the files through the host's sftp server, which OpenSSH has by default. That session never asks for anything, so it needs a key or an ssh agent; a host that only takes a password says so instead. With `ControlMaster` in your `~/.ssh/config` it shares the terminal's own connection and does not log in again at all. It is closed after five minutes unused, and when the terminal leaves the host. `e` on a file there opens the host's own `$EDITOR` in a new terminal beside it, which runs `ssh -t` to the host with the same options — so this one may ask for a password — and closes when you quit the editor; an `$EDITOR` set in the host's `.zshrc` or `.bashrc` is the one used.
-
-On any machine elsewhere, or a terminal's ssh host, this view and a project's alike, the explorer is also how files cross between it and this computer:
-
-- `U` asks for a file or folder here and copies it into the selected folder there — or the folder the selected file is in. Dragging files or folders from Finder onto the view does the same without asking.
-- `D` copies the selected file or folder to `~/Downloads` here (your home folder, on a computer without one).
-- A folder is copied whole, symlinks as links. A name already taken is never written over: the copy is numbered — `ca 2.pem`, `site 2` — and the status bar says where it landed. `U`'s dialog has a **Replace** box for writing over instead; for a folder that merges, keeping files only the other side has. A copy is written under a hidden `.name.part-…` and renamed when it is whole, so nothing half-copied ever has the real name; the view leaves those out while they last.
-
-Copies go over the machine's own conch connection — the one its panes use — so an ssh host and a sandbox are the same: no address to look up, no key or password to give, nothing to install. [`conch upload -to` and `conch download`](/docs/cli) do the same from a shell, and with `-ssh PANE` for a terminal's ssh host. A machine running a conch from before this says it needs updating (`conch machine upgrade`).
-
-The explorer browses; it does not manage. There is no creating or deleting here: `n` opens a terminal in the folder you are looking at, which does the whole job rather than the two verbs a file manager would reimplement. `y` copies a file's path, `e` opens it in `$EDITOR`, `a` hands it to the agent working in that checkout, `d` shows its diff.
-
-Dragging to select keeps to the column it started in — the list or the preview — so copying a file's text does not bring the file names sitting on the same rows with it.
+**How:** `f` on a remote machine or ssh terminal; `U` uploads, `D` downloads.
 
 ## Splits and tabs
 
-The main area has tabs (click them, `+` adds one, `×` closes), and each tab can be split into several views: panes, branch changes, projects or machines side by side. The tab on screen is underlined in the accent, and the bar's far end names whose tabs it lists (`api`, `CLI`, `busybox › api`). The focused split has the highlighted border.
-
-Tabs work like tmux windows. Every agent and terminal you open from the tree gets its own tab, and opening it again jumps to that tab; a pane is never shown in two places. Projects, branches and sessions share a browsing tab that follows the tree as you move.
-
-**The palette.** `ctrl+b /` (`⌘K` in [conch's own window](/docs/cli#app)) lists every agent and terminal in the workspace — the ones waiting for you first — its projects and task branches, and the commands you would otherwise need a key for, each with its key beside it. Type to narrow it (words match in any order, `ctrl+u` clears), then `enter` or a click: a place opens as `enter` on its row in the tree does, and a command is its key sent as if typed, so it does exactly what the key does.
-
-**Workspaces.** The top of the sidebar reads `◆ conch` followed by a `+` — in [conch's own window](/docs/cli#app), the left of the strip along the top does instead. Clicking the `+` (or `ctrl+b N`) opens another workspace, and each one — the first included — is isolated: it shows only its own projects, agents and terminals, sessions, machines, saved SSH hosts, folders and tabs. A new workspace starts empty. A project belongs to the workspaces you add it to with `a` (adding one conch already has, by its path, shares it: its agents and sessions then show in each); an agent or terminal belongs to the workspace it was started in, or to its project's, and what an agent starts follows it; a saved SSH host belongs to the workspace it was saved in; a machine is listed where it was added — over ssh, as a sandbox, or with `M` → **Machine already in conch…** — or where something of the workspace runs on it, and this computer is listed everywhere. Folders show where they were made, or where they hold something shown. What belongs to no workspace — everything from before workspaces, and what the `conch` command makes outside the TUI — is workspace 1's, so nothing is out of reach, and bringing something workspace 1 has into another keeps it in workspace 1 too. The machine row, machine page, Workspace page, the status bar's `⚑ waiting` counter and `!` count only what the workspace shows; the plan limits view still counts the whole machine, since limits are the account's. With more than one workspace, they are numbered beside conch; click one to switch, or use `ctrl+b (` and `)`. `ctrl+b $` names the workspace on screen, and `×` beside it (or `ctrl+b X`) closes it. Its projects, machines, hosts, folders and tabs move to workspace 1 — what no workspace claims is workspace 1's, so they land there whatever you answer — and anything running in it is the one thing you decide: closing a workspace with agents or terminals of its own asks whether to **move** them to workspace 1, still running, or **end** them along with it, naming how many of each. A pane another workspace also shows — one in a shared project, or started by an agent in one — is never ended: it keeps running there. With nothing running, closing just asks to confirm. `x` on a project, machine or saved host takes it out of this workspace while another workspace has it, and otherwise removes it from the sidebar, removes the machine or forgets the host, as it always has. Workspaces are remembered in `ui.json` and shared: two conch windows open at once, and [Conch.app](/docs/mac-app), see the same workspaces — one made, renamed, given a project or closed in one shows in the others within a second — while each keeps its own tabs and the workspace it has on screen.
-
-The tab bar lists the tabs of what you select in the tree: a project shows its tabs, `Workspace` those of all the machine's projects, `CLI` the machine's own, and `Agents`, `Terminals` or `SSH` (or an agent or terminal in them) narrows to those. A tab with an agent waiting for your answer shows `!` before its name, in amber, as the tree does. A branch — or `Branches` — lists the tabs showing changes, not the project's agents and terminals. Each branch opens in its own tab and keeps it, so looking at another branch, or at the project's page, leaves it alone. `Branches` itself shows a page of every branch — including the ones the tree hides behind "… more" — with its worktree, uncommitted lines, pull request, how far it is from the base, and when it last changed. Clicking one opens its changes, listing it in the tree first when it was hidden behind "… more". `Agents`, `Terminals` and `SSH` show their own pages the same way — what runs in them, with state, branch and usage — and a click opens that pane. `Sessions` keeps its own view. A tab belongs to the group of its first split. Moving onto a project, its branches or Sessions shows that page — in the group's browsing tab if there is one, otherwise as a preview — while the bar keeps listing the group's tabs. The machine row has no tabs and shows its page as a preview too. On `local`, until you have tried them, that page also lists four steps under **Getting started** (add a project, give an agent a task, open the review queue, detach), each ticked off once done; the list goes away once all four are, and `x` on `local` hides it sooner. Which steps are done is kept in `ui.json`. A preview becomes a tab once you open, split or type into it. `ctrl+b C` opens the changes of the branch the focused split is on in a tab of their own, without walking the tree for it: from an agent's pane it is one key to the diff it is writing, and pressing it again goes back to that tab rather than opening a second. Splitting from a preview divides the tab you were on rather than the preview, so pointing at a branch and pressing `v` puts its changes in the new half **beside** what the tab already showed — an agent's pane on one side, the diff it is writing on the other. Splitting onto what the focused half already shows still gives an empty half to pick for, since one branch twice, or a pane typed into in two places, helps nobody. `ctrl+b c` opens a new tab with a terminal in it, in the folder the tree is pointing at (the `+` menu's **Empty tab** is there when you want one to fill yourself). `ctrl+b n`, `p` and the numbers move through the tabs listed; `ctrl+b w` lists every tab, grouped. Closing a split or a tab ends the agents and terminals in it, after you confirm, and a pane that exits (a shell's `exit`, an agent's `/exit`) closes along with its split or tab. Only a pane that fails within its first 10 seconds (a missing command, a bad flag) stays, marked exited, so you can read the error; `x` removes it.
+Tabs work like tmux windows: every agent and terminal gets its own tab, and each tab can be split.
 
 | Keys | |
 | --- | --- |
-| `ctrl+b %` or `v` / `ctrl+b "` or `-` | split right / down (beside a terminal or agent, the new split starts a shell in its folder; otherwise it waits for you to open something) |
-| `ctrl+b ←→↑↓`, `o`, `;` | move focus between splits: by direction, to the next, to the last one focused |
-| `ctrl+b {` / `}` | swap the split with the previous / next |
-| `ctrl+b q` | show split numbers; press a number while they show to focus that split |
-| `ctrl+b space` | next layout: even-horizontal, even-vertical, main-horizontal, main-vertical, tiled (`ctrl+b alt+1`–`alt+5` pick one) |
-| `ctrl+b ctrl+arrow` / `alt+arrow` | resize by 1 / 5 cells; press the arrow again within half a second to keep resizing |
-| `ctrl+b x` | close the split; an agent or terminal in it ends, after you confirm |
-| drag a split's title | onto another split swaps the two; onto a tab in the bar moves it into that tab, and the tab it leaves closes if that was its last split; onto the `+` gives it a tab of its own |
-| `ctrl+b c`, `n`, `p`, `0-9`, `l` | new, next, previous, go to, last tab (among the tabs listed for the tree selection) |
-| `ctrl+b <` / `>`, `.` | move the tab left / right, or to a position you type (among the tabs listed); dragging a tab along the bar with the mouse does the same |
-| `ctrl+b w` | pick any tab or split, grouped by project and CLI, with each split's branch or folder and agent state |
-| `ctrl+b &`, `,` | close, rename tab |
-| `ctrl+b N`, `(` / `)`, `$`, `X` | new workspace, previous / next workspace, rename it, close it (asks whether its agents and terminals move to workspace 1 or end) — also the `+`, numbers and `×` beside conch at the top of the sidebar (in [conch's own window](/docs/cli#app), at the left of the strip along the top) |
-| `ctrl+b =`, `z` | equalize splits, zoom |
-| `ctrl+b S` | type into every agent and terminal in the tab at once, like tmux's `synchronize-panes`; their borders turn amber and the status bar shows `SYNC`. Press it again to stop. |
+| `ctrl+b %` / `ctrl+b "` | split right / down |
+| `ctrl+b c`, `n`, `p` | new, next, previous tab |
+| `ctrl+b z` | zoom |
+| `ctrl+b /` | palette |
 | `ctrl+b d` | detach (agents keep running) |
-| `ctrl+b !`, `:` | jump to the next agent waiting for you, ask the brain |
-| `v` / `s` / `O` in the tree | open the selected item in a split right / below / a new tab |
 
-These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the tenth. `ctrl+b !` jumps to the next agent waiting for you instead of breaking a pane out.
-
-Drag a border between splits to resize. Tabs and splits are remembered in `ui.json`.
+All keys: [Keys and mouse](/docs/keys).
 
 ## Scrollback and copying
 
-The wheel over a pane scrolls back through its history (10,000 lines); the view stays on the same text while output continues, and typing returns to the live screen.
+Every pane keeps 10,000 lines of history, an agent's pane included.
 
-`ctrl+b [` (or `ctrl+b pgup`) enters scroll mode with a cursor. It works in an agent's pane too: an agent draws on the alternate screen, which keeps no scrollback of its own, so conch watches that screen and keeps the lines that scroll off it — what it said a page ago is there to read and select. A program that repaints its whole screen instead of scrolling (an editor) leaves nothing behind, because nothing scrolled away, and the kept lines are plain text without their colours.
-
-| Key | In scroll mode |
-| --- | --- |
-| `↑↓←→` / `hjkl` | move the cursor (scrolling at the edges) |
-| `0` / `$` | line start / end |
-| `pgup` / `pgdn` | page |
-| `g` | oldest line |
-| `/` / `?` | search up / down |
-| `n` / `N` | next match, the same way / the other way |
-| `v` or `space` | start a selection |
-| `y` or `enter` | copy the selection |
-| any other key | return to live |
-
-`/` searches back through the whole history, `?` towards the live screen; the query is typed on the pane's bottom line. The view scrolls to the match and puts the cursor on it, so `v` and `y` select and copy from there, and every match on screen is highlighted. A query in lower case matches either case; one with a capital matches exactly. A search that reaches the oldest line (or the bottom) goes on from the other end and says so. Searching needs the pane's machine to run this build or newer.
-
-A pane that has history shows a thumb on its right border — where the screen is in that history, and how much of it there is — and dragging the thumb goes straight there. A border shared with another split resizes as before; the outer edge scrolls.
-
-Drag across a pane to select and copy; double-click copies a word, triple-click the line it is on — the text, not the padding, and the whole line even when it wrapped over several rows. What is copied joins the rows a long line wrapped over, so a command that reached the edge of the pane pastes into a shell as one command rather than two halves. A row that stops short of the edge ended there and keeps its newline; conch judges this by the row being full, since the terminal emulator does not record which rows were continuations. Hold the drag past the pane's top or bottom edge — over the tab bar or the status bar — and the history scrolls to take in more, or turn the wheel while the button is down; the copy has every line passed over, not just what is left on screen. The same works in an agent's pane, over the history conch keeps for it. Pages in a tab or split — a diff, a file, the sessions or branches list — select and copy the same way; a click that doesn't drag still clicks, and lands on release. Copies use OSC 52 (works over SSH) plus `pbcopy`/`wl-copy`/`xclip` locally. `y` copies a branch name or directory in the tree, a file path or the whole diff in the changes view.
-
-Programs that use the mouse themselves (vim, htop) still get the mouse. **The wheel is conch's while a program is on the main screen** — an agent asks for the mouse to take clicks and does nothing with the wheel, so conch scrolls its own history rather than sending reports the agent would print into its prompt. On the alternate screen the wheel goes to the program, which keeps its own scrollback; full-screen programs that don't take the mouse get arrow keys from it. Hold **alt** or **ctrl** to send the wheel to the program wherever it is.
-
-Dropping files on a pane pastes their paths. On a remote machine's pane conch uploads the files there first and pastes their paths there — see [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
+**How:** the wheel scrolls; drag copies. `ctrl+b [` enters scroll mode: `/` searches, `v` selects, `y` copies.
 
 ## Watching a pane
 
-Agents say for themselves when they need you. For anything else — a build, a test run, a server's log — watch the pane, as tmux's `monitor-silence` and `monitor-activity` do:
+Alerts for a pane that is not an agent — a build, a test run, a log.
 
-- `ctrl+b M` alerts when the pane **goes quiet** after printing: a build or test run has finished. How long counts as quiet is 30 seconds, set under Settings → Notifications (10 s to 5 min) or `[notify] silence` in config.toml; it applies to panes watched from then on.
-- `ctrl+b A` alerts when the pane **prints** while you are looking at something else.
-
-Press the same keys again to stop, or use the pane's menu (`m` or right-click in the tree), where a tick shows what is on. A pane that has something to tell shows `~` (quiet) or `#` (output) in the tree and tab bar, and a desktop notification goes out as for agents (quiet hours and snooze apply). Looking at the pane clears it. Only a pane nobody has on screen raises an alert, a pane already quiet when you start watching it waits for its next output, and the watching survives a server reload. The server does the watching, so alerts are waiting in the tree after you detach and come back.
-
-## Resource monitor
-
-Click `▁▃▆` in the bottom-right corner of the status bar to see how much memory and CPU conch uses on this computer:
-
-```
-╭─ monitor ──────────────────────────────────────────────╮
-│                              memory     cpu            │
-│ This window (TUI)             30 MB   50.0% █████░░░░░ │
-│ Server · pid 100              20 MB   50.0% █████░░░░░ │
-│ Panes (2)                    319 MB  150.0% ██████████ │
-│   claude                     315 MB  150.0% ██████████ │
-│   zsh                          4 MB    0.0% ░░░░░░░░░░ │
-│ Total                        369 MB  250.0% ██████████ │
-╰────────────────────────────────────────────────────────╯
-```
-
-- A pane's row counts everything running inside it — the agent and the tools it starts. Panes are listed largest first; after 8 the rest share one "N more" row.
-- The total counts each process once, even when this TUI runs inside a conch pane.
-- CPU is worked out between two readings, so it shows `…` for the first 2 seconds. 100% is one full core, so a busy agent can go past it. The number and its bar are green, amber from 80% and red from 200%; the colours follow the theme.
-- It refreshes every 2 seconds while open, reading `ps`, and stops when closed. Any key, a click outside, or clicking the icon again closes it. The icon stays dim until the box is open.
-- It covers this computer only, not remote machines.
-
-### A job that takes minutes
-
-Making a [sandbox](/docs/sandboxes) or adding a [machine](/docs/remote-machines) means installing conch at the other end: a minute or two of copying and connecting. The status bar shows what it is doing, with a spinner — *copying conch to hull (16 MB)…* — and keeps showing it until the job ends, rather than flashing once and leaving you to wonder. Whatever ends it, a machine in the tree or a reason it failed, takes the line away.
+**How:** `ctrl+b M` alerts when a pane goes quiet, `ctrl+b A` when it prints.
 
 ## Links an agent printed
 
-An agent that wants you to log in prints a URL and asks you to open it — and inside a sandbox or a remote machine, it has to be opened *here*, not there. Selecting it with the mouse rarely works: the URL is longer than the pane, so the agent wraps it inside its own box, and the selection comes back with the border and the line break in the middle of it:
+A login URL an agent wrapped inside its box, put back together and opened in this computer's browser.
 
-```
-│ …&scope=user%3Asessio │
-│ ns%3Aclaude_code&code… │
-
-Invalid OAuth Request · Unknown scope: user:sessio│ns:claude_code
-```
-
-`ctrl+b u`, or `m` on the pane → **Open a link it printed**, lists the links on the pane's screen with each one put back together: the box's borders and padding taken off, and the rows the link ran across joined. Choosing one opens it in this computer's browser *and* puts it on the clipboard, since a login URL often has to go somewhere else — a phone, another browser, someone else's machine.
-
-Clicking one opens it too: hold **alt** (option on a Mac) or **ctrl** and click a link, and conch opens it and copies it. It opens when you let go where you pressed, a moment after (the time a double click takes): alt or ctrl with a **drag** is also how text is selected over an agent that took the mouse, so dragging across a link — or double-clicking it — selects and copies it and opens nothing. A plain click never opens one, in any pane: it starts a selection, or goes to the program when that program asked for the mouse — an agent's own interface, vim. With **[ui] hover** on, a link under the pointer is underlined while alt or ctrl is held, which is when a click would open it; the terminal reports the key only as the pointer moves, so hold it and move onto the link. **In Ghostty and kitty the pointer itself becomes a hand**, as it would in a browser: conch asks for it with `OSC 22`, the one escape for this that terminals have. iTerm2 and Terminal.app have no such escape — iTerm2 shows a hand for a link of its own finding, with cmd held — and tmux does not pass it on, so there the underline is all of it. `CONCH_POINTER=1` asks anyway, in a terminal that supports it and is not named here; `CONCH_POINTER=0` stops conch asking at all.
-
-**Not cmd+click**, which is what a Mac asks for first. The mouse protocols a terminal speaks carry three modifier bits — shift, alt and ctrl — and cmd has nowhere to go in them, so no terminal can report it to conch whatever it wanted to. iTerm2 and Terminal.app keep cmd+click for their own URL opening, which works on conch's screens as it does anywhere else; alt or ctrl is what reaches conch. A link that wrapped over several rows opens whole either way, the same reading that `ctrl+b u` does.
-
-It goes by shape, since the agent did the wrapping and left no mark to read: a row that fills the screen may have run on, and the next row is the rest of it when it keeps the same left edge. That can be wrong — prose directly under a full-width link would lend it a word — so the whole link is shown before anything is opened, and at most nine are offered. A 400-character OAuth URL in a narrow pane is followed over as many rows as it takes. A link that has scrolled away comes back with `ctrl+b [` first.
+**How:** `ctrl+b u` opens and copies a link, rewrapped whole; or alt-click it.
 
 ## Settings
 
-Press `,` or click `⚙` at the right end of the status bar. Changes are saved to `~/.config/conch/config.toml` (see [Configuration](/docs/configuration)).
+Theme, notifications, agents, sandboxes and the rest.
+
+**How:** `,` or `⚙`. Saved to `config.toml`: [Configuration](/docs/configuration).
 
 ### Edit in browser
 
-`e` on any tab of Settings, or a click on **↗ Edit in browser** under the list, opens every setting in `config.toml` as a form in your browser — including the ones the screen only names: [custom actions](/docs/configuration#actions), [permission rules](/docs/configuration#permissions), each project's check command and every sandbox provider's table. Each section has its switches, menus and fields with what they do beside them; a search box narrows them; a dot marks what you have changed; and **Save** (or `⌘S`) writes the file. The **config.toml** tab is the file itself, saved as you type it, comments and all, once conch can read it.
+Every setting in `config.toml` as a form in your browser.
 
-The page is served by the TUI on `127.0.0.1` for as long as it runs, behind a key made fresh for each TUI and carried in the address, so nothing else on the network reaches it. A save is handed straight to the TUI, which applies it — the theme at once — as a change on the Settings screen would. If something else wrote `config.toml` after the page read it, the save is refused and the page offers the newer version, so neither overwrites the other. `conch config web` serves the same page without a TUI.
-
-### Theme
-
-Colour schemes: Conch, Dracula, Catppuccin Mocha, Nord, Gruvbox Dark, Tokyo Night, One Dark, Solarized Dark, Rosé Pine, Kanagawa, Everforest Dark, Monokai, GitHub Dark, Ayu Dark, Night Owl, VS Code's Dark Modern and Dark+, and conch's own Firefly (a meadow at night), Cel (flat cel-shaded colour) and Terminal (conch's teal on a terminal's ink black, after herdr), JetBrains Dark (IntelliJ's New UI), and nine light ones for a light terminal: GitHub Light, Solarized Light, Catppuccin Latte, and conch's own Ink (black ink on paper, one spot red), Meadow (sky, grass and sun on warm paper, Firefly's daytime) and Terminal Light (Terminal on paper), JetBrains Light, and VS Code's Light Modern and Light+ (applied instantly).
-
-Under **Tree**, _What agents spend_ shows or hides the cost (and the token counts that stand in for it) on tree rows, in Sessions and on the project and machine pages — everything [the sidebar](#the-sidebar) shows.
-
-**Light what the pointer is on** tints the tree row or tab under the pointer. It needs the terminal to report every pointer move rather than only drags, which is a message per cell crossed — nothing on this computer, more over a slow ssh link — so it is off by default and applies to conch windows started afterwards. Nothing a program in a pane receives changes: a move with no button held is conch's own.
-
-Under **File icons**, how [the file explorer](#files) marks each kind of file: _Letters, in any font_ (the default), _Nerd Font glyphs_ for a terminal with a Nerd Font, or _None_ (`[ui] icons` = `text`, `nerd` or `off`).
-
-Below that, an **Oh My Zsh prompt theme** for zsh terminals, picked from the themes installed on this computer. Each theme shows **the prompt it draws** beside its name, in its own colours: conch asks zsh to expand it, in an empty folder that is no repository, so a git-aware theme shows its plain form. A prompt of two lines is shown on one, a long one is cut to fit, and a theme zsh could not expand simply shows nothing. conch starts zsh with a wrapper that loads your own `.zshenv`/`.zprofile`/`.zshrc`/`.zlogin` first and then switches the theme for that terminal only (`omz theme use`), so your dotfiles are never edited; "Keep my .zshrc theme" turns it off. Terminals already open follow a theme saved later — from here, the settings page, Conch.app or an editor: the server notices `config.toml` change and nudges each zsh it started with `SIGURG`, which the wrapper answers by taking the theme and redrawing the prompt where it is, nothing typed. A zsh conch did not start (one run inside a terminal, or a terminal opened before this version) ignores the signal and keeps its prompt; a terminal on another machine follows that machine's settings.
+**How:** `e` in Settings, or `conch config web`.
 
 ### Notifications
 
-- A master switch.
-- How: desktop notification, system sound, terminal beep.
-- When: an agent is waiting, one finishes, and/or a plan limit is nearly used (Claude's or Codex's 5-hour or weekly window passing 80% and 95%, once per window); and how long a [watched pane](#watching-a-pane) must be quiet.
-- **Quiet hours** (22:00–08:00 and other presets, or any `quiet_start` / `quiet_end` in config.toml) and **snooze for an hour**. While silenced the status bar shows `🔕` (click it to resume); waiting agents still show in the sidebar.
-- Send a test.
+A notification, sound or beep when an agent waits or finishes, or a plan limit is nearly used.
 
-### Agents
-
-The default agent chosen here is what `c` pre-selects and what tasks use. Until you choose one it is Claude Code — or, on a machine without Claude Code, an agent that machine does have (one conch supports before one of your own), so `c` starts Codex for somebody who installed only Codex rather than offering to install Claude Code. Under **Agents on each machine**, one row per machine saying how it stands — *all 4 installed*, *1 installed · 1 not*, *offline* — which opens a page of its own with each supported agent and its version, or *not installed · enter installs*; `esc` or the `‹ Agents` row goes back. A machine is a row rather than a section so the tab still fits a small window.
-
-Under **What each agent loads**: a line saying that a *checkout's* setup lives on its own rows (`i` on a project, branch or pane, and `s` there), and **Your own setup…**, which opens a page of its own — one row per agent to take the setup from, and **Put the last one back…** — rather than putting an action per agent on a tab that is long enough already. Both say what they would write before writing it. See [One setup, every agent](/docs/tasks#one-setup-every-agent). **conch's own skill…** is the third row: whether each machine's agents carry the skill that teaches them conch's commands, and installing or removing it there — planned first, with every path named in the question. See [Agents working together](/docs/agents-together).
-
-**Shared MCP servers & skills…** opens the library: a row per server and skill, with a column per agent (`Cl` Claude Code, `Cx` Codex, `Gm` Gemini, `Oc` OpenCode, `Dv` Devin) marked `✓` has it, `+` Apply writes it, `−` Apply takes it out, `·` off, `○` set by hand, `!` declared differently by hand and left alone, `✗` cannot. What an agent cannot be given is said on a line under the row. `enter` on a row edits it — its command or URL, its variables, a box per agent, and Remove; **Add a server…**, **Add a skill…** and **Take an agent's into the library…** add to it; **Apply…** shows every write before making it, and **Put the last one back…** undoes the last apply. See [Shared MCP servers and skills](/docs/tasks#shared-mcp-servers-and-skills).
-
-Under **Remote machines**: whether files dropped on a remote pane are uploaded there, and the largest file to upload (10, 25, 50, 100 or 250 MB). See [Dropping files on a remote pane](/docs/remote-machines#dropping-files-on-a-remote-pane).
-
-### Sandboxes
-
-The providers conch knows, each saying whether its key is there to be found (`✓ $DAYTONA_API_KEY is set`, or `no key · $BOAT_API_KEY is not set`). Enter, or a click, opens one; `esc` (or the `‹ Sandboxes` row) goes back to the list. Every provider takes the same settings, saved under its own name in `[sandbox.<provider>]`, so the tab lists them rather than growing a section with each one conch learns.
-
-| Setting | What it does |
-| --- | --- |
-| **API key** | the key itself, if you would rather keep it here than in your environment. It is written to `config.toml` (0600) as it is, so anything running as you can read it and it travels with a backup or a synced dotfile; the row shows only its last few characters. Empty leaves it to the variable below |
-| **API key variable** | which variable of your environment the key is read from when none is kept above; empty means the provider's own, `DAYTONA_API_KEY`, `BOAT_API_KEY` or `DEVIN_API_KEY` |
-| **Snapshot** | what new sandboxes start from; empty means the provider's default. For boat.dev this is also where a machine size goes — `small`, `default` or `large` — since its machines are sized by name |
-| **Region** | where they are made, e.g. `us` or `eu`. boat.dev has no regions and ignores it |
-| **Platform** | Devin Cloud's in place of Snapshot and Region: where new sessions run — an OS your organization offers, such as `windows`, or an outpost pool. Empty means the organization's default |
-| **Bring back what was running** | on by default: when a sandbox stops, conch writes down its agents (with the conversation each was on) and its terminals, and offers them back when it starts again. Off keeps no note at all |
-| **Stop when idle** | 30 minutes by default, or 15, 60, 120, or never. conch watches for an agent working and for panes printing, and pauses the sandbox when neither has happened for that long — its files, and where the provider can its memory, are kept. A provider's own timer sees only what reaches it from outside, so it would stop an agent working quietly; this doesn't |
-| **Life** | only for a provider that gives a sandbox a fixed life rather than stopping an idle one (boat.dev): how long a new one is given, in minutes, counted from when it was made. Empty means the provider's own — two hours for boat.dev, which is what its free trial allows. A plan that allows less says so, and conch asks again for the longest it named |
-| **Price an hour** | what an hour of a sandbox costs — per vCPU, per GiB of memory, per GiB of disk — so the tree can say what one has run up, and what a stopped one still costs for the disk it keeps. Empty shows running time alone; conch ships no price list |
-| **Pass in** | names of your environment variables to put into every new sandbox — an agent's token, say — separated by spaces or commas. Names only: a `NAME=value` is refused. The dialog that makes a sandbox can add more, for that one only |
-
-### Actions
-
-What `[[actions]]` in `config.toml` puts on the row menus, read only: each one's name, command, the rows it is offered on, and whether its terminal closes when the command is done. Below them, under **Not offered**, anything conch is leaving out and why — an action with no name or no command, two with the same name, an `on` that is not one of `pane`, `branch`, `project`, `machine`. Nothing here is conch's to edit: an action is your own command. See [`[[actions]]`](/docs/configuration#actions).
+**How:** `,` → Notifications: when, how, quiet hours.

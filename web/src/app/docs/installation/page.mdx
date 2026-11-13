@@ -2,26 +2,23 @@ export const metadata = { title: "Installation", description: "Install, update a
 
 # Installation
 
-conch is a single binary for macOS and Linux. Install it with a script, with Homebrew, with Go, or from source, and update it later without stopping your agents.
+conch is a single binary for macOS and Linux; install it one of four ways and update it without stopping your agents.
 
 <Callout type="note">
 
-This page is the binary — the TUI, the server and every `conch` command, which is what a remote machine runs too. **[Conch.app](/docs/mac-app)**, conch in a native macOS window, is a separate download with the server inside it: see [installing the beta](/docs/mac-app#installing-the-beta).
+[Conch.app](/docs/mac-app), conch in a native macOS window, is a separate download: see [Mac app](/docs/mac-app).
 
 </Callout>
 
 ## Install script
 
-macOS and Linux (amd64 and arm64):
+Installs `~/.local/bin/conch` and adds conch to your desktop's applications (`CONCH_APP=no` skips that).
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 ```
 
-This downloads the latest release, checks it against the release checksums and installs `~/.local/bin/conch`. It then puts conch in your desktop's applications with its own icon, so it can be clicked as well as typed — a `conch.desktop` entry on Linux, a `conch.app` in `~/Applications` on macOS — and says which files it wrote. That step is [`conch app install`](/docs/cli#app), run with the binary it has just installed, so it is also the first time that binary runs; `CONCH_APP=no` skips it. A machine with none of the terminals conch can open — every server you only ssh into — says so and is installed just the same.
-
-A version as an argument installs that release instead — including an older
-one, to go back to it:
+Add a version to install that release, including an older one:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh -s -- 0.2.0
@@ -29,46 +26,24 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 
 | Variable | Effect |
 | --- | --- |
-| `CONCH_VERSION=0.2.0` | install that release instead of the latest (the argument wins) |
+| `CONCH_VERSION=0.2.0` | install that release |
 | `CONCH_INSTALL_DIR` | install into another directory |
-| `CONCH_RELEASE_URL` | download releases from a mirror instead of GitHub |
-| `CONCH_APP=no` | don't add conch to the desktop's applications |
+| `CONCH_RELEASE_URL` | download from a mirror |
+| `CONCH_APP=no` | don't add conch to the applications |
 
-Later, `conch update` replaces the binary with the newest release — the same
-download, without the script.
-
-If the folder isn't on your `PATH` yet, the script prints the line that puts
-it there for your shell — `~/.zshrc` for zsh, the default on macOS — and the
-first command to run.
-
-Then `conch doctor` checks everything conch leans on — git, gh, an agent to
-run, the terminal — and says how to fix whatever is missing. See
-[doctor](/docs/cli#doctor).
+Then run `conch doctor` to check what conch needs. See [doctor](/docs/cli#doctor).
 
 ## With Homebrew
 
-macOS and Linux:
+Includes tab completion. Update with `brew upgrade conch`, then press **u** in the version box to reload.
 
 ```sh
 brew install Amitgb14/conch/conch
 ```
 
-This installs the same release archives from the `Amitgb14/conch` tap, with
-tab completion for bash, zsh and fish. Homebrew then owns the binary, so update it with Homebrew rather than `conch update`:
-
-```sh
-brew upgrade conch
-```
-
-conch notices the new build, as it does a rebuild: press **u** in the version
-box, or run `conch server reload`, and the server moves onto it with your
-agents still running. `conch update` and its `rollback` refuse a Homebrew
-install and say so, since replacing the file under Homebrew would leave it
-believing in a version that is no longer there.
-
 ## With Go
 
-With Go 1.25 or newer:
+Needs Go 1.25 or newer.
 
 ```sh
 go install github.com/Amitgb14/conch/cmd/conch@latest
@@ -77,95 +52,35 @@ go install github.com/Amitgb14/conch/cmd/conch@latest
 ## From source
 
 ```sh
-make build        # bin/conch
-make test         # go test -race ./...
-make release VERSION=0.2.0   # dist/: archives for every platform + checksums.txt
+make build
 ```
-
-Pushing a `v*` tag runs the release workflow, which builds the same archives and publishes them as a GitHub release.
 
 ## Shell completion
 
-Installed any way but Homebrew, turn on tab completion for your shell:
+For any install but Homebrew. See [completion](/docs/cli#completion).
 
 ```sh
-echo 'eval "$(conch completion zsh)"' >> ~/.zshrc     # zsh, after compinit
-echo 'eval "$(conch completion bash)"' >> ~/.bashrc   # bash
-conch completion fish > ~/.config/fish/completions/conch.fish
+echo 'eval "$(conch completion zsh)"' >> ~/.zshrc
 ```
-
-In a new terminal, `conch <tab>` lists the commands with what each does, and
-`conch read <tab>` the panes running now. See [completion](/docs/cli#completion).
 
 ## Updating without stopping agents
 
-The server owns every pane, so a new build takes effect in the server only once it restarts — and a restart would stop the agents. Instead, **reload**:
+Reload the server onto the new build; every pane keeps running.
 
 ```sh
 conch server reload        # or click the version in the status bar, then r
 ```
 
-The server execs the new binary in place. It keeps its process ID, so the programs in its panes stay its children; their terminals and the listening socket stay open across the exec; screens, scrollback, terminal modes and agent states are handed over in a state file. Agents never notice — output they write meanwhile waits in the kernel — and the TUI reconnects on its own. Whatever you type into a pane in that moment is held and sent once the pane is back; keys held for more than 15 seconds, or for a pane that didn't survive, are dropped, and the status bar says so.
-
-When the server is older than the TUI, its version shows amber in the status bar. The machine menu has **Reload server** too; a remote machine reloads onto the build `machine upgrade` installed.
-
-<Callout type="warning" title="Servers from before reloading existed">
-
-They need one last `conch server stop`, which stops the server and every pane it owns.
-
-</Callout>
-
 ## Auto-update
 
-conch notices newer builds on its own:
+When a newer build or release is out, the version in the status bar shows `⬆`. Click it and press **u** to update conch, its server, the TUI and your remote machines.
 
-- its executable rebuilt or replaced (`make build`, `conch update`);
-- a newer GitHub release (checked once a day for release builds; `[update] check_releases = false` turns it off);
-- machines running an older build.
-
-The version in the status bar then shows `⬆`; click it for the list and press **u** to update everything:
-
-1. download the release, if there is one, over the conch executable;
-2. reload the local server onto it (panes keep running);
-3. restart the TUI in place onto the new build;
-4. install the build on each ticked remote machine and reload its server.
-
-Remote machines behind your build are listed with checkboxes, all ticked. To update only some, move with `↑` `↓` and press `space` (or click a row) to untick the ones to leave alone; `a` ticks or unticks them all. The box then reads **u update 1 of 2 machines**. Unticked machines stay on their build, also after the TUI restarts; a machine that was offline when you pressed `u` is updated when it connects.
-
-Step 3 is why the screen redraws: a running program cannot replace its own code, so the TUI execs the new binary in its place — same terminal, same process. Nothing you are running stops: the server keeps every pane, agent and terminal, the new TUI reattaches to them, and your tabs and folds come back. It stays on the alternate screen across the swap, so your shell never shows through.
-
-`conch update` does steps 1–2 from a shell, and `conch machine upgrade ID` installs and reloads one machine.
-
-With `[update] auto = true` in [config.toml](/docs/configuration#update), that
-daily check installs the release it finds on its own — steps 1–4, without
-pressing **u** — and the status bar says so while it runs. It needs
-`check_releases`; it is off by default, so the default stays: conch tells you,
-you decide.
-
-On a Homebrew install the version box lists the release with
-`brew upgrade conch` beside it, and neither **u** nor `auto` downloads it:
-after `brew upgrade`, **u** reloads onto the new build.
+`[update] auto = true` in [config.toml](/docs/configuration#update) installs releases on its own.
 
 ## Going back to an older version
 
-Every update keeps the binary it replaces (the newest three) in
-`$CONCH_HOME/versions` and notes the version it left, so going back is a file
-copy, not a download:
-
 ```sh
-conch update list        # every release published upstream, newest first
+conch update list        # every release, newest first
 conch update rollback    # back to the version before the last update
-conch update 0.2.0       # or straight to a version you name
+conch update 0.2.0       # or a version you name
 ```
-
-`conch update list` marks the running version with `*`, the one
-`conch update` would install, and the versions kept locally. Going back notes
-the version it leaves in turn, so a second `conch update rollback` comes
-forward again.
-
-A version conch never had a copy of is downloaded from its release, exactly
-as an update is — so a version that was only ever a local build (`make
-build`) can be gone back to only while its kept copy is there. The local
-server is reloaded onto the older binary too, so panes keep running; remote
-machines follow when you press **u** in the version box or run
-`conch machine upgrade ID`.
