@@ -151,6 +151,18 @@ var customStates = map[string]State{
 
 var providerName = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 
+// CheckName says whether name can be a provider's. A name becomes a path —
+// providers/NAME.toml, its draft's folder — and arrives from the registry's
+// index, a command line and an agent's draft, so it is checked before any
+// path is made of it: "../x" would otherwise write, or remove, a file
+// outside providers/.
+func CheckName(name string) error {
+	if !providerName.MatchString(name) {
+		return fmt.Errorf("%q is not a provider name: lowercase letters, digits and -, starting with a letter, 2 to 31 long", name)
+	}
+	return nil
+}
+
 // ProvidersDir is where provider files are kept.
 func ProvidersDir() string { return filepath.Join(config.Dir(), "providers") }
 

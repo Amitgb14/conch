@@ -307,6 +307,9 @@ func sandboxAdapt(args []string) error {
 	if n == "" {
 		return fail(fmt.Errorf("cannot tell the provider's name from %s: say it with -name", urls[0]))
 	}
+	if err := sandbox.CheckName(n); err != nil {
+		return fail(err)
+	}
 	if sandbox.Builtin(n) {
 		return fail(fmt.Errorf("conch has %s built in: set its key in Settings → Sandboxes, or run conch sandbox -provider %s create", sandbox.ProviderLabel(n), n))
 	}
@@ -450,6 +453,9 @@ func reportDraft(name, agent string, out adaptOut) error {
 // adaptRevise sends a change to the agent that wrote the draft, and
 // checks the draft again.
 func adaptRevise(name, text string, out adaptOut) error {
+	if err := sandbox.CheckName(name); err != nil {
+		return err
+	}
 	b, err := os.ReadFile(filepath.Join(draftDir(name), "adapt.json"))
 	if err != nil {
 		return fmt.Errorf("no draft of %s: start one with conch sandbox adapt URL", name)
@@ -657,6 +663,9 @@ func providerCheck(args []string) error {
 }
 
 func providerSave(name string) error {
+	if err := sandbox.CheckName(name); err != nil {
+		return err
+	}
 	if sandbox.Builtin(name) {
 		return fmt.Errorf("%s is built into conch", name)
 	}
@@ -686,6 +695,9 @@ func providerSave(name string) error {
 // providerRemove forgets a provider file. Its sandboxes are not touched:
 // they are still the provider's, and still cost.
 func providerRemove(name string) error {
+	if err := sandbox.CheckName(name); err != nil {
+		return err
+	}
 	if sandbox.Builtin(name) {
 		return fmt.Errorf("%s is built into conch and cannot be removed", name)
 	}

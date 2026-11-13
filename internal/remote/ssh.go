@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -56,6 +57,35 @@ func loginSSHConfig() (string, error) {
 	return login, err
 }
 
+// myUID is who this process is, for tests to be somebody else.
+var myUID = os.Getuid
+
+// privateDir makes dir, or takes it as it is, only when it is this user's
+// own directory that nobody else can enter. The control sockets live in a
+// fixed name under /tmp, which anyone may create first: a directory made
+// there by another user, or a link to one, would let them answer as the
+// master ssh connection to every machine — or connect to ours.
+func privateDir(dir string) error {
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	switch {
+	case !fi.IsDir():
+		return fmt.Errorf("%s is not a directory (a link, or a file): ssh's connections cannot be kept there; remove it", dir)
+	case !ok || int(st.Uid) != myUID():
+		return fmt.Errorf("%s belongs to another user: ssh's connections cannot be kept there; remove it", dir)
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		return os.Chmod(dir, 0o700)
+	}
+	return nil
+}
+
 func sshConfigs() (shared, login string, err error) {
 	configOnce.Lock()
 	defer configOnce.Unlock()
@@ -72,7 +102,7 @@ func sshConfigs() (shared, login string, err error) {
 	if len(ctl) > 40 {
 		ctl = fmt.Sprintf("/tmp/conch-ssh-%d", os.Getuid())
 	}
-	if err := os.MkdirAll(ctl, 0o700); err != nil {
+	if err := privateDir(ctl); err != nil {
 		return "", "", err
 	}
 
