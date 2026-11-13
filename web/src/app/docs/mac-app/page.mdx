@@ -23,7 +23,7 @@ Conch.app shows the same agents and terminals as the TUI in a native macOS windo
 
 ## The window
 
-The sidebar is conch's tree: each machine, its projects, agents, branches and terminals. Tabs and splits are as in the TUI.
+The sidebar is conch's tree of machines, projects, agents and branches; tabs and splits are as in the TUI.
 
 **How:** click a row to open it, right-click for its menu. ⌘K searches, ⌘. goes to the next waiting agent, ⌃⌘S hides the sidebar.
 
@@ -39,7 +39,7 @@ conch's settings, including **Skills & MCP Servers**.
 
 ## Plan limits
 
-The status bar shows each agent's plan use; a click lists every window and when it resets.
+The status bar shows plan use; a click lists each window and its reset.
 
 <Shot name="desktop-limits" alt="Conch.app's plan windows" caption="Plan windows and tokens used." />
 
@@ -57,7 +57,7 @@ A shell floating over the splits, in the project on screen.
 
 ## A branch's changes
 
-A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks and **Commit**; **✦ Write** drafts the message. Hover a line and press **+** to leave a note for the agent or a pull request comment.
+A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks and **Commit**; **✦ Write** drafts the message. **+** on a line leaves the agent a note or the pull request a comment.
 
 **How:** ⋯ holds **Push**, **Merge into main…**, **Open Pull Request** and **Delete Branch…**.
 
@@ -75,7 +75,7 @@ What each agent loads in a checkout: instructions, skills and MCP servers.
 
 ## Answering an agent without opening it
 
-Every waiting agent is a card under **Needs you**, with its question and its choices as buttons.
+Every waiting agent is a card under **Needs you**, its choices as buttons.
 
 **How:** click a button to answer, or the card to open the agent.
 
@@ -103,7 +103,7 @@ An agent's files, a terminal and the agent itself in one tab.
 
 **How:** ⌥⌘B, or right-click an agent → **Open Workbench**. ⌥⌘1–⌥⌘4 pick the IDE, Chat First, Agent or JetBrains layout.
 
-The chat is a preview, off in 0.2.0: turn it on with `chat = true` under `[app]` in `config.toml` (Settings → Mac app → **Workbench chat**), or `CONCH_CHAT=1`. While it is off, the agent's own terminal takes its place and **Chat First** is not offered.
+Its chat, a preview, is off until Settings → Mac app → **Workbench chat**.
 
 ## Browser tabs
 
@@ -129,7 +129,7 @@ A task gives an agent a prompt on a branch of its own.
 
 **How:** **File → New Task…** (⌘N); **File → Start Agent** (⇧⌘N) starts one where the focused pane is; **Add Project…** (⌘O).
 
-A project that is not a git repository yet asks first: **Initialize Git** runs `git init` with an empty first commit and starts the task on a branch; **Work in the Folder** starts it in the folder itself. A plain folder's menu has **Initialize Git…** too.
+In a folder without git, **Initialize Git** gives the task a branch.
 
 ## Keys
 
@@ -148,9 +148,9 @@ The TUI's prefix keys work too: `ctrl+b`, then a key from the [prefix table](/do
 
 ## Installing the beta
 
-Download `Conch_<version>_macos_arm64.zip` from the [GitHub release page](https://github.com/Amitgb14/conch/releases). It needs Apple Silicon and macOS 14 or later.
+Download `Conch_<version>_macos_arm64.zip` from the [release page](https://github.com/Amitgb14/conch/releases); it needs Apple Silicon and macOS 14+.
 
-**How:** unzip it, drag **Conch.app** into **Applications** and open it. To update, replace the app.
+**How:** unzip it and drag **Conch.app** into **Applications**; to update, replace it.
 
 ## Building it
 

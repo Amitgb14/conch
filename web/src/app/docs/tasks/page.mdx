@@ -38,7 +38,7 @@ From a shell: `conch branch commit | push | pr | merge | discard` ([CLI](/docs/c
 
 ## Cleaning up worktrees
 
-`W` on a project lists every worktree besides the main checkout, with what removing it would lose and why it looks finished (merged, pull request closed, folder gone).
+`W` on a project lists every worktree but the main one, with what removing it would lose and why it looks finished.
 
 **How:** finished ones come ticked; `space` ticks others, `a` toggles the finished ones, `enter` reviews, `y` confirms. From a shell: `conch worktree ls | clean`.
 
@@ -112,7 +112,7 @@ npm run dev -- --port $CONCH_PORT
 
 ## Agent setup
 
-`i` on a project, branch or pane shows what each agent loads there, a tab per agent: instructions, skills, commands, MCP servers, plugins, hooks conch added, and warnings. In a worktree it lists local files that are missing; `c` copies them. `S` installs conch's own skill.
+`i` on a project, branch or pane shows what each agent loads there: instructions, skills, commands, MCP servers, plugins, hooks and warnings. In a worktree it lists local files that are missing; `c` copies them. `S` installs conch's own skill.
 
 **How:** `i`, or `conch agent setup [-agent NAME] [-copy] [-json] [DIR]`.
 
@@ -147,4 +147,6 @@ conch agent library apply
 conch agent library undo
 ```
 
-Values must refer to variables (`${TOKEN}`); in Conch.app a token can be kept in the macOS Keychain. A token kept in plain text instead is written readable by you alone (0600), but Claude Code takes servers only on its command line, where anybody else logged in to the machine can see it for that moment — on a shared machine, use the Keychain or a `${VAR}`.
+Values must refer to variables (`${TOKEN}`); in Conch.app a token can be kept in the macOS Keychain.
+
+A plain-text token is written 0600, but Claude Code gets it on its command line, visible to others on the machine.

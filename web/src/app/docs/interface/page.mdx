@@ -2,7 +2,7 @@ export const metadata = { title: "The interface", description: "The tree, splits
 
 # The interface
 
-The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits; this page covers each part.
+The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits.
 
 <TuiShot id="working" title="conch" caption="The tree on the left, an agent's pane on the right." />
 
@@ -10,9 +10,7 @@ The TUI shows a tree of machines, projects, branches, agents and terminals besid
 
 Each machine holds `Workspace` (its projects) and `CLI` (agents and terminals of no project). Badges: `⠋1` working, `⚑1` waiting, `✓1` done.
 
-**How:** `a` adds a project, `c` starts an agent, `n` a terminal. `!` goes to the next waiting agent.
-
-A project that is a plain folder runs tasks in the folder itself; **Make it a git repository (git init)…** in its menu, or `conch project git-init ID|PATH`, gives tasks branches of their own.
+**How:** `a` adds a project, `c` starts an agent, `n` a terminal. `!` goes to the next waiting agent. A plain folder's menu can **Make it a git repository**.
 
 <TuiShot id="project" title="A project" caption="A project's branches, agents and terminals." />
 
@@ -77,11 +75,9 @@ What needs a decision, across machines: waiting agents, failed checks, finished 
 [verify]
 auto_fix = 2         # send a failed check back up to twice
 auto_pr = true       # push a finished branch and open its pull request
-auto_merge = true    # merge a pull request when it turns green
+auto_merge = true    # merge a pull request when it turns green, even from no checks
 auto_resolve = 2     # bring a conflicting branch up to date
 ```
-
-A pull request conch saw open with no checks yet, or green at a commit since replaced, merges once it turns green while conch watches.
 
 ### A second opinion
 
@@ -132,7 +128,7 @@ Alerts for a pane that is not an agent — a build, a test run, a log.
 
 ## Links an agent printed
 
-A login URL an agent wrapped inside its box, put back together and opened in this computer's browser.
+A login URL an agent wrapped in its box, rejoined and opened in your browser.
 
 **How:** `ctrl+b u` opens and copies a link, rewrapped whole; or alt-click it.
 
