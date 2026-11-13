@@ -140,6 +140,8 @@ struct RichMenu: View {
     @Binding var value: String
     var agents = false
     var placeholder = "Choose…"
+    /// Its width; nil fills what it is given (a side panel).
+    var width: CGFloat? = 240
     @State private var open = false
     @State private var query = ""
     @State private var hover: String?
@@ -171,7 +173,8 @@ struct RichMenu: View {
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.muted)
                     .rotationEffect(.degrees(open ? 180 : 0))
             }
-            .padding(.horizontal, 10).frame(width: 240, height: 32)
+            .padding(.horizontal, 10).frame(width: width, height: 32)
+            .frame(maxWidth: width == nil ? .infinity : nil)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise2))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(open ? Theme.accent : Theme.line2, lineWidth: open ? 1.5 : 1))
             .contentShape(Rectangle())
