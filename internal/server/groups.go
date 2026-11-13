@@ -298,7 +298,8 @@ func (g *groupBook) write() {
 // task folder ($CONCH_HOME/tasks/GROUP/BRANCH) holding a link to each
 // worktree under the repo's name and CONCH-TASK.md, the prompt and the
 // repos. One agent works from the folder, given every worktree (Claude's
-// and Codex's --add-dir), or each worktree gets an agent of its own told
+// and Codex's --add-dir, Codex in a sandbox that lets it write there),
+// or each worktree gets an agent of its own told
 // about the others. Before anything is made, everything that would refuse
 // is asked: a worktree made and then a failure would leave half a task.
 func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *proto.Error) {
@@ -419,7 +420,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 		}
 		prompt := tp.Prompt + fmt.Sprintf("\n\nThis task spans %s of %s, each checked out on the branch %s in a folder of its own here (%s). Read CONCH-TASK.md first. Commit and push in each repo on its own: they are separate repositories.",
 			repos, tp.Group, tp.Branch, strings.Join(names, ", "))
-		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, AgentArgs: adapter.DirArgs(tp.Agent, paths), Prompt: prompt,
+		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, AgentArgs: adapter.TaskDirArgs(tp.Agent, paths, codexSandbox()), Prompt: prompt,
 			Cwd: folder, NoProject: true, Cols: tp.Cols, Rows: tp.Rows})
 		if perr != nil {
 			return proto.GroupTaskResult{}, perr
@@ -514,4 +515,11 @@ func taskBrief(tp proto.GroupTaskParams, notes string, projects []*project, name
 	}
 	b.WriteString("\nEach repo is its own git repository: commit, push and open a pull request in each one that changed.\n")
 	return b.String()
+}
+
+// codexSandbox is the sandbox a task's Codex starts in, from the
+// server's own home and CODEX_HOME, which its panes inherit.
+func codexSandbox() string {
+	home, _ := os.UserHomeDir()
+	return adapter.CodexTaskSandbox(home, os.Getenv)
 }
