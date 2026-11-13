@@ -423,16 +423,18 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     #expect(!chatBusy(state: .blocked, pending: 0, turns: [asked, said]))
 }
 
-// The chat is off in 0.2.0 unless CONCH_CHAT or [app] chat says on; the
-// variable wins over the file either way.
+// The chat is on unless CONCH_CHAT or [app] chat says off (it was off in
+// 0.2.0, the other way round); the variable wins over the file either way.
 @Test func chatSwitch() {
-    #expect(!chatEnabled(toml: nil, env: [:]))
-    #expect(!chatEnabled(toml: "[app]\ntabs = \"left\"\n", env: [:]))
+    #expect(chatEnabled(toml: nil, env: [:]))
+    #expect(chatEnabled(toml: "", env: [:]))
+    #expect(chatEnabled(toml: "[app]\ntabs = \"left\"\n", env: [:]))
     #expect(chatEnabled(toml: "[app]\nchat = true\n", env: [:]))
-    #expect(!chatEnabled(toml: "[cloud]\nchat = true\n", env: [:]), "another section's key")
-    for on in ["1", "true", "YES", " on "] { #expect(chatEnabled(toml: nil, env: [chatEnv: on]), "\(on)") }
-    for off in ["0", "false", "off", "2"] { #expect(!chatEnabled(toml: "[app]\nchat = true\n", env: [chatEnv: off]), "\(off)") }
-    #expect(chatEnabled(toml: "[app]\nchat = true\n", env: [chatEnv: ""]), "blank is unset")
+    #expect(!chatEnabled(toml: "[app]\nchat = false\n", env: [:]))
+    #expect(chatEnabled(toml: "[cloud]\nchat = false\n", env: [:]), "another section's key")
+    for on in ["1", "true", "YES", " on ", "2"] { #expect(chatEnabled(toml: "[app]\nchat = false\n", env: [chatEnv: on]), "\(on)") }
+    for off in ["0", "false", "OFF", " no "] { #expect(!chatEnabled(toml: "[app]\nchat = true\n", env: [chatEnv: off]), "\(off)") }
+    #expect(!chatEnabled(toml: "[app]\nchat = false\n", env: [chatEnv: ""]), "blank is unset")
 }
 
 // Without the chat every layout shows the agent's own terminal where the
