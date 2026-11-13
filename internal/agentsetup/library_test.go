@@ -737,13 +737,12 @@ func TestWithConchIsIdempotent(t *testing.T) {
 	}
 }
 
-// A plain server's token is never put on claude's command line, where
-// anybody on the computer can read it while it runs (ps, /proc): Claude is
-// skipped and says why, while the agents whose files conch writes get it
-// in a file only their owner can read — a new one 0600, one already there
-// narrowed to that. A server holding only ${VAR}s leaves a file's mode
-// alone, and still goes to Claude.
-func TestLibraryPlainTokenStaysOffArgv(t *testing.T) {
+// A plain server's token reaches Claude as before, through claude mcp
+// add-json (its only way in), while the agents whose files conch writes
+// get it in a file only their owner can read — a new one 0600, one
+// already there narrowed to that. A server holding only ${VAR}s leaves a
+// file's mode alone.
+func TestLibraryPlainTokenFilesOwnerOnly(t *testing.T) {
 	home, e := libHome(t)
 	log := fakeClaude(t, e)
 	const tok = "plain-sekrit-123"
@@ -756,13 +755,13 @@ func TestLibraryPlainTokenStaysOffArgv(t *testing.T) {
 	wiki := LibServer{Name: "wiki", URL: "https://wiki.example/mcp", Plain: true, Headers: map[string]string{"Authorization": "Bearer " + tok},
 		Agents: []string{"claude", "gemini", "opencode"}}
 	docs := LibServer{Name: "docs", URL: "https://docs.example/mcp", Headers: map[string]string{"Authorization": "Bearer ${DOCS_TOKEN}"},
-		Agents: []string{"claude", "codex"}}
+		Agents: []string{"codex"}}
 	mustSave(t, Library{Servers: []LibServer{wiki, docs}})
 	res := mustApply(t, e)
-	if c := find(t, res, "claude", SyncMCP, "wiki"); c.Action != ActionSkip || c.Done || !strings.Contains(c.Detail, "command line") {
+	if c := find(t, res, "claude", SyncMCP, "wiki"); c.Action != ActionCreate || !c.Done {
 		t.Fatalf("claude: %+v", c)
 	}
-	if got, _ := os.ReadFile(log); strings.Contains(string(got), tok) || !strings.Contains(string(got), "mcp add-json docs ") {
+	if got := read(t, log); !strings.Contains(got, "mcp add-json wiki ") || !strings.Contains(got, tok) {
 		t.Fatalf("claude was asked:\n%s", got)
 	}
 	opencode := filepath.Join(home, ".config", "opencode", "opencode.json")
@@ -777,22 +776,5 @@ func TestLibraryPlainTokenStaysOffArgv(t *testing.T) {
 	}
 	if st, _ := os.Stat(codex); st.Mode().Perm() != 0o644 || !strings.Contains(read(t, codex), "docs") {
 		t.Errorf("codex, given only a ${VAR}: %v\n%s", st.Mode().Perm(), read(t, codex))
-	}
-
-	// A copy in Claude holding a value written out (an older conch wrote
-	// those) is taken out, and undoing does not put it back on the
-	// command line.
-	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"docs":{"type":"http","url":"https://docs.example/mcp","headers":{"Authorization":"Bearer `+tok+`"}}}}`)
-	docs.Agents = []string{"codex"}
-	mustSave(t, Library{Servers: []LibServer{wiki, docs}})
-	os.WriteFile(log, nil, 0o644)
-	if c := find(t, mustApply(t, e), "claude", SyncMCP, "docs"); c.Action != ActionRemove || !c.Done {
-		t.Fatalf("claude remove: %+v", c)
-	}
-	if _, err := UndoLibrary(e, ""); err != nil {
-		t.Fatal(err)
-	}
-	if got := read(t, log); strings.Contains(got, tok) || !strings.Contains(got, "mcp remove docs") {
-		t.Fatalf("claude was asked:\n%s", got)
 	}
 }

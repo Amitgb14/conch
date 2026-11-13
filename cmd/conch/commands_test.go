@@ -1253,8 +1253,17 @@ func TestA4AgentLibrary(t *testing.T) {
 	}
 	// -plain marks a token written out as the person's choice; without it
 	// nothing is marked.
-	if _, err := run("add", "-plain", "-header", "Authorization=Bearer tok-1", "gh", "https://x.example/mcp"); err != nil {
-		t.Fatal(err)
+	// It also says that Claude is handed the token on a command line others
+	// on the machine can read.
+	var plainErr error
+	_, stderr := a4Capture(t, "", func() {
+		plainErr = runAgent([]string{"library", "add", "-plain", "-header", "Authorization=Bearer tok-1", "gh", "https://x.example/mcp"})
+	})
+	if plainErr != nil {
+		t.Fatal(plainErr)
+	}
+	if !strings.Contains(stderr, "process list") || !strings.Contains(stderr, "${VAR}") {
+		t.Fatalf("-plain said:\n%s", stderr)
 	}
 	if got := lib.Servers[0]; !got.Plain || got.Headers["Authorization"] != "Bearer tok-1" {
 		t.Fatalf("plain %+v", got)

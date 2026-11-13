@@ -729,17 +729,11 @@ func planServerRemove(e Env, t agentFiles, name string) SyncChange {
 		c.Path = "~/.claude.json"
 		c.Detail += ", with claude mcp remove"
 		c.write = func(u *undoLog) error {
-			old := declared("", t)[name]
-			prev, _ := json.Marshal(claudeJSON(old))
+			prev, _ := json.Marshal(claudeJSON(declared("", t)[name]))
 			if err := runAgent(e, "claude", "mcp", "remove", name, "--scope", "user"); err != nil {
 				return err
 			}
-			// Undoing would put it back on claude's command line, where a
-			// value written out is anybody's to read: such a one is not
-			// put back.
-			if literalIn(old) == "" {
-				u.command([]string{"claude", "mcp", "add-json", name, string(prev), "--scope", "user"}, SyncMCP)
-			}
+			u.command([]string{"claude", "mcp", "add-json", name, string(prev), "--scope", "user"}, SyncMCP)
 			return nil
 		}
 		return c
@@ -883,16 +877,9 @@ func planClaudeServer(e Env, t agentFiles, s mcpServer, replace bool) SyncChange
 		c.Action, c.Detail = ActionSkip, "Claude Code is not installed here, and conch adds its servers with its own command"
 		return c
 	}
-	// claude mcp add-json takes the server on its command line, which
-	// anybody on this computer can read while it runs (ps, /proc/PID/
-	// cmdline) — and plain text is offered where there is no Keychain,
-	// which is a shared Linux host as often as not. Claude has no other
-	// way in that conch writes (~/.claude.json is Claude's own), so a
-	// value written out is not given to it at all.
-	if k := literalIn(s); k != "" {
-		c.Action, c.Detail = ActionSkip, fmt.Sprintf("%s holds a value written out (plain), and Claude Code is given servers on its command line, where anybody on this computer can read it while it runs: keep it in the Keychain, or a ${VAR}, for Claude", k)
-		return c
-	}
+	// A plain server's token goes on claude's command line, the only way
+	// in (add-json reads no stdin or file), so it is in the process list
+	// for that moment: where it is chosen, the person is told so.
 	body, _ := json.Marshal(claudeJSON(s))
 	c.Action, c.Detail = ActionCreate, "with claude mcp add-json · "+describe(s)
 	if replace {
@@ -900,25 +887,19 @@ func planClaudeServer(e Env, t agentFiles, s mcpServer, replace bool) SyncChange
 	}
 	c.write = func(u *undoLog) error {
 		var prev []byte
-		// The copy it had goes back on the command line too, if it is
-		// put back: not one holding a value written out (an older conch
-		// wrote those), which is then removed for good.
-		restore := false
 		if replace {
-			old := declared("", t)[s.Name]
-			prev, _ = json.Marshal(claudeJSON(old))
-			restore = literalIn(old) == ""
+			prev, _ = json.Marshal(claudeJSON(declared("", t)[s.Name]))
 			if err := runAgent(e, "claude", "mcp", "remove", s.Name, "--scope", "user"); err != nil {
 				return err
 			}
 		}
 		if err := runAgent(e, "claude", "mcp", "add-json", s.Name, string(body), "--scope", "user"); err != nil {
-			if restore { // put the one it had back
+			if replace { // put the one it had back
 				_ = runAgent(e, "claude", "mcp", "add-json", s.Name, string(prev), "--scope", "user")
 			}
 			return err
 		}
-		if restore {
+		if replace {
 			u.command([]string{"claude", "mcp", "add-json", s.Name, string(prev), "--scope", "user"}, SyncMCP)
 		}
 		u.command([]string{"claude", "mcp", "remove", s.Name, "--scope", "user"}, SyncMCP)
