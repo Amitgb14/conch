@@ -1475,7 +1475,7 @@ struct TaskSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("New task").font(.ui(size: 15, weight: .semibold))
             Text([project?.name ?? "", m == "local" ? "" : store.label(m)].filter { !$0.isEmpty }.joined(separator: " · ")
-                 + (project?.git == false ? " — the agent works in the folder itself" : " — on a branch and worktree of its own"))
+                 + (project?.git == false ? " — not a git repository yet: Start asks whether to make it one" : " — on a branch and worktree of its own"))
                 .font(.ui(size: 12)).foregroundStyle(.secondary)
             TextEditor(text: $draft.prompt)
                 .font(.ui(size: 13)).frame(minHeight: 120)
