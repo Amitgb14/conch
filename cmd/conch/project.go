@@ -26,7 +26,7 @@ func runProject(args []string) error {
 	// A word that is no subcommand is said before the server is reached:
 	// a typo started a server only to be told it was one.
 	switch args[0] {
-	case "add", "create", "new", "clone", "move", "files", "setup", "rm", "remove", "ls", "list":
+	case "add", "create", "new", "clone", "move", "files", "setup", "rm", "remove", "ls", "list", "git-init":
 	default:
 		return unknownSubcommand("project", args[0])
 	}
@@ -65,6 +65,8 @@ func runProject(args []string) error {
 		return projectClone(c, args[1:])
 	case "move":
 		return projectMove(c, args[1:])
+	case "git-init":
+		return projectGitInit(c, args[1:])
 	case "files":
 		fs := flag.NewFlagSet("project files", flag.ContinueOnError)
 		reset := fs.Bool("reset", false, "restore the default patterns")
@@ -568,8 +570,11 @@ func projectClone(c *client.Client, args []string) error {
 		}
 	}
 	if onRemoteMachine() {
-		if err := remoteDir(dir); err != nil {
-			return err
+		// That machine's server resolves ~ to its own home; a relative
+		// path would mean this computer's working directory, which names
+		// nothing there.
+		if dir != "~" && !strings.HasPrefix(dir, "~/") && !filepath.IsAbs(dir) {
+			return fmt.Errorf("DIR %q: give an absolute path on %s, or one under ~", dir, machineFlag)
 		}
 	} else if !strings.HasPrefix(dir, "~") {
 		// The server resolves a relative path from its own folder, not

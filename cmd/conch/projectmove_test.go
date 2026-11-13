@@ -14,6 +14,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/relocate"
+	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/server"
 )
 
@@ -256,5 +257,27 @@ func TestProjectMoveWords(t *testing.T) {
 	}
 	if !strings.Contains(r1, "1 branch · 1 agent continues there") || !strings.Contains(r2, "2 branches · 2 agents continue there") {
 		t.Errorf("results: %q / %q", r1, r2)
+	}
+}
+
+// -to local is this computer's own server, never an ssh host called
+// "local": conch -m gpu project move r1 -to local is how a project comes
+// back here, and Conch.app runs exactly that.
+func TestProjectMoveToLocalIsThisServer(t *testing.T) {
+	a4Env(t)
+	sshLog := fakeSSH(t, "exit 255")
+	startMoveServer(t, config.SocketPath(), filepath.Join(t.TempDir(), "state"))
+	c, err := connectMoveTarget(remote.LocalID)
+	if err != nil {
+		t.Fatalf("connecting to local: %v", err)
+	}
+	defer c.Close()
+	var list proto.ProjectList
+	if err := call(c, proto.MethodProjectList, nil, &list); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sshLog); err == nil {
+		b, _ := os.ReadFile(sshLog)
+		t.Fatalf("ssh was run for local: %s", b)
 	}
 }

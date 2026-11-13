@@ -25,11 +25,20 @@ func (s *Server) writableCheckout(c *client, root, method string) (string, *prot
 		return "", perr
 	}
 	if caller, ok := s.scopedCaller(c); ok {
-		if perr := s.projectInScope(caller, method, s.projectOfCheckout(root)); perr != nil {
+		if perr := s.checkoutInScope(caller, method, root); perr != nil {
 			return "", perr
 		}
 	}
 	return root, nil
+}
+
+// checkoutInScope: a checkout is a scoped agent's to change when its
+// project is, or — a task's folder, in no project — when its task is.
+func (s *Server) checkoutInScope(caller scopeCaller, method, root string) *proto.Error {
+	if id := s.projectOfCheckout(root); id != "" {
+		return s.projectInScope(caller, method, id)
+	}
+	return s.taskFolderInScope(caller, method, root)
 }
 
 // confineEntry is rel inside root as an entry of its folder: the folder

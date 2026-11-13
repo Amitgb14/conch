@@ -98,8 +98,8 @@ func seedUnborn(ctx context.Context, root, base string) error {
 	commit, err := run(ctx, root, "commit-tree", "-m", "Initial commit", strings.TrimSpace(string(tree)))
 	if err != nil {
 		var ge *gitError
-		if errors.As(err, &ge) && strings.Contains(ge.stderr, "identity") {
-			return fmt.Errorf("%s has no commits yet, and git has no author identity to make the first one: set user.name and user.email (git config --global), or commit once yourself", root)
+		if errors.As(err, &ge) && strings.Contains(ge.stderr, "ident") {
+			return fmt.Errorf("%s has no commits yet, and git has no author identity to make the first one: run git config --global user.name \"Your Name\" and git config --global user.email you@example.com, or commit once yourself", root)
 		}
 		return err
 	}
@@ -125,13 +125,35 @@ func ValidBranchName(ctx context.Context, root, name string) error {
 }
 
 // InitRepo makes dir a git repository on branch main with an empty first
-// commit, so branches and worktrees can be made from it straight away. The
-// commit is skipped (not an error) when git has no author identity.
+// commit, so branches and worktrees can be made from it straight away.
+// Files already in dir are left untracked: committing them is the
+// person's call, and a first commit made behind their back could take in
+// a secret. The commit is made with commit-tree, like seedUnborn's, so
+// nothing staged in a repository that already existed is swept into it,
+// and a repository that has commits is left as it was.
+//
+// Without an author identity there can be no commit, and a repository
+// with none is one no worktree can branch from, so that is an error that
+// says how to fix it, and a .git this call made is taken away again: the
+// folder is left as it was found, and asking again once git has an
+// identity works.
 func InitRepo(ctx context.Context, dir string) error {
+	dotGit := filepath.Join(dir, ".git")
+	_, statErr := os.Lstat(dotGit)
+	fresh := errors.Is(statErr, os.ErrNotExist)
 	if _, err := run(ctx, dir, "init", "-b", "main"); err != nil {
 		return err
 	}
-	_, _ = run(ctx, dir, "commit", "--allow-empty", "-m", "Initial commit")
+	head, err := run(ctx, dir, "symbolic-ref", "--short", "HEAD")
+	if err != nil {
+		return nil // a detached HEAD is a commit already
+	}
+	if err := seedUnborn(ctx, dir, strings.TrimSpace(string(head))); err != nil {
+		if fresh {
+			_ = os.RemoveAll(dotGit)
+		}
+		return err
+	}
 	return nil
 }
 

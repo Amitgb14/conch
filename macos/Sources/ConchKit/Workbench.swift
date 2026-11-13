@@ -312,8 +312,17 @@ public struct ChatLog: Equatable, Sendable {
     public var turns: [ChatTurn] = []
     /// Whether an answer has come at all.
     public var loaded = false
+    /// Turns dropped off the front to keep the log to chatLogMax, since it
+    /// was last replaced whole: what makes a place in it counted when it
+    /// was sent still the same place.
+    public private(set) var trimmed = 0
 
     public init() {}
+
+    /// Where the conversation is now, to tell what comes after it.
+    public var mark: ChatMark {
+        ChatMark(seq: turns.compactMap(\.seq).max(), count: trimmed + turns.count)
+    }
 
     /// An answer taken in: a reset — or one from a server that keeps no
     /// versions — is the whole conversation; otherwise each turn replaces
@@ -324,11 +333,12 @@ public struct ChatLog: Equatable, Sendable {
         let before = self
         agent = c.agent
         note = c.note
-        if c.session != session { session = c.session; turns = [] }
+        if c.session != session { session = c.session; turns = []; trimmed = 0 }
         let incoming = c.turns ?? []
         // The server leaves reset out when false, so absent is not a reset.
         if c.reset == true || c.epoch == nil || c.epoch != epoch {
             turns = incoming
+            trimmed = 0
         } else {
             for t in incoming {
                 if let s = t.seq, let i = turns.lastIndex(where: { $0.seq == s }) {
@@ -339,7 +349,10 @@ public struct ChatLog: Equatable, Sendable {
                     turns.append(t)
                 }
             }
-            if turns.count > 1500 { turns.removeFirst(turns.count - 1500) }
+            if turns.count > chatLogMax {
+                trimmed += turns.count - chatLogMax
+                turns.removeFirst(turns.count - chatLogMax)
+            }
         }
         epoch = c.epoch
         ver = c.ver ?? 0
@@ -348,10 +361,35 @@ public struct ChatLog: Equatable, Sendable {
     }
 
     /// Whether the person's message has reached the conversation: the last
-    /// thing they said, after the turn count it was sent at.
-    public func has(sent text: String, after count: Int) -> Bool {
+    /// thing they said, after where the conversation was when it was sent.
+    /// That place is a turn's seq where the server numbers them, and
+    /// otherwise a count of turns that knows about those trimmed off the
+    /// front — a plain index into the turns kept stopped matching anything
+    /// once the log was full, and the message stayed "sending" for ever.
+    public func has(sent text: String, after m: ChatMark) -> Bool {
         let want = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return turns.dropFirst(min(count, turns.count)).contains { $0.role == "user" && ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == want }
+        let later: ArraySlice<ChatTurn>
+        if let s = m.seq {
+            later = ArraySlice(turns.filter { ($0.seq ?? Int.min) > s })
+        } else {
+            later = turns.dropFirst(min(max(m.count - trimmed, 0), turns.count))
+        }
+        return later.contains { $0.role == "user" && ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == want }
+    }
+}
+
+/// The most turns a chat keeps.
+public let chatLogMax = 1500
+
+/// A place in a conversation: the newest turn's seq, where turns have one,
+/// and how many turns there have been in all.
+public struct ChatMark: Equatable, Sendable {
+    public var seq: Int?
+    public var count: Int
+
+    public init(seq: Int? = nil, count: Int) {
+        self.seq = seq
+        self.count = count
     }
 }
 

@@ -149,12 +149,24 @@ func (s *sealer) send(ctx context.Context, f Frame) error {
 	return nil
 }
 
+// errSessionOver is what an opener is closed with once its session has
+// stopped reading.
+var errSessionOver = errors.New("the session is over")
+
 // opener reads Noise messages off a WebSocket and gives back the frames
 // in them, inflating first when the other side deflates. A goroutine
 // decrypts into a pipe, so the inflater reads a stream that waits for
 // more rather than one that ends: flate cannot carry on after an EOF.
+//
+// Whoever reads frames has to close it when they stop. The goroutine
+// waits in the pipe's Write until its message has been read, and a
+// frame refused partway — over maxFrame, or followed by more in the same
+// message — leaves the rest unread: without close, that goroutine and
+// its message stayed for the life of the process, one for every bad
+// frame anybody holding the relay key cared to send.
 type opener struct {
-	r io.Reader
+	r  io.Reader
+	pr *io.PipeReader
 }
 
 func newOpener(ctx context.Context, c *websocket.Conn, cs *noise.CipherState, inflate bool) *opener {
@@ -184,8 +196,12 @@ func newOpener(ctx context.Context, c *websocket.Conn, cs *noise.CipherState, in
 	if inflate {
 		r = flate.NewReader(pr)
 	}
-	return &opener{r: r}
+	return &opener{r: r, pr: pr}
 }
+
+// close ends the decrypting goroutine wherever it waits: its Write fails,
+// and so does a later one. Reading the WebSocket is ended by the context.
+func (o *opener) close(err error) { o.pr.CloseWithError(err) }
 
 func (o *opener) next() (Frame, error) {
 	var head [4]byte
@@ -318,6 +334,7 @@ func serveSession(ctx context.Context, c *websocket.Conn, recv, send *noise.Ciph
 	defer cancel()
 	out := newSealer(c, send, true)
 	in := newOpener(ctx, c, recv, false)
+	defer in.close(errSessionOver)
 	calls := make(chan struct{}, maxCalls)
 	var mu sync.Mutex
 	sockets := map[int64]*tunnelSocket{}

@@ -71,12 +71,13 @@ conch sandbox provider install hetzner
 conch sandbox provider update            # newer versions of what you installed
 ```
 
-Before saving anything, install says where the file sends your API key and where ssh goes, and asks. It checks that the file it downloaded is the one the registry's index lists, by its hash, and checks the file as it checks one you adapted. With the key set, it lists your sandboxes too, which makes nothing. An installed provider is a provider like any other, marked **adapted**.
+Before saving anything, install says where the file sends your API key, which variable it reads it from, and where ssh goes, and asks; a file that reads another variable than the registry lists is not installed. It checks that the file it downloaded is the one the registry's index lists, by its hash, and checks the file as it checks one you adapted. With the key set, it lists your sandboxes too, which makes nothing. An installed provider is a provider like any other, marked **adapted**.
 
 `update` takes the registry's newer version of each one you installed, but never:
 
 - **a file you have edited** since you installed it: that one is left alone, and saying `rm` then `install` takes theirs.
 - **new hosts**, unless you say yes: a file that would send your key somewhere new is shown, and with `-y` it is left as it is.
+- **a new key**, unless you say yes: a file that would read your key from another variable (`key_env`), or send it in another header, is shown the same way, and with `-y` left as it is — the same hosts sent `$GITHUB_TOKEN` are no safer than new hosts sent your key. A provider installed by a conch older than 0.2 is asked about this once, since what it sent then was not recorded.
 
 A provider that has left the registry is kept.
 

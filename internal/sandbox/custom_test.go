@@ -397,3 +397,31 @@ func TestProviderFileGuideExampleIsGood(t *testing.T) {
 		t.Fatalf("the guide's example: %v %v", problems, err)
 	}
 }
+
+// A 404 from the [delete] call is "already deleted" only when the sandbox
+// is gone: a file whose route is wrong gets 404 too, and every caller then
+// forgot a sandbox that went on running and billing.
+func TestCustomDeleteWrongRouteIsNotGone(t *testing.T) {
+	f, builtin := newFakeTensorlake(t)
+	customHome(t, "tlake", strings.Replace(tensorlakeFile(builtin.base), `call = "DELETE /sandboxes/{id}"`, `call = "DELETE /sandbox/{id}"`, 1))
+	p, err := Open("tlake", config.SandboxCfg{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s, err := p.Create(ctx, Spec{Name: "hull"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.Delete(ctx, s.ID)
+	if err == nil || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "[delete]") || !strings.Contains(err.Error(), "still there") {
+		t.Fatalf("delete by a wrong route: %v", err)
+	}
+	if f.status(s.ID) != "running" {
+		t.Fatalf("status %s", f.status(s.ID))
+	}
+	// One that really is gone is still ErrNotFound.
+	if err := p.Delete(ctx, "nosuch"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("gone: %v", err)
+	}
+}

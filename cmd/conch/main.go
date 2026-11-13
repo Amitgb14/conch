@@ -74,7 +74,9 @@ Usage:
                                 fitted to the terminal (-wide: every column, as piped)
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
-  conch send ID TEXT            type TEXT into a pane (-keys to send key names)
+  conch send ID TEXT            type TEXT into a pane (-keys to send key names); from an agent's
+                                pane, only into panes running an agent, never a plain shell
+                                ([agents] unrestricted_launch lifts it)
   conch read ID                 print a pane's visible screen
   conch attach [-hold] [-raw] [-view] ID
                                 show a pane in this terminal and type into it (the Mac app's panes);
@@ -139,6 +141,10 @@ Usage:
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
   conch project add PATH | create [-no-git] PATH | clone URL [DIR] | ls | rm ID | files ID [-reset | -none | PATTERN...]
+                | git-init ID|PATH
+                                make a plain-folder project a git repository: git init and an
+                                empty first commit (its files stay uncommitted), so a task can
+                                make a branch in it
                 | move [-plan] [-into DIR] [-y] [-json] ID -to MACHINE
                                 move a whole project to another machine: the repository (cloned
                                 there from its origin), every worktree with its uncommitted work,
@@ -388,6 +394,11 @@ func main() {
 		fmt.Print(commandHelp(helpCommand(cmd)))
 		return
 	}
+	// Conch Cloud's commands, while it is hidden (cloudswitch.go).
+	if err := cloudGate(cmd, args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	var err error
 	switch cmd {
@@ -492,7 +503,7 @@ func main() {
 	case "help", "--help", "-h":
 		switch {
 		case len(args) > 0 && args[0] == "all":
-			fmt.Print(usage)
+			fmt.Print(fullUsage())
 		case len(args) > 0 && helpCommand(args[0]) != "":
 			fmt.Print(commandHelp(helpCommand(args[0])))
 		case len(args) > 0:

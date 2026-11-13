@@ -12,12 +12,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/adapter"
@@ -409,7 +411,7 @@ func (s *Server) serve(nc net.Conn) {
 		// Requests that run git or start processes can take a while; run
 		// them aside so keystrokes on this connection are never held up.
 		if slowMethods[msg.Method] && msg.ID != "" {
-			go s.handle(c, msg)
+			go s.handleAside(c, msg)
 			continue
 		}
 		if !s.handle(c, msg) {
@@ -429,12 +431,41 @@ var slowMethods = map[string]bool{
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
-	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
+	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
 	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
+}
+
+// repanic makes handleAside's recover panic again, so a test meets the
+// bug rather than an error reply that hides it.
+var repanic = testing.Testing()
+
+// handleAside is handle for a request run on a goroutine of its own. A
+// panic there would end the whole server — every pane with it — for one
+// bad request, so it becomes an error reply and a log line with the stack
+// instead. Only these: what they hold is a file or a git process, while a
+// request handled in line may hold the server's locks, and carrying on
+// past a panic there would trade a crash for a hang.
+func (s *Server) handleAside(c *client, msg proto.Message) {
+	recovering(c, msg, func() { s.handle(c, msg) })
+}
+
+func recovering(c *client, msg proto.Message, handle func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		log.Printf("%s: panic: %v\n%s", msg.Method, r, debug.Stack())
+		if repanic {
+			panic(r)
+		}
+		c.send(proto.Message{ID: msg.ID, Error: proto.Errorf(proto.ErrInternal, "%s failed inside the server: %v", msg.Method, r)})
+	}()
+	handle()
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -936,6 +967,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.reviewDropped(ref.ID, "")
 		return nil, nil
+
+	case proto.MethodProjectGitInit:
+		ref, perr := decode[proto.ProjectRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.gitInit(ref.ID)
 
 	case proto.MethodProjectRefresh:
 		ref, perr := decode[proto.ProjectRef](msg)

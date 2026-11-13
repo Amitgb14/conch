@@ -100,7 +100,7 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 ```
 
 - An ID is always an ID: `p` and a number is never looked up as a name, so names of that shape are refused.
-- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its ID, its label or its ssh target, as `-m` takes, looked up in that order — so an ID always reaches its own machine — and the windows name a machine by its label only when no other machine answers to it, else by its ID. One that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused. Only the command's pane is read this way: `conch send p5 look at busybox:p3` sends that text as it is.
+- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its ID, its label or its ssh target, as `-m` takes, looked up in that order — so an ID always reaches its own machine — and the windows name a machine by its label only when no other machine answers to it, else by its ID. One that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused. A command reaches one machine, so `conch show` refuses panes on two — and a bare `p5` beside `busybox:p3`, since `p5` alone means this computer's (or `-m`'s). Only the command's pane is read this way: `conch send p5 look at busybox:p3` sends that text as it is.
 - A name is looked up once, when the command starts; a `wait` then stays with that pane.
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.
@@ -163,9 +163,10 @@ conch tells who is asking from the operating system — the process at the other
 | Command | Description |
 | --- | --- |
 | `conch project add PATH` | add a project to the sidebar |
-| `conch project clone URL [DIR]` | clone a git repository and add it as a project — into DIR, or a folder named after the repository as `git clone` names it (here, in the current folder; with `-m`, in that machine's home). https, ssh and `git@host:owner/repo` URLs; a private repository uses that machine's git credentials, and git never stops to ask for a password |
-| `conch project move [-plan] [-into DIR] [-y] [-json] PROJECT -to MACHINE` | move a whole git project to another machine: cloned there from its origin (or joining the clone it has; with no origin, its repository copied there), every task worktree with its commits and uncommitted work, branches holding commits the origin hasn't, and the agents with their conversations. `-plan` only says what would move; `-json` says the plan, each step and the result as lines of JSON. Everything here is kept — [more](/docs/remote-machines#moving-a-whole-project) |
+| `conch project clone URL [DIR]` | clone a git repository and add it as a project — into DIR, or a folder named after the repository as `git clone` names it (here, in the current folder; with `-m`, in that machine's home — there DIR is an absolute path or one under `~`). https, ssh and `git@host:owner/repo` URLs; a private repository uses that machine's git credentials, and git never stops to ask for a password |
+| `conch project move [-plan] [-into DIR] [-y] [-json] PROJECT -to MACHINE` | move a whole git project to another machine: cloned there from its origin (or joining the clone it has; with no origin, its repository copied there), every task worktree with its commits and uncommitted work, branches holding commits the origin hasn't, and the agents with their conversations. `-to local` brings one back here: `conch -m gpu project move r1 -to local`. `-plan` only says what would move; `-json` says the plan, each step and the result as lines of JSON. Everything here is kept — [more](/docs/remote-machines#moving-a-whole-project) |
 | `conch project create [-no-git] PATH` | create a folder with a git repository and an initial commit (`-no-git`: a plain folder) |
+| `conch project git-init ID\|PATH` | make a project that is a plain folder a git repository: `git init` on `main` and an empty first commit, the files already there left uncommitted, so a task can make a branch in it. Refused for a folder that is already one or sits inside another repository; with no git identity set it says to set `user.name` and `user.email` and leaves the folder as it was |
 | `conch project ls` | list projects, their base branch and worktrees |
 | `conch project rm ID` | remove a project from the sidebar |
 | `conch project files ID [-reset \| -none \| PATTERN...]` | set the [local file patterns](/docs/tasks#local-files-in-worktrees) copied into new worktrees; `-reset` restores the defaults, `-none` copies nothing |
@@ -181,7 +182,7 @@ Projects kept together because they change together — an API, its web app, the
 | `conch group add NAME PROJECT...` | make a group of projects already added, or add projects to one; a project is named by its ID, its folder, or its name when only one project has it |
 | `conch group rm NAME [PROJECT...]` | take projects out of a group, or with none named take the group away — its projects stay |
 | `conch group rename OLD NEW` / `conch group notes NAME [TEXT]` | rename a group; give it notes for the agents working across it (`""` clears them) |
-| `conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...` | one task across a group's repos: the branch (named from the prompt unless given) in a worktree of each — or of those `-only` names — gathered in a task folder (`$CONCH_HOME/tasks/GROUP/BRANCH`) with a link to each worktree and `CONCH-TASK.md`; one agent works there with every worktree added (Claude's and Codex's `--add-dir`), or with `-each` an agent in each worktree, told about the others. Refused before anything is made when a repo is not a git repository or already has the branch checked out; prints the folder and the agents' pane IDs |
+| `conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...` | one task across a group's repos: the branch (named from the prompt unless given) in a worktree of each — or of those `-only` names — gathered in a task folder (`$CONCH_HOME/tasks/GROUP/BRANCH`) with a link to each worktree and `CONCH-TASK.md`; one agent works there with every worktree added (Claude's and Codex's `--add-dir`), or with `-each` an agent in each worktree, told about the others. Refused before anything is made when a repo is not a git repository or already has the branch checked out; prints the folder and the agents' pane IDs. The flags may come after NAME too; `--` ends them, for a prompt that starts with a dash |
 | `conch group tasks NAME` / `conch group task-rm NAME BRANCH` | a group's tasks, with their repos, folder and agents; forget one and remove its folder — each repo keeps its worktree and branch, to merge or delete as any branch |
 | `conch group merge [-order P,P] [-remove] NAME BRANCH` | Merge All When Green: once every pull request of the task is open, green and held back by nothing the autopilot would hold one for, they merge one by one in that order (default the task's), each after the one before has landed; one GitHub refuses stops it there. The server waits, so it carries on with nothing open. `-remove` then takes the task away with each repo's worktree and branch; `-stop` stops waiting. `conch group tasks` says where it stands |
 
@@ -265,7 +266,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox provider show\|save\|rm NAME` | print a provider file; make a draft a provider; forget one (refused while a machine here is one of its sandboxes, which are never touched) |
 | `conch sandbox provider search [-json] [TERM]` | the [provider registry](/docs/sandboxes#the-provider-registry): providers others adapted and published, whether each was checked live, and what you have of it |
 | `conch sandbox provider install [-y] [NAME]` | install one from the registry: says where your API key and ssh go and asks (`-y` doesn't), checks the file's hash, then lists your sandboxes with the key if it is set. No NAME lists them and asks which |
-| `conch sandbox provider update [-y] [NAME]` | take the registry's newer version of what you installed; a file edited here is left alone, and new hosts are taken only when you say yes (never with `-y`) |
+| `conch sandbox provider update [-y] [NAME]` | take the registry's newer version of what you installed; a file edited here is left alone, and new hosts, or a new variable or header for the key, are taken only when you say yes (never with `-y`) |
 | `conch sandbox provider publish [-dry-run] [-json] NAME` | check one of yours with your key, then propose it to the registry as a pull request through `gh` (your fork, or the repository itself if you can push); your key is never part of it |
 | `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
@@ -317,45 +318,6 @@ conch relay [-listen ADDR] [-cert FILE -key FILE]           # a relay phones and
 ```
 
 `conch relay` runs a [relay](/docs/phone#through-a-relay) on a server of your own (`:8443` by default): `conch web` connects out to it, a phone opens its address, and it copies the encrypted session between them without being able to read it. It stores nothing and serves the phone's app — which is why it should be a server of your own: a relay that served a changed app could read what the phone sees. Without `-cert`, put a proxy that does HTTPS in front of it — a phone's browser encrypts only on an https page.
-
-### login
-
-```sh
-conch login [-no-browser] [-json] [-api URL]   # sign this device in to Conch Cloud
-```
-
-`conch login` signs this device in to [Conch Cloud](/docs/cloud): it prints a code, opens the page where you approve it (signed in there in your browser), and waits until you do. The server is `CONCH_CLOUD_URL`, else `[cloud] api` in `config.toml`, else Conch Cloud itself; `-api` names one for this sign-in. The device's tokens go in the macOS Keychain, or elsewhere in `cloud.json` in conch's folder, readable by you alone — conch refuses that file if anyone else can read it. `-json` says each step as a line of JSON (the code, then `signed_in` or `error`), which is how Conch.app's Settings signs in. A conch that has never signed in asks nothing of Conch Cloud, ever.
-
-### logout
-
-```sh
-conch logout                                   # revoke this device's sign-in and forget it
-```
-
-### account
-
-```sh
-conch account [-json]                          # who, the plan, this month's hours and storage, the devices
-```
-
-### cloud
-
-```sh
-conch cloud machine ls [-json]                 # the account's cloud machines and their state
-conch cloud machine new NAME [-size S] [-region R] [-provider ID] [-wait]
-conch cloud machine wake|sleep NAME [-force]   # sleep refuses while agents work, unless -force
-conch cloud machine rm NAME [-y]               # destroy it and its disk
-conch cloud machine forget-key NAME            # the next connection pins whatever key it is given
-conch cloud exec [-t] NAME [-- SCRIPT…]        # run a script there (a shell with none), waking it
-conch cloud bridge NAME                        # conch's protocol on stdin/stdout, for conch machine bridge
-conch cloud agent [-boot FILE] [-state DIR] [-user NAME]   # inside a Conch Cloud machine only
-conch cloud install [-user NAME]                          # ready a machine image (as root)
-conch cloud git-credential [-socket PATH] get              # git's credential helper there
-```
-
-Once signed in, the account's machines are in conch's machines (`conch machine ls`, the TUI's tree, Conch.app's sidebar) as `conch:<id>`, named as on the account, and `-m NAME` reaches one. They are reached through Conch Cloud's relay rather than ssh: `exec` and `bridge` ask the control plane for a ticket and the machine's key, check the key against the one kept from the first connection (`cloud-keys.json`; a different key on a machine that was not recreated is refused), and open an end-to-end encrypted tunnel to the machine's conch. A background connection never wakes a machine that sleeps — it is shown asleep — but `exec` and `bridge`, asked for by you, wake it and wait.
-
-`conch cloud agent` is the machine's side of Conch Cloud, and runs **inside** a cloud machine: its host starts it (the `conch-cloud-agent` systemd unit — see [Cloud machine image](/docs/cloud-machine)) after writing `/run/conch-cloud/boot.json`. It refuses a `boot.json` anyone but its owner can read, keeps the machine's Noise key in `/var/lib/conch/cloud/noise.key` (0600, made once), starts the machine's conch server as `-user` (`conch` when it runs as root), says hello to the control plane, reports what the agents are doing so an idle machine sleeps, and joins the relay as the room's gateway so clients reach the server through an end-to-end encrypted tunnel. Agents it starts are given the account's env secrets (a shell is not, and only the server it registered with may ask for them); the machine token and those secrets are never written to disk, though a running agent's environment, and the token git is handed, are readable by processes of the same user — see [Cloud machine image](/docs/cloud-machine). It exits 3 when the control plane refuses its token — each inject gives the machine a new one and restarts the agent — and 4 when the control plane refuses the machine itself. `install` readies a machine image: it writes the `conch-cloud-agent` unit (running this conch), enables it and makes `/var/lib/conch/cloud`; the user (`conch` by default) must exist. `git-credential` is what git asks for the git proxy's password: the machine token, from the agent's memory.
 
 ### config
 
@@ -454,11 +416,11 @@ conch doctor -json    # the same checks, for a script
 The first thing to run when something does not work. Each line is one thing conch relies on, and anything wrong comes with the command that puts it right:
 
 ```
-✓ conch     0.1.9 · darwin/arm64
+✓ conch     0.2.0 · darwin/arm64
 ✓ config    /Users/you/.config/conch/config.toml
 ✓ keys      ctrl+b, then 46 keys
 ✓ socket    /Users/you/.config/conch/conch.sock
-! server    pid 28356, up 6d, on another build (0.1.8) than this conch (0.1.9)
+! server    pid 28356, up 6d, on another build (0.1.10) than this conch (0.2.0)
             → conch server reload -binary /Users/you/.local/bin/conch  (panes and agents keep running)
 ✓ agents    claude 2.1.3 · codex 0.46.0  (not installed: gemini, opencode, devin)
 ✓ git       2.49.0, committing as You
@@ -587,3 +549,46 @@ These are run by conch itself, not by you:
 | --- | --- |
 | `conch bridge` | a remote client over ssh: connects stdio to this machine's server, starting it if needed |
 | `conch report` | agent hooks and plugins, to report state to the server |
+
+## Conch Cloud commands
+
+Conch Cloud is not enabled in this release: these commands are left out of `conch help all` and completion, and run they say so. To try it, set `CONCH_CLOUD=1` in the environment or put `enabled = true` under `[cloud]` in `config.toml` (the variable, when set, wins: `CONCH_CLOUD=0` turns it off again). A cloud machine already among your machines keeps working either way — it is reached, woken and put to sleep (`conch cloud machine wake|sleep|rm`) as before.
+
+### login
+
+```sh
+conch login [-no-browser] [-json] [-api URL]   # sign this device in to Conch Cloud
+```
+
+`conch login` signs this device in to [Conch Cloud](/docs/cloud): it prints a code, opens the page where you approve it (signed in there in your browser), and waits until you do. The server is `CONCH_CLOUD_URL`, else `[cloud] api` in `config.toml`, else Conch Cloud itself; `-api` names one for this sign-in. The device's tokens go in the macOS Keychain, or elsewhere in `cloud.json` in conch's folder, readable by you alone — conch refuses that file if anyone else can read it. `-json` says each step as a line of JSON (the code, then `signed_in` or `error`), which is how Conch.app's Settings signs in. A conch that has never signed in asks nothing of Conch Cloud, ever.
+
+### logout
+
+```sh
+conch logout                                   # revoke this device's sign-in and forget it
+```
+
+### account
+
+```sh
+conch account [-json]                          # who, the plan, this month's hours and storage, the devices
+```
+
+### cloud
+
+```sh
+conch cloud machine ls [-json]                 # the account's cloud machines and their state
+conch cloud machine new NAME [-size S] [-region R] [-provider ID] [-wait]
+conch cloud machine wake|sleep NAME [-force]   # sleep refuses while agents work, unless -force
+conch cloud machine rm NAME [-y]               # destroy it and its disk
+conch cloud machine forget-key NAME            # the next connection pins whatever key it is given
+conch cloud exec [-t] NAME [-- SCRIPT…]        # run a script there (a shell with none), waking it
+conch cloud bridge NAME                        # conch's protocol on stdin/stdout, for conch machine bridge
+conch cloud agent [-boot FILE] [-state DIR] [-user NAME]   # inside a Conch Cloud machine only
+conch cloud install [-user NAME]                          # ready a machine image (as root)
+conch cloud git-credential [-socket PATH] get              # git's credential helper there
+```
+
+Once signed in, the account's machines are in conch's machines (`conch machine ls`, the TUI's tree, Conch.app's sidebar) as `conch:<id>`, named as on the account, and `-m NAME` reaches one. They are reached through Conch Cloud's relay rather than ssh: `exec` and `bridge` ask the control plane for a ticket and the machine's key, check the key against the one kept from the first connection (`cloud-keys.json`; a different key on a machine that was not recreated is refused), and open an end-to-end encrypted tunnel to the machine's conch. A background connection never wakes a machine that sleeps — it is shown asleep — but `exec` and `bridge`, asked for by you, wake it and wait.
+
+`conch cloud agent` is the machine's side of Conch Cloud, and runs **inside** a cloud machine: its host starts it (the `conch-cloud-agent` systemd unit — see [Cloud machine image](/docs/cloud-machine)) after writing `/run/conch-cloud/boot.json`. It refuses a `boot.json` anyone but its owner can read, keeps the machine's Noise key in `/var/lib/conch/cloud/noise.key` (0600, made once), starts the machine's conch server as `-user` (`conch` when it runs as root), says hello to the control plane, reports what the agents are doing so an idle machine sleeps, and joins the relay as the room's gateway so clients reach the server through an end-to-end encrypted tunnel. Agents it starts are given the account's env secrets (a shell is not, and only the server it registered with may ask for them); the machine token and those secrets are never written to disk, though a running agent's environment, and the token git is handed, are readable by processes of the same user — see [Cloud machine image](/docs/cloud-machine). It exits 3 when the control plane refuses its token — each inject gives the machine a new one and restarts the agent — and 4 when the control plane refuses the machine itself. `install` readies a machine image: it writes the `conch-cloud-agent` unit (running this conch), enables it and makes `/var/lib/conch/cloud`; the user (`conch` by default) must exist. `git-credential` is what git asks for the git proxy's password: the machine token, from the agent's memory.

@@ -20,7 +20,10 @@ import (
 // liked — one tool call around every prompt the person relies on, which
 // is exactly what an injected instruction would try. So an agent calling
 // from its pane may pick which agent to start and its model, and nothing
-// else; the person, the TUI and scripts are not held to it, and
+// else. It may still start a plain shell, but not type into one — that
+// would be the same launch a keystroke later — so it types only into
+// panes running an agent (typingInScope, scope.go). The person, the TUI
+// and scripts are not held to it, and
 // [agents] unrestricted_launch in config.toml lifts it for somebody who
 // wants agents to start agents however they like.
 

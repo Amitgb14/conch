@@ -79,6 +79,11 @@ type autopilotFile struct {
 	// Checks what each of their branches' open pull request's CI was then.
 	Seen   map[string]bool   `json:"seen,omitempty"`
 	Checks map[string]string `json:"checks,omitempty"`
+	// Heads is the head commit of each branch's open pull request at that
+	// read, "" where GitHub named none. A branch in it had a pull request
+	// the server saw, so green from no checks at all, or green at a commit
+	// it saw pushed, is a turn it watched.
+	Heads map[string]string `json:"heads,omitempty"`
 	// Fixes counts the project's own check's failures sent back, and
 	// CIFixes CI's: two allowances, since a local check passing says
 	// nothing about CI, and one count reset by it let CI's go on for ever.
@@ -126,6 +131,7 @@ type autopilotFile struct {
 func (f *autopilotFile) init() {
 	orNew(&f.Seen)
 	orNew(&f.Checks)
+	orNew(&f.Heads)
 	orNew(&f.Fixes)
 	orNew(&f.CIFixes)
 	orNew(&f.Waiting)
@@ -317,6 +323,11 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		checks := proto.PRChecks(b)
 		now[key] = checks
 		was := a.saved.Checks[key]
+		head, open := "", b.PR != nil && b.PR.State == "OPEN"
+		if open {
+			head = b.PR.Head
+		}
+		lastHead, seen := a.saved.Heads[key]
 		switch {
 		case checks == "pass":
 			// Only the turn to green renews the allowance: CI still green
@@ -328,16 +339,27 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 			}
 			delete(a.saved.PendingCI, key)
 			// A turn is from a colour seen here — pending or red — to
-			// green. A pull request with none before (opened, or gone
-			// green, while the server was stopped or between two reads)
-			// was first seen green, and a merge is not undone.
-			if !first && (was == "pending" || was == "fail") && a.saved.Policy.AutoMerge && b.Name != info.Base {
+			// green; or from a pull request seen with no checks yet, or
+			// green at another commit, to green: CI ran between two
+			// reads on what the server watched. A pull request never
+			// seen before (opened, or gone green, while the server was
+			// stopped or between two reads) was first seen green, and a
+			// merge is not undone.
+			turned := was == "pending" || was == "fail" ||
+				seen && was == "" ||
+				seen && was == "pass" && lastHead != "" && head != "" && head != lastHead
+			if !first && turned && a.saved.Policy.AutoMerge && b.Name != info.Base {
 				if _, waiting := a.saved.Waiting[key]; !waiting {
 					a.saved.Waiting[key] = ""
 				}
 			}
 		case checks == "fail" && !first && was != "fail":
 			red = append(red, b.Name)
+		}
+		if open {
+			a.saved.Heads[key] = head
+		} else {
+			delete(a.saved.Heads, key)
 		}
 		// A conflict is minded from the turn it was seen, like the rest.
 		_, known := a.saved.Conflicted[key]
@@ -357,6 +379,13 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		if strings.HasPrefix(key, prefix) {
 			if _, ok := now[key]; !ok {
 				delete(a.saved.Checks, key)
+			}
+		}
+	}
+	for key := range a.saved.Heads {
+		if strings.HasPrefix(key, prefix) {
+			if _, ok := now[key]; !ok {
+				delete(a.saved.Heads, key)
 			}
 		}
 	}
@@ -396,7 +425,7 @@ func (a *autopilot) forget(projectID string) {
 	prefix := projectID + "\x00"
 	ours := func(key string) bool { return strings.HasPrefix(key, prefix) }
 	f := &a.saved
-	dropKeys(ours, f.Checks, f.Waiting, f.Failed, f.Passed, f.Asked, f.Conflicted, f.TestAsked, a.unshipped, a.lastCheck, a.said)
+	dropKeys(ours, f.Checks, f.Heads, f.Waiting, f.Failed, f.Passed, f.Asked, f.Conflicted, f.TestAsked, a.unshipped, a.lastCheck, a.said)
 	dropKeys(ours, f.Fixes, f.CIFixes, f.Resolves)
 	dropKeys(ours, f.PendingCI, f.Drafted, a.capSaid, a.recheck, a.reship)
 	dropKeys(ours, f.Rewrites)

@@ -1,4 +1,4 @@
-VERSION ?= 0.1.10-dev
+VERSION ?= 0.2.0-dev
 MODULE  := github.com/Amitgb14/conch
 LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
 # Pinned, so a new staticcheck release can't turn CI red on its own. The

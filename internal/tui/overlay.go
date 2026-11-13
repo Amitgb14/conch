@@ -266,6 +266,11 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			at := len(items) - 3
 			items = append(items[:at], append([]menuItem{{"T", "Move the whole project to another machine or a sandbox…", act("T")}}, items[at:]...)...)
 		}
+		if proj := m.project(r.machine, r.projectID); proj != nil && !proj.Git {
+			// After the task, which works in the folder until it has git.
+			gi := menuItem{"", "Make it a git repository (git init)…", func(m *Model) tea.Cmd { return m.gitInitProject(r.machine, r.projectID) }}
+			items = append(items[:1], append([]menuItem{gi}, items[1:]...)...)
+		}
 		if proj := m.project(r.machine, r.projectID); proj != nil && proj.Git {
 			issue := menuItem{"", "New task from a GitHub issue…", func(m *Model) tea.Cmd { return m.openIssues(r.machine, r.projectID) }}
 			items = append(items[:1], append([]menuItem{issue}, items[1:]...)...)

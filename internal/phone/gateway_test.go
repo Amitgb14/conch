@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1004,5 +1005,41 @@ func TestPairingNeedsHTTPS(t *testing.T) {
 		if res.StatusCode != want {
 			t.Errorf("socket from %s: %d, want %d", origin, res.StatusCode, want)
 		}
+	}
+}
+
+// Close returns only once every socket has finished recording that it
+// closed: the record is a write to phone.json made as the socket's handler
+// ends, which used to run on after Close had returned — and a test's
+// temporary folder was removed under it ("directory not empty", on CI).
+func TestCloseWaitsForSocketsToRecordClosing(t *testing.T) {
+	isolate(t)
+	dir := t.TempDir()
+	store := OpenStore(dir)
+	var slow atomic.Bool
+	g := newGateway(store, func() (*client.Client, error) { return nil, errors.New("no server") }, nil, pushOptions{client: noNetwork})
+	g.now = func() time.Time {
+		if slow.Load() {
+			time.Sleep(300 * time.Millisecond) // the socket's writes take a while
+		}
+		return time.Now()
+	}
+	web := httptest.NewServer(g.Handler())
+	t.Cleanup(web.Close)
+	f := &fixture{t: t, dir: dir, store: store, g: g, web: web}
+	p := f.pair(PermFull)
+
+	slow.Store(true)
+	s := p.socket()
+	if msgs := s.closed(); len(msgs) != 1 || msgs[0].Reason != ByeServerGone {
+		t.Fatalf("socket without a server: %+v", msgs)
+	}
+	g.Close()
+	st, err := store.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := st.Seen[p.id]; e == nil || e.Sockets != 0 {
+		t.Fatalf("Close returned before the socket recorded closing: %+v", e)
 	}
 }

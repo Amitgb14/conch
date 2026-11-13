@@ -80,6 +80,9 @@ final class Store: ObservableObject {
     private var tuiWorkspace = "first"
     @Published var questions: [String: Question] = [:]
     @Published var sessions: [String: Int] = [:]
+    /// Projects whose sessions are to be counted again (Sessions+Store).
+    var sessionRecounts = SessionRecounts()
+    var sessionRecountTask: Task<Void, Never>?
     /// The TUI's folds (ui.json), and the ones chosen here, which are kept
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
@@ -244,6 +247,10 @@ final class Store: ObservableObject {
     /// account as conch last said it, nil until asked — and never asked
     /// while there is no sign-in — its machines, and a sign-in under way.
     @Published var cloud: CloudAccount?
+    /// Whether Conch Cloud is offered (ConchKit's cloudEnabled: CONCH_CLOUD,
+    /// else [cloud] enabled), read with the theme. Hidden in this release;
+    /// a cloud machine already in machines.json keeps working either way.
+    @Published var offersCloud = false
     @Published var cloudMachines: [CloudMachine] = []
     @Published var cloudLogin: CloudLoginState = .idle
     @Published var cloudError = ""
@@ -861,6 +868,8 @@ final class Store: ObservableObject {
             Theme.icons = icons
         }
         notifySettings = NotifySettings(toml: toml)
+        let offers = cloudEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
+        if offers != offersCloud { offersCloud = offers }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
         let cost = showsCost(toml: toml ?? "")
@@ -1580,6 +1589,9 @@ final class Store: ObservableObject {
             let before = snap.pane(p.id)
             let was = before?.agent?.state
             snap.upsert(p)
+            // An agent that stopped working may have saved its first
+            // conversation in the project: its Sessions row is counted again.
+            if sessionsMayHaveChanged(old: before, new: p), let pr = p.projectID { recountSessions(key(machine, pr)) }
             attention(machine, old: before, new: p)
             if scratch == k, scratchLost(scratch, pane: p) { dropScratch() }
             // Exited on its own — a shell's exit, an ssh logout, an agent's
@@ -1618,6 +1630,11 @@ final class Store: ObservableObject {
             questions.removeValue(forKey: k)
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
+                // A project added since the connection was counted, or one
+                // whose worktrees changed (its first read comes after it is
+                // added): count it.
+                let before = snap.project(p.id)
+                if sessionsMayHaveChanged(old: before, new: p) { recountSessions(key(machine, p.id), after: before == nil ? 0 : SessionRecounts.settle) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
@@ -1628,7 +1645,10 @@ final class Store: ObservableObject {
             if let l = try? dec.decode(GroupList.self, from: data) { snap.groups = l.groups ?? [] }
         case "project.removed":
             struct Ref: Decodable { var id: String }
-            if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
+            if let r = try? dec.decode(Ref.self, from: data) {
+                snap.remove(project: r.id)
+                sessionRecounts.drop(key(machine, r.id))
+            }
         case "review.changed":
             // A note answered, sent or resolved elsewhere — an agent's
             // reply above all: the open tab of that branch reads its
@@ -1676,7 +1696,7 @@ final class Store: ObservableObject {
         }
         for pr in snapshots[machine]?.projects ?? [] {
             Task {
-                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: 500), as: SessionCount.self) {
+                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: sessionCountLimit), as: SessionCount.self) {
                     sessions[key(machine, pr.id)] = n.count
                 }
             }
@@ -2069,6 +2089,29 @@ final class Store: ObservableObject {
         terminalHasKeyboard = false
     }
 
+    /// Each task's brief being edited, by machine and folder: kept here so
+    /// the edits outlive the page that shows them.
+    private(set) var briefs: [String: TaskBriefModel] = [:]
+
+    func brief(machine: String, task: GroupTask) -> TaskBriefModel {
+        let k = key(machine, task.folder)
+        if let b = briefs[k] { return b }
+        let b = TaskBriefModel(machine: machine, folder: task.folder, branch: task.branch, store: self)
+        briefs[k] = b
+        return b
+    }
+
+    /// Everything with edits not saved — files open in Files tabs and
+    /// workbenches, tasks' briefs — for the question asked before quitting.
+    func unsaved() -> [Unsaved] {
+        var out = fileViews.keys.sorted().flatMap { fileViews[$0]!.unsaved() }
+        for k in briefs.keys.sorted() {
+            guard let b = briefs[k], b.draft.dirty else { continue }
+            out.append(Unsaved(name: "the brief of \(b.branch)") { [weak b] in await b?.save() ?? true })
+        }
+        return out
+    }
+
     /// The Files tab in front, if that is what is focused.
     var focusedFiles: FilesModel? {
         guard let k = layout.focused, parseFilesKey(k) != nil else { return nil }
@@ -2128,6 +2171,7 @@ final class Store: ObservableObject {
         let (m, pid) = unkey(pk)
         let k = sessionsKey(m, pid)
         if layout.tab(showing: k) != nil { sessionViews[k]?.load() }
+        recountSessions(pk, after: 0)
         layout.open(k)
         terminalHasKeyboard = false
     }
@@ -2374,7 +2418,8 @@ final class Store: ObservableObject {
         let s = snapshots[m] ?? Snapshot()
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
-                           canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true)
+                           canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
+                           offerCloud: offersCloud)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2465,6 +2510,7 @@ final class Store: ObservableObject {
         case .changes(let pr, let b): openChanges(project: pr, branch: b)
         case .commits(let pr, let b): openCommits(project: pr, branch: b)
         case .newTask(let pr): newTask(project: pr)
+        case .gitInit(let pr): gitInitProject(pr)
         case .copy(let text):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -2538,8 +2584,9 @@ final class Store: ObservableObject {
     /// Add project…: a sheet to open a folder, clone a repository or make
     /// a new one (AddProjectSheet), for that machine.
     func addProject(on machine: String = "local") {
-        // A cloud machine asleep is readied by the sheet itself.
-        if conns[machine] == nil, let id = catalog.first(where: { $0.id == machine })?.cloudID {
+        // A cloud machine asleep is readied by the sheet itself — with
+        // Conch Cloud offered; hidden, it is a machine to wake first.
+        if offersCloud, conns[machine] == nil, let id = catalog.first(where: { $0.id == machine })?.cloudID {
             addProjectTarget = AddProjectTarget(id: machine, cloud: id)
             refreshCloud()
             return
@@ -2684,7 +2731,7 @@ final class Store: ObservableObject {
 
     /// Reads the sizes a new cloud machine can be, once.
     func refreshCloudSizes() {
-        guard cloudSignedIn, cloudSizes.isEmpty, let b = binary else { return }
+        guard cloudSignedIn, offersCloud, cloudSizes.isEmpty, let b = binary else { return }
         Task {
             guard let out = try? await runConch(b, ["cloud", "machine", "sizes", "-json"]),
                   let s = try? conchDecoder().decode(CloudSizes.self, from: out) else { return }
@@ -3009,9 +3056,15 @@ final class Store: ObservableObject {
         return (try? await c.call("project.issues", P(project_id: pr, limit: 50), as: R.self))?.issues ?? []
     }
 
-    func startTask(_ d: TaskDraft) {
+    /// checked says a plain-folder project has been dealt with: made a git
+    /// repository, or the person asked for the folder itself.
+    func startTask(_ d: TaskDraft, checked: Bool = false) {
         let (m, pr) = unkey(d.project)
         guard let c = conns[m] else { return }
+        guard checked else {
+            whenBranchable(machine: m, projects: [pr], inFolder: { self.startTaskInFolder(d) }) { self.startTask(d, checked: true) }
+            return
+        }
         // An issue or a time other than now: `conch task`, which reads the
         // issue and the time's words the way the TUI does.
         if (d.issue ?? 0) > 0 || !taskWhenArgs(d.when).isEmpty {
@@ -3160,8 +3213,11 @@ final class Store: ObservableObject {
         guard i > 0, workspaces.indices.contains(i) else { return }
         let w = workspaces[i]
         let label = Workspace.label(i, w)
+        // What only this workspace shows, as the TUI counts it: a pane
+        // another workspace shows too is not ended, and one in this
+        // workspace's projects is counted though it was not started here.
         let running = machines.flatMap { m in
-            (snapshots[m.id]?.panes ?? []).filter { $0.running && w.panes.contains(key(m.id, $0.id)) }.map { (m.id, $0) }
+            (snapshots[m.id] ?? Snapshot()).onlyShown(by: i, of: workspaces, machine: m.id).filter(\.running).map { (m.id, $0) }
         }
         let a = NSAlert()
         a.messageText = "Close workspace \(label)?"
@@ -3506,19 +3562,23 @@ extension Store {
         let agent = agents.indices.contains(pick.indexOfSelectedItem) ? agents[pick.indexOfSelectedItem].name : nil
         let b = branch.stringValue.trimmingCharacters(in: .whitespaces)
         struct Result: Decodable { var panes: [PaneInfo]? }
-        say("Starting the task across \(picked.count) repos…", .info)
-        Task {
-            do {
-                let res = try await c.call("group.task", Params(group: name, prompt: what, branch: b.isEmpty ? nil : b, agent: agent,
-                                                                 projects: picked.count == repos.count ? [] : picked, each: each.state == .on, cols: 120, rows: 40),
-                                           as: Result.self)
-                for p in res.panes ?? [] {
-                    snapshots[machine, default: Snapshot()].upsert(p)
-                    layout.open(key(machine, p.id))
+        // A plain folder among them has no branch to make: made a
+        // repository first, after asking.
+        whenBranchable(machine: machine, projects: picked) {
+            self.say("Starting the task across \(picked.count) repos…", .info)
+            Task {
+                do {
+                    let res = try await c.call("group.task", Params(group: name, prompt: what, branch: b.isEmpty ? nil : b, agent: agent,
+                                                                     projects: picked.count == repos.count ? [] : picked, each: each.state == .on, cols: 120, rows: 40),
+                                               as: Result.self)
+                    for p in res.panes ?? [] {
+                        self.snapshots[machine, default: Snapshot()].upsert(p)
+                        self.layout.open(key(machine, p.id))
+                    }
+                    self.focusTerminal()
+                } catch {
+                    self.say("Could not start the task: \(error)", .err)
                 }
-                focusTerminal()
-            } catch {
-                say("Could not start the task: \(error)", .err)
             }
         }
     }

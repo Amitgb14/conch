@@ -19,7 +19,7 @@ import (
 
 // Version is the conch release version, set at release time with
 // -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=0.2.0".
-var Version = "0.1.10-dev"
+var Version = "0.2.0-dev"
 
 // IsRelease reports whether Version names a published release rather than a
 // development build.
@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -228,6 +228,11 @@ const CapBranchCILog = "branch.ci_log.v1"
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
 const CapAgentReply = "agent.reply.v1"
+
+// CapProjectGitInit is project.git_init: a project that is a plain
+// folder made a git repository — git init and an empty first commit — so
+// a task or a branch can be made in it.
+const CapProjectGitInit = "project.git_init.v1"
 
 // CapAgentChat is agent.chat: a pane's agent's conversation with the tools
 // it used, from its saved transcript, for a chat drawn beside its terminal.
@@ -444,6 +449,9 @@ const (
 	MethodTaskCreate     = "task.create"
 	MethodProjectCreate  = "project.create"
 	MethodProjectResolve = "project.resolve"
+	// MethodProjectGitInit makes a plain-folder project a git repository
+	// (ProjectRef; answers its ProjectInfo; project.git_init.v1).
+	MethodProjectGitInit = "project.git_init"
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"

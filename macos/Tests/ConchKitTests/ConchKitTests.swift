@@ -1022,6 +1022,34 @@ final class FakeServer: @unchecked Sendable {
     #expect(activeWorkspace(uiJSON: Data(#"{"active_space":2}"#.utf8)) == 2 && activeWorkspace(uiJSON: nil) == 0)
 }
 
+// Closing a workspace decides about what it alone shows, as the TUI's
+// spaceOnlyPanes: not a pane another workspace shows too, and every pane
+// of its own projects, started there or not.
+@Test func workspaceOnlyShown() {
+    var s = fixture() // api (r1): p1, p2, p4; loose: p3
+    var helper = PaneInfo(id: "p6", name: "helper", agent: AgentStatus(name: "codex", state: .working))
+    helper.createdBy = "p1"
+    s.upsert(helper)
+    // sA has api; sB has p3, started in it.
+    let ui = #"{"spaces":[{"id":"sA","projects":["r1"]},{"id":"sB","panes":["local|p3"]}],"first_space":{}}"#
+    let ws = Workspace.load(uiJSON: Data(ui.utf8))
+    // sA: api's panes and the helper an agent there started — none of them listed in its panes.
+    #expect(Set(s.onlyShown(by: 1, of: ws).map(\.id)) == ["p1", "p2", "p4", "p6"])
+    #expect(Set(s.onlyShown(by: 2, of: ws).map(\.id)) == ["p3"])
+    // The same project in two workspaces: closing either ends none of it.
+    let both = Workspace.load(uiJSON: Data(#"{"spaces":[{"id":"sA","projects":["r1"]},{"id":"sB","projects":["r1"],"panes":["local|p3"]}]}"#.utf8))
+    #expect(s.onlyShown(by: 1, of: both).isEmpty)
+    #expect(s.onlyShown(by: 2, of: both).map(\.id) == ["p3"])
+    // A pane listed in a workspace but in a project the first also has: kept.
+    let shared = Workspace.load(uiJSON: Data(#"{"spaces":[{"id":"sA","panes":["local|p1"]}],"first_space":{"projects":["r1"]}}"#.utf8))
+    #expect(s.onlyShown(by: 1, of: shared).isEmpty)
+    // The first is never closed; out of range is nothing.
+    #expect(s.onlyShown(by: 0, of: ws).isEmpty && s.onlyShown(by: 3, of: ws).isEmpty && s.onlyShown(by: 1, of: []).isEmpty)
+    // Another machine's panes are named with its machine.
+    let remote = Workspace.load(uiJSON: Data(#"{"spaces":[{"id":"sB","panes":["box|p3"]}]}"#.utf8))
+    #expect(s.onlyShown(by: 1, of: remote, machine: "box").map(\.id) == ["p3"] && s.onlyShown(by: 1, of: remote).isEmpty)
+}
+
 // A pane started in a workspace is put in it in ui.json, and nothing else
 // changes; an unknown workspace or a file without any is said.
 @Test func addingAPaneToAWorkspace() throws {
@@ -2741,15 +2769,15 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
     let i = snap.projects.firstIndex { $0.id == "r1" }!
     snap.projects[i].git = true
-    let items = snap.menu(for: node, machine: "local")
+    let items = snap.menu(for: node, machine: "local", offerCloud: true)
     let move = items.firstIndex(of: RowMenuItem("Move to Another Machine…", .moveProject(project: "local|r1")))
-    // Next to it, this Mac's projects can go to Conch Cloud.
+    // Next to it, this Mac's projects can go to Conch Cloud (when offered).
     #expect(move != nil && items[move! + 1] == RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: "local|r1")))
     let there = TreeNode(id: "p:box|r1", kind: .project("box|r1"), title: "api")
-    #expect(!snap.menu(for: there, machine: "box").contains { if case .moveToCloud = $0.action { return true }; return false })
+    #expect(!snap.menu(for: there, machine: "box", offerCloud: true).contains { if case .moveToCloud = $0.action { return true }; return false })
     snap.projects[i].git = false
     #expect(!snap.menu(for: node, machine: "local").contains { if case .moveProject = $0.action { return true }; return false })
-    #expect(!snap.menu(for: node, machine: "local").contains { if case .moveToCloud = $0.action { return true }; return false })
+    #expect(!snap.menu(for: node, machine: "local", offerCloud: true).contains { if case .moveToCloud = $0.action { return true }; return false })
 }
 
 // A project row's menu ends with Remove Project.
@@ -3584,4 +3612,14 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let added = Workspace.load(uiJSON: try joiningMachine("fresh", workspace: "w2", keepInFirst: false, in: Data(ui.utf8)))
     #expect(!workspaceShows(machine: "fresh", snapshot: empty, in: added[0], all: added))
     #expect(workspaceShows(machine: "fresh", snapshot: empty, in: added[1], all: added))
+}
+
+// The paste question is answered only on the terminal that asked.
+@Test func pasteAnsweredOnlyWhereAsked() {
+    var a = 1, b = 2
+    let pa = withUnsafeMutablePointer(to: &a) { OpaquePointer($0) }
+    let pb = withUnsafeMutablePointer(to: &b) { OpaquePointer($0) }
+    #expect(pasteStillWanted(asked: pa, now: pa))
+    #expect(!pasteStillWanted(asked: pa, now: nil), "freed while the question was up")
+    #expect(!pasteStillWanted(asked: pa, now: pb), "replaced by another terminal")
 }

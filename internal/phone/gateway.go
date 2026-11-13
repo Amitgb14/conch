@@ -33,7 +33,11 @@ import (
 // only limit. Every route and every socket message is checked against it.
 type Gateway struct {
 	store *Store
-	dial  func() (*client.Client, error)
+	// handlers counts the sockets still being served, through the last
+	// write of their closing (seen), so Close returns only after every one
+	// has stopped touching the store.
+	handlers sync.WaitGroup
+	dial     func() (*client.Client, error)
 	// Logf gets one line per request and socket message: what kind and
 	// how big, never what a screen or a reply said.
 	logf func(format string, args ...any)
@@ -155,6 +159,8 @@ func (g *Gateway) Close() {
 		go func() { defer wg.Done(); s.bye(ByeShuttingDown) }()
 	}
 	wg.Wait()
+	// Sockets that ended on their own may still be recording it.
+	g.handlers.Wait()
 	if c != nil {
 		c.Close()
 	}

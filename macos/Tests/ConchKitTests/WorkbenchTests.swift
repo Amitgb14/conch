@@ -295,10 +295,40 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
 @Test func chatLogKnowsWhatWasSent() {
     var log = ChatLog()
     log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: 0, role: "user", text: "fix it")], epoch: "e", ver: 1, reset: true))
-    #expect(!log.has(sent: "fix it", after: 1), "the same words said before do not count")
+    let at = log.mark
+    #expect(at == ChatMark(seq: 0, count: 1))
+    #expect(!log.has(sent: "fix it", after: at), "the same words said before do not count")
     log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: 1, role: "user", text: "fix it\n")], epoch: "e", ver: 2))
-    #expect(log.has(sent: " fix it", after: 1))
-    #expect(!log.has(sent: "other", after: 0) && !log.has(sent: "fix it", after: 9))
+    #expect(log.has(sent: " fix it", after: at))
+    #expect(!log.has(sent: "other", after: ChatMark(count: 0)) && !log.has(sent: "fix it", after: ChatMark(count: 9)))
+    #expect(!log.has(sent: "fix it", after: ChatMark(seq: 5, count: 0)))
+}
+
+// A message sent with the log full (1500 turns kept): the turn that
+// answers it pushes the oldest out, and it must still be seen to have
+// arrived — or "Sent" never clears, Stop shows for ever, and the chat is
+// asked for every second.
+@Test func chatLogKnowsWhatWasSentAtTheCap() {
+    var log = ChatLog()
+    let full = (0..<chatLogMax).map { ChatTurn(seq: $0, role: "assistant", text: "t\($0)") }
+    log.apply(AgentChat(agent: "claude", session: "s", turns: full, epoch: "e", ver: 1, reset: true))
+    let at = log.mark
+    log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: chatLogMax, role: "user", text: "go on")], epoch: "e", ver: 2))
+    #expect(log.turns.count == chatLogMax && log.trimmed == 1)
+    #expect(log.has(sent: "go on", after: at))
+    #expect(!chatBusy(state: .idle, pending: 0, turns: log.turns + [ChatTurn(seq: chatLogMax + 1, role: "assistant", text: "ok")]))
+
+    // A server that numbers no turns: counted, trimmed turns included.
+    var old = ChatLog()
+    old.apply(AgentChat(agent: "claude", session: "s", turns: (0..<chatLogMax).map { _ in ChatTurn(role: "assistant", text: "x") }, epoch: "e", ver: 1, reset: true))
+    let oldAt = old.mark
+    #expect(oldAt == ChatMark(seq: nil, count: chatLogMax))
+    old.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(role: "assistant", text: "y"), ChatTurn(role: "user", text: "go on")], epoch: "e", ver: 2))
+    #expect(old.trimmed == 2 && old.has(sent: "go on", after: oldAt))
+    #expect(!old.has(sent: "y", after: old.mark))
+    // Replaced whole: nothing counted as trimmed any more.
+    old.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(role: "user", text: "a")], epoch: "e2", ver: 1, reset: true))
+    #expect(old.trimmed == 0 && old.mark.count == 1)
 }
 
 @Test func chatBlocksNotesAndSeqs() {

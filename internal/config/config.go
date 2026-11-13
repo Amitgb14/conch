@@ -57,7 +57,42 @@ type WebCfg struct {
 // the server it signed in to with its sign-in, so changing this takes
 // effect at the next conch login.
 type CloudCfg struct {
-	API string `toml:"api,omitempty"`
+	// Enabled offers Conch Cloud: conch login, conch cloud machine, Move
+	// to Conch Cloud, the settings. Off in this release; CONCH_CLOUD
+	// overrides it either way (CloudEnabled).
+	Enabled bool   `toml:"enabled,omitempty"`
+	API     string `toml:"api,omitempty"`
+}
+
+// CloudEnv is the variable that turns Conch Cloud on (1, true, yes, on)
+// or off (anything else) whatever config.toml says.
+const CloudEnv = "CONCH_CLOUD"
+
+// CloudEnabled says whether conch offers Conch Cloud. It is hidden in
+// this release: off unless CONCH_CLOUD or [cloud] enabled turns it on.
+// The variable, when set to anything but "", wins over the file, so one
+// shell can try it — or leave it off — without editing the settings.
+// Hidden is not broken: a cloud machine already in machines.json is
+// still reached either way; what is switched off is offering Cloud.
+func CloudEnabled(c Config) bool {
+	if v := strings.TrimSpace(os.Getenv(CloudEnv)); v != "" {
+		switch strings.ToLower(v) {
+		case "1", "true", "yes", "on":
+			return true
+		}
+		return false
+	}
+	return c.Cloud.Enabled
+}
+
+// CloudOn is CloudEnabled for the config.toml on disk. A file that
+// cannot be read counts as Cloud off, unless the variable says on.
+func CloudOn() bool {
+	cfg, err := Load()
+	if err != nil {
+		cfg = Default()
+	}
+	return CloudEnabled(cfg)
 }
 
 // AppCfg is how Conch.app (macos/) draws its window. The TUI reads none of
@@ -378,8 +413,9 @@ type AgentsCfg struct {
 	PermissionMode string `toml:"permission_mode,omitempty"`
 	// UnrestrictedLaunch lets an agent calling conch from its pane start
 	// panes however it likes: any command, environment and flags — a
-	// helper told to ask nobody before it acts among them. Off, an agent
-	// may choose only which agent to start and its --model
+	// helper told to ask nobody before it acts among them — and type into
+	// shells. Off, an agent may choose only which agent to start and its
+	// --model, and types only into panes running an agent
 	// (internal/server/launchrule.go).
 	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
 }

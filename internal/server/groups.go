@@ -39,6 +39,10 @@ type groupBook struct {
 
 	mu     sync.Mutex
 	groups []savedGroup
+	// saveMu makes saves one at a time, each of the state as it is when
+	// its turn comes: two at once shared a temporary file, and the older
+	// state could be renamed in last, or a file half of each.
+	saveMu sync.Mutex
 	// merging is the tasks whose pull request is being merged now
 	// (group\x00branch), so a tick does not start a second merge.
 	merging map[string]bool
@@ -77,7 +81,14 @@ func loadGroups(s *Server, configDir string) *groupBook {
 	}
 	var f groupsFile
 	if err := json.Unmarshal(b, &f); err != nil {
-		log.Printf("groups: %s: %v", g.file, err)
+		// Kept aside rather than overwritten by the next save, which would
+		// make every group the person had into none, silently.
+		aside := g.file + ".broken"
+		if rerr := os.Rename(g.file, aside); rerr != nil {
+			log.Printf("groups: %s cannot be read (%v), and could not be kept aside: %v", g.file, err, rerr)
+		} else {
+			log.Printf("groups: %s cannot be read (%v); kept as %s, starting with no groups", g.file, err, aside)
+		}
 		return g
 	}
 	for _, sg := range f.Groups {
@@ -239,16 +250,46 @@ func (g *groupBook) dropProject(root string) {
 
 // changed writes the file and tells every client.
 func (g *groupBook) changed() {
+	g.write()
+	g.s.broadcast(proto.EventGroups, g.list())
+}
+
+// write writes groups.json whole, through a temporary file of its own
+// renamed into place, so a reader never meets half a file.
+func (g *groupBook) write() {
+	g.saveMu.Lock()
+	defer g.saveMu.Unlock()
 	g.mu.Lock()
-	b, _ := json.MarshalIndent(groupsFile{Groups: append([]savedGroup{}, g.groups...)}, "", "  ")
+	b, err := json.MarshalIndent(groupsFile{Groups: append([]savedGroup{}, g.groups...)}, "", "  ")
 	g.mu.Unlock()
-	tmp := g.file + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	if err != nil {
 		log.Printf("groups: save: %v", err)
-	} else if err := os.Rename(tmp, g.file); err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(g.file), 0o700); err != nil {
+		log.Printf("groups: save: %v", err)
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(g.file), ".groups-*.json")
+	if err != nil {
+		log.Printf("groups: save: %v", err)
+		return
+	}
+	name := tmp.Name()
+	_, werr := tmp.Write(append(b, '\n'))
+	cerr := tmp.Close()
+	switch {
+	case werr != nil:
+		err = werr
+	case cerr != nil:
+		err = cerr
+	default:
+		err = os.Rename(name, g.file)
+	}
+	if err != nil {
+		os.Remove(name)
 		log.Printf("groups: save: %v", err)
 	}
-	g.s.broadcast(proto.EventGroups, g.list())
 }
 
 // A task across a group's repos: the same branch in a worktree of each of
@@ -287,7 +328,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 			continue // not registered now: not part of this task
 		}
 		if !p.snapshot().Git {
-			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each", p.snapshot().Name)
+			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each (%s)", p.snapshot().Name, notGitHint)
 		}
 		projects = append(projects, p)
 	}

@@ -60,7 +60,8 @@ struct AddProjectSheet: View {
 
     var places: [PlaceOption] {
         let ms = store.machines.map { PlaceMachine(id: $0.id, label: $0.label, online: $0.online, cloud: $0.cloud) }
-        return projectPlaces(machines: ms, signedIn: signedIn, cloudMachines: store.cloudMachines.filter(\.pickable).count)
+        return projectPlaces(machines: ms, signedIn: signedIn, cloudMachines: store.cloudMachines.filter(\.pickable).count,
+                             offerCloud: store.offersCloud)
             .filter { $0.enabled || $0.place == place }
     }
 

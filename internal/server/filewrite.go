@@ -40,7 +40,7 @@ func (s *Server) writeFile(c *client, wp proto.FSWriteParams) (proto.FSWriteResu
 	// An agent writes in its own project's checkouts through conch, as it
 	// changes nothing else of another project's.
 	if caller, ok := s.scopedCaller(c); ok {
-		if perr := s.projectInScope(caller, proto.MethodFSWrite, s.projectOfCheckout(root)); perr != nil {
+		if perr := s.checkoutInScope(caller, proto.MethodFSWrite, root); perr != nil {
 			return proto.FSWriteResult{}, perr
 		}
 	}

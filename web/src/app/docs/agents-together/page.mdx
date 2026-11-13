@@ -283,6 +283,8 @@ An agent calling conch from inside its pane may start panes and tasks and read a
 | It may change | It may not |
 | --- | --- |
 | panes it started, and the panes those started | other panes in other projects: typing, keys, closing, renaming, marking as seen |
+| | typing, keys or clicks into a pane that runs no agent — a shell, its own or yours (see below) |
+| a group task's folder (its `CONCH-TASK.md` and links) when it works on that task, or in one of its repos | another task's folder |
 | any pane in its own project | another project's branches and worktrees |
 | its own project's branches and worktrees: commit, push, discard | `conch server stop` or `reload` |
 | | your own setup: the skill, the [library](/docs/tasks#shared-mcp-servers-and-skills), syncing one agent's setup to the others, and which [local files](/docs/tasks#local-files-in-worktrees) a project copies into its worktrees — even in its own project |
@@ -303,7 +305,13 @@ An agent may start other agents, and choose which one and its model — `conch n
 conch: out_of_scope: the claude agent in p1 may not start an agent with "--dangerously-skip-permissions": an agent may choose which agent to start and its --model, nothing else ([agents] unrestricted_launch in config.toml allows more); do it from the TUI or a terminal pane
 ```
 
-If you want agents to start agents however they like — workers in bypass mode, a launcher of your own — set it in `config.toml` (or Settings → Agents):
+It may still open a plain terminal, but it may not type into one — its own or yours. Typing `claude --dangerously-skip-permissions` into a shell it just started is the same launch a keystroke later, so an agent types, sends keys and clicks only into panes running an agent. What runs in the pane is looked at when it asks: a terminal where you have started an agent takes its typing while that agent is in front, and stops taking it once the agent exits back to the shell. A broadcast to terminals as well as agents is refused the same way.
+
+```text
+conch: out_of_scope: the claude agent in p1 may not type into p4: it runs no agent, and what is typed into a shell runs as a command — an agent may start a shell, and type only into agents ([agents] unrestricted_launch in config.toml allows it); do it from the TUI or a terminal pane
+```
+
+If you want agents to start agents however they like — workers in bypass mode, a launcher of your own, an agent driving a terminal — set it in `config.toml` (or Settings → Agents); it lifts both halves:
 
 ```toml
 [agents]
@@ -314,7 +322,7 @@ An agent can't set this through conch: changing your setup is out of its scope. 
 
 ### On another machine
 
-`conch -m MACHINE` from an agent's pane carries the agent's scope along: on the other machine it reaches only the panes it started there, and the projects it started them in.
+`conch -m MACHINE` from an agent's pane carries the agent's scope along: on the other machine it reaches only the panes it started there, and the projects it started them in. What it may start and type into is held there too, by that machine's own `unrestricted_launch`.
 
 ```text
 conch: out_of_scope: the claude agent in p1 on laptop.local may not close p1: it did not start it; do it from the TUI or a terminal pane

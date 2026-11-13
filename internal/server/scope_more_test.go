@@ -285,9 +285,16 @@ func TestScopeRemoteCaller(t *testing.T) {
 	// What its pane starts is its too.
 	agentPane(t, s, "p7", "", work, "exec sleep 30")
 	s.madeBy(&client{pane: mine.ID}, "p7")
+	// And an agent it started, which it may type into where it may not
+	// type into its shell (launchrule.go).
+	agentPane(t, s, "p8", "claude", work, "exec sleep 30")
+	s.madeBy(far, "p8")
 
 	for method, kind := range scoped {
 		target, own := "p1", mine.ID
+		if typesInto[method] {
+			own = "p8"
+		}
 		var out, in any
 		switch kind {
 		case scopePane:
@@ -310,6 +317,20 @@ func TestScopeRemoteCaller(t *testing.T) {
 	}
 	if perr := s.inScope(far, msg(proto.MethodPaneClose, proto.PaneRef{ID: "p7"})); perr != nil {
 		t.Errorf("what its pane started: %v", perr)
+	}
+	// Its own shell takes no typing from it, nor a broadcast to shells;
+	// a broadcast that leaves shells out types into none, and passes.
+	for method := range typesInto {
+		perr := s.inScope(far, msg(method, map[string]any{"id": mine.ID, "text": "claude --dangerously-skip-permissions\r"}))
+		if perr == nil || perr.Code != proto.ErrOutOfScope || !strings.Contains(perr.Message, "it runs no agent") {
+			t.Errorf("%s into its own shell: %v", method, perr)
+		}
+	}
+	if perr := s.inScope(far, msg(proto.MethodAgentBroadcast, proto.AgentBroadcastParams{IDs: []string{mine.ID, "p8"}, Text: "x", Shells: true})); perr == nil || perr.Code != proto.ErrOutOfScope {
+		t.Errorf("a broadcast to its own shell: %v", perr)
+	}
+	if perr := s.inScope(far, msg(proto.MethodAgentBroadcast, proto.AgentBroadcastParams{IDs: []string{mine.ID, "p8"}, Text: "x"})); perr != nil {
+		t.Errorf("a broadcast to agents only: %v", perr)
 	}
 	// Same project as p1 is no leeway for a caller with no project here.
 	if perr := s.inScope(far, msg(proto.MethodPaneClose, proto.PaneRef{ID: "p1"})); perr == nil ||
