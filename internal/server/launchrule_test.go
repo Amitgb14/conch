@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,8 +163,16 @@ func TestAgentTypesOnlyIntoAgents(t *testing.T) {
 	}
 
 	// The person's shell in its project: not until an agent is in front.
+	// The agent is this test binary under the name claude, waiting on its
+	// input (TestLaunchRuleWaiter). A link to /bin/cat did this once, until
+	// Linux runners shipped uutils coreutils, one binary that refuses to
+	// run under any name but its own.
 	bin := t.TempDir()
-	if err := os.Symlink("/bin/cat", filepath.Join(bin, "claude")); err != nil {
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "claude"), self, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var mine proto.PaneInfo
@@ -178,7 +187,7 @@ func TestAgentTypesOnlyIntoAgents(t *testing.T) {
 		t.Fatalf("into the person's shell: %s", code)
 	}
 	// The person may, and starts an agent there (cat, under the name).
-	if err := c.Call(t.Context(), proto.MethodPaneSendText, proto.PaneSendTextParams{ID: mine.ID, Text: filepath.Join(bin, "claude") + "\r"}, nil); err != nil {
+	if err := c.Call(t.Context(), proto.MethodPaneSendText, proto.PaneSendTextParams{ID: mine.ID, Text: "CONCH_LAUNCH_WAITER=1 " + filepath.Join(bin, "claude") + " -test.run=^TestLaunchRuleWaiter$\r"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	agentIs := func(want bool) {
@@ -229,4 +238,13 @@ func TestAgentTypesOnlyIntoAgents(t *testing.T) {
 	if code, _ := h.do(proto.MethodPaneSendText, sh); code != proto.ErrOutOfScope {
 		t.Fatalf("after turning it off: %s", code)
 	}
+}
+
+// TestLaunchRuleWaiter is the agent TestAgentTypesOnlyIntoAgents starts in
+// a shell: it reads its input until it ends (ctrl+d), as cat would.
+func TestLaunchRuleWaiter(t *testing.T) {
+	if os.Getenv("CONCH_LAUNCH_WAITER") != "1" {
+		t.Skip("run by TestAgentTypesOnlyIntoAgents")
+	}
+	io.Copy(io.Discard, os.Stdin)
 }
