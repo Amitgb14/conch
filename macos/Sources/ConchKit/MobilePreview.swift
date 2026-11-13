@@ -53,6 +53,15 @@ public struct MobileDeviceList: Decodable, Equatable, Sendable {
     }
 }
 
+/// What the tab offers of what `conch preview devices` found: iPhone and
+/// iPad simulators alone. Android's emulators and phones are left out, and
+/// so is what went wrong listing them, which would only be noise here;
+/// `conch preview` itself still reaches them.
+public func previewShown(_ l: MobileDeviceList) -> MobileDeviceList {
+    MobileDeviceList(devices: l.devices.filter { $0.platform == "ios" },
+                     notes: l.notes.map { $0.filter { !$0.hasPrefix("Android:") } })
+}
+
 /// The device a tab shows: the one picked before while it is still
 /// listed, else the first running one, else the first. A device that was
 /// picked and then shut down stays picked, so the tab can offer to start
