@@ -80,6 +80,9 @@ final class Store: ObservableObject {
     private var tuiWorkspace = "first"
     @Published var questions: [String: Question] = [:]
     @Published var sessions: [String: Int] = [:]
+    /// Projects whose sessions are to be counted again (Sessions+Store).
+    var sessionRecounts = SessionRecounts()
+    var sessionRecountTask: Task<Void, Never>?
     /// The TUI's folds (ui.json), and the ones chosen here, which are kept
     /// apart: ui.json is the running TUI's to write.
     @Published var tuiFolds: [String: Bool] = [:]
@@ -1580,6 +1583,9 @@ final class Store: ObservableObject {
             let before = snap.pane(p.id)
             let was = before?.agent?.state
             snap.upsert(p)
+            // An agent that stopped working may have saved its first
+            // conversation in the project: its Sessions row is counted again.
+            if sessionsMayHaveChanged(old: before, new: p), let pr = p.projectID { recountSessions(key(machine, pr)) }
             attention(machine, old: before, new: p)
             if scratch == k, scratchLost(scratch, pane: p) { dropScratch() }
             // Exited on its own — a shell's exit, an ssh logout, an agent's
@@ -1618,6 +1624,8 @@ final class Store: ObservableObject {
             questions.removeValue(forKey: k)
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
+                // A project added since the connection was counted: count it.
+                if snap.project(p.id) == nil { recountSessions(key(machine, p.id), after: 0) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
@@ -1628,7 +1636,10 @@ final class Store: ObservableObject {
             if let l = try? dec.decode(GroupList.self, from: data) { snap.groups = l.groups ?? [] }
         case "project.removed":
             struct Ref: Decodable { var id: String }
-            if let r = try? dec.decode(Ref.self, from: data) { snap.remove(project: r.id) }
+            if let r = try? dec.decode(Ref.self, from: data) {
+                snap.remove(project: r.id)
+                sessionRecounts.drop(key(machine, r.id))
+            }
         case "review.changed":
             // A note answered, sent or resolved elsewhere — an agent's
             // reply above all: the open tab of that branch reads its
@@ -1676,7 +1687,7 @@ final class Store: ObservableObject {
         }
         for pr in snapshots[machine]?.projects ?? [] {
             Task {
-                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: 500), as: SessionCount.self) {
+                if let n = try? await c.call("session.list", List(project_id: pr.id, limit: sessionCountLimit), as: SessionCount.self) {
                     sessions[key(machine, pr.id)] = n.count
                 }
             }
@@ -2128,6 +2139,7 @@ final class Store: ObservableObject {
         let (m, pid) = unkey(pk)
         let k = sessionsKey(m, pid)
         if layout.tab(showing: k) != nil { sessionViews[k]?.load() }
+        recountSessions(pk, after: 0)
         layout.open(k)
         terminalHasKeyboard = false
     }

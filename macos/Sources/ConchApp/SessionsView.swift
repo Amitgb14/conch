@@ -120,6 +120,12 @@ final class SessionsModel: ObservableObject {
                 sessions = r.sessions ?? []
                 partial = r.partial ?? false
                 error = ""
+                // What was just read is the sidebar's count too.
+                let pk = ConchKit.key(machine, project)
+                if let n = sessionCount(listed: sessions.count, partial: partial, limit: 300, known: store.sessions[pk]),
+                   store.sessions[pk] != n {
+                    store.sessions[pk] = n
+                }
                 // An agent that had not answered yet is asked again — a few
                 // times, and only while the list is on screen: one whose
                 // store always hangs was asked every two seconds for ever,
