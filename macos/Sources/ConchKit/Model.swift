@@ -80,6 +80,21 @@ public struct Snapshot: Equatable, Sendable {
         return panes.filter { in_.contains($0.id) }
     }
 
+    /// The panes on this machine workspace i shows and no other does, as
+    /// the TUI's spaceOnlyPanes: what closing it decides about. A pane in
+    /// a project another workspace also has, or started by an agent in one,
+    /// keeps running there, so it is not this workspace's to end; and a
+    /// pane in one of its own projects is its, whether or not it was
+    /// started in it. Asked of the workspaces as they are before the close.
+    public func onlyShown(by i: Int, of spaces: [Workspace], machine: String = "local") -> [PaneInfo] {
+        guard i > 0, spaces.indices.contains(i) else { return [] }
+        var others: Set<String> = []
+        for j in spaces.indices where j != i {
+            others.formUnion(shown(in: spaces[j], machine: machine).map(\.id))
+        }
+        return shown(in: spaces[i], machine: machine).filter { !others.contains($0.id) }
+    }
+
     /// Waiting for you, and finished while nobody looked — the counts in
     /// the toolbar, as the TUI's status bar counts them (inboxCount).
     public func inbox(in ws: Workspace? = nil, machine: String = "local") -> (waiting: Int, done: Int) {

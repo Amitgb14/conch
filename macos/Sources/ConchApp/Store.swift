@@ -3160,8 +3160,11 @@ final class Store: ObservableObject {
         guard i > 0, workspaces.indices.contains(i) else { return }
         let w = workspaces[i]
         let label = Workspace.label(i, w)
+        // What only this workspace shows, as the TUI counts it: a pane
+        // another workspace shows too is not ended, and one in this
+        // workspace's projects is counted though it was not started here.
         let running = machines.flatMap { m in
-            (snapshots[m.id]?.panes ?? []).filter { $0.running && w.panes.contains(key(m.id, $0.id)) }.map { (m.id, $0) }
+            (snapshots[m.id] ?? Snapshot()).onlyShown(by: i, of: workspaces, machine: m.id).filter(\.running).map { (m.id, $0) }
         }
         let a = NSAlert()
         a.messageText = "Close workspace \(label)?"
