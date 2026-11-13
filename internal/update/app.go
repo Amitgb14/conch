@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -105,4 +106,60 @@ func folderWritable(dir string) bool {
 	f.Close()
 	os.Remove(f.Name())
 	return true
+}
+
+// appTool runs codesign or spctl and returns what it said; a variable so
+// tests answer for them, never touching a real signature.
+var appTool = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+// VerifyApp checks a downloaded Conch.app before it replaces the running
+// one: its signature intact (deep and strict), made by the same team as
+// the app running now, and accepted by Gatekeeper as notarized. A running
+// app signed ad hoc — built by hand — has no team to match, so it is
+// refused too: nothing would say the download came from the same hands.
+func VerifyApp(ctx context.Context, next, running string) error {
+	if out, err := appTool(ctx, "codesign", "--verify", "--deep", "--strict", next); err != nil {
+		return fmt.Errorf("the downloaded Conch.app's signature doesn't hold: %s", firstLine(out, err))
+	}
+	have := teamID(ctx, running)
+	if have == "" {
+		return errors.New("this Conch.app isn't signed by a developer (a build of your own?), so a download can't be checked against it: download the new release and replace it by hand")
+	}
+	got := teamID(ctx, next)
+	if got == "" {
+		return errors.New("the downloaded Conch.app is not signed by a developer")
+	}
+	if got != have {
+		return fmt.Errorf("the downloaded Conch.app is signed by team %s, not %s as this one is", got, have)
+	}
+	out, err := appTool(ctx, "spctl", "--assess", "--type", "execute", "--verbose=2", next)
+	if err != nil {
+		return fmt.Errorf("Gatekeeper refuses the downloaded Conch.app: %s", firstLine(out, err))
+	}
+	if !strings.Contains(string(out), "source=Notarized Developer ID") {
+		return errors.New("the downloaded Conch.app is not notarized by Apple")
+	}
+	return nil
+}
+
+// teamID is the team an app is signed by, "" for none (ad hoc, unsigned).
+func teamID(ctx context.Context, app string) string {
+	out, _ := appTool(ctx, "codesign", "-dv", "--verbose=2", app)
+	for _, line := range strings.Split(string(out), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "TeamIdentifier="); ok && v != "not set" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstLine(out []byte, err error) string {
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			return l
+		}
+	}
+	return err.Error()
 }

@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,5 +155,85 @@ func TestAppReplaceableFromADiskImage(t *testing.T) {
 	t.Cleanup(func() { volumesDir = old })
 	if err := AppReplaceable(app); err == nil || !strings.Contains(err.Error(), "disk image") {
 		t.Fatalf("dmg: %v", err)
+	}
+}
+
+// fakeTools answers codesign and spctl as they would for apps signed by
+// the teams given (by path; "" for ad hoc), with the failures asked for.
+type fakeTools struct {
+	team       map[string]string
+	broken     map[string]bool // codesign --verify fails
+	notarized  map[string]bool
+	calls      []string
+	spctlFails bool
+}
+
+func (f *fakeTools) run(_ context.Context, name string, args ...string) ([]byte, error) {
+	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
+	path := args[len(args)-1]
+	switch {
+	case name == "codesign" && args[0] == "--verify":
+		if f.broken[path] {
+			return []byte(path + ": a sealed resource is missing or invalid"), errors.New("exit status 1")
+		}
+		return nil, nil
+	case name == "codesign" && args[0] == "-dv":
+		team := f.team[path]
+		if team == "" {
+			team = "not set"
+		}
+		return []byte("Executable=" + path + "/Contents/MacOS/Conch\nIdentifier=dev.conch.mac\nTeamIdentifier=" + team + "\n"), nil
+	case name == "spctl":
+		if f.spctlFails {
+			return []byte(path + ": rejected\nsource=Unnotarized Developer ID"), errors.New("exit status 3")
+		}
+		if f.notarized[path] {
+			return []byte(path + ": accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: X (" + f.team[path] + ")"), nil
+		}
+		return []byte(path + ": accepted\nsource=Developer ID\n"), nil
+	}
+	return nil, errors.New("unexpected " + name)
+}
+
+func withTools(t *testing.T, f *fakeTools) {
+	t.Helper()
+	old := appTool
+	appTool = f.run
+	t.Cleanup(func() { appTool = old })
+}
+
+func TestVerifyApp(t *testing.T) {
+	ctx := context.Background()
+	const running, next = "/Applications/Conch.app", "/tmp/x/Conch.app"
+	good := func() *fakeTools {
+		return &fakeTools{team: map[string]string{running: "ABCDE12345", next: "ABCDE12345"}, notarized: map[string]bool{next: true}}
+	}
+	f := good()
+	withTools(t, f)
+	if err := VerifyApp(ctx, next, running); err != nil {
+		t.Fatalf("good: %v (%v)", err, f.calls)
+	}
+	if !strings.Contains(strings.Join(f.calls, "\n"), "codesign --verify --deep --strict "+next) {
+		t.Fatalf("not verified deep and strict: %v", f.calls)
+	}
+
+	for _, c := range []struct {
+		name string
+		edit func(*fakeTools)
+		want string
+	}{
+		{"broken signature", func(f *fakeTools) { f.broken = map[string]bool{next: true} }, "signature"},
+		{"another team", func(f *fakeTools) { f.team[next] = "ZZZZZ99999" }, "ZZZZZ99999"},
+		{"unsigned download", func(f *fakeTools) { delete(f.team, next) }, "not signed"},
+		{"running app ad hoc", func(f *fakeTools) { delete(f.team, running) }, "isn't signed by a developer"},
+		{"not notarized", func(f *fakeTools) { f.notarized = nil }, "notarized"},
+		{"gatekeeper refuses", func(f *fakeTools) { f.spctlFails = true }, "Gatekeeper"},
+	} {
+		f := good()
+		c.edit(f)
+		withTools(t, f)
+		if err := VerifyApp(ctx, next, running); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", c.name, err)
+		}
 	}
 }
