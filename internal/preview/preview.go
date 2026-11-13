@@ -116,10 +116,7 @@ func Find(env []string) *Tools {
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			if msg := strings.TrimSpace(stderr.String()); msg != "" {
-				return out, fmt.Errorf("%s: %s", filepath.Base(name), lastLine(msg))
-			}
-			return out, fmt.Errorf("%s: %w", filepath.Base(name), err)
+			return out, toolError(filepath.Base(name), stderr.String(), err)
 		}
 		return out, nil
 	}
@@ -134,6 +131,27 @@ func Find(env []string) *Tools {
 		return cmd.Process.Release()
 	}
 	return t
+}
+
+// noSimctl is what a Mac with the Command Line Tools and no Xcode is
+// told: its xcrun is there, and says only that simctl is not.
+const noSimctl = "simctl not found: install Xcode (the Command Line Tools alone have no simulators)"
+
+// toolError is a failed program's own last line, named once — most
+// already start with their name ("adb: device offline").
+func toolError(base, stderr string, err error) error {
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		return fmt.Errorf("%s: %w", base, err)
+	}
+	msg = lastLine(msg)
+	if strings.Contains(msg, `unable to find utility "simctl"`) {
+		return errors.New(noSimctl)
+	}
+	if strings.HasPrefix(msg, base+":") {
+		return errors.New(msg)
+	}
+	return fmt.Errorf("%s: %s", base, msg)
 }
 
 func isExec(p string) bool {
