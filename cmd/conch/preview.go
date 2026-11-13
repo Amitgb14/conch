@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/preview"
 )
 
@@ -26,7 +27,12 @@ const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot 
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.
-var previewTools = func() *preview.Tools { return preview.Find(os.Environ()) }
+// Settings → Mobile preview says where Xcode and the Android SDK are; a
+// config.toml that does not read leaves conch to find them.
+var previewTools = func() *preview.Tools {
+	cfg, _ := config.Load()
+	return preview.FindWith(os.Environ(), preview.Options{Xcode: cfg.Preview.Xcode, AndroidSDK: cfg.Preview.AndroidSDK})
+}
 
 // previewOut is where it prints; a test reads it.
 var previewOut io.Writer = os.Stdout

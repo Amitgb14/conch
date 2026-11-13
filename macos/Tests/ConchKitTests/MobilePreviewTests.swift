@@ -118,3 +118,37 @@ import Testing
     #expect(previewChoice(previewShown(MobileDeviceList(devices: [l.devices[0]])).devices, chosen: "emu") == nil)
     #expect(previewShown(MobileDeviceList(devices: [])).devices.isEmpty)
 }
+
+// The phone drawn around the screen: a black body with an even bezel,
+// fitted to the room, its screen where a click is a tap.
+@Test func phoneLayoutFitsTheBody() {
+    let img = CGSize(width: 1206, height: 2622)
+    let box = CGSize(width: 600, height: 700)
+    let l = phoneLayout(image: img, box: box)
+    // The body is inside the box, centred, and touches its height.
+    #expect(l.body.minX >= 0 && l.body.maxX <= box.width + 0.001 && l.body.minY >= -0.001 && l.body.maxY <= box.height + 0.001)
+    #expect(abs(l.body.height - box.height) < 0.01)
+    #expect(abs(l.body.midX - box.width / 2) < 0.01)
+    // The screen keeps the picture's proportions, with the same bezel on every side.
+    #expect(abs(l.screen.width / l.screen.height - img.width / img.height) < 0.001)
+    let side = l.screen.minX - l.body.minX
+    #expect(side > 0 && abs((l.body.maxX - l.screen.maxX) - side) < 0.01 && abs((l.screen.minY - l.body.minY) - side) < 0.01)
+    // The body's corner follows the screen's, a bezel further out.
+    #expect(abs(l.bodyRadius - (l.screenRadius + side)) < 0.01 && l.screenRadius > 0)
+    // A click on the bezel taps nothing; on the screen, its pixel.
+    #expect(devicePixel(at: CGPoint(x: l.body.minX + side / 2, y: l.body.midY), image: img, screen: l.screen) == nil)
+    let mid = devicePixel(at: CGPoint(x: l.screen.midX, y: l.screen.midY), image: img, screen: l.screen)!
+    #expect(abs(mid.x - 603) <= 1 && abs(mid.y - 1311) <= 1)
+    // An iPad's corners are tighter.
+    let pad = phoneLayout(image: CGSize(width: 2064, height: 2752), box: box, tablet: true)
+    #expect(pad.screenRadius / pad.screen.width < l.screenRadius / l.screen.width)
+    // Nothing to draw: nothing laid out.
+    #expect(phoneLayout(image: .zero, box: box).body == .zero)
+    #expect(phoneLayout(image: img, box: .zero).body == .zero)
+}
+
+@Test func mobilePreviewSettingsSection() {
+    // In the app's Settings, under Workspace, with an icon in every set.
+    #expect(SettingsNav.groups.first { $0.0 == "Workspace" }?.1.contains("preview") == true)
+    #expect(LucideIcons.all["tablet-smartphone"] != nil && sfSymbols["tablet-smartphone"] != nil && tileColors["tablet-smartphone"] != nil)
+}

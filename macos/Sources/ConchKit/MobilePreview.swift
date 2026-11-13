@@ -92,6 +92,40 @@ public func devicePixel(at p: CGPoint, image: CGSize, box: CGSize) -> (x: Int, y
     return (min(x, Int(image.width) - 1), min(y, Int(image.height) - 1))
 }
 
+/// The device pixel under a point of the screen drawn at `screen`, or nil
+/// off it — on the phone's bezel, or beside it.
+public func devicePixel(at p: CGPoint, image: CGSize, screen: CGRect) -> (x: Int, y: Int)? {
+    guard screen.width > 0, image.width > 0, p.x >= screen.minX, p.x <= screen.maxX, p.y >= screen.minY, p.y <= screen.maxY else { return nil }
+    let x = Int(((p.x - screen.minX) / screen.width * image.width).rounded(.down))
+    let y = Int(((p.y - screen.minY) / screen.height * image.height).rounded(.down))
+    return (min(x, Int(image.width) - 1), min(y, Int(image.height) - 1))
+}
+
+/// Where a phone is drawn in the tab: its black body, the screen inside
+/// it with an even bezel, and their corners. The screenshot already has
+/// the device's own rounded corners and Dynamic Island (simctl's mask), so
+/// the body is all that is added for it to read as an iPhone.
+public struct PhoneLayout: Equatable, Sendable {
+    public var body: CGRect
+    public var screen: CGRect
+    public var bodyRadius: CGFloat
+    public var screenRadius: CGFloat
+}
+
+public func phoneLayout(image: CGSize, box: CGSize, tablet: Bool = false) -> PhoneLayout {
+    let zero = PhoneLayout(body: .zero, screen: .zero, bodyRadius: 0, screenRadius: 0)
+    guard image.width > 0, image.height > 0, box.width > 0, box.height > 0 else { return zero }
+    // The bezel and the screen's corner, as parts of the screen's width:
+    // an iPhone's display corner is about 55pt of 402, an iPad's 18 of 1032.
+    let bezel: CGFloat = tablet ? 0.04 : 0.035
+    let corner: CGFloat = tablet ? 0.03 : 0.135
+    let body = aspectFit(CGSize(width: image.width * (1 + 2 * bezel), height: image.height + image.width * 2 * bezel), in: box)
+    let w = body.width / (1 + 2 * bezel)
+    let side = w * bezel
+    let screen = CGRect(x: body.minX + side, y: body.minY + side, width: w, height: body.height - 2 * side)
+    return PhoneLayout(body: body, screen: screen, bodyRadius: w * corner + side, screenRadius: w * corner)
+}
+
 /// The agents a screenshot can be handed to: running ones in the
 /// project, the one the person was last working with first.
 public func previewAgents(_ snapshot: Snapshot, project: String, preferred: String? = nil) -> [PaneInfo] {
