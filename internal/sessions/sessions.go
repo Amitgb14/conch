@@ -41,12 +41,39 @@ type Session struct {
 	// the tail of the store, so listing stays cheap.
 	Cost   float64
 	Output int
+	// Account is the agent's account whose folder holds it, "" for the
+	// agent's own.
+	Account string
 }
 
 // Env is where agents keep their data.
 type Env struct {
 	Home   string
 	Getenv func(string) string
+	// Accounts are the agents' other accounts (internal/accounts), whose
+	// folders hold conversations of their own.
+	Accounts []Account
+}
+
+// Account is one of an agent's other accounts: its configuration folder.
+type Account struct {
+	Agent, Name, Dir string
+}
+
+// roots is where agent keeps its data under each account: its own folder
+// first, as name "", then every account's, leaving out one that is the
+// same folder as an earlier one.
+func (e Env) roots(agent, own string) []Account {
+	out := []Account{{Agent: agent, Dir: own}}
+	seen := map[string]bool{filepath.Clean(own): true}
+	for _, a := range e.Accounts {
+		if a.Agent != agent || a.Dir == "" || seen[filepath.Clean(a.Dir)] {
+			continue
+		}
+		seen[filepath.Clean(a.Dir)] = true
+		out = append(out, a)
+	}
+	return out
 }
 
 // CurrentEnv is this process's environment.

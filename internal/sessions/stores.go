@@ -36,6 +36,15 @@ func claude(e Env, dirs []string) []Session {
 	if d := e.get("CLAUDE_CONFIG_DIR"); d != "" {
 		root = d
 	}
+	var out []Session
+	for _, a := range e.roots("claude", root) {
+		out = append(out, claudeIn(a.Dir, a.Name, dirs)...)
+	}
+	return out
+}
+
+// claudeIn lists the sessions in one Claude configuration folder.
+func claudeIn(root, account string, dirs []string) []Session {
 	projects := filepath.Join(root, "projects")
 	entries, err := os.ReadDir(projects)
 	if err != nil {
@@ -57,7 +66,9 @@ func claude(e Env, dirs []string) []Session {
 		files, _ := filepath.Glob(filepath.Join(projects, name, "*.jsonl"))
 		for _, f := range files {
 			if s := parseCached(f, parseClaude); s != nil && withinAny(s.Dir, dirs) {
-				out = append(out, *s)
+				c := *s
+				c.Account = account
+				out = append(out, c)
 			}
 		}
 	}
@@ -168,6 +179,15 @@ func codex(e Env, dirs []string) []Session {
 	if d := e.get("CODEX_HOME"); d != "" {
 		home = d
 	}
+	var out []Session
+	for _, a := range e.roots("codex", home) {
+		out = append(out, codexIn(a.Dir, a.Name, dirs)...)
+	}
+	return out
+}
+
+// codexIn lists the sessions in one Codex home.
+func codexIn(home, account string, dirs []string) []Session {
 	var files []string
 	_ = filepath.WalkDir(filepath.Join(home, "sessions"), func(path string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".jsonl") {
@@ -189,7 +209,9 @@ func codex(e Env, dirs []string) []Session {
 			break
 		}
 		if withinAny(s.Dir, dirs) {
-			out = append(out, *s)
+			c := *s
+			c.Account = account
+			out = append(out, c)
 		}
 	}
 	return out
