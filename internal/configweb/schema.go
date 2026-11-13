@@ -66,6 +66,10 @@ type Section struct {
 // Choices are what the select fields offer that only the caller knows:
 // the TUI's themes, the agents this build has.
 type Choices struct {
+	// Cloud is whether Conch Cloud is enabled (config.CloudEnabled), which
+	// the server works out from the file it reads: while it is not, its
+	// section offers only the switch.
+	Cloud  bool
 	Themes []Option
 	// LightThemes are the ones drawn on a light background, which is all
 	// light_theme offers: it is the theme for macOS's light appearance,
@@ -234,11 +238,7 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
-		{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
-			Fields: []Field{
-				{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
-					Help: "The Conch Cloud server conch login signs in to. Empty is Conch Cloud itself; CONCH_CLOUD_URL overrides it. Takes effect at the next sign-in."},
-			}},
+		cloudSection(c.Cloud),
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{
 				{Key: "tabs", Label: "Tabs", Kind: KindSelect, Options: []Option{{"", "Above the panes"}, {"left", "Left, grouped by machine"}, {"right", "Right"}},
@@ -286,4 +286,23 @@ func Schema(c Choices) []Section {
 				}},
 			}},
 	}
+}
+
+// cloudSection is [cloud]. Conch Cloud is hidden in this release, so
+// while it is off the section is only the switch that turns it on; its
+// server is shown once it is on. A hidden key is still in the page's
+// copy of the file, so saving keeps it.
+func cloudSection(on bool) Section {
+	enabled := Field{Key: "enabled", Label: "Enabled", Kind: KindBool,
+		Help: "Offers Conch Cloud: conch login, cloud machines, and moving a project to one. Not enabled in this release; CONCH_CLOUD=1 or 0 in the environment overrides this."}
+	if !on {
+		return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server",
+			Description: "Not enabled in this release. Turn it on to try it.", Fields: []Field{enabled}}
+	}
+	return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
+		Fields: []Field{
+			enabled,
+			{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
+				Help: "The Conch Cloud server conch login signs in to. Empty is Conch Cloud itself; CONCH_CLOUD_URL overrides it. Takes effect at the next sign-in."},
+		}}
 }
