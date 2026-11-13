@@ -203,7 +203,13 @@ func (g *groupBook) mergeStep(group, branch string, order, merged []string) {
 		case pr.Checks != "pass":
 			hold = fmt.Sprintf("%s #%d is waiting on its checks", info.Name, pr.Number)
 		default:
-			if h := g.s.mergeHold(info, branch, pr, false); h != "" {
+			// The same holds as the autopilot's, and the same check that
+			// what GitHub would merge is this branch's own work.
+			h := g.s.mergeHold(info, branch, pr, false)
+			if h == "" {
+				h = mergeOwnHead(p, branch, pr)
+			}
+			if h != "" {
 				hold = info.Name + ": " + h
 			}
 		}
