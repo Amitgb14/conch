@@ -1421,3 +1421,75 @@ func TestRefusedKeyIsSaidPlainly(t *testing.T) {
 		t.Fatalf("a provider that authorizes its key was told to register one: %v", got)
 	}
 }
+
+// Daytona deletes in the background, and for some seconds after rm says
+// "deleted" its list still has the sandbox as started (#199). ls shows it
+// as deleting, and not as a stray sandbox that costs until somebody
+// deletes it; once the provider stops listing it, so does conch.
+func TestA4SandboxListJustDeleted(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	d.set("sb-live", "started")
+	d.set("sb-other", "started")
+	if _, err := remote.SaveMachine(remote.Machine{Label: "live", Target: "daytona:sb-live"}); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "-y", "live"}) })
+	if err != nil || d.state("sb-live") != "" {
+		t.Fatalf("rm: %v", err)
+	}
+	// Also an id given straight, with no machine.
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "rm", "-y", "sb-other"}) })
+	if err != nil {
+		t.Fatalf("rm by id: %v", err)
+	}
+	d.set("sb-live", "started") // still listed, as Daytona does for a while
+	d.set("sb-other", "started")
+	out, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ls"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	rows := strings.Split(strings.TrimSpace(out), "\n")
+	if len(rows) != 3 || flat(rows[1]) != "- - sb-live deleting 1 vCPU, 1 GiB, 3 GiB disk" || flat(rows[2]) != "- - sb-other deleting 1 vCPU, 1 GiB, 3 GiB disk" {
+		t.Fatalf("ls:\n%s", out)
+	}
+	if strings.Contains(errOut, "no machine here") {
+		t.Fatalf("a sandbox just deleted was called a stray:\n%s", errOut)
+	}
+	// Gone from the provider's list: forgotten here too, and a sandbox of
+	// that id seen later is listed as it is.
+	d.mu.Lock()
+	delete(d.boxes, "sb-live")
+	delete(d.boxes, "sb-other")
+	d.mu.Unlock()
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ls"}) })
+	d.set("sb-other", "started")
+	out, errOut = a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "ls"}) })
+	if err != nil || !strings.Contains(flat(out), "sb-other started") || !strings.Contains(errOut, "1 with no machine here") {
+		t.Fatalf("after the provider let it go: %v\n%s\n%s", err, out, errOut)
+	}
+}
+
+// What conch deleted is kept for a while only, and a damaged record is
+// ignored rather than failing ls.
+func TestDeletedSandboxesRecord(t *testing.T) {
+	a4Env(t)
+	now := time.Now()
+	noteDeletedSandbox("daytona", "a", now.Add(-2*deletingFor))
+	noteDeletedSandbox("daytona", "b", now)
+	noteDeletedSandbox("boat", "c", now)
+	got := deletedSandboxes("daytona", now)
+	if len(got) != 1 || !got["b"] {
+		t.Fatalf("recent: %v", got)
+	}
+	os.WriteFile(deletedSandboxesFile(), []byte("{not json"), 0o600)
+	if got := deletedSandboxes("daytona", now); len(got) != 0 {
+		t.Fatalf("damaged: %v", got)
+	}
+	noteDeletedSandbox("daytona", "d", now) // writing over a damaged one
+	if got := deletedSandboxes("daytona", now); !got["d"] {
+		t.Fatalf("after damage: %v", got)
+	}
+}
