@@ -3613,3 +3613,13 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(!workspaceShows(machine: "fresh", snapshot: empty, in: added[0], all: added))
     #expect(workspaceShows(machine: "fresh", snapshot: empty, in: added[1], all: added))
 }
+
+// The paste question is answered only on the terminal that asked.
+@Test func pasteAnsweredOnlyWhereAsked() {
+    var a = 1, b = 2
+    let pa = withUnsafeMutablePointer(to: &a) { OpaquePointer($0) }
+    let pb = withUnsafeMutablePointer(to: &b) { OpaquePointer($0) }
+    #expect(pasteStillWanted(asked: pa, now: pa))
+    #expect(!pasteStillWanted(asked: pa, now: nil), "freed while the question was up")
+    #expect(!pasteStillWanted(asked: pa, now: pb), "replaced by another terminal")
+}
