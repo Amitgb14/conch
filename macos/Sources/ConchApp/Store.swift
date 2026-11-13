@@ -1630,8 +1630,11 @@ final class Store: ObservableObject {
             questions.removeValue(forKey: k)
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
-                // A project added since the connection was counted: count it.
-                if snap.project(p.id) == nil { recountSessions(key(machine, p.id), after: 0) }
+                // A project added since the connection was counted, or one
+                // whose worktrees changed (its first read comes after it is
+                // added): count it.
+                let before = snap.project(p.id)
+                if sessionsMayHaveChanged(old: before, new: p) { recountSessions(key(machine, p.id), after: before == nil ? 0 : SessionRecounts.settle) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }

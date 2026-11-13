@@ -65,6 +65,18 @@ public func sessionsMayHaveChanged(old: PaneInfo?, new: PaneInfo) -> Bool {
     return was == .working && now != .working
 }
 
+/// Whether a project update may change how many conversations it has: a
+/// project not known before, or one whose worktrees changed. A project is
+/// announced before its worktrees are read, and a task branch's agent
+/// saves its conversations in its worktree's folder, so counting only on
+/// the first announcement counted none of them — the Sessions row never
+/// came for a project whose agents worked on task branches.
+public func sessionsMayHaveChanged(old: ProjectInfo?, new: ProjectInfo) -> Bool {
+    guard let old else { return true }
+    let paths = { (p: ProjectInfo) in Set((p.worktrees ?? []).map(\.path)) }
+    return paths(old) != paths(new)
+}
+
 /// How many conversations the sidebar asks for when it counts a project's.
 public let sessionCountLimit = 500
 

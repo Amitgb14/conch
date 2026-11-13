@@ -59,3 +59,23 @@ import Testing
     #expect(sessionCount(listed: 300, partial: false, limit: 300, known: 420) == 420)
     #expect(sessionCount(listed: 300, partial: false, limit: 300, known: 10) == 300)
 }
+
+// A project is announced before its worktrees are read, and a task
+// branch's conversations live in its worktree's folder: the count has to
+// be taken again when the worktrees arrive, not only when it is new.
+// Seen on a real project added from a plain folder: no Sessions row.
+@Test func projectRecountsWhenItsWorktreesChange() {
+    let bare = ProjectInfo(id: "r1", name: "app", path: "/src/app")
+    let read = ProjectInfo(id: "r1", name: "app", path: "/src/app",
+                           worktrees: [WorktreeInfo(path: "/src/app", branch: "main", main: true),
+                                       WorktreeInfo(path: "/src/app.worktrees/feat", branch: "feat")])
+    #expect(sessionsMayHaveChanged(old: nil, new: bare), "new")
+    #expect(sessionsMayHaveChanged(old: bare, new: read), "its worktrees read")
+    #expect(!sessionsMayHaveChanged(old: read, new: read), "nothing changed")
+    var statusOnly = read
+    statusOnly.worktrees?[1].branch = "feat"
+    #expect(!sessionsMayHaveChanged(old: read, new: statusOnly), "a commit or a status change")
+    let removed = ProjectInfo(id: "r1", name: "app", path: "/src/app",
+                              worktrees: [WorktreeInfo(path: "/src/app", branch: "main", main: true)])
+    #expect(sessionsMayHaveChanged(old: read, new: removed), "a worktree removed")
+}
