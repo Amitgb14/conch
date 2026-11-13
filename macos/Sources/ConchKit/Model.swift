@@ -1001,8 +1001,11 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("openTUI", "Run in Terminal", ""),
 ]
 
-public func paletteCommandItems() -> [PaletteItem] {
-    paletteCommands.map { PaletteItem(title: $0.title, detail: "", kind: $0.keys, action: .command($0.id)) }
+/// ⌘K's commands; without the workbench's chat (chatEnabled), not its
+/// Chat First layout.
+public func paletteCommandItems(chat: Bool = true) -> [PaletteItem] {
+    paletteCommands.filter { chat || $0.id != "bench:" + BenchLayout.chat.rawValue }
+        .map { PaletteItem(title: $0.title, detail: "", kind: $0.keys, action: .command($0.id)) }
 }
 
 extension Snapshot {

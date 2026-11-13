@@ -351,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         for m in benchMenu?.items ?? [] {
             guard let c = m.representedObject as? String, c.hasPrefix("bench:") else { continue }
             m.state = c == "bench:" + cur.rawValue ? .on : .off
+            m.isHidden = c == "bench:" + BenchLayout.chat.rawValue && !store.offersChat
         }
     }
     var styleMenu: NSMenu?
