@@ -288,6 +288,9 @@ type Project struct {
 type PairRequest struct {
 	Code       string `json:"code"`
 	DeviceName string `json:"device_name"`
+	// Name is taken for DeviceName when that is not given: a client
+	// written by hand sends "name", and was listed as "phone" (#199).
+	Name string `json:"name,omitempty"`
 }
 
 // PairResponse answers it, along with the cookie.
