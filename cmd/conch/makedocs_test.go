@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -146,5 +148,49 @@ func TestReadmeMediaIsThere(t *testing.T) {
 		if _, err := os.Stat("../../assets/" + m[1]); err != nil {
 			t.Errorf("README shows assets/%s: %v", m[1], err)
 		}
+	}
+}
+
+// docShot is a picture a docs page shows, by the name doc-shot.tsx gives
+// it: `<Shot name="desktop-git" alt="…" />`, over however many lines.
+var docShot = regexp.MustCompile(`<Shot\s[^>]*name="([^"]+)"`)
+
+// TestDocShotsAreThere: every picture a docs page asks for is registered in
+// doc-shot.tsx and is a file in web/src/images. MDX cannot import a
+// picture and next/image wants the import, so that name is the only link
+// between a page and its file — and a wrong one throws while the page
+// renders, which is `next build`, run by the website's own workflow and
+// only on a pull request that touches web/.
+func TestDocShotsAreThere(t *testing.T) {
+	reg, err := os.ReadFile("../../web/src/components/doc-shot.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shots := 0
+	err = filepath.WalkDir("../../web/src/app/docs", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".mdx") {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range docShot.FindAllStringSubmatch(string(body), -1) {
+			shots++
+			if !strings.Contains(string(reg), `"`+m[1]+`":`) {
+				t.Errorf("%s shows %q, which doc-shot.tsx does not name", path, m[1])
+				continue
+			}
+			if _, err := os.Stat("../../web/src/images/" + m[1] + ".png"); err != nil {
+				t.Errorf("%s shows %q: %v", path, m[1], err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shots == 0 {
+		t.Fatal("no <Shot> in the docs — the regexp or the pages moved")
 	}
 }

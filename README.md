@@ -21,11 +21,14 @@ your laptop slept. It earns its keep from the third agent, not the first.
 It is the wrong shape if you run one agent in one repo (use the agent's own
 CLI, with tmux if you want it to survive a dropped ssh session), if you branch
 and commit by hand (a plain multiplexer gives you panes without the opinions),
-or if review means comments, threads and approvals — conch reads diffs side by
-side and stages hunks, but has no review threads and no approving a pull
-request, so pair it with `gh` or your forge for those. It is macOS and Linux; on Windows, WSL. And
-it waits for Enter on purpose: nothing the brain proposes runs until you
-confirm, so it is not the tool for unattended swarms.
+or if review means a conversation with other people — conch reads diffs side
+by side, stages hunks, and a note on a line goes to the agent, which answers
+it in the thread; Conch.app submits a pull request review (approve, request
+changes, comment), but a reply to a colleague's own comment happens on
+GitHub, so pair it with `gh` or your forge for that. It is macOS and Linux;
+on Windows, WSL. And it waits for Enter on purpose: nothing the brain
+proposes runs until you confirm, so it is not the tool for unattended
+swarms.
 
 [The longer version](https://amitgb14.github.io/conch/docs/#is-conch-for-you),
 losses included.
@@ -172,11 +175,13 @@ built; after changing it, run `make settings-ui` (needs pnpm) and commit
 contributing, including keeping tests away from your own running conch.
 
 The website and documentation live in [`web/`](web), a Next.js and
-shadcn/ui app (`pnpm dev` there). Its screenshots are regenerated rather
-than taken by hand: `web/scripts/tui-capture/capture.sh` stages a demo
-project in a scratch conch and saves the TUI's screens,
+shadcn/ui app (`pnpm dev` there). Most of its screenshots are regenerated
+rather than taken by hand: `web/scripts/tui-capture/capture.sh` stages a
+demo project in a scratch conch and saves the TUI's screens,
 `web/scripts/phone-capture/capture.sh` photographs the phone app in
 headless Chrome, and both keep away from your own server and agents.
+Conch.app's are taken in the app by hand — a native window is nobody's
+script.
 
 ## License
 
