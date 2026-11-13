@@ -568,8 +568,11 @@ func projectClone(c *client.Client, args []string) error {
 		}
 	}
 	if onRemoteMachine() {
-		if err := remoteDir(dir); err != nil {
-			return err
+		// That machine's server resolves ~ to its own home; a relative
+		// path would mean this computer's working directory, which names
+		// nothing there.
+		if dir != "~" && !strings.HasPrefix(dir, "~/") && !filepath.IsAbs(dir) {
+			return fmt.Errorf("DIR %q: give an absolute path on %s, or one under ~", dir, machineFlag)
 		}
 	} else if !strings.HasPrefix(dir, "~") {
 		// The server resolves a relative path from its own folder, not
