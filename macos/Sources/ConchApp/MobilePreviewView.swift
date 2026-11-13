@@ -26,6 +26,8 @@ final class MobilePreviewModel: ObservableObject {
     @Published var booting = false
     /// "Expo · React Native", from `conch preview detect`.
     @Published var kind = ""
+    /// Its kind as conch preview detect names it (expo, flutter…).
+    @Published var kindID = ""
 
     private var loop: Task<Void, Never>?
     private let shotPath: String
@@ -69,11 +71,42 @@ final class MobilePreviewModel: ObservableObject {
 
     private func detect() {
         guard let p = projectPath else { return }
-        struct Detected: Decodable { var label: String? }
+        struct Detected: Decodable { var kind: String?; var label: String? }
         Task {
             if let d = try? JSONDecoder().decode(Detected.self, from: try await conch(["preview", "detect", p])) {
                 kind = d.label ?? ""
+                kindID = d.kind ?? ""
             }
+        }
+    }
+
+    /// What ▶ Run types for the device shown, if conch knows one.
+    var runCommand: String? { previewRunCommand(kind: kindID, device: device) }
+
+    /// Puts the app on the phone: the command typed into the workbench's
+    /// own terminal when the phone is in one — the agent's checkout, so it
+    /// is that branch's app — else run in a new terminal in the project.
+    func run() {
+        guard let cmd = runCommand, let c = store.connection(machine) else { return }
+        let tab = store.layout.tabs.firstIndex { $0.root.panes.contains(key) }
+        if let i = tab, let shell = store.layout.benchParts(i)?.shell, isPaneKey(shell), store.pane(shell) != nil {
+            struct Send: Encodable { var id: String; var text: String }
+            Task {
+                do {
+                    try await c.call("pane.send_text", Send(id: unkey(shell).id, text: cmd + "\r"))
+                    store.say("Running \(cmd) in the workbench's terminal")
+                } catch { self.error = "\(error)" }
+            }
+            return
+        }
+        guard let dir = projectPath else { return }
+        struct Create: Encodable { var name: String; var cwd: String; var command: [String] }
+        Task {
+            do {
+                let p = try await c.call("pane.create", Create(name: "Run · \(projectName)", cwd: dir, command: ["/bin/sh", "-lc", cmd]), as: PaneInfo.self)
+                store.snapshots[machine, default: Snapshot()].upsert(p)
+                store.say("Running \(cmd) in a new terminal")
+            } catch { self.error = "\(error)" }
         }
     }
 
@@ -208,18 +241,38 @@ struct MobilePreviewView: View {
             footer
         }
         .background(Theme.window)
+        // A card like the workbench's other parts, kept to its column: a
+        // phone's column is narrow, and nothing here may push past it.
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
+        .modifier(CardFrame(focused: store.layout.focused == model.key))
         .onAppear { model.start() }
         .onDisappear { model.stop() }
     }
 
+    private var icon: some View { LucideIcon("smartphone", color: Theme.accent, size: 13) }
+
+    private var title: some View {
+        Text("Mobile preview").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
+    }
+
+    @ViewBuilder private var kindLabel: some View {
+        if !model.kind.isEmpty { Text(model.kind).font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).fixedSize() }
+    }
+
     private var header: some View {
         HStack(spacing: 8) {
-            LucideIcon("smartphone", color: Theme.accent, size: 13)
-            Text("Mobile preview").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text)
-            if !model.kind.isEmpty {
-                Text(model.kind).font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            // In a narrow column the kind gives way first, then the title,
+            // then the icon — each whole rather than cut to a sliver — so the
+            // device and its buttons always have their room.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { icon; title; kindLabel }
+                HStack(spacing: 8) { icon; title }
+                icon
+                Color.clear.frame(width: 0, height: 0)
             }
-            Spacer(minLength: 8)
+            .layoutPriority(-1)
+            Spacer(minLength: 4)
             Menu {
                 ForEach(model.devices) { d in
                     Button { model.choose(d.id) } label: {
@@ -229,11 +282,19 @@ struct MobilePreviewView: View {
                 Divider()
                 Button("List Devices Again") { model.reload() }
             } label: {
-                Text(model.device?.title ?? "No device").font(.ui(size: 11.5, design: .monospaced))
+                Text(model.device?.name ?? "No device").font(.ui(size: 11.5, design: .monospaced)).lineLimit(1)
             }
             .menuStyle(.borderlessButton).fixedSize()
             .disabled(model.devices.isEmpty)
-            .help("The simulator or emulator shown")
+            .help(model.device?.title ?? "The simulator shown")
+            if let cmd = model.runCommand {
+                Button { model.run() } label: {
+                    Image(systemName: "play.fill").font(.system(size: 11))
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.accent)
+                .accessibilityLabel("Run")
+                .help("Put the app on this phone: \(cmd)")
+            }
             if model.device?.booted == true {
                 Button { model.button("home") } label: { LucideIcon("circle", size: 12) }
                     .buttonStyle(.plain).help("Home")
@@ -243,8 +304,10 @@ struct MobilePreviewView: View {
                         Button(a.displayName) { model.sendShot(to: a) }
                     }
                 } label: {
-                    HStack(spacing: 5) { LucideIcon("camera", size: 12); Text("To agent").font(.ui(size: 11.5)) }
+                    // A menu's label draws an SF Symbol, not a Lucide path.
+                    Image(systemName: "camera").font(.system(size: 12))
                 }
+                .accessibilityLabel("To agent")
                 .menuStyle(.borderlessButton).fixedSize()
                 .disabled(agents.isEmpty)
                 .help(agents.isEmpty ? "No agent is running in \(model.projectName)" : "Put a screenshot in an agent's prompt")

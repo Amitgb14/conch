@@ -152,3 +152,18 @@ import Testing
     #expect(SettingsNav.groups.first { $0.0 == "Workspace" }?.1.contains("preview") == true)
     #expect(LucideIcons.all["tablet-smartphone"] != nil && sfSymbols["tablet-smartphone"] != nil && tileColors["tablet-smartphone"] != nil)
 }
+
+// What ▶ Run types to put the app on the iPhone shown: each kind's own
+// way of building for an iOS simulator, for that simulator where it can be
+// named; nothing where conch knows no command (Xcode builds in Xcode).
+@Test func devCommandForTheDevice() {
+    let d = MobileDevice(id: "U-1", name: "iPhone 17 Pro", platform: "ios", state: "booted")
+    #expect(previewRunCommand(kind: "expo", device: d) == "npx expo start --ios")
+    #expect(previewRunCommand(kind: "react-native", device: d) == "npx react-native run-ios --udid U-1")
+    #expect(previewRunCommand(kind: "flutter", device: d) == "flutter run -d U-1")
+    #expect(previewRunCommand(kind: "flutter", device: nil) == "flutter run")
+    #expect(previewRunCommand(kind: "react-native", device: nil) == "npx react-native run-ios")
+    #expect(previewRunCommand(kind: "xcode", device: d) == nil)
+    #expect(previewRunCommand(kind: "", device: d) == nil)
+    #expect(previewRunCommand(kind: "android", device: d) == nil)
+}

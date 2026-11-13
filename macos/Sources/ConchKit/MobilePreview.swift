@@ -126,6 +126,18 @@ public func phoneLayout(image: CGSize, box: CGSize, tablet: Bool = false) -> Pho
     return PhoneLayout(body: body, screen: screen, bodyRadius: w * corner + side, screenRadius: w * corner)
 }
 
+/// What ▶ Run types to put a project's app on the simulator shown, by the
+/// kind `conch preview detect` said; nil where conch knows no command.
+public func previewRunCommand(kind: String, device: MobileDevice?) -> String? {
+    let id = device?.id ?? ""
+    switch kind {
+    case "expo": return "npx expo start --ios"
+    case "react-native": return "npx react-native run-ios" + (id.isEmpty ? "" : " --udid \(id)")
+    case "flutter": return "flutter run" + (id.isEmpty ? "" : " -d \(id)")
+    default: return nil
+    }
+}
+
 /// The agents a screenshot can be handed to: running ones in the
 /// project, the one the person was last working with first.
 public func previewAgents(_ snapshot: Snapshot, project: String, preferred: String? = nil) -> [PaneInfo] {
