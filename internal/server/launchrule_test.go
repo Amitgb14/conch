@@ -167,7 +167,11 @@ func TestAgentTypesOnlyIntoAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	var mine proto.PaneInfo
-	if err := c.Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Cwd: a, Cols: 80, Rows: 10}, &mine); err != nil {
+	// A shell with job control, said rather than left to $SHELL: without
+	// it (/bin/sh on Linux CI) a command typed at it stays in the shell's
+	// process group, so the terminal's foreground is still the shell and
+	// no agent is ever in front.
+	if err := c.Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Cwd: a, Cols: 80, Rows: 10, Command: []string{"/bin/sh", "-i", "-m"}}, &mine); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := h.do(proto.MethodPaneSendText, mine.ID); code != proto.ErrOutOfScope {
@@ -188,7 +192,9 @@ func TestAgentTypesOnlyIntoAgents(t *testing.T) {
 				}
 			}
 			if i == 500 {
-				t.Fatalf("an agent in %s never became %v", mine.ID, want)
+				var why json.RawMessage
+				c.Call(t.Context(), proto.MethodAgentExplain, proto.PaneRef{ID: mine.ID}, &why)
+				t.Fatalf("an agent in %s never became %v; conch saw: %s\nscreen:\n%s", mine.ID, want, why, screen(mine.ID))
 			}
 			time.Sleep(20 * time.Millisecond)
 		}
