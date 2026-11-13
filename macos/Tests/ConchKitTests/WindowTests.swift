@@ -173,6 +173,17 @@ import Testing
     #expect(owner(true, 120, 13, sidebar: nil) == .terminal, "a terminal wins wherever it is")
 }
 
+// A conch the app runs in a terminal of the server's (New Sandbox…) is
+// told where conch's source is, or it installs a stale cached build on the
+// sandbox; nothing else of the app's environment is pushed onto it.
+@Test func cliPaneIsToldTheSource() {
+    #expect(cliPaneEnv(["CONCH_SOURCE": "/src/conch", "PATH": "/usr/bin", "TERM": "xterm-256color"]) == ["CONCH_SOURCE=/src/conch"])
+    #expect(cliPaneEnv(["PATH": "/usr/bin"]).isEmpty)
+    #expect(cliPaneEnv(["CONCH_SOURCE": ""]).isEmpty)
+    let env = conchEnvironment(["HOME": "/Users/me", "PATH": "/usr/bin"], source: "/src/conch", exists: { $0 == "/src/conch/go.mod" })
+    #expect(cliPaneEnv(env) == ["CONCH_SOURCE=/src/conch"])
+}
+
 @Test func conchFindsItsSourceAndGo() {
     let base = ["HOME": "/Users/me", "PATH": "/usr/bin:/bin", "CONCH_PANE_ID": "p1"]
     let env = conchEnvironment(base, source: "/src/conch", exists: { $0 == "/src/conch/go.mod" })

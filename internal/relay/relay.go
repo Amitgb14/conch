@@ -53,6 +53,10 @@ const (
 	CodeBusy      = 4429 // the room has as many phones as it takes
 	CodeReplaced  = 4409 // a newer connection from the same gateway took over
 	CodeTimeout   = 4408 // the gateway didn't take the phone in time
+	// Conch Cloud's relay adds two (PROTOCOL §3.3); conch's own never
+	// sends them.
+	CodeBadTicket = 4401 // no ticket, or one used, expired or for another room
+	CodeRevoked   = 4403 // the device holding the socket was revoked
 )
 
 // Limits. A room is one gateway; phones beyond maxPhones are a mistake or

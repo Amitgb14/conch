@@ -70,6 +70,9 @@ func (e *SandboxStoppedError) Error() string {
 // the machine's extra ssh options, which a sandbox has none of: its way in
 // is the provider's to describe, not a host somebody typed.
 func TransportFor(ctx context.Context, label, target string, interactive bool, opts ...string) (Transport, error) {
+	if id, ok := ParseCloudTarget(target); ok {
+		return cloudTransportFor(ctx, label, id)
+	}
 	provider, id, ok := ParseSandboxTarget(target)
 	if !ok {
 		return SSH(target, interactive, opts...), nil

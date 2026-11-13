@@ -1,6 +1,9 @@
 package configweb
 
-import "github.com/Amitgb14/conch/internal/config"
+import (
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/keymap"
+)
 
 // The schema is what the page draws: every setting in config.toml, by its
 // TOML key, with what it is for. It lives here rather than in the page so
@@ -88,6 +91,17 @@ func opts(values ...string) []Option {
 
 func intp(n int) *int { return &n }
 
+// keyActions names every action a key after the prefix can do, for
+// [keys.bind]'s list to offer rather than have them typed from memory.
+func keyActions() []string {
+	acts := keymap.Actions()
+	out := make([]string, len(acts))
+	for i, a := range acts {
+		out[i] = string(a)
+	}
+	return out
+}
+
 // Schema is every section, in the order the page lists them.
 func Schema(c Choices) []Section {
 	themes := c.Themes
@@ -107,7 +121,7 @@ func Schema(c Choices) []Section {
 		{Key: "api_key_env", Label: "API key variable", Kind: KindString, Placeholder: "the provider's own, e.g. DAYTONA_API_KEY",
 			Help: "The environment variable holding the key. A key set above wins over it."},
 		{Key: "api_url", Label: "API endpoint", Kind: KindString, Placeholder: "the provider's own",
-			Help: "Overrides the provider's API address."},
+			Help: "Overrides the provider's API address: its base, e.g. https://api.tensorlake.ai — not a path under it such as …/sandboxes."},
 		{Key: "target", Label: "Region", Kind: KindString, Placeholder: "the account default", Help: "e.g. us or eu."},
 		{Key: "snapshot", Label: "Snapshot", Kind: KindString, Placeholder: "the provider's own", Help: "The image new sandboxes start from."},
 		{Key: "auto_stop", Label: "Provider idle timer (minutes)", Kind: KindInt, Min: intp(0),
@@ -144,7 +158,7 @@ func Schema(c Choices) []Section {
 			Fields: []Field{
 				{Key: "prefix", Label: "Prefix", Kind: KindString, Placeholder: "ctrl+b", Help: "Bubble Tea key notation, e.g. ctrl+b or ctrl+a. Takes effect when the TUI next starts."},
 				{Key: "bind", Label: "Rebind a key after the prefix", Kind: KindMap, KeyLabel: "What it does", Placeholder: "\\",
-					Help: "As tmux's bind-key: the name of what the key does (split_right, next_tab, zoom — `conch keys` lists them all) and the key to put it on. tmux's spelling is taken too (C-n, Space). An empty key unbinds it; what is not named here keeps its default."},
+					Help: "As tmux's bind-key: the name of what the key does (split_right, next_tab, zoom — `conch keys` lists them all) and the key to put it on. tmux's spelling is taken too (C-n, Space). An empty key unbinds it; what is not named here keeps its default.", Suggest: keyActions()},
 			}},
 		{ID: "notify", Key: "notify", Title: "Notifications", Icon: "bell", Description: "How conch tells you an agent needs you.",
 			Fields: []Field{
@@ -167,6 +181,8 @@ func Schema(c Choices) []Section {
 				{Key: "default", Label: "Default agent", Kind: KindSelect, Options: agents},
 				{Key: "permission_mode", Label: "Permission rules", Kind: KindSelect,
 					Options: []Option{{"", "On: answer by them"}, {config.PermissionsDryRun, "Dry run: only record"}, {config.PermissionsOff, "Off"}}},
+				{Key: "unrestricted_launch", Label: "Let agents start agents however they like", Kind: KindBool,
+					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else. On: any command, environment and flags, a helper that asks nobody before it acts among them."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
@@ -180,7 +196,7 @@ func Schema(c Choices) []Section {
 				{Key: "max_diff", Label: "Draft past this many changed lines", Kind: KindInt, Min: intp(0), Help: "0: no limit."},
 				{Key: "reviewer", Label: "Reviewer agent", Kind: KindSelect, Options: reviewers, Help: "Asked to read a branch's diff and report. Every review spends plan usage."},
 			}},
-		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch's own git actions behave.",
+		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, and what a finished branch goes through on its way to the base.",
 			Fields: []Field{
 				{Key: "squash", Label: "Squash when merging", Kind: KindBool, Help: "One commit on the base instead of a merge commit."},
 			}},
@@ -198,10 +214,6 @@ func Schema(c Choices) []Section {
 		{ID: "shell", Key: "shell", Title: "Terminals", Icon: "terminal", Description: "New terminal panes.",
 			Fields: []Field{
 				{Key: "omz_theme", Label: "Oh My Zsh theme", Kind: KindString, Placeholder: "the one .zshrc chooses", Help: "Applied after your own .zshrc in zsh terminals — the ones already open too, redrawn as it is saved.", Suggest: c.ZshThemes},
-			}},
-		{ID: "pane", Key: "pane", Title: "Panes", Icon: "square-terminal", Description: "Defaults for new panes.",
-			Fields: []Field{
-				{Key: "default_command", Label: "Default command", Kind: KindString, Placeholder: "$SHELL"},
 			}},
 		{ID: "remote", Key: "remote", Title: "Remote machines", Icon: "server", Description: "Panes on machines reached over ssh.",
 			Fields: []Field{
@@ -221,6 +233,11 @@ func Schema(c Choices) []Section {
 				{Key: "relay", Label: "Relay", Kind: KindString, Placeholder: "wss://relay.example.com",
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
+			}},
+		{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
+			Fields: []Field{
+				{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
+					Help: "The Conch Cloud server conch login signs in to. Empty is Conch Cloud itself; CONCH_CLOUD_URL overrides it. Takes effect at the next sign-in."},
 			}},
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{

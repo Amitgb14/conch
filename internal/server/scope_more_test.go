@@ -108,7 +108,7 @@ func TestCreatorEveryWay(t *testing.T) {
 		params func(from string) any
 	}{
 		{"pane", proto.MethodPaneCreate, func(string) any {
-			return proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work}
+			return proto.PaneCreateParams{Cwd: work} // a plain terminal: what an agent may start (launchrule.go)
 		}},
 		{"task", proto.MethodTaskCreate, func(from string) any { // each on a branch of its own
 			return proto.TaskCreateParams{ProjectID: proj.id, Prompt: "review it", Branch: "review-" + from + "x"}
@@ -268,7 +268,13 @@ func TestScopeRemoteCaller(t *testing.T) {
 	if perr == nil || perr.Message != "the codex agent in p4 on laptop may not discard a branch in project "+proj.id+": it started nothing there; do it from the TUI or a terminal pane" {
 		t.Fatalf("project before: %v", perr)
 	}
-	res, perr := s.dispatch(far, msg(proto.MethodPaneCreate, proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work}))
+	// A plain terminal: a command of its own is not an agent's to give
+	// (launchrule.go), from here or from another machine.
+	if _, perr := s.dispatch(far, msg(proto.MethodPaneCreate, proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work})); perr == nil || perr.Code != proto.ErrOutOfScope {
+		t.Fatalf("a command from another machine's agent: %v", perr)
+	}
+	t.Setenv("SHELL", "/bin/sh")
+	res, perr := s.dispatch(far, msg(proto.MethodPaneCreate, proto.PaneCreateParams{Cwd: work}))
 	if perr != nil {
 		t.Fatal(perr)
 	}
@@ -357,8 +363,9 @@ func TestActForReusedPaneID(t *testing.T) {
 	first, later := &client{}, &client{}
 	s.actFor(first, proto.ActForParams{ID: "laptop/p4@100", Agent: "claude"})
 	s.actFor(later, proto.ActForParams{ID: "laptop/p4@200", Agent: "claude"})
+	t.Setenv("SHELL", "/bin/sh")
 	res, perr := s.dispatch(first, proto.Message{Method: proto.MethodPaneCreate,
-		Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work})})
+		Params: proto.Marshal(proto.PaneCreateParams{Cwd: work})})
 	if perr != nil {
 		t.Fatal(perr)
 	}
@@ -386,7 +393,7 @@ func TestCreatorEveryWayFromAfar(t *testing.T) {
 	far := &client{}
 	s.actFor(far, proto.ActForParams{ID: "laptop/p4@1", Agent: "claude"})
 	for name, m := range map[string]proto.Message{
-		"pane":    {Method: proto.MethodPaneCreate, Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"/bin/sleep", "30"}, Cwd: work})},
+		"pane":    {Method: proto.MethodPaneCreate, Params: proto.Marshal(proto.PaneCreateParams{Cwd: work})},
 		"task":    {Method: proto.MethodTaskCreate, Params: proto.Marshal(proto.TaskCreateParams{ProjectID: proj.id, Prompt: "go", Branch: "from-afar"})},
 		"install": {Method: proto.MethodAgentInstall, Params: proto.Marshal(proto.AgentInstallParams{Agent: "codex"})},
 		"resume":  {Method: proto.MethodSessionResume, Params: proto.Marshal(proto.SessionRef{Agent: "claude", ID: "c1", Dir: work})},

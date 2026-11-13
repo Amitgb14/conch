@@ -55,6 +55,8 @@ conch reads **working** from its screen, so the tree shows the spinner while it 
 
 Opening the menu asks the machine again which agents are there, so one you installed since conch started — by hand, or with `brew`, `npm` or its own installer — is offered as a **start** rather than an install; if the answer arrives while the menu is open, the menu redraws. An agent whose manifest named no installer is listed as "not installed · conch has no installer for it" and cannot be chosen: install it yourself and conch will find it on your PATH.
 
+In the [Mac app](/docs/mac-app), starting an agent — a new agent, or a task — on a machine that does not have it installs it first: a new Conch Cloud machine has none. The status bar says *Installing Claude Code on bot…* while the installer runs in a terminal of its own (in the sidebar, to watch), and the agent starts once the machine finds it. When the installer fails its terminal opens with what it said; a server too old to install agents is said rather than tried.
+
 `t` [tasks](/docs/tasks) use the default agent unless the task dialog's Agent field (or `conch task -agent NAME`) names another. From a shell, `conch new -agent claude -cwd DIR` starts Claude Code with state tracking, and `conch agent status` / `conch agent install NAME` check or install agents (add `-m MACHINE` for a remote machine).
 
 <Callout type="note">

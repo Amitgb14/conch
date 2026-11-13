@@ -324,12 +324,12 @@ struct CommitRow: View {
         .onTapGesture { model.pick(c.hash, shift: NSEvent.modifierFlags.contains(.shift)) }
         .help(c.hash)
         .contextMenu {
-            Button("Copy hash") { copy(c.hash) }
-            Button("Copy subject") { copy(c.subject) }
+            Button("Copy Hash") { copy(c.hash) }
+            Button("Copy Subject") { copy(c.subject) }
             let branches = refs.filter { $0.kind == .head || $0.kind == .branch }.map(\.name).filter { $0 != "HEAD" }
             if !branches.isEmpty { Divider() }
             ForEach(branches, id: \.self) { b in
-                Button("View changes on \(b)") { store.openChanges(project: key(model.machine, model.project), branch: b) }
+                Button("View Changes on \(b)") { store.openChanges(project: key(model.machine, model.project), branch: b) }
             }
         }
     }

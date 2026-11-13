@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,5 +67,55 @@ func TestLastReply(t *testing.T) {
 	got, _ = lastReply("codex", []sessions.Turn{{Role: "assistant", Text: huge}})
 	if len(got.Text) > maxReply+20 || !strings.HasSuffix(got.Text, "… (cut)") || !strings.HasPrefix(huge, strings.TrimSuffix(got.Text, "\n\n… (cut)")) {
 		t.Fatalf("cut to %d bytes", len(got.Text))
+	}
+}
+
+func TestAgentChatReadsTheConversation(t *testing.T) {
+	s, _, work := shareFixture(t)
+	e := agentPane(t, s, "p1", "claude", work, "exec sleep 30")
+	t.Cleanup(func() { e.p.Close() })
+
+	// Not yet in a conversation: an empty chat, not an error.
+	got, perr := s.agentChat(proto.AgentChatParams{ID: "p1"})
+	if perr != nil || got.Agent != "claude" || got.Session != "" || got.Turns == nil || len(got.Turns) != 0 {
+		t.Fatalf("no session yet: %+v %v", got, perr)
+	}
+	s.report(e, proto.AgentReportParams{ID: "p1", Agent: "claude", Event: "PostToolUse", SessionID: "c1"})
+	got, perr = s.agentChat(proto.AgentChatParams{ID: "p1"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if got.Session != "c1" || len(got.Turns) != 2 || got.Turns[0].Role != "user" || got.Turns[1].Text != "The cross compiler is missing." ||
+		!got.Reset || got.Epoch == "" || got.Ver == 0 || got.Turns[1].Seq != 1 {
+		t.Fatalf("chat %+v", got)
+	}
+	// Asked again with what it has: nothing new.
+	again, perr := s.agentChat(proto.AgentChatParams{ID: "p1", Epoch: got.Epoch, Ver: got.Ver})
+	if perr != nil || again.Reset || len(again.Turns) != 0 || again.Ver != got.Ver {
+		t.Fatalf("again %+v %v", again, perr)
+	}
+	// Through the protocol, as the app asks.
+	res, perr := s.dispatch(&client{}, proto.Message{Method: proto.MethodAgentChat, Params: proto.Marshal(proto.PaneRef{ID: "p1"})})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if c, ok := res.(proto.AgentChat); !ok || len(c.Turns) != 2 {
+		t.Fatalf("dispatch %#v", res)
+	}
+	// A session named but not written yet is an empty chat too.
+	s.report(e, proto.AgentReportParams{ID: "p1", Agent: "claude", Event: "PostToolUse", SessionID: "gone"})
+	if got, perr := s.agentChat(proto.AgentChatParams{ID: "p1"}); perr != nil || len(got.Turns) != 0 {
+		t.Fatalf("missing session: %+v %v", got, perr)
+	}
+	if _, perr := s.agentChat(proto.AgentChatParams{ID: "nope"}); perr == nil {
+		t.Fatal("an unknown pane had a chat")
+	}
+	plain := agentPane(t, s, "p2", "", work, "sleep 30")
+	t.Cleanup(func() { plain.p.Close() })
+	if _, perr := s.agentChat(proto.AgentChatParams{ID: "p2"}); perr == nil || !strings.Contains(perr.Message, "no agent") {
+		t.Fatalf("a shell had a chat: %v", perr)
+	}
+	if !slices.Contains(proto.Capabilities, proto.CapAgentChat) {
+		t.Fatal("agent.chat.v1 not announced")
 	}
 }

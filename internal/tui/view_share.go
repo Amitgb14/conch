@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -100,7 +101,9 @@ func (m *Model) showPanes(mid string, p proto.ViewShowParams) tea.Cmd {
 			panes = append(panes, *info)
 		}
 	}
-	who := p.Why
+	// The reason and the tab's name are an agent's words, drawn here.
+	who := gitx.Printable(p.Why)
+	p.Name = tabName(gitx.Printable(p.Name))
 	if who == "" {
 		who = "an agent"
 	}

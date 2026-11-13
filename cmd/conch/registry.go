@@ -184,6 +184,9 @@ func providerInstall(args []string) error {
 
 // installEntry installs e, asking first unless yes.
 func installEntry(ctx context.Context, e sandbox.RegistryEntry, yes bool) error {
+	if err := sandbox.CheckName(e.Name); err != nil {
+		return err
+	}
 	if sandbox.Builtin(e.Name) {
 		return fmt.Errorf("%s is built into conch", e.Name)
 	}
@@ -284,6 +287,9 @@ func providerUpdate(args []string) error {
 }
 
 func updateOne(ctx context.Context, ix *sandbox.Index, n string, in sandbox.Installed, yes bool) (string, error) {
+	if err := sandbox.CheckName(n); err != nil {
+		return "", err
+	}
 	e, ok := ix.Find(n)
 	if !ok {
 		return "no longer in the registry; kept as it is", nil
@@ -349,6 +355,9 @@ func providerPublish(args []string) error {
 		return errors.New("usage: conch sandbox provider publish [-dry-run] [-json] NAME")
 	}
 	name := fs.Arg(0)
+	if err := sandbox.CheckName(name); err != nil {
+		return err
+	}
 	if sandbox.Builtin(name) {
 		return fmt.Errorf("%s is built into conch", name)
 	}

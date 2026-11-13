@@ -67,7 +67,11 @@ func NewTensorlake(cfg config.ProviderCfg) *Tensorlake {
 	if t.key == "" {
 		t.key = strings.TrimSpace(os.Getenv(t.keyEnv))
 	}
+	// The API's base: an address given with /sandboxes on the end — the
+	// one Tensorlake's docs show beside create — would have every call
+	// sent to /sandboxes/sandboxes, which answers 405.
 	t.base = strings.TrimRight(firstSet(cfg.APIURL, os.Getenv("TENSORLAKE_API_URL"), DefaultTensorlakeURL), "/")
+	t.base = strings.TrimRight(strings.TrimSuffix(t.base, "/sandboxes"), "/")
 	t.sshHost = firstSet(os.Getenv("TENSORLAKE_SSH_HOST"), DefaultTensorlakeSSH)
 	return t
 }
@@ -83,7 +87,7 @@ func (t *Tensorlake) Check() error {
 
 // Note says what has to be done once before conch can get in.
 func (t *Tensorlake) Note() string {
-	return "Tensorlake lets in the ssh keys registered with your account, which conch cannot do with an API key: register yours once with tl sbx ssh keys add ~/.ssh/id_ed25519.pub (conch offers ~/.ssh/id_ed25519, id_ecdsa or id_rsa, the first it finds, else its own key)."
+	return "Tensorlake lets in the ssh keys registered with your account, which conch cannot do with an API key: register yours once with Tensorlake's CLI — pip install tensorlake, tl login, then env -u TENSORLAKE_API_KEY tl sbx ssh keys add --name laptop ~/.ssh/id_ed25519.pub (conch offers ~/.ssh/id_ed25519, id_ecdsa or id_rsa, the first it finds, else its own key)."
 }
 
 // AccountKey says the gateway takes a key registered with the account, so

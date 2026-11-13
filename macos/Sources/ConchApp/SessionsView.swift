@@ -307,7 +307,7 @@ struct SessionRow: View {
             Button(open ? "Open" : "Resume") { model.resume(session) }
             if !(session.sessionID ?? "").isEmpty {
                 Button(session.starred == true ? "Unstar" : "Star") { model.star(session) }
-                Menu("Hand off to") {
+                Menu("Hand Off To") {
                     ForEach(model.store.startable(on: model.machine), id: \.name) { a in
                         Button(a.title) { model.handOff(session, to: a.name) }
                     }

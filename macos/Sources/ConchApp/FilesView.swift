@@ -2,11 +2,29 @@ import AppKit
 import ConchKit
 import SwiftUI
 
-// A project's files in a tab of its own, as the TUI's Files row opens
+// A project's files in a tab of their own, as the TUI's Files row opens
 // them: a checkout as a tree, folders read as they are opened, beside the
-// file picked — in an editor, saved with ⌘S (fs.write.v1), or read only
-// where the server can't save or the file can't be held whole. Any branch
-// checked out in a worktree can be shown, the main checkout first.
+// files open — each in a tab of the editor, saved with ⌘S (fs.write.v1), or
+// read only where the server can't save. Any branch checked out in a
+// worktree can be shown, the main checkout first. Beside the tree, a search
+// of the whole checkout (FilesSearchView.swift); a file too big to hold
+// whole is read a window of lines at a time (BigFileView.swift); and an
+// agent can be asked to edit the file, its change shown to keep or undo
+// (AgentEditView.swift).
+
+/// What the side of the Files tab shows.
+enum FilesSide { case tree, search }
+
+/// An open file's state while another is shown.
+struct FileBuffer {
+    var preview: FSRead?
+    var previewError = ""
+    var text = ""
+    var original = ""
+    var baseHash: String?
+    var diskChanged = false
+    var dirty: Bool { preview?.editable == true && text != original }
+}
 
 @MainActor
 final class FilesModel: ObservableObject {
@@ -52,6 +70,25 @@ final class FilesModel: ObservableObject {
     /// What media was fetched for: the same file at the same size is not
     /// fetched again each time an agent writes something else.
     private var mediaFor: (root: String, path: String, size: Int64?)?
+    /// The files open, in tabs, and the state of each not shown.
+    @Published var tabs = OpenFiles()
+    private var buffers: [String: FileBuffer] = [:]
+    @Published var side = FilesSide.tree
+    @Published var quickOpen = false
+    /// Bumped to ask the editor for its find bar (and replace).
+    @Published var findRequest = 0
+    @Published var replaceRequest = false
+    /// The editor's selection, for an agent asked about it.
+    @Published var selection = NSRange(location: 0, length: 0)
+    /// A line to put in view and select in the editor, and a counter so the
+    /// same line can be asked for twice.
+    @Published var reveal: (line: Int, token: Int)?
+    /// The file shown when it is too big to hold whole.
+    @Published var big: BigFileModel?
+    @Published var agentPanel = false
+    /// What agents were asked to do to files here, newest first.
+    @Published var agentEdits: [AgentEdit] = []
+    private(set) lazy var search = FilesSearchModel(files: self)
 
     init(key: String, store: Store) {
         self.key = key
@@ -66,9 +103,12 @@ final class FilesModel: ObservableObject {
     var choices: [Checkout] { info.map(checkouts) ?? [] }
     var shown: Checkout? { choices.first { $0.path == root } ?? choices.first }
     var dirty: Bool { preview?.editable == true && text != original }
-    var canSave: Bool {
-        store.connection(machine)?.hello?.capabilities?.contains("fs.write.v1") == true && preview?.editable == true
-    }
+    var canSave: Bool { has("fs.write.v1") && preview?.editable == true }
+    /// Whether this machine's server has a capability.
+    func has(_ cap: String) -> Bool { store.connection(machine)?.hello?.capabilities?.contains(cap) == true }
+    /// Whether a file open in a tab has edits not saved.
+    func isDirty(_ path: String) -> Bool { path == selected ? dirty : buffers[path]?.dirty == true }
+    var dirtyCount: Int { tabs.paths.filter(isDirty).count }
     var spinning: Bool { loading > 0 || spinUntil > Date() }
 
     private func busy(_ on: Bool) {
@@ -127,14 +167,89 @@ final class FilesModel: ObservableObject {
                 list(r.path)
             }
         } else {
-            guard r.path != selected, confirmLeaving("opening \(r.name)") else { return }
-            selected = r.path
-            read(r.path)
+            openFile(r.path)
         }
+    }
+
+    /// A file shown in a tab: its own when it is open already (with its
+    /// edits), read afresh when not.
+    func openFile(_ path: String, line: Int? = nil) {
+        if path != selected {
+            // A line asked for in the last file is not this one's.
+            if line == nil { reveal = nil }
+            stash()
+            tabs.open(path)
+            selected = path
+            if let b = buffers.removeValue(forKey: path), b.dirty {
+                restore(b)
+                reread(path)
+            } else {
+                clearShown()
+                read(path)
+            }
+        }
+        if let line { reveal = (line, (reveal?.token ?? 0) + 1) }
+    }
+
+    /// Closes a file's tab, asking first about edits not saved.
+    func closeTab(_ path: String) {
+        if isDirty(path) {
+            let a = NSAlert()
+            a.messageText = "Close \((path as NSString).lastPathComponent) without saving?"
+            a.informativeText = "Its edits are lost."
+            a.addButton(withTitle: "Close")
+            a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        buffers[path] = nil
+        tabs.close(path)
+        guard path == selected else { return }
+        selected = nil
+        clearShown()
+        if let next = tabs.active {
+            tabs.active = nil
+            openFile(next)
+        }
+    }
+
+    /// The file shown, put aside while another is.
+    private func stash() {
+        guard let s = selected else { return }
+        buffers[s] = FileBuffer(preview: preview, previewError: previewError, text: text, original: original,
+                                baseHash: baseHash, diskChanged: diskChanged)
+    }
+
+    private func restore(_ b: FileBuffer) {
+        preview = b.preview
+        previewError = b.previewError
+        text = b.text
+        original = b.original
+        baseHash = b.baseHash
+        diskChanged = b.diskChanged
+    }
+
+    private func clearShown() {
+        preview = nil
+        previewError = ""
+        text = ""
+        original = ""
+        baseHash = nil
+        diskChanged = false
+        big = nil
+        showSource = false
     }
 
     /// Whether edits not saved may be left: asked, when there are some.
     func confirmLeaving(_ doing: String) -> Bool {
+        let others = tabs.paths.filter { $0 != selected && isDirty($0) }
+        if !others.isEmpty {
+            let a = NSAlert()
+            a.messageText = "\(dirtyCount) open file\(dirtyCount == 1 ? " has" : "s have") edits not saved"
+            a.informativeText = "They are lost if you go on \(doing)."
+            a.addButton(withTitle: "Discard Them")
+            a.addButton(withTitle: "Cancel")
+            return a.runModal() == .alertFirstButtonReturn
+        }
         guard dirty, let path = selected else { return true }
         let a = NSAlert()
         a.messageText = "Save your changes to \((path as NSString).lastPathComponent)?"
@@ -154,16 +269,30 @@ final class FilesModel: ObservableObject {
         }
     }
 
+    /// A file's size as its folder's listing gave it.
+    func knownSize(_ path: String) -> Int64? {
+        let dir = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        return dirs[dir]?.first { $0.name == name }?.size
+    }
+
     /// The file picked, read into the editor (and what it was saved against).
     func read(_ path: String) {
         guard let c = store.connection(machine), !root.isEmpty else { return }
-        struct Params: Encodable { var root: String; var path: String }
+        // A file that can be saved is read whole where the server can
+        // (fs.lines.v1); a bigger one is then read by its lines.
+        struct Params: Encodable { var root: String; var path: String; var whole: Bool? }
+        let lines = has("fs.lines.v1")
+        // A file the tree already knows to be too big to edit whole is not
+        // read whole first: 4 MB through the socket only to be put aside
+        // held up opening a big log by seconds.
+        let whole = lines && (knownSize(path) ?? 0) <= FileTier.wholeMax
         let n = reads.next()
         busy(true)
         Task {
             defer { busy(false) }
             do {
-                let r = try await c.call("fs.read", Params(root: root, path: path), as: FSRead.self)
+                let r = try await c.call("fs.read", Params(root: root, path: path, whole: whole ? true : nil), as: FSRead.self)
                 guard reads.isLatest(n) else { return } // another file was picked meanwhile
                 preview = r
                 previewError = ""
@@ -171,6 +300,12 @@ final class FilesModel: ObservableObject {
                 original = text
                 baseHash = r.hash
                 diskChanged = false
+                if lines, r.truncated == true, r.binary != true, MediaKind(path: path) == .text {
+                    if big?.path != path { big = BigFileModel(files: self, path: path, size: r.size ?? 0) } else { big?.reload() }
+                } else {
+                    big = nil
+                }
+                agentChanged(path)
                 fetchMedia(path, size: r.size)
             } catch {
                 guard reads.isLatest(n) else { return }
@@ -291,6 +426,10 @@ final class FilesModel: ObservableObject {
         dirs = [:]
         open = []
         selected = nil
+        tabs = OpenFiles()
+        buffers = [:]
+        big = nil
+        search.reset()
         preview = nil
         previewError = ""
         text = ""
@@ -304,6 +443,7 @@ final class FilesModel: ObservableObject {
     func written(worktree: String) {
         guard worktree == root else { return }
         load()
+        big?.written()
     }
 }
 
@@ -319,13 +459,34 @@ struct FilesView: View {
                 Text(model.error).foregroundStyle(Theme.err).padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
             } else {
+                GeometryReader { g in
                 HStack(spacing: 0) {
-                    tree.frame(width: 300)
+                    Group {
+                        switch model.side {
+                        case .tree: treeSide
+                        case .search: FilesSearchPanel(model: model.search)
+                        }
+                    }
+                    // Its usual width, or less in a narrow card (a
+                    // workbench's), so the file beside it keeps room.
+                    .frame(width: filesSideWidth(search: model.side == .search, card: g.size.width))
                     Rectangle().fill(Theme.line).frame(width: 1)
-                    FilePreview(model: model, store: store)
+                    VStack(spacing: 0) {
+                        if !model.tabs.paths.isEmpty {
+                            FileTabsBar(model: model)
+                            Rectangle().fill(Theme.line).frame(height: 1)
+                        }
+                        FilePreview(model: model, store: store)
+                    }
+                    if model.agentPanel {
+                        Rectangle().fill(Theme.line).frame(width: 1)
+                        AgentEditPanel(model: model, store: store).frame(width: 340)
+                    }
+                }
                 }
             }
         }
+        .sheet(isPresented: $model.quickOpen) { QuickOpenSheet(model: model) }
         .background(Theme.window)
         .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
         .overlay(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)).stroke(Theme.line))
@@ -339,9 +500,13 @@ struct FilesView: View {
             Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2)
             branchMenu
             Text(model.root).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
-            Spacer()
-            Toggle("Hidden files", isOn: Binding(get: { model.hidden }, set: { model.hidden = $0; model.load() }))
-                .toggleStyle(.checkbox).font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            Spacer(minLength: 4)
+            // In a narrow card (a workbench's) the buttons lose their words
+            // before they would run off its edge.
+            ViewThatFits(in: .horizontal) {
+                headerButtons(compact: false)
+                headerButtons(compact: true)
+            }
             // ↻ turns while files are read, and a moment after.
             Button { model.load() } label: {
                 TimelineView(.animation(paused: !model.spinning)) { ctx in
@@ -376,6 +541,65 @@ struct FilesView: View {
         .help("Show another branch's files: any branch checked out in a worktree")
     }
 
+    func headerButtons(compact: Bool) -> some View {
+        HStack(spacing: 10) {
+            headerButton("Go to File", icon: "doc", key: "⌘P", compact: compact) { model.quickOpen = true }
+                .help("Open a file by a few letters of its name (⌘P)")
+            headerButton(model.side == .search ? "Show Tree" : "Search", icon: model.side == .search ? "list.bullet.indent" : "magnifyingglass", key: "⌘⇧F", compact: compact) {
+                model.side = model.side == .search ? .tree : .search
+                if model.side == .search { model.search.focus &+= 1 }
+            }
+            .help("Search the whole project for file names and text, and replace (⌘⇧F)")
+            Toggle(compact ? "Hidden" : "Hidden files", isOn: Binding(get: { model.hidden }, set: { model.hidden = $0; model.load() }))
+                .toggleStyle(.checkbox).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize()
+                .help("Show hidden files")
+        }
+    }
+
+    func headerButton(_ title: String, icon: String, key: String, compact: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 11))
+                if !compact {
+                    Text(title).font(.ui(size: 12))
+                    Text(key).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted)
+                }
+            }
+            .fixedSize()
+            .padding(.horizontal, 8).frame(height: 24)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(Theme.text2)
+    }
+
+    /// The tree, under its own small toolbar.
+    var treeSide: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 2) {
+                Text("EXPLORER").font(.ui(size: 10.5, weight: .bold)).tracking(0.8).foregroundStyle(Theme.muted)
+                Spacer()
+                toolButton("doc.badge.plus", "New file") { model.newFile(in: model.selectedRow) }
+                toolButton("folder.badge.plus", "New folder") { model.newFolder(in: model.selectedRow) }
+                    .disabled(!model.canChangeFiles)
+                toolButton("arrow.up.and.down.text.horizontal", "Collapse all folders") { model.collapseAll() }
+            }
+            .padding(.leading, 12).padding(.trailing, 6).frame(height: 30)
+            Rectangle().fill(Theme.line.opacity(0.6)).frame(height: 1)
+            tree
+        }
+        .contextMenu {
+            Button("New File…") { model.newFile(in: nil) }
+            Button("New Folder…") { model.newFolder(in: nil) }.disabled(!model.canChangeFiles)
+            Button("Open Terminal Here") { model.terminalHere(nil) }
+        }
+    }
+
+    func toolButton(_ icon: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: icon).font(.system(size: 12)).frame(width: 22, height: 22).contentShape(Rectangle()) }
+            .buttonStyle(.plain).foregroundStyle(Theme.text2).help(help).accessibilityLabel(help)
+    }
+
     var tree: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -408,7 +632,7 @@ struct FileRowView: View {
                 FileMark(name: row.name)
             }
             Text(row.name).font(.ui(size: 12.5)).foregroundStyle(row.ignored ? Theme.muted : Theme.text).lineLimit(1).truncationMode(.middle)
-            if on && model.dirty { Circle().fill(Theme.text2).frame(width: 6, height: 6).help("Edited, not saved") }
+            if !row.dir && model.isDirty(row.path) { Circle().fill(Theme.text2).frame(width: 6, height: 6).help("Edited, not saved") }
             Spacer(minLength: 4)
             if !row.status.isEmpty {
                 Text(row.status).font(.ui(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(statusColor(row.status))
@@ -419,6 +643,7 @@ struct FileRowView: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { model.toggle(row) }
+        .contextMenu { FileRowMenu(model: model, row: row) }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.toggle(row) }
@@ -447,18 +672,28 @@ struct FilePreview: View {
         Group {
             if let p = model.preview, let path = model.selected {
                 VStack(alignment: .leading, spacing: 0) {
-                    bar(p, path)
-                    Rectangle().fill(Theme.line).frame(height: 1)
+                    // A big file has a bar of its own.
+                    if model.big?.path != path {
+                        bar(p, path)
+                        Rectangle().fill(Theme.line).frame(height: 1)
+                    }
                     if model.diskChanged { changedBanner(path) }
                     let kind = MediaKind(path: path)
-                    if kind.needsFile && !(mediaHasSource(path) && model.showSource) {
+                    if let big = model.big, big.path == path {
+                        BigFileView(model: big, store: store)
+                    } else if let e = model.reviewing {
+                        AgentReviewView(model: model, store: store, edit: e)
+                    } else if kind.needsFile && !(mediaHasSource(path) && model.showSource) {
                         media(kind)
-                    } else if p.binary == true || p.data == nil {
+                    } else if !p.isText {
                         note("A binary file\(p.mime.map { " (\($0))" } ?? ""): nothing to show as text.")
                     } else {
+                        if let e = model.openEdit { workingBanner(e) }
                         CodeEditor(text: $model.text, language: CodeLanguage(path: path),
                                    fontSize: CGFloat(12.5 * store.appLook.textScale), editable: model.canSave,
-                                   onSave: { model.save() })
+                                   onSave: { model.save() },
+                                   selection: $model.selection, findRequest: model.findRequest, replace: model.replaceRequest,
+                                   reveal: model.reveal)
                             .id(path)
                     }
                 }
@@ -518,6 +753,16 @@ struct FilePreview: View {
                     .buttonStyle(.borderless)
                     .help(kind == .html ? "Open in your browser" : "Open in its app (Preview, QuickTime…)")
             }
+            if !rendered && p.binary != true && model.big == nil {
+                Button { model.findInFile(replace: true) } label: { Image(systemName: "text.magnifyingglass") }
+                    .buttonStyle(.borderless).help("Find and replace in this file (⌥⌘F)")
+                if model.canSave {
+                    Button { model.showAgentPanel() } label: {
+                        HStack(spacing: 4) { Image(systemName: "sparkles"); Text("Edit with Agent").font(.ui(size: 12)) }
+                    }
+                    .buttonStyle(.borderless).help("Have an agent edit this file or the lines selected (⌘I)")
+                }
+            }
             Text(kind == .text ? CodeLanguage(path: path).label : kind == .html ? "HTML" : mediaHasSource(path) ? "SVG" : kind.rawValue).font(.ui(size: 11)).foregroundStyle(Theme.muted)
             Text(fileSize(model.dirty ? Int64(model.text.utf8.count) : (p.size ?? 0))).font(.ui(size: 11)).foregroundStyle(Theme.muted)
             if model.canSave && !rendered {
@@ -536,6 +781,21 @@ struct FilePreview: View {
             }
         }
         .padding(.horizontal, 12).frame(height: 32)
+    }
+
+    /// An agent was asked about this file and has not written it yet.
+    func workingBanner(_ e: AgentEdit) -> some View {
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text("\(e.agent) is working on \(e.lines.map { $0.count == 1 ? "line \($0.lowerBound)" : "lines \($0.lowerBound)–\($0.upperBound)" } ?? "this file")…")
+                .font(.ui(size: 12))
+            Spacer()
+            if let p = e.pane { Button("Open its pane") { store.open(p) }.controlSize(.small) }
+            Button("Stop Waiting") { model.dismissAgentEdit() }.controlSize(.small)
+                .help("An ask that changes nothing — an explanation — is read in the agent's pane")
+        }
+        .padding(.horizontal, 12).frame(height: 34)
+        .background(Theme.color(Theme.current.work).opacity(0.12))
     }
 
     /// The file was written while you were editing it.

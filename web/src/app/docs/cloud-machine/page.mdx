@@ -1,0 +1,68 @@
+export const metadata = { title: "Cloud machine image", description: "Build a machine image with conch in it for Conch Cloud: the agent, its systemd unit, and what happens at boot." }
+
+# Cloud machine image
+
+A Conch Cloud machine is a VM with conch in it. Its host — Tensorlake, Hetzner or any provider the control plane drives — boots it from an image, writes a small file into it, and from then on the machine looks after itself: **`conch cloud agent`** starts the machine's conch server, tells the control plane it is up, reports what its agents are doing so an idle machine can sleep, and joins the relay so your laptop and phone reach the server through an end-to-end encrypted tunnel.
+
+This page is for whoever builds that image.
+
+## What the image needs
+
+- Ubuntu (an LTS), with `git`, `curl` and CA certificates
+- a user `conch` with a home (`/home/conch`), whose login shell is the one agents and terminals get
+- conch in `/usr/local/bin/conch`
+- the `conch-cloud-agent` systemd unit, enabled
+- the agents' installers, if the image should come with agents (each person signs in to them inside the machine; nothing is copied in)
+
+One script does the conch part, as root, while the image is being built:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/scripts/cloud-image.sh | sudo sh
+sudo sh scripts/cloud-image.sh 0.1.12                               # a given release
+sudo CONCH_BINARY=./conch-linux-amd64 sh scripts/cloud-image.sh     # a build of your own
+```
+
+It installs the packages, makes the user, puts conch in `/usr/local/bin` and runs `conch cloud install`, which writes and enables the unit and makes `/var/lib/conch/cloud` (0700). It does not start the agent: an image has nothing to say hello with yet.
+
+For a provider with a snapshot or template step (Tensorlake's snapshots, a Hetzner snapshot), run the script on a fresh Ubuntu machine and snapshot it. Don't snapshot a machine that has run the agent: `/var/lib/conch/cloud/noise.key` is the machine's identity, which clients pin, and every machine made from the image would share it. Delete that directory before the snapshot if the agent ever ran there.
+
+## The unit
+
+`conch cloud install` writes `/etc/systemd/system/conch-cloud-agent.service`:
+
+```ini
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/conch cloud agent
+Restart=on-failure
+RestartSec=5
+RestartSteps=6
+RestartMaxDelaySec=300
+RestartPreventExitStatus=3 4
+KillMode=process
+```
+
+- It runs as root because the machine token in `boot.json` is root's, and git's system configuration is written there. Everything it starts for the person — the conch server, its panes, scripts run through the tunnel — runs as `conch`.
+- `KillMode=process`: the control plane restarts the unit after every inject, and the server it started holds the person's agents. Only the agent itself is restarted.
+- Exit 3 means the control plane refused the machine's token and no newer one reached `boot.json` within two minutes (an inject stores its token before it writes the file, so the agent waits that long first) and 4 that it refused the machine (a different key, or a contract it does not speak); restarting cannot change either, so systemd does not. Any other failure is restarted, 5 seconds apart at first and up to 5 minutes apart (systemd 254 and later). If the agent is stopped before it has said hello — waiting for `boot.json`, say — it exits 0, not as a failure.
+
+On a machine without systemd the control plane's inject runs `nohup conch cloud agent` itself, logging to `/var/log/conch-cloud-agent.log`, so conch has to be on root's `PATH` — `/usr/local/bin` is.
+
+## What happens at boot
+
+1. The host writes `/run/conch-cloud/boot.json` — the machine's id, the control plane's address, a machine token, and the conch release the machine should run — root-only, 0600, on `/run`'s tmpfs so the token never reaches the disk; then `systemctl restart conch-cloud-agent`.
+2. The agent reads it, and refuses one anybody else could read. Started before the host has written one, it waits.
+3. It makes the machine's Noise key the first time (`/var/lib/conch/cloud/noise.key`, 0600) and keeps it for the machine's life.
+4. It starts `conch server` as `conch` if none is running, and registers with it, so agents started there get the account's env secrets from the control plane, kept in memory only.
+
+   What that protects, and what it does not: the secrets are never written to disk, and a terminal pane is never given them, nor can a process ask the agent's socket for them — only the conch server it registered with can (it holds a key the agent gave it), and the registration is refused from inside a pane and while another holds it. A secret may not set conch's own variables (`CONCH_*`) or those that load code or move where a program looks (`PATH`, `HOME`, `LD_*`, `DYLD_*`, `BASH_ENV`, `NODE_OPTIONS` and the like). But once an agent runs with them, its environment is readable by its user, so any process running as `conch` can read them from there. The git proxy's password is the machine token itself (the contract's design), and git runs as `conch`, so any process running as `conch` can ask for it as git does.
+
+   Only an agent the server starts as one gets them — through the agent menu, `conch new -agent`, a task — not `claude` typed at a terminal pane's prompt. One started in the moment after the server reloads, before the agent has registered again, starts without them. Each agent's start asks the control plane once, waiting up to 10 seconds; one that does not answer in time starts the agent without them.
+5. It says hello to the control plane with the server's capabilities and the key's public half; the machine shows as running. After a memory sleep nothing in the machine changed, so the control plane answers its next activity report with a `hello` command (contract 1.4.0) and it says hello again.
+6. It points git's `github.com` at the git proxy, with itself as the credential helper — once the proxy answers. A control plane with no GitHub App names a proxy that is not there, so then git is left to reach `github.com` itself, with the machine's own credentials (`gh auth login` in a pane, a key, or none for a public repository), and the agent asks again at the next hello. Then it joins the relay as the machine's room.
+
+   The relay decides who may open the tunnel: it admits only a client with a fresh ticket from the control plane for one of the account's devices. Inside the tunnel the machine proves who it is (its Noise key, which clients pin), but nothing proves who the client is, so whoever the relay admits may run scripts as `conch` and drive its conch server. The relay and the control plane are trusted with that.
+7. From then on it reports activity when anything changes and at least every 30 seconds, pushes a notification to your devices when an agent starts waiting (encrypted on the machine for each device), and pauses agents that worked unattended past the machine's limit when the control plane says so.
+
+`journalctl -u conch-cloud-agent` shows what it did; the server logs to `/home/conch/.config/conch/server.log`.

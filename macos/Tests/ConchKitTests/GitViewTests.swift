@@ -434,4 +434,8 @@ index 1..2 100644
     #expect(try !read(#"{"data":"a","hash":"ab","truncated":true}"#).editable)
     #expect(try !read(#"{"binary":true,"hash":"ab"}"#).editable)
     #expect(try read(#"{"data":"","hash":"e3b0"}"#).editable)            // an empty file is text
+    // As the server sends one: data is omitempty, so an empty file has none.
+    #expect(try read(#"{"size":0,"hash":"e3b0"}"#).editable)
+    #expect(try read(#"{"size":0,"hash":"e3b0"}"#).isText)
+    #expect(try !read(#"{"binary":true,"size":9}"#).isText)
 }

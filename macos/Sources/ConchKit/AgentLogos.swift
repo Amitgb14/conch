@@ -43,8 +43,14 @@ public enum AgentLogos {
     }
 
     /// The logo's path, read for drawing, or nil for an agent without one.
+    /// Read once: a mark is drawn on every redraw of every row and tab,
+    /// and parsing the path text each time showed up in the app's profile.
     public static func ops(_ agent: String?) -> [PathOp]? {
-        guard let l = logo(agent) else { return nil }
+        guard let a = agent?.lowercased() else { return nil }
+        return parsed[a]
+    }
+
+    private static let parsed: [String: [PathOp]] = logos.compactMapValues { l in
         let ops = parseSVGPath(l.path)
         return ops.isEmpty ? nil : ops
     }

@@ -53,6 +53,12 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
+	groups    *groupBook
+	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
+	secrets secretCache
+	// cloud is the cloud agent beside this server, on a Conch Cloud
+	// machine (cloud.go).
+	cloud     cloudAgent
 	ports     *portBook // the ports each worktree is given
 	schedules *scheduleBook
 	reviews   *reviewBook
@@ -63,9 +69,10 @@ type Server struct {
 	rulesOn  bool
 	runs     *runLog // agents running in panes, for resuming after a restart
 	uploads  *uploads
-	packs    *packs     // worktrees packed for another machine
-	sshFiles *sshFiles  // the hosts terminals are logged in to (sshfiles.go)
-	files    fileStates // git status of checkouts being browsed
+	packs    *packs      // worktrees packed for another machine
+	sshFiles *sshFiles   // the hosts terminals are logged in to (sshfiles.go)
+	files    fileStates  // git status of checkouts being browsed
+	lineIdx  lineIndexes // where the lines of big files being read start
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent
@@ -90,10 +97,16 @@ type Server struct {
 }
 
 type client struct {
+	// conn is written only by the outbox's writer (outbox.go): everything
+	// else sends.
 	conn *proto.Conn
+	out  *outbox
 	// pane is the pane the connection comes from, as the kernel says; ""
 	// from outside the panes. See scope.go.
 	pane string
+	// root says the connection is root's, as the kernel says: the cloud
+	// agent's, on a cloud machine, where nothing in a pane is (cloud.go).
+	root bool
 	// actFor is the agent on another machine the connection is held to
 	// (scope.act_for), guarded by mu.
 	actFor proto.ActForParams
@@ -124,6 +137,7 @@ func New(sockPath, configDir string) *Server {
 		ran:       make(chan struct{}),
 	}
 	s.projects = newProjectManager(s, configDir)
+	s.groups = loadGroups(s, configDir)
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
@@ -350,16 +364,21 @@ func (s *Server) shutdown() {
 		go func() { defer wg.Done(); e.p.Close() }()
 	}
 	wg.Wait()
+	// What was said before stopping — pane.exited for every pane just
+	// closed — goes out first, as it did when writes were made in place.
 	for _, c := range clients {
-		c.conn.Close()
+		wg.Add(1)
+		go func() { defer wg.Done(); c.flush(replyWait); c.close() }()
 	}
+	wg.Wait()
 	log.Printf("server stopped")
 }
 
 func (s *Server) serve(nc net.Conn) {
 	pid := peerPID(nc)
 	s.noteCaller(pid) // CONCH_LOG_CALLER=1; see scope.go
-	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid)}
+	c := &client{conn: proto.NewConn(nc), subs: map[string]*subscription{}, pane: s.callerPane(pid), root: peerUID(nc) == 0}
+	c.startOutbox(nc)
 	s.mu.Lock()
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
@@ -369,10 +388,11 @@ func (s *Server) serve(nc net.Conn) {
 		delete(s.clients, c)
 		s.mu.Unlock()
 		s.views.forget(c) // a layout nobody is looking at is not an answer
+		s.cloud.forget(c)
 		s.sizes.forget(c)
 		s.unsubscribeAll(c)
 		s.uploads.dropClient(c)
-		c.conn.Close()
+		c.close()
 	}()
 
 	for {
@@ -400,7 +420,7 @@ func (s *Server) serve(nc net.Conn) {
 
 var slowMethods = map[string]bool{
 	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true, proto.MethodProjectLog: true,
-	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true,
+	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true, proto.MethodGroupTask: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
 	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true, proto.MethodFSWrite: true, proto.MethodFSFind: true,
@@ -408,11 +428,13 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
-	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true,
+	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
+	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
+	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -434,14 +456,16 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 			resp.Result = json.RawMessage("{}")
 		}
 	}
-	if err := c.conn.Write(resp); err != nil {
+	if !c.send(resp) {
 		return false
 	}
 	if msg.Method == proto.MethodServerStop && perr == nil { // refused (scope.go), it stays up
+		c.flush(replyWait) // the answer is out before the server goes
 		s.Stop()
 	}
 	if msg.Method == proto.MethodServerReload && perr == nil {
 		if r, ok := result.(proto.ServerReloadResult); ok {
+			c.flush(replyWait)
 			go s.reload(r.Binary)
 		}
 	}
@@ -505,6 +529,16 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodPaneCaller:
 		return s.callerInfo(c), nil
 
+	case proto.MethodCloudAgentRegister:
+		rp, perr := decode[proto.CloudAgentRegisterParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		if perr := s.cloud.register(c, rp); perr != nil {
+			return nil, perr
+		}
+		return proto.CloudAgentRegisterResult{Capabilities: s.capabilities()}, nil
+
 	case proto.MethodActFor:
 		ap, perr := decode[proto.ActForParams](msg)
 		if perr != nil {
@@ -532,6 +566,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodPaneCreate:
 		cp, perr := decode[proto.PaneCreateParams](msg)
 		if perr != nil {
+			return nil, perr
+		}
+		if cp, perr = s.launchAllowed(c, cp); perr != nil {
 			return nil, perr
 		}
 		return s.made(c)(s.create(cp))
@@ -698,6 +735,48 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodProjectList:
 		return proto.ProjectList{Projects: s.projects.list()}, nil
 
+	case proto.MethodGroupList:
+		return s.groups.list(), nil
+
+	case proto.MethodGroupSave:
+		gp, perr := decode[proto.GroupSaveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.groups.save(gp)
+
+	case proto.MethodGroupTask:
+		tp, perr := decode[proto.GroupTaskParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		res, perr := s.groups.task(tp)
+		for _, p := range res.Panes {
+			s.madeBy(c, p.ID)
+		}
+		return res, perr
+
+	case proto.MethodGroupTaskRemove:
+		ref, perr := decode[proto.GroupTaskRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.groups.removeTask(ref)
+
+	case proto.MethodGroupTaskMerge:
+		mp, perr := decode[proto.GroupTaskMergeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.groups.armMerge(mp)
+
+	case proto.MethodGroupRemove:
+		ref, perr := decode[proto.GroupRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.groups.remove(ref.Name)
+
 	case proto.MethodProjectAdd:
 		ap, perr := decode[proto.ProjectAddParams](msg)
 		if perr != nil {
@@ -779,7 +858,51 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
+		if mp.Root != "" {
+			return s.mkdirIn(c, mp)
+		}
 		return s.mkdir(mp)
+
+	case proto.MethodFSSearch:
+		sp, perr := decode[proto.FSSearchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.searchFiles(sp)
+
+	case proto.MethodFSReplace:
+		rp, perr := decode[proto.FSReplaceParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.replaceFiles(c, rp)
+
+	case proto.MethodFSRename, proto.MethodFSCopy, proto.MethodFSDelete:
+		pp, perr := decode[proto.FSPathParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		switch msg.Method {
+		case proto.MethodFSRename:
+			return s.renamePath(c, pp)
+		case proto.MethodFSCopy:
+			return s.copyPath(c, pp)
+		}
+		return s.deletePath(c, pp)
+
+	case proto.MethodFSLines:
+		lp, perr := decode[proto.FSLinesParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.readLines(lp)
+
+	case proto.MethodFSWriteRange:
+		wp, perr := decode[proto.FSWriteRangeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.writeRange(c, wp)
 
 	case proto.MethodFSUpload:
 		up, perr := decode[proto.FSUploadParams](msg)
@@ -918,6 +1041,20 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.cloneProject(cp)
+
+	case proto.MethodProjectBundle:
+		bp, perr := decode[proto.ProjectRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.bundleProject(bp)
+
+	case proto.MethodProjectUnbundle:
+		up, perr := decode[proto.ProjectUnbundleParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.unbundleProject(up)
 
 	case proto.MethodWorktreeRemove:
 		wp, perr := decode[proto.WorktreeRemoveParams](msg)
@@ -1264,6 +1401,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.agentReply(rp)
 
+	case proto.MethodAgentChat:
+		rp, perr := decode[proto.AgentChatParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.agentChat(rp)
+
 	case proto.MethodBranchCILog:
 		lp, perr := decode[proto.BranchCILogParams](msg)
 		if perr != nil {
@@ -1334,6 +1478,7 @@ func (s *Server) get(id string) (*entry, *proto.Error) {
 }
 
 func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error) {
+	cp.Name = gitx.Printable(cp.Name) // drawn by every client (entry.info)
 	if cp.SSH != "" {
 		if perr := s.overSSH(&cp); perr != nil {
 			return proto.PaneInfo{}, perr
@@ -1417,7 +1562,13 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	id := "p" + strconv.Itoa(s.nextID)
 	s.mu.Unlock()
 
-	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, cp.Env...)
+	// The library's tokens first, then a cloud machine's secrets for an
+	// agent, so anything the caller set wins.
+	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...)
+	if cp.Agent != "" {
+		env = append(env, s.cloud.env()...)
+	}
+	env = append(env, cp.Env...)
 	p, err := pane.Start(pane.Options{
 		ID: id, Name: cp.Name, Command: cp.Command, Cwd: cp.Cwd,
 		BaseEnv: adapter.SanitizeEnv(os.Environ()), Env: env,
@@ -1573,12 +1724,17 @@ func (s *Server) alive(e *entry) bool {
 // capabilities is what this server can actually do. Watching worktrees is
 // the machine's to give: without it clients must keep polling, so it is not
 // claimed.
+// A machine with no Keychain does not claim to keep tokens in one, and only
+// a server with a cloud agent beside it claims cloud.agent.v1.
 func (s *Server) capabilities() []string {
-	if s.watcher != nil {
+	keychain := keychainHas()
+	cloud := s.cloud.registered()
+	if s.watcher != nil && keychain && cloud {
 		return proto.Capabilities
 	}
 	return slices.DeleteFunc(slices.Clone(proto.Capabilities), func(c string) bool {
-		return c == proto.CapWorktreeWatch
+		return c == proto.CapWorktreeWatch && s.watcher == nil || c == proto.CapLibraryKeychain && !keychain ||
+			c == proto.CapCloudAgent && !cloud
 	})
 }
 
@@ -1591,7 +1747,7 @@ func (s *Server) broadcast(event string, data any) {
 	}
 	s.mu.Unlock()
 	for _, c := range clients {
-		_ = c.conn.Write(msg)
+		c.send(msg) // queued: a client that stopped reading holds up nobody
 	}
 }
 
@@ -1617,7 +1773,7 @@ func (s *Server) subscribe(c *client, e *entry) {
 			changed := p.Changed() // grab before rendering so no change is missed
 			frame := p.FrameAt(sub.anchoredOffset(p.History()))
 			sub.settle(frame)
-			if err := c.conn.Write(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(frame)}); err != nil {
+			if !c.sendWait(proto.Message{Event: proto.EventPaneFrame, Data: proto.Marshal(frame)}) {
 				return
 			}
 			sent := time.Now()

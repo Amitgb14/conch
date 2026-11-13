@@ -131,6 +131,7 @@ struct NewSandboxSheet: View {
         case .failure(let e):
             problem = e.message
         case .success(let args):
+            store.expectMachine()
             store.runCLIPane(name: "sandbox create · " + p.label, args: args)
             dismiss()
         }

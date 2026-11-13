@@ -50,7 +50,11 @@ public struct FSRead: Decodable, Sendable {
 
     /// Whether it can be edited and saved: all of it read, as text, with a
     /// fingerprint to save against.
-    public var editable: Bool { binary != true && truncated != true && data != nil && !(hash ?? "").isEmpty }
+    public var editable: Bool { isText && truncated != true && !(hash ?? "").isEmpty }
+
+    /// Whether it is text to show: not binary. An empty file comes with no
+    /// data at all — the server leaves an empty string out — and is text.
+    public var isText: Bool { binary != true && (data != nil || size == 0) }
 }
 
 /// The result of a save (fs.write).

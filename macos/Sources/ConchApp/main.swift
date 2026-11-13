@@ -24,6 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             store.loadTheme()
             return
         }
+        if menu === benchMenu {
+            updateBenchMenu()
+            return
+        }
         runOnItem.attributedTitle = NSAttributedString(string: runOnNote(panes: store.runningPanes),
                                                        attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
     }
@@ -40,7 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         // never applied.
         PaneTerminal.fontSize = look.fontSize
         for t in store.terminals.values { t.setFontSize(look.fontSize) }
-        ScratchHotKey.shared.set(look.scratchKey)
+        // Not for a -background run: the key is global, so a scripted copy
+        // beside the person's own Conch would take their ⌥Space — and come
+        // to the front with it, taking the keys typed next.
+        ScratchHotKey.shared.set(look.scratchKey && !UserDefaults.standard.bool(forKey: "background"))
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -76,7 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         }
         Notifier.shared.start()
         store.onThemeChoice = { [weak self] in self?.updateThemeMenu() }
-        window.contentView = NSHostingView(rootView: MainView(store: store))
+        let host = NSHostingView(rootView: MainView(store: store))
+        // The window's size is its own (minSize above), not the view's: by
+        // default a hosting view measures its whole tree for a minimum,
+        // ideal and maximum size on every layout, and a spinner's frame is
+        // a layout — which kept the app near a whole core while agents
+        // worked.
+        host.sizingOptions = []
+        window.contentView = host
         store.onTheme = { [weak self] t in
             NSApp.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
             self?.window.backgroundColor = Theme.ns(t.chrome)
@@ -210,12 +224,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
             NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
             .separator(),
-            item("Find in Pane…", "f", .command, "find"),
+            item("Find…", "f", .command, "find"),
+            item("Find and Replace in File…", "f", [.command, .option], "replaceInFile"),
             item("Find Older", "g", .command, "findOlder"),
             item("Find Newer", "g", [.command, .shift], "findNewer"),
         ])
         var go = [
             item("Search…", "k", .command, "palette"),
+            item("Go to File…", "p", .command, "goToFile"),
+            item("Search in Files…", "f", [.command, .shift], "searchFiles"),
+            item("Edit with Agent…", "i", .command, "editWithAgent"),
             item("Sidebar", "0", .command, "focusSidebar"),
             item("Next Agent Waiting", ".", .command, "nextWaiting"),
             .separator(),
@@ -245,7 +263,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         styleMenu = styles
         let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
         styleItem.submenu = styles
-        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), styleItem, themeItem,
+        // A workbench: an agent's files, a terminal, its chat and its own
+        // terminal in one tab, in one of four layouts.
+        let bench = NSMenu(title: "Workbench")
+        bench.addItem(item("Open Workbench", "b", [.command, .option], "workbench"))
+        bench.addItem(.separator())
+        for (n, l) in BenchLayout.allCases.enumerated() {
+            let m = item(l.label + " Layout", "\(n + 1)", [.command, .option], "bench:" + l.rawValue)
+            m.toolTip = l.detail
+            bench.addItem(m)
+        }
+        benchMenu = bench
+        bench.delegate = self
+        let benchItem = NSMenuItem(title: "Workbench", action: nil, keyEquivalent: "")
+        benchItem.submenu = bench
+        menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"), .separator(), benchItem, .separator(), styleItem, themeItem,
                       .separator(),
                       // The usual Mac keys; ⌘0 is the sidebar's, so the
                       // defaults are control-command-0.
@@ -265,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         main.addItem(wtop)
         NSApp.windowsMenu = windowMenu
         let help = NSMenu(title: "Help")
-        [item("Keyboard Shortcuts", "/", .command, "shortcuts"), item("Check conch…", "", [], "doctor")].forEach(help.addItem)
+        [item("Welcome to Conch", "", [], "welcome"), item("Keyboard Shortcuts", "/", .command, "shortcuts"), item("Check conch…", "", [], "doctor")].forEach(help.addItem)
         let helpTop = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
         helpTop.submenu = help
         main.addItem(helpTop)
@@ -274,6 +306,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
     }
 
     var themeMenu: NSMenu?
+    var benchMenu: NSMenu?
+
+    /// A tick on the layout of the workbench on screen, else the one a new
+    /// workbench takes.
+    func updateBenchMenu() {
+        let cur = store.layout.current?.bench ?? store.benchLayout
+        for m in benchMenu?.items ?? [] {
+            guard let c = m.representedObject as? String, c.hasPrefix("bench:") else { continue }
+            m.state = c == "bench:" + cur.rawValue ? .on : .off
+        }
+    }
     var styleMenu: NSMenu?
 
     @objc func chooseStyle(_ sender: NSMenuItem) {

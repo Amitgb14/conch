@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -32,15 +33,53 @@ type Session struct {
 // ErrNoGateway is the relay saying the computer isn't connected to it.
 var ErrNoGateway = errors.New("the computer isn't connected to the relay")
 
+// ErrTicketRefused and ErrRevoked are a cloud relay closing a client's
+// socket: its ticket was not good (used, expired, another room's), or
+// the device it was given to has been signed out.
+var (
+	ErrTicketRefused = errors.New("the relay refused the ticket")
+	ErrRevoked       = errors.New("this device was signed out of the account")
+)
+
+// closedErr names the close codes a client can act on.
+func closedErr(err error) error {
+	switch websocket.CloseStatus(err) {
+	case CodeNoGateway:
+		return ErrNoGateway
+	case CodeBadTicket:
+		return ErrTicketRefused
+	case CodeRevoked:
+		return ErrRevoked
+	}
+	return err
+}
+
 // Dial opens a session with the gateway in room, whose key is gwPub (from
 // the pairing link): the relay first, then the handshake through it.
 func Dial(ctx context.Context, relay, room string, gwPub []byte) (*Session, error) {
+	return DialTicket(ctx, relay, room, "", gwPub)
+}
+
+// TicketHeader carries a ticket to a relay that admits a room's clients
+// only with one (Conch Cloud's, PROTOCOL §3.2): single use, short-lived,
+// handed out by the control plane. A relay of conch's own ignores it.
+const TicketHeader = "X-Conch-Relay-Ticket"
+
+// DialTicket is Dial with a ticket for the relay, when it has one.
+func DialTicket(ctx context.Context, relay, room, ticket string, gwPub []byte) (*Session, error) {
 	u, err := wsURL(relay, PhonePath, url.Values{"room": {room}})
 	if err != nil {
 		return nil, err
 	}
-	c, _, err := websocket.Dial(ctx, u, nil)
+	var opts *websocket.DialOptions
+	if ticket != "" {
+		opts = &websocket.DialOptions{HTTPHeader: http.Header{TicketHeader: {ticket}}}
+	}
+	c, res, err := websocket.Dial(ctx, u, opts)
 	if err != nil {
+		if res != nil && res.StatusCode == http.StatusUnauthorized {
+			return nil, ErrTicketRefused
+		}
 		return nil, err
 	}
 	c.SetReadLimit(maxMessage)
@@ -64,10 +103,7 @@ func Dial(ctx context.Context, relay, room string, gwPub []byte) (*Session, erro
 	_, reply, err := c.Read(ctx)
 	if err != nil {
 		c.CloseNow()
-		if websocket.CloseStatus(err) == CodeNoGateway {
-			return nil, ErrNoGateway
-		}
-		return nil, err
+		return nil, closedErr(err)
 	}
 	payload, send, recv, err := hs.ReadMessage(nil, reply)
 	if err != nil {
@@ -91,7 +127,7 @@ func (s *Session) read(in *opener) {
 	for {
 		f, err := in.next()
 		if err != nil {
-			s.close(err)
+			s.close(closedErr(err))
 			return
 		}
 		s.mu.Lock()
@@ -129,6 +165,16 @@ func (s *Session) close(err error) {
 	s.mu.Unlock()
 	s.end()
 }
+
+// Err is why the session ended, or nil while it lasts.
+func (s *Session) Err() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err
+}
+
+// Done is closed when the session ends.
+func (s *Session) Done() <-chan struct{} { return s.ctx.Done() }
 
 // Close ends the session.
 func (s *Session) Close() {
@@ -229,12 +275,24 @@ func (k *Socket) Send(ctx context.Context, text string) error {
 	return k.s.out.send(ctx, Frame{T: "wm", ID: k.id, D: text})
 }
 
-// Recv waits for the socket's next message.
+// Recv waits for the socket's next message. Messages that came before the
+// socket closed are still given, in order: a script's exit status is its
+// last message, sent just before the close.
 func (k *Socket) Recv(ctx context.Context) (string, error) {
 	select {
 	case m := <-k.msgs:
 		return m, nil
+	default:
+	}
+	select {
+	case m := <-k.msgs:
+		return m, nil
 	case <-k.done:
+		select {
+		case m := <-k.msgs:
+			return m, nil
+		default:
+		}
 		return "", fmt.Errorf("the socket closed (%d)", k.code)
 	case <-ctx.Done():
 		return "", ctx.Err()

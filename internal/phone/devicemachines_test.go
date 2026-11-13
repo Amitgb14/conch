@@ -479,3 +479,30 @@ func TestAFileFromBeforePairingMachines(t *testing.T) {
 		t.Errorf("it paired with %v", dev.Machines)
 	}
 }
+
+// TestMachineChangesAreToldOnlyToDevicesGivenTheMachine: a machine coming
+// up or going down is broadcast to every open socket, and each must be
+// told only about the machines its device reaches. It once sent the whole
+// list to every phone, which TestASocketIsToldOnlyAboutItsMachines caught
+// only when that broadcast happened to win a race.
+func TestMachineChangesAreToldOnlyToDevicesGivenTheMachine(t *testing.T) {
+	f := newFixture(t)
+	addMachine(t, f, "busybox", true)
+	p := f.pair(PermFull)
+	s := p.socket()
+	s.until("open")
+
+	f.g.tellMachines()
+	m := s.next("the broadcast machine list", func(m ServerMessage) bool { return m.Type == MsgMachines })
+	if len(*m.Machines) != 1 || (*m.Machines)[0].ID != LocalMachine {
+		t.Fatalf("a device with no machines was told %+v", *m.Machines)
+	}
+
+	// Given the machine, the same broadcast names it.
+	f.grant(p, "busybox")
+	s.until("granted")
+	f.g.tellMachines()
+	s.next("busybox in the broadcast", func(m ServerMessage) bool {
+		return m.Type == MsgMachines && slices.ContainsFunc(*m.Machines, func(mm Machine) bool { return mm.ID == "busybox" })
+	})
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 // a4Daytona is Daytona's API as the sandbox commands use it: sandboxes
@@ -288,6 +290,12 @@ func TestA4SandboxCreateFailsHalfWay(t *testing.T) {
 	}
 	if !strings.Contains(errOut, "Setting up sandbox sbx1-0123456789 failed. Delete it? [Y/n]") || !strings.Contains(errOut, "deleted sandbox sbx1-0123456789") {
 		t.Fatalf("stderr:\n%s", errOut)
+	}
+	// Why, before the question: answered without it, the reason came after,
+	// and in Conch.app's tab it was never seen. The token stays out of it.
+	why, ask := strings.Index(errOut, "  failed: "), strings.Index(errOut, "Delete it?")
+	if why < 0 || why > ask || !strings.Contains(errOut[why:ask], "Permission denied") || strings.Contains(errOut, "tok-secret") {
+		t.Fatalf("reason not said before the question, or with the token:\n%s", errOut)
 	}
 	if d.state("sbx1-0123456789") != "" {
 		t.Fatal("the failed sandbox is still there")
@@ -1359,7 +1367,9 @@ func TestSandboxProviders(t *testing.T) {
 	for _, p := range ps {
 		by[p.Name] = p
 	}
-	if len(ps) != 4 || by["daytona"].Name == "" || by["boat"].Name == "" || by["devin"].Name == "" || by["tensorlake"].Name == "" {
+	// Tensorlake is known but not offered: a sandbox made there could not
+	// be set up without a key registered by hand (sandbox.Offered).
+	if len(ps) != 3 || by["daytona"].Name == "" || by["boat"].Name == "" || by["devin"].Name == "" || by["tensorlake"].Name != "" {
 		t.Fatalf("providers: %+v", ps)
 	}
 	if d := by["daytona"]; !d.Ready || d.Why != "" || d.Label != "Daytona" {
@@ -1371,8 +1381,10 @@ func TestSandboxProviders(t *testing.T) {
 	if d := by["devin"]; d.Ready || d.Place == "" || d.Note == "" {
 		t.Errorf("devin: %+v", d)
 	}
-	if d := by["tensorlake"]; d.Ready || d.Adapted || !strings.Contains(d.Note, "tl sbx ssh keys add") {
-		t.Errorf("tensorlake: %+v", d)
+	// Still known: its sandboxes are listed and deleted, and its note says
+	// how to register a key, in the words today's tl takes.
+	if !sandbox.Known("tensorlake") || !strings.Contains(sandbox.NewTensorlake(config.ProviderCfg{}).Note(), "tl sbx ssh keys add --name ") {
+		t.Error("tensorlake is no longer known, or its note lacks --name")
 	}
 	// No -provider needed, and the table says the same.
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"providers"}) })
@@ -1382,5 +1394,30 @@ func TestSandboxProviders(t *testing.T) {
 	a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-x"}) })
 	if err == nil {
 		t.Error("providers -x was taken")
+	}
+}
+
+// A gateway that lets in only keys registered with the account refused
+// the key: said in plain words with how to register it, not as ssh's
+// "never answered: Permission denied (publickey)" with advice about ssh
+// prompts — which is all a Tensorlake sandbox said, left running.
+func TestRefusedKeyIsSaidPlainly(t *testing.T) {
+	denied := errors.New("sandbox-53t13lfs never answered: 53t13lfs@sandbox.tensorlake.ai: Permission denied (publickey). (run `conch machine add` in a terminal once to answer ssh prompts, or load your key with ssh-add)")
+	tl := sandbox.NewTensorlake(config.ProviderCfg{})
+	err := refusedKey(tl, denied)
+	for _, want := range []string{"Tensorlake refused your ssh key", "tl login", "env -u TENSORLAKE_API_KEY tl sbx ssh keys add"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no %q in %q", want, err)
+		}
+	}
+	// Anything else is as it was.
+	other := errors.New("sandbox-53t13lfs never answered: connection timed out")
+	if got := refusedKey(tl, other); got != other {
+		t.Fatalf("another failure was reworded: %v", got)
+	}
+	// And a provider that hands its own key over is not one to register a
+	// key with: ssh's words stand.
+	if got := refusedKey(sandbox.NewDaytona(config.ProviderCfg{}), denied); got != denied {
+		t.Fatalf("a provider that authorizes its key was told to register one: %v", got)
 	}
 }

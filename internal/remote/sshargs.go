@@ -135,6 +135,37 @@ func CopyKeyCommand(target string, args []string) (command []string, key string,
 	return append([]string{"/bin/sh", "-c", copyKeyScript, "sh", private}, login...), private + ".pub", nil
 }
 
+// CheckKeyCommand is an ssh that says whether target takes this
+// computer's keys: logged in as a session would be, but in batch mode, so
+// it never stops to ask for a password or a passphrase, and runs `true`
+// there. It exits 0 when the key is taken. A host that is down, slow or
+// unknown fails too; KeyLoginResult tells those apart by what ssh said.
+func CheckKeyCommand(target string, args []string) ([]string, error) {
+	// Before the person's own options: ssh keeps the first value it is
+	// given for each, and nothing here may ask.
+	own := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "NumberOfPasswordPrompts=0"}
+	command, err := LoginCommand(target, append(own, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	return append(command, "true"), nil
+}
+
+// KeyLoginResult reads a CheckKeyCommand's outcome: "key" when it logged
+// in, "password" when the host refused every key it was offered (so it
+// would ask for a password, or another way in), and "unreachable" for
+// anything else — no route, a timeout, a host key ssh does not know —
+// which says nothing about keys.
+func KeyLoginResult(err error, stderr string) string {
+	if err == nil {
+		return "key"
+	}
+	if strings.Contains(stderr, "Permission denied") || strings.Contains(stderr, "Too many authentication failures") {
+		return "password"
+	}
+	return "unreachable"
+}
+
 func fileExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.Mode().IsRegular()

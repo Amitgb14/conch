@@ -6,14 +6,24 @@ import Foundation
 // be tested.
 
 public enum AddProjectMode: String, CaseIterable, Identifiable, Sendable {
-    case folder, clone, create
+    /// fromMac is Conch Cloud's: a project here moved there, as Move to
+    /// Conch Cloud… does (`conch project move`).
+    case folder, clone, create, fromMac
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .folder: return "Open a folder"
         case .clone: return "Clone a repository"
         case .create: return "New repository"
+        case .fromMac: return "From this Mac"
         }
+    }
+
+    /// The ways offered for a place: a cloud machine is new or asleep, so
+    /// a folder already there is not one of them; a project from this Mac
+    /// is.
+    public static func offered(cloud: Bool) -> [AddProjectMode] {
+        cloud ? [.clone, .create, .fromMac] : [.folder, .clone, .create]
     }
 }
 

@@ -17,6 +17,13 @@ struct CodeEditor: NSViewRepresentable {
     /// Off for a file that can't be saved: still selectable and searchable.
     var editable = true
     var onSave: () -> Void
+    /// Where the selection is, for an agent asked about it.
+    var selection: Binding<NSRange>? = nil
+    /// Bumped to show the find bar — its replace field too with replace.
+    var findRequest = 0
+    var replace = false
+    /// A line to select and scroll to; its token changes to ask again.
+    var reveal: (line: Int, token: Int)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -76,10 +83,29 @@ struct CodeEditor: NSViewRepresentable {
             tv.string = text
             tv.setSelectedRange(NSRange(location: min(sel.location, (text as NSString).length), length: 0))
             c.recolour()
+            (scroll.verticalRulerView as? LineNumberRuler)?.fit()
         }
         if c.drawn != look + "|\(fontSize)|\(language.rawValue)" {
             c.style(scroll)
             c.recolour()
+        }
+        if findRequest != c.findShown {
+            c.findShown = findRequest
+            let item = NSMenuItem()
+            item.tag = Int((replace ? NSTextFinder.Action.showReplaceInterface : .showFindInterface).rawValue)
+            DispatchQueue.main.async {
+                tv.window?.makeFirstResponder(tv)
+                tv.performTextFinderAction(item)
+            }
+        }
+        if let r = reveal, r.token != c.revealed {
+            c.revealed = r.token
+            let range = lineRange(tv.string as NSString, line: r.line)
+            DispatchQueue.main.async {
+                tv.setSelectedRange(range)
+                tv.scrollRangeToVisible(range)
+                tv.showFindIndicator(for: range)
+            }
         }
     }
 
@@ -87,9 +113,17 @@ struct CodeEditor: NSViewRepresentable {
         var parent: CodeEditor
         weak var textView: CodeTextView?
         var drawn = ""
+        var findShown = 0
+        var revealed = 0
         private var pending: DispatchWorkItem?
 
-        init(_ p: CodeEditor) { parent = p }
+        init(_ p: CodeEditor) {
+            parent = p
+            findShown = p.findRequest
+            revealed = p.reveal?.token ?? 0
+            // A file opened at a line (a search result) goes there at once.
+            if p.reveal != nil { revealed = -1 }
+        }
 
         func style(_ scroll: NSScrollView) {
             guard let tv = textView else { return }
@@ -109,6 +143,7 @@ struct CodeEditor: NSViewRepresentable {
                 r.current = Theme.ns(t.fg).withAlphaComponent(0.85)
                 r.background = Theme.ns(t.sidebar)
                 r.rule = Theme.ns(t.border)
+                r.fit()
                 r.needsDisplay = true
             }
             tv.needsDisplay = true
@@ -144,10 +179,15 @@ struct CodeEditor: NSViewRepresentable {
             let work = DispatchWorkItem { [weak self] in self?.recolour() }
             pending = work
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+            (tv.enclosingScrollView?.verticalRulerView as? LineNumberRuler)?.fit()
             tv.enclosingScrollView?.verticalRulerView?.needsDisplay = true
         }
 
         func textViewDidChangeSelection(_ note: Notification) {
+            if let tv = textView, let sel = parent.selection, sel.wrappedValue != tv.selectedRange() {
+                let r = tv.selectedRange()
+                DispatchQueue.main.async { sel.wrappedValue = r }
+            }
             textView?.needsDisplay = true
             textView?.enclosingScrollView?.verticalRulerView?.needsDisplay = true
         }
@@ -211,6 +251,21 @@ final class LineNumberRuler: NSRulerView {
 
     @objc private func redraw() { needsDisplay = true }
 
+    /// Wide enough for the last line's number, settled here rather than
+    /// while drawing: a width changed in the middle of drawing could leave
+    /// the text where the old width put it, its first letters under the
+    /// numbers until the window was resized. The scroll view is laid out
+    /// again at once so the text moves with it.
+    func fit() {
+        guard let tv = clientView as? NSTextView else { return }
+        let digit = ("8" as NSString).size(withAttributes: [.font: font]).width
+        let want = gutterWidth(lines: editorLines(tv.string), digit: digit)
+        guard abs(ruleThickness - want) > 0.5 else { return }
+        ruleThickness = want
+        scrollView?.tile()
+        needsDisplay = true
+    }
+
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let tv = clientView as? NSTextView, let lm = tv.layoutManager, let tc = tv.textContainer else { return }
         let area = rect.intersection(visibleRect)
@@ -219,11 +274,6 @@ final class LineNumberRuler: NSRulerView {
         rule.setFill()
         NSRect(x: bounds.maxX - 1, y: area.minY, width: 1, height: area.height).fill()
         let ns = tv.string as NSString
-        // Wide enough for the last line's number.
-        var lines = 1
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: [.byLines, .substringNotRequired]) { _, _, _, _ in lines += 1 }
-        let want = CGFloat(String(lines).count) * font.maximumAdvancement.width + 18
-        if abs(ruleThickness - want) > 1 { ruleThickness = max(36, want) }
         let visible = tv.visibleRect
         let glyphs = lm.glyphRange(forBoundingRect: visible, in: tc)
         let firstChar = lm.characterIndexForGlyph(at: glyphs.location)
@@ -259,3 +309,4 @@ final class LineNumberRuler: NSRulerView {
         s.draw(at: NSPoint(x: ruleThickness - size.width - 10, y: y + (height - size.height) / 2))
     }
 }
+

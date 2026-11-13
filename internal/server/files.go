@@ -132,6 +132,12 @@ func (s *Server) checkoutRoot(root string) (string, *proto.Error) {
 			}
 		}
 	}
+	// A task's folder too, so its brief can be read and edited: its links
+	// lead out of it, which confine refuses, so CONCH-TASK.md is all of it
+	// that is reached this way.
+	if s.groups != nil && s.groups.isTaskFolder(root, real) {
+		return root, nil
+	}
 	return "", proto.Errorf(proto.ErrBadRequest, "%s is not a project or one of its worktrees", root)
 }
 
@@ -145,10 +151,12 @@ func confine(root, rel string) (string, *proto.Error) {
 		return "", proto.Errorf(proto.ErrBadRequest, "%q is not a path inside the checkout", rel)
 	}
 	abs := filepath.Join(root, local)
-	real, err := filepath.EvalSymlinks(abs)
+	// Where the path lands even when it isn't there yet: a write creates
+	// it, and the folders on the way, through whatever link sits among
+	// them — "link/new.txt" with link → /elsewhere writes /elsewhere.
+	real, err := landsAt(abs, 0)
 	if err != nil {
-		// Missing or a broken link: the caller's own open says so.
-		return abs, nil
+		return "", proto.Errorf(proto.ErrBadRequest, "%s: %v", rel, err)
 	}
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -158,6 +166,53 @@ func confine(root, rel string) (string, *proto.Error) {
 		return "", proto.Errorf(proto.ErrBadRequest, "%s leads outside the checkout", rel)
 	}
 	return abs, nil
+}
+
+// maxLinks is how many links landsAt follows before giving up, as the
+// kernel does (ELOOP).
+const maxLinks = 40
+
+// landsAt is the real path that opening or creating path reaches: its
+// deepest existing part resolved, links and all, with the parts that do
+// not exist yet after it. A broken link is followed to where it points,
+// since creating the file creates it there.
+func landsAt(path string, links int) (string, error) {
+	if links > maxLinks {
+		return "", errors.New("too many links")
+	}
+	there, rest := path, ""
+	for {
+		if _, err := os.Lstat(there); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(there)
+		if parent == there {
+			break
+		}
+		rest = filepath.Join(filepath.Base(there), rest)
+		there = parent
+	}
+	real, err := filepath.EvalSymlinks(there)
+	if err != nil {
+		// It exists but does not resolve: a link to something missing.
+		target, rerr := os.Readlink(there)
+		if rerr != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(target) {
+			dir, derr := filepath.EvalSymlinks(filepath.Dir(there))
+			if derr != nil {
+				return "", derr
+			}
+			target = filepath.Join(dir, target)
+		}
+		if real, err = landsAt(target, links+1); err != nil {
+			return "", err
+		}
+	}
+	return filepath.Join(real, rest), nil
 }
 
 func (s *Server) listCheckout(lp proto.FSListParams) (proto.FSList, *proto.Error) {
@@ -338,9 +393,13 @@ func (s *Server) readFile(rp proto.FSReadParams) (proto.FSReadResult, *proto.Err
 	if rp.Offset < 0 {
 		return proto.FSReadResult{}, proto.Errorf(proto.ErrBadRequest, "negative offset")
 	}
+	limit := proto.FSReadMax
+	if rp.Whole {
+		limit = proto.FSWriteMax
+	}
 	max := rp.Max
-	if max <= 0 || max > proto.FSReadMax {
-		max = proto.FSReadMax
+	if max <= 0 || max > limit {
+		max = limit
 	}
 	// A folder has nothing to read, and a fifo or device would block — even
 	// opening a fifo does — so the file is looked at before it is opened,

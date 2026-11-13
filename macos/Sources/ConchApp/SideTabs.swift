@@ -64,7 +64,7 @@ struct SideTabRow: View {
             if let a = p?.agent {
                 Mark(agent: a.name)
             } else {
-                LucideIcon(name: parseChangesKey(tab.focused) != nil ? .gitBranch : p?.isSSH == true ? .globe : .terminal,
+                LucideIcon(parseChangesKey(tab.focused) != nil ? "git-branch" : p?.iconName ?? "terminal",
                            color: Theme.muted, size: 12)
             }
             Text(TabButton(store: store, index: index, tab: tab).title(changes: parseChangesKey(tab.focused), pane: p))
@@ -79,7 +79,7 @@ struct SideTabRow: View {
                     .overlay(Circle().stroke(Theme.warn.opacity(0.25), lineWidth: 3))
                     .help("waiting for you")
             } else if panes.contains(where: { $0.agent?.state == .working }) {
-                TimelineView(.periodic(from: .now, by: spinnerInterval)) { ctx in
+                TimelineView(.periodic(from: spinnerEpoch, by: spinnerInterval)) { ctx in
                     Text(spinnerFrame(at: ctx.date)).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.work)
                 }
             } else if panes.contains(where: { $0.agent?.state == .done }) {

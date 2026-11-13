@@ -441,8 +441,14 @@ func TestCapabilityFollowsTheWatcher(t *testing.T) {
 	if slices.Contains(caps, proto.CapWorktreeWatch) {
 		t.Fatal("a server with no watcher claims to watch")
 	}
-	if len(caps) != len(proto.Capabilities)-1 {
-		t.Fatalf("%d capabilities, want %d", len(caps), len(proto.Capabilities)-1)
+	// One fewer than with a watcher. cloud.agent.v1 is not claimed either
+	// way, with no cloud agent here, nor a Keychain on a machine without.
+	want := len(proto.Capabilities) - 2
+	if !keychainHas() {
+		want--
+	}
+	if len(caps) != want {
+		t.Fatalf("%d capabilities, want %d", len(caps), want)
 	}
 	// The shared list is not the one that was edited.
 	if !slices.Contains(proto.Capabilities, proto.CapWorktreeWatch) {

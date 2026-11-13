@@ -53,6 +53,10 @@ type Plan struct {
 	TargetName string `json:"target_name,omitempty"`
 	TargetPath string `json:"target_path,omitempty"`
 	CloneTo    string `json:"clone_to,omitempty"`
+	// Bundle is a project with no origin: its repository — every branch
+	// and tag — is carried there and made a project at CloneTo, rather
+	// than cloned. Its branches go with it, so Branches is empty.
+	Bundle bool `json:"bundle,omitempty"`
 
 	Worktrees []Worktree `json:"worktrees,omitempty"`
 	// Branches have no worktree and hold commits the origin hasn't (local
@@ -82,9 +86,10 @@ func (p Plan) Agents() []proto.PaneInfo {
 	return append(out, p.MainAgents...)
 }
 
-// Empty says whether there is nothing to move.
+// Empty says whether there is nothing to move. A project carried as a
+// bundle is never empty: the repository is what moves.
 func (p Plan) Empty() bool {
-	return len(p.Worktrees) == 0 && len(p.Branches) == 0 && len(p.MainAgents) == 0
+	return !p.Bundle && len(p.Worktrees) == 0 && len(p.Branches) == 0 && len(p.MainAgents) == 0
 }
 
 // ErrNothing is a project with nothing to move: no task worktree, no
@@ -135,6 +140,8 @@ func NewPlan(ctx context.Context, from, to *client.Client, projectID, fromLabel,
 		plan.Worktrees = append(plan.Worktrees, Worktree{Branch: wt.Branch, Path: wt.Path, Info: info})
 	}
 	plan.Branches = BranchesToMove(proj)
+	// Nowhere to clone it from: the repository itself is carried there.
+	plan.Bundle = plan.Remote == ""
 	for _, wt := range proj.Worktrees {
 		if wt.Main && wt.Status != nil {
 			plan.MainDirty = wt.Status.Files
@@ -211,7 +218,18 @@ func (p *Plan) settle(ctx context.Context, from, to *client.Client, into string)
 		}
 	}
 	if p.Remote == "" {
-		return fmt.Errorf("%s has no origin, so there is nothing to clone on %s; push it somewhere first", p.Name, p.To)
+		for _, c := range []*client.Client{from, to} {
+			if missing := c.MissingCapabilities([]string{proto.CapProjectBundle}); len(missing) > 0 {
+				who := p.From
+				if c == to {
+					who = p.To
+				}
+				return fmt.Errorf("%s has no origin, so it can only move by copying its repository, which the server on %s predates: reload or upgrade it, or push %s somewhere first",
+					p.Name, who, p.Name)
+			}
+		}
+		p.Bundle = true
+		p.Branches = nil // in the bundle
 	}
 	for _, q := range there.Projects {
 		if Tildify(q.Path, home(to)) == want || q.Path == want {
@@ -305,7 +323,19 @@ func Run(ctx context.Context, p Plan, from, to *client.Client, opt Options, emit
 	}
 	res := Result{Target: p.Target, TargetPath: p.TargetPath}
 
-	if p.Target == "" {
+	if p.Target == "" && p.Bundle {
+		step++
+		say("clone", p.Name, "start", "copying the repository into "+p.CloneTo)
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		info, err := client.CopyProject(cctx, from, to, p.ProjectID, p.CloneTo)
+		cancel()
+		if err != nil {
+			say("clone", p.Name, "fail", ErrText(err))
+			return res, fmt.Errorf("copy %s to %s: %s", p.Name, p.To, ErrText(err))
+		}
+		res.Target, res.TargetPath = info.ID, info.Path
+		say("clone", p.Name, "ok", info.Path)
+	} else if p.Target == "" {
 		step++
 		say("clone", p.Remote, "start", "into "+p.CloneTo)
 		cctx, cancel := context.WithTimeout(ctx, 11*time.Minute) // the server's own limit is 10

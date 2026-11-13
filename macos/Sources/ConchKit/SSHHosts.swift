@@ -33,8 +33,9 @@ public func loadSavedHosts(uiJSON data: Data?) -> [SavedHost] {
     return out
 }
 
-/// ui.json with a host saved (its options with it) or, save false,
-/// forgotten — the rest of the file as it was.
+/// ui.json with a host saved (its name and options with it), in its place
+/// when it was saved already, or, save false, forgotten — the rest of the
+/// file as it was.
 public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws -> Data {
     var ui: [String: Any] = [:]
     if let data, !data.isEmpty {
@@ -45,10 +46,12 @@ public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws
     }
     var saved = (ui["saved_ssh"] as? [String]) ?? []
     var info = ui["ssh_hosts"] as? [String: Any] ?? [:]
+    // One saved already keeps its place in the list.
+    let at = saved.firstIndex(of: h.host)
     saved.removeAll { $0 == h.host }
     info.removeValue(forKey: h.host)
     if save {
-        saved.append(h.host)
+        saved.insert(h.host, at: min(at ?? saved.count, saved.count))
         var i: [String: Any] = [:]
         if let n = h.name, !n.isEmpty { i["name"] = n }
         if !h.args.isEmpty { i["args"] = h.args }
@@ -57,6 +60,30 @@ public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws
     ui["saved_ssh"] = saved
     if info.isEmpty { ui.removeValue(forKey: "ssh_hosts") } else { ui["ssh_hosts"] = info }
     return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+}
+
+/// ui.json with saved host h listed in workspace ws ("first" for the
+/// first), as the TUI's joinHost: a host saved in workspace 2 is that
+/// workspace's, not every one's. keepInFirst keeps it in the first too
+/// when the first listed it before, so saving it again elsewhere does not
+/// take it away from there.
+public func joiningHost(_ h: String, workspace ws: String, keepInFirst: Bool, in data: Data?) throws -> Data {
+    try joiningSpace("hosts", h, workspace: ws, keepInFirst: keepInFirst, in: data)
+}
+
+/// ui.json with machine id listed in workspace ws, as the TUI's
+/// joinMachineTo: a machine added in workspace 2, or brought there, shows
+/// there; keepInFirst as for a host.
+public func joiningMachine(_ id: String, workspace ws: String, keepInFirst: Bool, in data: Data?) throws -> Data {
+    try joiningSpace("machines", id, workspace: ws, keepInFirst: keepInFirst, in: data)
+}
+
+func joiningSpace(_ field: String, _ item: String, workspace ws: String, keepInFirst: Bool, in data: Data?) throws -> Data {
+    var ui = try FolderEdit.read(data)
+    func add(_ l: inout [String]) { if !l.contains(item) { l.append(item) } }
+    if ws != "first" && keepInFirst { FolderEdit.editSpaceList(&ui, workspace: "first", field: field, add) }
+    FolderEdit.editSpaceList(&ui, workspace: ws, field: field, add)
+    return try FolderEdit.write(ui)
 }
 
 extension PaneInfo {

@@ -96,7 +96,7 @@ func mcpTools() []mcpTool {
 				"cwd":    strProp("the folder it starts in; yours when left out"),
 				"name":   strProp("a name to address it by, which no other running pane has"),
 				"prompt": strProp("a first message, passed the way that agent expects"),
-				"args":   strProp("extra arguments for the agent, as shell words (e.g. \"--model opus\")"),
+				"args":   strProp("the model to start it with, as \"--model NAME\" (e.g. \"--model opus\"); from an agent's pane conch takes nothing else unless the person set [agents] unrestricted_launch"),
 			}),
 			run: mcpStart,
 		},

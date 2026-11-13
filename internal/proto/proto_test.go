@@ -549,6 +549,11 @@ func TestBuildCapabilitiesLeaveOutTheOptional(t *testing.T) {
 	if !slices.Contains(OptionalCapabilities, CapWorktreeWatch) {
 		t.Error("worktree.watch.v1 depends on the machine, not the build")
 	}
+	// A Linux server has no Keychain, and is no older for it: held against
+	// the build, every Linux machine was told its server needed a restart.
+	if !slices.Contains(OptionalCapabilities, CapLibraryKeychain) {
+		t.Error("agent.library.keychain.v1 depends on the machine, not the build")
+	}
 	if len(build) != len(Capabilities)-len(OptionalCapabilities) {
 		t.Fatalf("%d build capabilities, want %d", len(build), len(Capabilities)-len(OptionalCapabilities))
 	}

@@ -297,7 +297,11 @@ func TestA2MonitorNotifies(t *testing.T) {
 	}
 	m.viewing = ""
 	// Quiet hours silence it.
-	m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = "00:00", "23:59"
+	// The hour either side of now, wrapping past midnight as quiet hours
+	// may: "00:00"–"23:59" left out the minute before midnight, and the
+	// test failed when the suite reached it at 23:59.
+	now := time.Now()
+	m.cfg.Notify.QuietStart, m.cfg.Notify.QuietEnd = now.Add(-time.Hour).Format("15:04"), now.Add(time.Hour).Format("15:04")
 	if cmd := m.notifyMonitor(mach, old, fresh); cmd != nil {
 		t.Fatal("quiet hours should silence an alert")
 	}

@@ -89,10 +89,17 @@ Usage:
                                 block until a pane's agent is done (or waiting, working, idle);
                                 exits 124 if the time runs out
   conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
-                                start Claude Code with state tracking
+                                start Claude Code with state tracking. From an agent's pane, only
+                                -- --model NAME, and no CMD ([agents] unrestricted_launch lifts it)
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID
+  conch ssh -copy-key TARGET [SSH OPTION...]
+                                a terminal that puts this computer's key on the host, asking
+                                for its password there once, so later logins need none
+  conch ssh -check-key TARGET [SSH OPTION...]
+                                whether the host takes the key: prints key, password or
+                                unreachable (a batch-mode login, which never asks)
   conch agent explain ID        show how a pane's agent state was decided
   conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
   conch agent answer [-question QID] ID CHOICE
@@ -141,6 +148,11 @@ Usage:
                                 manage projects shown in the sidebar; setup is run in a
                                 terminal of its own in each new worktree (npm install…),
                                 and every pane there gets its own ports from $CONCH_PORT
+  conch group [ls [-json]] | add NAME PROJECT... | rm NAME [PROJECT...] | rename OLD NEW | notes NAME [TEXT]
+                | task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT... | tasks NAME | task-rm NAME BRANCH
+                | merge [-order P,P] [-remove] [-stop] NAME BRANCH
+                                projects kept together because they change together (an API, its
+                                web app, their specs), each still a project of its own
   conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
@@ -175,10 +187,9 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider daytona|boat|devin|tensorlake create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
-                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI,
-                                Tensorlake: $TENSORLAKE_API_KEY and your ssh key registered with it)
+                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
@@ -192,7 +203,8 @@ Usage:
   conch sandbox adapt [-agent A] [-name N] [-new] [-json] URL...
                                 a provider conch doesn't know: conch downloads its API docs, an agent
                                 (claude by default) writes a provider file from them in a pane of its
-                                own, and conch checks the file and the key; nothing is saved yet.
+                                own, and conch checks the file; the key is tried against the API only
+                                once you agree to where it goes. Nothing is saved yet.
                                 One already in the provider registry is offered instead (-new adapts anyway)
   conch sandbox adapt -revise TEXT NAME   ask that agent to change the draft, and check it again
   conch sandbox provider check [-offline] [-json] NAME|FILE | show NAME | save NAME | rm NAME
@@ -249,6 +261,42 @@ Usage:
                                 phones and computers to meet at; it forwards what it can't
                                 read and stores nothing, but serves the phone's app, so
                                 use only a relay you trust as you trust the computer
+  conch login [-no-browser] [-json] [-api URL]
+                                sign this device in to Conch Cloud: prints a code, opens
+                                the page to approve it, and waits. The server is
+                                CONCH_CLOUD_URL, else [cloud] api in config.toml, else
+                                Conch Cloud; -json says each step as a line of JSON
+  conch logout                  sign this device out of Conch Cloud (revokes its sign-in)
+  conch account [-json]         who is signed in, the plan, this month's hours and
+                                storage, and the account's devices
+  conch cloud machine ls [-json] | new NAME [-size S] [-region R] [-provider ID] [-wait]
+                                the account's cloud machines, or make one
+  conch cloud machine wake|sleep NAME [-force] | rm NAME [-y] | forget-key NAME
+                                wake one or put it to sleep (-force while agents work),
+                                destroy one, or forget the key pinned for it so the next
+                                connection pins the one Conch Cloud gives
+  conch cloud exec [-t] NAME [-- SCRIPT…]
+                                run a script on a cloud machine (a login shell with no
+                                script), through Conch Cloud's relay end to end; it wakes
+                                the machine and waits for it. Exits with the script's
+                                status, 255 when the tunnel failed, 254 when it never will
+                                (signed out, a machine key that changed)
+  conch cloud bridge NAME       conch's protocol to a cloud machine's server on stdin and
+                                stdout: what conch machine bridge runs for one
+  conch cloud agent [-boot FILE] [-state DIR] [-user NAME] [-socket PATH] [-server-socket PATH]
+                                runs inside a Conch Cloud machine, started by its host (the
+                                conch-cloud-agent systemd unit): reads boot.json (root-only,
+                                0600), says hello to the control plane, starts this machine's
+                                conch server as -user (conch when root), reports what its
+                                agents do so the machine sleeps when idle, and joins the relay
+                                so clients reach the server through an end-to-end tunnel.
+                                Exits 3 when the control plane refuses its token
+  conch cloud install [-user NAME]
+                                ready a machine image for Conch Cloud (as root): the
+                                conch-cloud-agent systemd unit, enabled, and its state directory
+  conch cloud git-credential [-socket PATH] get
+                                git's credential helper on a Conch Cloud machine: the machine
+                                token for the git proxy, asked of the cloud agent
   conch web pair [-permission view|reply|full] [-machine NAME]... [-json]
                                 a one-time code (5 minutes) that pairs a phone, with a QR code
                                 that opens it; full by default (-permission reply or
@@ -371,6 +419,8 @@ func main() {
 		err = runWait(args)
 	case "agent":
 		err = runAgent(args)
+	case "group", "groups":
+		err = runGroup(args)
 	case "project":
 		err = runProject(args)
 	case "task":
@@ -403,6 +453,14 @@ func main() {
 		err = runWeb(args)
 	case "relay":
 		err = runRelay(args)
+	case "cloud":
+		err = runCloud(args)
+	case "login":
+		err = runLogin(args)
+	case "logout":
+		err = runLogout(args)
+	case "account":
+		err = runAccount(args)
 	case "config":
 		err = runConfig(args)
 	case "mcp":
@@ -656,9 +714,9 @@ func runNew(args []string) error {
 			agentArgs += adapter.ShellQuote(a) + " "
 		}
 		command = nil
-	} else if len(command) == 0 {
-		command = []string{config.DefaultShell(), "-l"}
 	}
+	// No command is the server's login shell, which is also the only
+	// command an agent's pane may ask for (internal/server/launchrule.go).
 	params := proto.PaneCreateParams{Name: *name, Agent: *agent, AgentArgs: agentArgs, Command: command, Cwd: *cwd, Cols: 120, Rows: 40}
 	switch {
 	case onRemoteMachine() && *cwd == "":

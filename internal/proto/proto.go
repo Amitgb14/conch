@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -75,6 +75,19 @@ const CapAgentSyncUser = "agent.setup.sync.user.v1"
 // CapAgentLibrary is agent.library and agent.library.apply: MCP servers
 // and skills kept in conch and given to the agents chosen for each.
 const CapAgentLibrary = "agent.library.v1"
+
+// CapLibraryKeychain says this server gives every pane it starts the
+// tokens the library's servers refer to (${VAR}) from this Mac's Keychain
+// (service conch-mcp, account the variable), so a client may keep a token
+// there rather than ask the person to export it. Only a server that can
+// reach a Keychain claims it.
+const CapLibraryKeychain = "agent.library.keychain.v1"
+
+// CapLibraryPlain says agent.library takes a server marked plain: its
+// environment and headers may hold a token as it is, written into each
+// agent's file, for somebody who chose that over the Keychain. An older
+// server refuses such a value, so a client offers it only here.
+const CapLibraryPlain = "agent.library.plain.v1"
 
 // CapAgentPrompt is agent.prompt: a message submitted to one agent, refused
 // while it waits on a question, and the Turn of AgentStatus that says when
@@ -125,7 +138,7 @@ const CapWorktreeWatch = "worktree.watch.v1"
 // make the server look old: that server was shown as needing a reload for
 // ever, and reloading it changes nothing. A client that relies on one asks
 // for it by name, as it would any other.
-var OptionalCapabilities = []string{CapWorktreeWatch}
+var OptionalCapabilities = []string{CapWorktreeWatch, CapLibraryKeychain, CapCloudAgent}
 
 // BuildCapabilities is what every server of this build announces: Capabilities
 // without the optional ones. A server lacking any of these is from an older
@@ -144,6 +157,11 @@ func BuildCapabilities() []string {
 // worktree.describe, worktree.pack, worktree.pack_read, worktree.unpack and
 // project.clone.
 const CapWorktreeMove = "worktree.move.v1"
+
+// CapProjectBundle is project.bundle and project.unbundle: a project with
+// no origin moved by carrying its repository — every branch and tag in a
+// git bundle — rather than cloning it there.
+const CapProjectBundle = "project.bundle.v1"
 
 // CapPaneSearch is pane.search: finding text in a pane's history.
 const CapPaneSearch = "pane.search.v1"
@@ -169,6 +187,25 @@ const CapFSWrite = "fs.write.v1"
 // out, as the files view leaves it out.
 const CapFSFind = "fs.find.v1"
 
+// CapFSSearch is fs.search: a checkout searched for text in its files and
+// for files by name, or one file searched from an offset, a piece at a
+// time, which is how a file too big to open whole is searched.
+const CapFSSearch = "fs.search.v1"
+
+// CapFSReplace is fs.replace: what fs.search found, replaced file by file,
+// each checked against the content it was searched in.
+const CapFSReplace = "fs.replace.v1"
+
+// CapFSOps is fs.rename, fs.copy and fs.delete in a checkout, and fs.mkdir
+// taking Root. An older server takes fs.mkdir's Path from the home folder
+// and ignores Root, so a client asks first.
+const CapFSOps = "fs.ops.v1"
+
+// CapFSLines is a big file read by its lines (fs.lines) and edited a range
+// at a time (fs.write_range), and fs.read taking Whole: a file up to
+// FSWriteMax read in one piece, so it can be edited and saved.
+const CapFSLines = "fs.lines.v1"
+
 // CapFSTransfer is copying files and folders to and from the machine, and
 // browsing all of it: fs.list with Files and fs.read without a Root reach
 // anywhere, fs.upload takes Dir, Archive and Replace, and fs.download and
@@ -191,6 +228,10 @@ const CapBranchCILog = "branch.ci_log.v1"
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
 const CapAgentReply = "agent.reply.v1"
+
+// CapAgentChat is agent.chat: a pane's agent's conversation with the tools
+// it used, from its saved transcript, for a chat drawn beside its terminal.
+const CapAgentChat = "agent.chat.v1"
 
 // CapSchedule is schedule.add, schedule.list and schedule.remove: a
 // message for a running agent, or a task, kept by the server for a time
@@ -284,6 +325,31 @@ const CapCommitShow = "project.commit.v1"
 // through gh.
 const CapPRReview = "pr.review.v1"
 
+// CapProjectGroups is group.list, group.save and group.remove: projects
+// grouped by the person because they change together — an API, its web
+// app, their specs — each still a project of its own.
+const CapProjectGroups = "project.groups.v1"
+
+// CapGroupTask is group.task and group.task.remove: one task across a
+// group's repos — the same branch in a worktree of each, gathered in a
+// task folder, with one agent given them all or an agent in each.
+const CapGroupTask = "group.task.v1"
+
+// CapGroupTaskMerge is group.task.merge: a task's pull requests merged
+// once every one of them is green, one repo after another in the order
+// given, by the server so it carries on with no client open. With it, a
+// task's folder is also a root fs.read and fs.write take, for its
+// CONCH-TASK.md.
+const CapGroupTaskMerge = "group.task.merge.v1"
+
+// CapCloudAgent says the server runs inside a Conch Cloud machine, with
+// `conch cloud agent` beside it (cloud.agent.register): an agent it starts
+// is given the account's env-mode secrets, which the cloud agent fetches
+// for that start and nobody writes down. Only a server with a cloud agent
+// registered announces it, so it is optional: every other server of this
+// build leaves it out.
+const CapCloudAgent = "cloud.agent.v1"
+
 // CapReviewSendTo is review.send's Pane and New: the notes handed to the
 // agent picked, or to a new one, rather than whichever is first on the
 // branch — a branch like the base can have a dozen.
@@ -345,12 +411,29 @@ const (
 	MethodAgentStatus  = "agent.status"
 	MethodAgentInstall = "agent.install"
 
-	MethodProjectList    = "project.list"
-	MethodProjectAdd     = "project.add"
-	MethodProjectRemove  = "project.remove"
-	MethodProjectRefresh = "project.refresh"
-	MethodProjectChanges = "project.changes"
-	MethodProjectDiff    = "project.diff"
+	// Project groups (CapProjectGroups): GroupList, GroupSaveParams →
+	// GroupInfo, GroupRef.
+	MethodGroupList   = "group.list"
+	MethodGroupSave   = "group.save"
+	MethodGroupRemove = "group.remove"
+	// Tasks across a group's repos (CapGroupTask): GroupTaskParams →
+	// GroupTaskResult; GroupTaskRef.
+	MethodGroupTask       = "group.task"
+	MethodGroupTaskRemove = "group.task.remove"
+	// MethodGroupTaskMerge arms (or with Stop, disarms) Merge All When
+	// Green on a task (CapGroupTaskMerge): GroupTaskMergeParams → GroupTask.
+	MethodGroupTaskMerge = "group.task.merge"
+	// MethodCloudAgentRegister is conch cloud agent telling the server
+	// where to ask for an agent's secrets (CapCloudAgent):
+	// CloudAgentRegisterParams → CloudAgentRegisterResult. It lasts as long
+	// as the connection that made it.
+	MethodCloudAgentRegister = "cloud.agent.register"
+	MethodProjectList        = "project.list"
+	MethodProjectAdd         = "project.add"
+	MethodProjectRemove      = "project.remove"
+	MethodProjectRefresh     = "project.refresh"
+	MethodProjectChanges     = "project.changes"
+	MethodProjectDiff        = "project.diff"
 	// MethodProjectLog is a project's history for a commit graph
 	// (CapProjectLog).
 	MethodProjectLog = "project.log"
@@ -367,6 +450,13 @@ const (
 	MethodFSRead         = "fs.read"
 	MethodFSWrite        = "fs.write"
 	MethodFSFind         = "fs.find"
+	MethodFSSearch       = "fs.search"
+	MethodFSReplace      = "fs.replace"
+	MethodFSRename       = "fs.rename"
+	MethodFSCopy         = "fs.copy"
+	MethodFSDelete       = "fs.delete"
+	MethodFSLines        = "fs.lines"
+	MethodFSWriteRange   = "fs.write_range"
 	// Copying a file or folder off the machine (CapFSTransfer).
 	MethodFSDownload     = "fs.download"
 	MethodFSDownloadRead = "fs.download_read"
@@ -408,6 +498,9 @@ const (
 	// MethodAgentReply is the last thing a pane's agent said, read from
 	// its saved conversation (CapAgentReply).
 	MethodAgentReply = "agent.reply"
+	// MethodAgentChat is a pane's agent's conversation, tools and all,
+	// read from its saved transcript (CapAgentChat).
+	MethodAgentChat = "agent.chat"
 
 	MethodProjectIssues = "project.issues"
 
@@ -469,6 +562,8 @@ const (
 	MethodWorktreePackRead = "worktree.pack_read"
 	MethodWorktreeUnpack   = "worktree.unpack"
 	MethodProjectClone     = "project.clone"
+	MethodProjectBundle    = "project.bundle"
+	MethodProjectUnbundle  = "project.unbundle"
 )
 
 // Events.
@@ -486,6 +581,9 @@ const (
 	// EventProjectUpdated carries a ProjectInfo (added or git state changed).
 	EventProjectUpdated = "project.updated"
 	EventProjectRemoved = "project.removed"
+	// EventGroups carries the whole GroupList whenever a group changes,
+	// or a project leaves one by being removed.
+	EventGroups = "group.changed"
 	// EventAgentLimits carries a PlanLimits that changed.
 	EventAgentLimits = "agent.limits"
 	// EventWorktreeChanged carries a WorktreeChanged: files in a worktree
@@ -523,6 +621,9 @@ const (
 	// ErrOutOfScope is a change an agent asked for, from inside its pane,
 	// to a pane or project that isn't its own.
 	ErrOutOfScope = "out_of_scope"
+	// ErrCloudAgentHeld: cloud.agent.register while another connection
+	// holds the registration.
+	ErrCloudAgentHeld = "cloud_agent_held"
 	// ErrFileChanged is fs.write refusing to write over a file that changed
 	// on disk since it was read (fs.write.v1).
 	ErrFileChanged = "file_changed"
@@ -835,6 +936,107 @@ type ProjectRef struct {
 	ID string `json:"id"`
 }
 
+// GroupInfo is a project group: its name, its projects in the person's
+// order (the order a task across them merges in), and notes for the
+// agents working across them.
+type GroupInfo struct {
+	Name     string   `json:"name"`
+	Projects []string `json:"projects"`
+	Notes    string   `json:"notes,omitempty"`
+	// Tasks across its repos (CapGroupTask), the newest last.
+	Tasks []GroupTask `json:"tasks,omitempty"`
+}
+
+// GroupTask is one task across a group's repos: the branch made in each
+// of its projects, the folder holding a link to each worktree (where its
+// agent works), and the panes it started — one agent, or one per repo.
+type GroupTask struct {
+	Branch   string    `json:"branch"`
+	Folder   string    `json:"folder"`
+	Projects []string  `json:"projects"`
+	Panes    []string  `json:"panes,omitempty"`
+	Each     bool      `json:"each,omitempty"`
+	Created  time.Time `json:"created"`
+	// Merge is Merge All When Green on this task, once armed
+	// (CapGroupTaskMerge); nil when it never was.
+	Merge *GroupTaskMerge `json:"merge,omitempty"`
+}
+
+// The states of a task's Merge All When Green.
+const (
+	MergeWaiting = "waiting" // armed: not every pull request is green yet
+	MergeMerging = "merging" // every one was green; merging in order
+	MergeMerged  = "merged"  // all of them merged
+	MergeStopped = "stopped" // one could not be merged, or it was stopped; Why says which
+)
+
+// GroupTaskMerge is where a task's Merge All When Green stands: the
+// projects in the order they merge, those merged so far, and — while it
+// waits or once it stopped — why, in a sentence.
+type GroupTaskMerge struct {
+	Order      []string  `json:"order"`
+	Merged     []string  `json:"merged,omitempty"`
+	State      string    `json:"state"`
+	Why        string    `json:"why,omitempty"`
+	RemoveTask bool      `json:"remove_task,omitempty"`
+	Armed      time.Time `json:"armed"`
+}
+
+// GroupTaskMergeParams arms Merge All When Green on Group's task on
+// Branch: Order is every one of the task's projects (default the task's
+// own order), RemoveTask takes the task, its worktrees and its folder away
+// once all are merged. Stop disarms it instead.
+type GroupTaskMergeParams struct {
+	Group      string   `json:"group"`
+	Branch     string   `json:"branch"`
+	Order      []string `json:"order,omitempty"`
+	RemoveTask bool     `json:"remove_task,omitempty"`
+	Stop       bool     `json:"stop,omitempty"`
+}
+
+// GroupTaskParams starts a task across Group's repos: Projects (default
+// all of them, in the group's order), each on Branch (default named from
+// the prompt). One agent at the task folder with every worktree, or with
+// Each an agent in each worktree.
+type GroupTaskParams struct {
+	Group    string   `json:"group"`
+	Prompt   string   `json:"prompt"`
+	Branch   string   `json:"branch,omitempty"`
+	Agent    string   `json:"agent,omitempty"`
+	Projects []string `json:"projects,omitempty"`
+	Each     bool     `json:"each,omitempty"`
+	Cols     int      `json:"cols,omitempty"`
+	Rows     int      `json:"rows,omitempty"`
+}
+
+type GroupTaskResult struct {
+	Task  GroupTask  `json:"task"`
+	Panes []PaneInfo `json:"panes"`
+}
+
+// GroupTaskRef names a task by its group and branch.
+type GroupTaskRef struct {
+	Group  string `json:"group"`
+	Branch string `json:"branch"`
+}
+
+type GroupList struct {
+	Groups []GroupInfo `json:"groups"`
+}
+
+// GroupSaveParams makes a group, or replaces the one called Old (or Name)
+// — a rename when Old differs.
+type GroupSaveParams struct {
+	Name     string   `json:"name"`
+	Old      string   `json:"old,omitempty"`
+	Projects []string `json:"projects"`
+	Notes    string   `json:"notes,omitempty"`
+}
+
+type GroupRef struct {
+	Name string `json:"name"`
+}
+
 // ProjectAddParams adds the project containing Path.
 type ProjectAddParams struct {
 	Path string `json:"path"`
@@ -940,6 +1142,9 @@ type FSReadParams struct {
 	Offset int64  `json:"offset,omitempty"`
 	Max    int    `json:"max,omitempty"`
 	SSH    string `json:"ssh,omitempty"` // as in FSListParams
+	// Whole raises Max's cap to FSWriteMax, so a file that can be saved
+	// can be read in one piece (fs.lines.v1).
+	Whole bool `json:"whole,omitempty"`
 }
 
 // FSReadResult is the result of fs.read. A binary file has no Data: it is
@@ -983,10 +1188,200 @@ type FSWriteResult struct {
 	Hash    string    `json:"hash"`
 }
 
-// FSMkdirParams creates one folder.
+// FSMkdirParams creates one folder. With Root (fs.ops.v1) Path is inside
+// that checkout, as in FSListParams, and the folders on the way are made.
 type FSMkdirParams struct {
 	Path string `json:"path"`
 	SSH  string `json:"ssh,omitempty"` // as in FSListParams
+	Root string `json:"root,omitempty"`
+}
+
+// FSPattern is what fs.search looks for and fs.replace replaces: Query as
+// written, or a regular expression (Go's syntax) with Regex; letter case
+// ignored unless Case; with Word, only where it is a whole word. A
+// pattern matches within a line, never across one.
+type FSPattern struct {
+	Query string `json:"query"`
+	Regex bool   `json:"regex,omitempty"`
+	Case  bool   `json:"case,omitempty"`
+	Word  bool   `json:"word,omitempty"`
+}
+
+// FSSearchParams searches the checkout Root (as fs.list's): with Text, the
+// lines of its files that match; with Names, the files whose path holds
+// Query's letters, as fs.find finds them. Include and Exclude are globs
+// (`*.go`, `internal/`, `cmd/**/main.go`), a path taken when it matches any
+// Include (or there are none) and no Exclude. What git ignores is left out
+// unless Ignored. Limit counts lines, at most FSSearchMax.
+//
+// With Path, that one file alone is searched, from byte Offset — the
+// start of line Line — for FSSearchBudget at most, and the
+// result says where to go on from: a big file searched a piece at a time.
+type FSSearchParams struct {
+	Root string `json:"root"`
+	FSPattern
+	Names   bool     `json:"names,omitempty"`
+	Text    bool     `json:"text,omitempty"`
+	Include []string `json:"include,omitempty"`
+	Exclude []string `json:"exclude,omitempty"`
+	Ignored bool     `json:"ignored,omitempty"`
+	Limit   int      `json:"limit,omitempty"`
+	Path    string   `json:"path,omitempty"`
+	Offset  int64    `json:"offset,omitempty"`
+	Line    int      `json:"line,omitempty"`
+}
+
+const (
+	FSSearchDefault = 500
+	FSSearchMax     = 5000
+	// FSSearchFileMax is the biggest file a search of a whole checkout
+	// reads; a bigger one is counted in Skipped and searched by its Path.
+	FSSearchFileMax = 8 << 20
+	// FSSearchLineMax is how much of a matching line comes back: the part
+	// around its first match.
+	FSSearchLineMax = 400
+)
+
+// FSSearchBudget is how long a search of one Path goes on before it
+// answers with what it has and where it got to.
+const FSSearchBudget = time.Second
+
+// FSSearchResult is what fs.search found. Names are paths relative to
+// Root; Files hold the matching lines, in path order. Searched counts
+// the files read, Skipped those left out as binary or too big.
+type FSSearchResult struct {
+	Root      string         `json:"root"`
+	Names     []string       `json:"names,omitempty"`
+	Files     []FSSearchFile `json:"files,omitempty"`
+	Searched  int            `json:"searched,omitempty"`
+	Skipped   int            `json:"skipped,omitempty"`
+	Truncated bool           `json:"truncated,omitempty"`
+	// For a search of one Path: the file's size, where to go on from
+	// (Next, the start of line NextLine), and Done once it reached the end.
+	Size     int64 `json:"size,omitempty"`
+	Next     int64 `json:"next,omitempty"`
+	NextLine int   `json:"next_line,omitempty"`
+	Done     bool  `json:"done,omitempty"`
+}
+
+// FSSearchFile is one file's matching lines, and its content's Hash
+// (as fs.read's) that an fs.replace of them is checked against.
+type FSSearchFile struct {
+	Path  string         `json:"path"`
+	Hash  string         `json:"hash,omitempty"`
+	Lines []FSSearchLine `json:"lines"`
+}
+
+// FSSearchLine is a matching line: its number (from 1), where it starts in
+// the file, Text — the line, or FSSearchLineMax of it from byte Col — and
+// the matches in Text as byte ranges [start, end).
+type FSSearchLine struct {
+	Line   int      `json:"line"`
+	Offset int64    `json:"offset"`
+	Col    int      `json:"col,omitempty"`
+	Text   string   `json:"text"`
+	Ranges [][2]int `json:"ranges"`
+}
+
+// FSReplaceParams replaces the pattern with Replace in each of Files of
+// the checkout Root — on the Lines listed, or every line when none are —
+// where the file is still the Hash it was searched as. With Regex, $1 and
+// ${name} in Replace are the groups matched.
+type FSReplaceParams struct {
+	Root string `json:"root"`
+	FSPattern
+	Replace string          `json:"replace"`
+	Files   []FSReplaceFile `json:"files"`
+}
+
+type FSReplaceFile struct {
+	Path  string `json:"path"`
+	Hash  string `json:"hash"`
+	Lines []int  `json:"lines,omitempty"`
+}
+
+// FSReplaceResult says what was replaced, and what was left and why: a
+// file changed since the search is skipped, never written over.
+type FSReplaceResult struct {
+	Files   []FSReplaced `json:"files,omitempty"`
+	Skipped []FSSkipped  `json:"skipped,omitempty"`
+}
+
+type FSReplaced struct {
+	Path  string `json:"path"`
+	Count int    `json:"count"`
+	Hash  string `json:"hash"`
+}
+
+type FSSkipped struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// FSPathParams names a file or folder in the checkout Root, and for
+// fs.rename and fs.copy where it goes (To, also inside Root). Neither
+// writes over something already there. fs.delete takes a folder whole.
+type FSPathParams struct {
+	Root string `json:"root"`
+	Path string `json:"path"`
+	To   string `json:"to,omitempty"`
+}
+
+// FSPathResult is the path the file or folder now has, absolute.
+type FSPathResult struct {
+	Path string `json:"path"`
+}
+
+// FSLinesParams reads lines of a file in the checkout Root: Count of them
+// (at most FSLinesMax; 0 means FSLinesDefault) from line Line (from 1),
+// or with Tail the last Count. Lines are found through an index of the
+// file kept by the server, so line ten million is no slower than line ten.
+type FSLinesParams struct {
+	Root  string `json:"root"`
+	Path  string `json:"path"`
+	Line  int    `json:"line,omitempty"`
+	Count int    `json:"count,omitempty"`
+	Tail  bool   `json:"tail,omitempty"`
+}
+
+const (
+	FSLinesDefault = 200
+	FSLinesMax     = 5000
+	// FSLinesBytesMax bounds what one fs.lines returns, however long its
+	// lines are.
+	FSLinesBytesMax = 1 << 20
+)
+
+// FSLinesResult is the lines read: Data from byte Offset, Length bytes,
+// starting at line Line; Lines is how many the file has. Hash is the
+// fingerprint of those bytes, what an fs.write_range of them is checked
+// against; it is left out when they are not UTF-8 (Lossy: shown with
+// replacement characters, so they cannot be saved back) or Binary.
+type FSLinesResult struct {
+	Path    string    `json:"path"` // absolute
+	Size    int64     `json:"size"`
+	ModTime time.Time `json:"mod_time,omitzero"`
+	Line    int       `json:"line"`
+	Lines   int       `json:"lines"`
+	Offset  int64     `json:"offset"`
+	Length  int64     `json:"length"`
+	Data    string    `json:"data,omitempty"`
+	Hash    string    `json:"hash,omitempty"`
+	Lossy   bool      `json:"lossy,omitempty"`
+	Binary  bool      `json:"binary,omitempty"`
+}
+
+// FSWriteRangeParams replaces Length bytes from Offset of a file in the
+// checkout Root with Data, if those bytes still have the fingerprint Base
+// (FSLinesResult.Hash): a big file edited a few lines at a time. The rest
+// of the file is kept as it is, the new file put in place in one step.
+type FSWriteRangeParams struct {
+	Root   string `json:"root"`
+	Path   string `json:"path"`
+	Offset int64  `json:"offset"`
+	Length int64  `json:"length"`
+	Base   string `json:"base"`
+	Data   string `json:"data"`
 }
 
 // UploadChunkSize is how much of a file one fs.upload request carries. Small
@@ -1561,6 +1956,24 @@ type ProjectCloneParams struct {
 	Path string `json:"path"`
 }
 
+// ProjectBundle is a project's repository bundled for another machine:
+// read it back with worktree.pack_read. Branch is the one its main
+// checkout is on, for the other machine to check out.
+type ProjectBundle struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// ProjectUnbundleParams makes a project at Path from a bundle uploaded
+// here (Pack, an fs.upload's path), with Branch checked out.
+type ProjectUnbundleParams struct {
+	Pack   string `json:"pack"`
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"`
+}
+
 // WorktreeRemoveParams removes a (clean) linked worktree.
 type WorktreeRemoveParams struct {
 	ProjectID string `json:"project_id"`
@@ -2088,6 +2501,52 @@ type ViewShowResult struct {
 	Panes []string `json:"panes,omitempty"`
 }
 
+// ChatTurn is one entry of an agent's conversation: what the person typed
+// (user), what the agent said (assistant), or a tool it used (tool, Text
+// its name and Detail what it was used on).
+type ChatTurn struct {
+	// Seq is its place in the whole conversation: stable as turns are
+	// added, so an update replaces the turn it names.
+	Seq    int       `json:"seq"`
+	Role   string    `json:"role"`
+	Text   string    `json:"text,omitempty"`
+	Detail string    `json:"detail,omitempty"`
+	Time   time.Time `json:"time,omitempty"`
+	// For a tool: what it was given (an edit as - and + lines, InputKind
+	// "diff"; a command or a file as "code"), what came back, whether it
+	// failed, and whether its result has come yet.
+	Input     string `json:"input,omitempty"`
+	InputKind string `json:"input_kind,omitempty"`
+	Output    string `json:"output,omitempty"`
+	Error     bool   `json:"error,omitempty"`
+	Done      bool   `json:"done,omitempty"`
+}
+
+// AgentChatParams asks for a pane's chat. A chat that has some sends the
+// log's Epoch and Ver it has, and is sent only what is new or changed
+// since; without them (or from another log) it is sent the newest turns
+// with Reset.
+type AgentChatParams struct {
+	ID    string `json:"id"`
+	Epoch string `json:"epoch,omitempty"`
+	Ver   int64  `json:"ver,omitempty"`
+}
+
+// AgentChat is a pane's agent's conversation, newest last. Session is
+// empty, and Turns with it, until the agent says which conversation it is
+// in; Note says why a chat has nothing in it when it is not merely new.
+type AgentChat struct {
+	Agent   string     `json:"agent"`
+	Session string     `json:"session,omitempty"`
+	Turns   []ChatTurn `json:"turns"`
+	Note    string     `json:"note,omitempty"`
+	// Epoch and Ver name what the chat now has, to send next time; Reset
+	// says Turns are the whole of it rather than what changed.
+	Epoch string `json:"epoch,omitempty"`
+	Ver   int64  `json:"ver,omitempty"`
+	Reset bool   `json:"reset,omitempty"`
+}
+
 // AgentReply is the last answer of a pane's agent and when it was given.
 type AgentReply struct {
 	Agent string    `json:"agent"`
@@ -2299,6 +2758,10 @@ type LibraryServer struct {
 	Headers   map[string]string `json:"headers,omitempty"`
 	Transport string            `json:"transport,omitempty"` // "sse", or "" for streamable HTTP
 	Agents    []string          `json:"agents"`
+	// Plain: the person chose to keep its token in plain text, so Env and
+	// Headers may hold values as they are rather than only ${VAR}
+	// (CapLibraryPlain). They are written into each agent's file as given.
+	Plain bool `json:"plain,omitempty"`
 }
 
 // LibrarySkill is a skill in the library: a folder holding a SKILL.md,
@@ -2702,4 +3165,45 @@ func Marshal(v any) json.RawMessage {
 		panic(fmt.Sprintf("proto: marshal %T: %v", v, err))
 	}
 	return b
+}
+
+// CloudAgentRegisterParams names the cloud agent's own socket, where the
+// server asks for secrets with a CloudAgentAsk.
+type CloudAgentRegisterParams struct {
+	Socket string `json:"socket"`
+	// Key is what the server sends back with each CloudAgentAsk for env,
+	// so the agent's socket gives secrets to this server alone.
+	Key string `json:"key,omitempty"`
+}
+
+// CloudAgentRegisterResult is the server's capabilities once the cloud
+// agent is registered, which the agent reports to the control plane.
+type CloudAgentRegisterResult struct {
+	Capabilities []string `json:"capabilities"`
+}
+
+// CloudAgentAsk is one line asked of the cloud agent's socket, answered by
+// one CloudAgentAnswer line.
+type CloudAgentAsk struct {
+	// Op is "env" (the env-mode secrets, for an agent being started) or
+	// "git-credential" (the machine token, for git's credential helper).
+	Op string `json:"op"`
+	// Key is the registration's (CloudAgentRegisterParams.Key), which env
+	// needs.
+	Key string `json:"key,omitempty"`
+}
+
+// What a CloudAgentAsk may ask.
+const (
+	CloudAskEnv           = "env"
+	CloudAskGitCredential = "git-credential"
+)
+
+// CloudAgentAnswer is the cloud agent's answer: Env for env, Username and
+// Password for git-credential, Error when it has none to give.
+type CloudAgentAnswer struct {
+	Env      map[string]string `json:"env,omitempty"`
+	Username string            `json:"username,omitempty"`
+	Password string            `json:"password,omitempty"`
+	Error    string            `json:"error,omitempty"`
 }

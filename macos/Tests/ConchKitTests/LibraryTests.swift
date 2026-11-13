@@ -28,6 +28,20 @@ private let answer = #"""
     #expect(bare.agents.isEmpty && bare.library.servers.isEmpty)
 }
 
+// #166: a server or skill given to no agent came as "agents": null (an add
+// without -to), and the whole library failed to decode. Null or missing is
+// none, and what else the server said is kept.
+@Test func libraryNullAgents() throws {
+    let json = #"{"library":{"servers":[{"name":"gh","command":"gh","agents":["claude"]},{"name":"jira-mcp","url":"http://jira.example/v1/jira/mcp","headers":{"Authorization":"Bearer ${CONCH_MCP_JIRA_MCP_TOKEN}"},"transport":"sse","agents":null},{"name":"wiki","url":"https://wiki.example/mcp"}],"skills":[{"name":"review","path":"~/r","agents":null,"source":"o/r/review@main"}]},"agents":["claude"]}"#
+    let r = try JSONDecoder().decode(AgentLibraryResult.self, from: Data(json.utf8))
+    #expect(r.library.servers.map(\.agents) == [["claude"], [], []])
+    #expect(r.library.servers[1].headers?["Authorization"] == "Bearer ${CONCH_MCP_JIRA_MCP_TOKEN}" && r.library.servers[1].what == "sse")
+    #expect(r.library.skills[0].agents == [] && r.library.skills[0].source == "o/r/review@main")
+    // And it goes back as an empty list, never a null.
+    let back = String(decoding: try JSONEncoder().encode(r.library), as: UTF8.self)
+    #expect(!back.contains("null") && back.contains(#""agents":[]"#))
+}
+
 @Test func libraryEdits() throws {
     let r = try JSONDecoder().decode(AgentLibraryResult.self, from: Data(answer.utf8))
     let order = r.agents

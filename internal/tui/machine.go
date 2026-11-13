@@ -253,6 +253,9 @@ func (mach *machine) listen() []tea.Cmd {
 			if err := callCtx(c, proto.MethodPaneList, nil, &list); err != nil {
 				return nil // the connection's closing reports the problem
 			}
+			for i := range list.Panes {
+				list.Panes[i] = printablePane(list.Panes[i])
+			}
 			return panesMsg{machine: id, gen: gen, panes: list.Panes}
 		},
 		func() tea.Msg {
@@ -369,6 +372,7 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	var outdated *remote.OutdatedServerError
 	var needs *remote.InstallError
 	var stopped *remote.SandboxStoppedError
+	var asleep *remote.CloudAsleepError
 	switch {
 	case msg.err == nil || (errors.As(msg.err, &outdated) && msg.c != nil):
 		mach.fresh = mach.attach(msg.c)
@@ -379,6 +383,12 @@ func (mach *machine) connected(msg machineConnectedMsg) tea.Cmd {
 	case errors.As(msg.err, &needs):
 		mach.state, mach.err = stateAttention, needs.Reason
 		return nil // installing is the user's call
+	case errors.As(msg.err, &asleep):
+		// Waking it uses the account's hours: the person's call, as
+		// starting a sandbox is. The control plane's word on it comes
+		// every cloudEvery, and a machine woken elsewhere is connected to.
+		mach.state, mach.err, mach.sandboxState = stateAttention, mach.label+" is "+asleep.State, sandbox.State(asleep.State)
+		return nil
 	case errors.As(msg.err, &stopped) && !stopped.State.Moving():
 		// Starting it costs, so that is the user's call too; asking again
 		// on a timer would only poll the provider.

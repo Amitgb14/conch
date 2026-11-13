@@ -121,6 +121,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
+	// The cloud agent decides what every agent's environment is given.
+	proto.MethodCloudAgentRegister: scopeServer,
 
 	proto.MethodAgentSkill: scopeHome,
 	// Downloading into the person's library is theirs to do.
@@ -133,6 +135,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodProjectSetup: scopeHome,
 	// What runs later runs with nobody watching: the person's to arrange.
 	proto.MethodScheduleAdd: scopeHome, proto.MethodScheduleRemove: scopeHome,
+	// Which projects belong together is the person's arrangement.
+	proto.MethodGroupSave: scopeHome, proto.MethodGroupRemove: scopeHome, proto.MethodGroupTaskRemove: scopeHome, proto.MethodGroupTaskMerge: scopeHome,
 	// A reviewing agent comments on its project's branches and hands them
 	// over, as the person would.
 	proto.MethodReviewSet: scopeProject, proto.MethodReviewSend: scopeProject, proto.MethodReviewReply: scopeProject,
@@ -191,8 +195,12 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 		return nil
 	}
 	var ref scopeRef
-	if len(msg.Params) > 0 && json.Unmarshal(msg.Params, &ref) != nil {
-		return nil // the method reports its own bad params
+	// Refused, not handed on for the method's own error: the method's
+	// decoding ignores fields it has no use for, so a field of the wrong
+	// type beside a good target ({"id":"p1","undo":"yes"}) fails here
+	// and still runs there — past this check, on a pane not the agent's.
+	if perr := decodeScopeRef(msg, &ref); perr != nil {
+		return perr
 	}
 	if writes, ok := writesHome[msg.Method]; ok && !writes(ref) {
 		return nil
@@ -235,6 +243,9 @@ type scopeCaller struct {
 // scopedCaller is who the connection is held to, if anyone: the agent it
 // acts for, else the agent running in its pane now.
 func (s *Server) scopedCaller(c *client) (scopeCaller, bool) {
+	if c == nil { // the server calling itself
+		return scopeCaller{}, false
+	}
 	c.mu.Lock()
 	actFor := c.actFor
 	c.mu.Unlock()
@@ -351,7 +362,8 @@ var verbs = map[string]string{
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
-	proto.MethodProjectRemove: "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
+	proto.MethodCloudAgentRegister: "register a cloud agent with",
+	proto.MethodProjectRemove:      "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
@@ -360,6 +372,7 @@ var verbs = map[string]string{
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
 	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
 	proto.MethodScheduleAdd:  "schedule a message or a task", proto.MethodScheduleRemove: "remove something scheduled",
+	proto.MethodGroupSave: "change a project group", proto.MethodGroupRemove: "remove a project group", proto.MethodGroupTaskRemove: "remove a task across a group", proto.MethodGroupTaskMerge: "merge a task's pull requests",
 	proto.MethodAgentLibrary: "change the library of MCP servers and skills", proto.MethodLibraryApply: "apply the library to the agents",
 	proto.MethodLibraryFetch: "download a skill into the library",
 	proto.MethodAgentSync:    "sync one agent's setup to the others",
@@ -481,13 +494,28 @@ var fsMethods = map[string]bool{
 // another pane's ssh login is that person's way onto that host, not the
 // agent's.
 func (s *Server) sshInScope(c *client, msg proto.Message) *proto.Error {
-	var ref scopeRef
-	if len(msg.Params) == 0 || json.Unmarshal(msg.Params, &ref) != nil || ref.SSH == "" {
-		return nil
-	}
 	caller, ok := s.scopedCaller(c)
 	if !ok {
 		return nil
 	}
+	var ref scopeRef
+	if perr := decodeScopeRef(msg, &ref); perr != nil {
+		return perr // as inScope: what fails here would still run there
+	}
+	if ref.SSH == "" {
+		return nil
+	}
 	return s.paneInScope(caller, msg.Method, ref.SSH)
+}
+
+// decodeScopeRef reads a scoped caller's target, refusing params it
+// cannot read rather than letting them through unchecked.
+func decodeScopeRef(msg proto.Message, ref *scopeRef) *proto.Error {
+	if len(msg.Params) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(msg.Params, ref); err != nil {
+		return proto.Errorf(proto.ErrBadRequest, "%s: params conch cannot check this agent's scope against: %v", msg.Method, err)
+	}
+	return nil
 }

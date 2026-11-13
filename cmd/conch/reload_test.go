@@ -89,6 +89,14 @@ func TestServerReload(t *testing.T) {
 	oldPID, oldStarted, oldLoaded := c.Server.PID, c.Server.Started, c.Server.LoadedAt
 
 	build("0.0.2-b")
+	// A fresh deadline for what follows: the deadline is there to stop a
+	// call hanging, and the build above is not a call — on a machine
+	// running the rest of the suite it can take longer than the whole
+	// budget, and the reload then failed with "context deadline exceeded"
+	// before the server was ever asked.
+	cancel()
+	ctx, cancel = context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	var res proto.ServerReloadResult
 	if err := c.Call(ctx, proto.MethodServerReload, proto.ServerReloadParams{}, &res); err != nil {
 		t.Fatal(err)

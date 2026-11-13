@@ -147,6 +147,8 @@ In Conch.app, right-click the project → **Move to another machine…**. The sh
 
 From a shell, the same move is `conch project move daos -to busybox` (`-plan` to only see what would move, `-into ~/src/daos` to clone it somewhere else there, `-y` not to be asked, `-json` a line of JSON a step). Both also take **branches with no worktree** that hold commits the origin hasn't — only here, ahead of their upstream, or with their upstream gone: each is given a worktree here, then moves like the others.
 
+A project with **no origin** moves too: there is nothing for the other machine to clone, so conch copies the repository itself — every branch and tag, bundled here and made a new repository there with the main checkout's branch checked out and no remote — and the worktrees and agents follow as above. Both servers need a conch that can (`project.bundle.v1`), and the history has to fit in 256 MB; past that, push it somewhere and move it from there. The main checkout's uncommitted files stay here, as they do for a clone.
+
 Moving the same project again is safe: a branch the project there already has checked out isn't copied over (whatever happened to it there is kept), its agents continue in it, and a branch with nothing left to follow it is listed as **on busybox already**. That is how an agent that stayed behind — its agent wasn't installed there yet, say — follows once it is.
 
 ## Claude Code on a machine

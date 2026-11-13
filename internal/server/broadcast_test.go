@@ -66,3 +66,61 @@ func TestBroadcast(t *testing.T) {
 		}
 	}
 }
+
+// An agent waiting on a question is not typed into by a broadcast: its
+// Enter would pick whatever the menu has highlighted. The agents beside it
+// still get the message.
+func TestBroadcastSkipsAnAgentThatIsAsking(t *testing.T) {
+	s, _, work := shareFixture(t)
+	asking := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	free := agentPane(t, s, "p2", "claude", work, "stty -echo; exec cat")
+	s.report(asking, proto.AgentReportParams{ID: "p1", Agent: "claude", Event: "Notification",
+		NotificationType: "permission_prompt", Message: "Claude needs your permission to use Bash"})
+
+	res, perr := s.broadcastMessage(proto.AgentBroadcastParams{IDs: []string{"p1", "p2"}, Text: "run the tests"})
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	if len(res.Results) != 2 || res.Results[0].Sent ||
+		res.Results[0].Error != "claude in p1 is waiting for an answer: Claude needs your permission to use Bash; nothing was typed" ||
+		!res.Results[1].Sent {
+		t.Fatalf("results: %+v", res.Results)
+	}
+	a5WaitFor(t, "the message in p2", func() bool { return screenCount(free, "run the tests") == 1 })
+	// cat prints a line when Enter reaches it, so anything typed into p1
+	// before the marker would show on or above the marker's line.
+	asking.p.SendText("marker-line", false)
+	asking.p.SendKeys([]string{"enter"})
+	a5WaitFor(t, "the marker", func() bool { return screenCount(asking, "marker-line") == 1 })
+	if n := screenCount(asking, "run the tests"); n != 0 {
+		t.Fatalf("typed %d times into an agent that was asking", n)
+	}
+	if st, _ := agentState(asking); st != proto.AgentBlocked {
+		t.Fatalf("p1 is %q: the broadcast answered it", st)
+	}
+}
+
+// A question that comes up between the paste and the Enter keeps the
+// Enter back: the message waits in the input, unsent, and says so.
+func TestBroadcastHoldsTheEnterWhenAQuestionComesUp(t *testing.T) {
+	s, _, work := shareFixture(t)
+	e := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	if perr := s.pasteUnlessAsked(e, "run the tests"); perr != nil {
+		t.Fatal(perr)
+	}
+	s.report(e, proto.AgentReportParams{ID: "p1", Agent: "claude", Event: "Notification",
+		NotificationType: "permission_prompt", Message: "Claude needs your permission to use Bash"})
+	perr := s.enterUnlessAsked(e)
+	if perr == nil || perr.Code != proto.ErrAgentBlocked || !strings.Contains(perr.Message, "the message was typed but not sent") {
+		t.Fatalf("enter: %v", perr)
+	}
+	// With echo off, cat shows only what Enter submitted: nothing yet.
+	e.p.SendText("marker-line", false)
+	e.p.SendKeys([]string{"enter"})
+	a5WaitFor(t, "the marker", func() bool { return screenCount(e, "marker-line") == 1 })
+	for _, l := range e.p.PlainLines() {
+		if strings.Contains(l, "run the tests") && !strings.Contains(l, "marker-line") {
+			t.Fatalf("submitted on its own: %q", l)
+		}
+	}
+}

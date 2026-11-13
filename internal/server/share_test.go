@@ -246,6 +246,22 @@ func TestShareSessionIntoRunningAgent(t *testing.T) {
 	a5WaitFor(t, "the absolute path", func() bool {
 		return strings.Contains(strings.Join(e2.p.PlainLines(), ""), work+"/.conch/handoff/codex-x1.md")
 	})
+
+	// An agent waiting on a question is handed nothing: the prompt and its
+	// Enter would answer it.
+	asking := agentPane(t, s, "p9", "claude", work, "stty -echo; exec cat")
+	s.report(asking, proto.AgentReportParams{ID: "p9", Agent: "claude", Event: "Notification",
+		NotificationType: "permission_prompt", Message: "Claude needs your permission to use Bash"})
+	_, perr = s.shareSession(proto.SessionShareParams{Agent: "codex", ID: "x1", Dir: work, PaneID: "p9"})
+	if perr == nil || perr.Code != proto.ErrAgentBlocked || !strings.Contains(perr.Message, "nothing was typed") {
+		t.Fatalf("into a waiting agent: %v", perr)
+	}
+	asking.p.SendText("marker-line", false)
+	asking.p.SendKeys([]string{"enter"})
+	a5WaitFor(t, "the marker", func() bool { return screenCount(asking, "marker-line") == 1 })
+	if screenCount(asking, "earlier Codex session") != 0 {
+		t.Fatal("the handoff was typed into a waiting agent")
+	}
 }
 
 func TestExcludeFromGit(t *testing.T) {

@@ -3,7 +3,11 @@ package detect
 import (
 	"os"
 	"os/exec"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/creack/pty"
 )
 
 func TestStatParent(t *testing.T) {
@@ -45,5 +49,86 @@ func TestParentPID(t *testing.T) {
 	}
 	if _, err := ParentPID(-1); err == nil {
 		t.Fatal("pid -1")
+	}
+}
+
+func TestStatTPGID(t *testing.T) {
+	stat := "4242 (my (odd) name) S 17 4242 4242 34816 4300 4194560"
+	if got, err := statTPGID([]byte(stat)); err != nil || got != 4300 {
+		t.Fatalf("tpgid: %d %v, want 4300", got, err)
+	}
+	if got, err := statPGRP([]byte(stat)); err != nil || got != 4242 {
+		t.Fatalf("pgrp: %d %v, want 4242", got, err)
+	}
+	if got, err := statTPGID([]byte("4242 (bash) S 1 4242 4242 0 -1 0")); err != nil || got != -1 {
+		t.Fatalf("no terminal: %d %v, want -1", got, err)
+	}
+	for _, bad := range []string{"", "4242 (bash) S 1 4242 4242 0", "4242 (bash) S 1 2 3 4 x"} {
+		if _, err := statTPGID([]byte(bad)); err == nil {
+			t.Errorf("%q: no error", bad)
+		}
+	}
+}
+
+// TestTerminalForeground: a program alone on a terminal is in front of it;
+// one with no terminal has nothing in front.
+func TestTerminalForeground(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "30")
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ptmx.Close()
+	defer cmd.Process.Kill()
+	var fg Process
+	for i := 0; i < 100; i++ { // until the exec has happened
+		if fg, err = TerminalForeground(cmd.Process.Pid); err == nil && fg.Name == "sleep" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil || fg.Name != "sleep" || fg.PID != cmd.Process.Pid {
+		t.Fatalf("foreground: %+v %v, want sleep %d", fg, err, cmd.Process.Pid)
+	}
+
+	bare := exec.Command("/bin/sleep", "30")
+	bare.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := bare.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer bare.Process.Kill()
+	if fg, err := TerminalForeground(bare.Process.Pid); err == nil {
+		t.Fatalf("no terminal: %+v, want an error", fg)
+	}
+	if _, err := TerminalForeground(1 << 22); err == nil {
+		t.Fatal("no such process: want an error")
+	}
+}
+
+// TestTerminalForegroundLeaderGone: the group in front of a terminal can
+// outlive its leader (`a | b` once a has finished); what runs on in it is
+// still in front, not nothing — or a long job read as idle and the machine
+// slept under it.
+func TestTerminalForegroundLeaderGone(t *testing.T) {
+	// Job control puts the pipeline in a group of its own, led by its
+	// first command, which ends while the second runs on.
+	cmd := exec.Command("/bin/sh", "-c", "set -m; sleep 0.3 | sleep 30")
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ptmx.Close()
+	defer syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	defer cmd.Process.Kill()
+	time.Sleep(700 * time.Millisecond) // the leader has finished
+	var fg Process
+	for i := 0; i < 100; i++ {
+		if fg, err = TerminalForeground(cmd.Process.Pid); err == nil && fg.Name == "sleep" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil || fg.Name != "sleep" || fg.PID == cmd.Process.Pid {
+		t.Fatalf("foreground: %+v %v, want the sleep still running", fg, err)
 	}
 }

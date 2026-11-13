@@ -1,0 +1,135 @@
+package server_test
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Amitgb14/conch/internal/proto"
+)
+
+// launchShell is a login shell that says every agent is installed, and
+// writes each command it is asked to run to log instead of running it.
+func launchShell(t *testing.T) (log string) {
+	t.Helper()
+	dir := t.TempDir()
+	log = filepath.Join(dir, "ran")
+	sh := filepath.Join(dir, "fake-shell")
+	script := `#!/bin/sh
+case "$2" in *"command -v"*) echo /fake/agent; echo 1.0.0; exit 0;; esac
+printf '%s\n' "$*" >> ` + log + `
+exec sleep 30
+`
+	if err := os.WriteFile(sh, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", sh)
+	return log
+}
+
+func launchArg(t *testing.T, p proto.PaneCreateParams) string {
+	t.Helper()
+	b, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func ran(t *testing.T, log, want string) {
+	t.Helper()
+	for i := 0; i < 250; i++ {
+		b, _ := os.ReadFile(log)
+		if strings.Contains(string(b), want) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	b, _ := os.ReadFile(log)
+	t.Fatalf("never ran %q; ran:\n%s", want, b)
+}
+
+// An agent calling from its pane may start an agent and choose its model,
+// and nothing else about what runs: not a second agent told to ask nobody,
+// not a command of its own, not an environment. The person is never held
+// to it, and [agents] unrestricted_launch lifts it.
+func TestAgentLaunchRule(t *testing.T) {
+	c, a, _, _, _, _, _, _ := scopeFixture(t)
+	log := launchShell(t)
+	h := startHelper(t, c, a, "claude")
+
+	refused := []proto.PaneCreateParams{
+		{Agent: "claude", AgentArgs: "--dangerously-skip-permissions"},
+		{Agent: "codex", AgentArgs: "--yolo"},
+		{Agent: "claude", AgentArgs: "--model opus --dangerously-skip-permissions"},
+		{Agent: "claude", AgentArgs: "--model opus; touch /tmp/conch-launch-rule"},
+		{Agent: "claude", AgentArgs: "--model $(id)"},
+		{Agent: "claude", AgentArgs: "--model -x"},
+		{Agent: "claude", AgentArgs: "--model"},
+		{Command: []string{"/bin/sh", "-c", "echo hi"}},
+		{Agent: "claude", Command: []string{"claude", "--dangerously-skip-permissions"}},
+		{Env: []string{"ZDOTDIR=/somewhere"}},
+		{Agent: "claude", Env: []string{"CLAUDE_CONFIG_DIR=/somewhere"}},
+	}
+	for _, p := range refused {
+		p.Cwd = a
+		if code, _ := h.do("launch", launchArg(t, p)); code != proto.ErrOutOfScope {
+			t.Errorf("%+v: %s, want refused", p, code)
+		}
+	}
+
+	allowed := []struct {
+		p    proto.PaneCreateParams
+		runs string // in what the shell is asked to run
+	}{
+		{proto.PaneCreateParams{Agent: "claude"}, "exec claude"},
+		{proto.PaneCreateParams{Agent: "claude", AgentArgs: "--model opus "}, "--model opus"},
+		{proto.PaneCreateParams{Agent: "claude", AgentArgs: "--model='claude-opus-4-1[1m]'"}, "--model 'claude-opus-4-1[1m]'"},
+		{proto.PaneCreateParams{Agent: "opencode", AgentArgs: `--model "openai/gpt-5"`}, "--model openai/gpt-5"},
+		{proto.PaneCreateParams{}, "-l"},                                            // a plain terminal
+		{proto.PaneCreateParams{Command: []string{os.Getenv("SHELL"), "-l"}}, "-l"}, // as an older conch new asked for one
+	}
+	for _, w := range allowed {
+		w.p.Cwd = a
+		if code, _ := h.do("launch", launchArg(t, w.p)); code != "ok" {
+			t.Errorf("%+v: %s, want ok", w.p, code)
+			continue
+		}
+		ran(t, log, w.runs)
+	}
+
+	// Nothing refused reached a shell.
+	b, _ := os.ReadFile(log)
+	for _, bad := range []string{"dangerously", "yolo", "touch", "$(id)", "echo hi", "ZDOTDIR"} {
+		if strings.Contains(string(b), bad) {
+			t.Fatalf("ran %q:\n%s", bad, b)
+		}
+	}
+
+	// The person, from outside every pane, is not held to it.
+	if err := c.Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude",
+		AgentArgs: "--dangerously-skip-permissions", Cwd: a}, nil); err != nil {
+		t.Fatalf("the person's own launch: %v", err)
+	}
+	ran(t, log, "--dangerously-skip-permissions")
+
+	// Somebody who wants agents to start agents however they like says so.
+	cfg := filepath.Join(os.Getenv("CONCH_HOME"), "config.toml")
+	if err := os.WriteFile(cfg, []byte("[agents]\nunrestricted_launch = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := proto.PaneCreateParams{Agent: "codex", AgentArgs: "--yolo", Cwd: a}
+	if code, _ := h.do("launch", launchArg(t, p)); code != "ok" {
+		t.Fatalf("with unrestricted_launch: %s", code)
+	}
+	ran(t, log, "--yolo")
+	// And takes it back, without a restart.
+	os.WriteFile(cfg, []byte("[agents]\nunrestricted_launch = false\n"), 0o600)
+	if code, _ := h.do("launch", launchArg(t, p)); code != proto.ErrOutOfScope {
+		t.Fatalf("after turning it off: %s", code)
+	}
+}

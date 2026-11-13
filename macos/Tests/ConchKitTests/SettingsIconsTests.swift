@@ -39,6 +39,8 @@ let sectionIcons = ["palette", "keyboard", "bell", "bot", "shield-check", "git-m
         // SF Symbols Fill falls back to the line one where there is no fill.
         #expect(tileColors[icon] != nil, "no tile colour for \(icon)")
     }
+    // The sidebar's ssh hosts draw one too, in SF Symbols' sets.
+    #expect(NSImage(systemSymbolName: sfSymbol(lucide: sshHostIcon), accessibilityDescription: nil) != nil)
     #expect(sfSymbol(lucide: "something-new") == "gearshape")
     #expect(settingsTileColor(lucide: "something-new") == RGB("#8e8e93"))
     let g = settingsTileGradient(lucide: "bell")

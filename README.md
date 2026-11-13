@@ -21,19 +21,17 @@ your laptop slept. It earns its keep from the third agent, not the first.
 It is the wrong shape if you run one agent in one repo (use the agent's own
 CLI, with tmux if you want it to survive a dropped ssh session), if you branch
 and commit by hand (a plain multiplexer gives you panes without the opinions),
-or if review means comments, threads and approvals — conch reads diffs side by
-side and stages hunks, but has no review threads and no approving a pull
-request, so pair it with `gh` or your forge for those. It is macOS and Linux; on Windows, WSL. And
-it waits for Enter on purpose: nothing the brain proposes runs until you
-confirm, so it is not the tool for unattended swarms.
+or if review means a conversation with other people — conch reads diffs side
+by side, stages hunks, and a note on a line goes to the agent, which answers
+it in the thread; Conch.app submits a pull request review (approve, request
+changes, comment), but a reply to a colleague's own comment happens on
+GitHub, so pair it with `gh` or your forge for that. It is macOS and Linux;
+on Windows, WSL. And it waits for Enter on purpose: nothing the brain
+proposes runs until you confirm, so it is not the tool for unattended
+swarms.
 
 [The longer version](https://amitgb14.github.io/conch/docs/#is-conch-for-you),
 losses included.
-
-![Adding a project in conch: choosing a folder under ~/workspace, then the new project in the tree, expanded to its branch and its files](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/add_project.gif)
-
-Adding a project: pick a folder, and its branches, agents and terminals are
-there to open.
 
 ![conch showing a project: branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-project.png)
 
@@ -93,6 +91,26 @@ pane, a branch or a file. It is in **beta**:
 from [`macos/`](macos).
 
 ![Conch.app: the tree of machines, projects, branches and agents down the left, a waiting agent's question with its answers above it, and an agent at work in a Ghostty pane](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop.png)
+
+An agent in a Ghostty pane, the tree beside it, and what needs you at the
+top left: the question a waiting agent asked, with its answers to click.
+
+![Conch.app showing a branch's changes: the uncommitted files and commits, a unified diff with a review thread answered by the agent, and the commit box, checks and review beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-changes.png)
+
+A branch's changes in a tab of their own: stage a hunk, write the commit
+message, watch the pull request's checks, and leave the agent a note on a
+line — it answers in the thread.
+
+![Conch.app showing a project's files: the tree of folders on the left and a TypeScript file open beside it, with Save in the corner](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-files.png)
+
+The project's files in a tab too: the tree on the left, the file open with
+its syntax coloured, and ⌘S to save — checked against what the agents may
+have written in the meantime.
+
+![Conch.app showing the dev server's page in a tab: a ledger app served from 127.0.0.1:4321](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-browser.png)
+
+And the dev server's own page in a tab beside them, so what the agent just
+changed is a glance away rather than another window.
 
 [What the window holds](https://amitgb14.github.io/conch/docs/mac-app), key
 by key.
@@ -157,11 +175,13 @@ built; after changing it, run `make settings-ui` (needs pnpm) and commit
 contributing, including keeping tests away from your own running conch.
 
 The website and documentation live in [`web/`](web), a Next.js and
-shadcn/ui app (`pnpm dev` there). Its screenshots are regenerated rather
-than taken by hand: `web/scripts/tui-capture/capture.sh` stages a demo
-project in a scratch conch and saves the TUI's screens,
+shadcn/ui app (`pnpm dev` there). Most of its screenshots are regenerated
+rather than taken by hand: `web/scripts/tui-capture/capture.sh` stages a
+demo project in a scratch conch and saves the TUI's screens,
 `web/scripts/phone-capture/capture.sh` photographs the phone app in
 headless Chrome, and both keep away from your own server and agents.
+Conch.app's are taken in the app by hand — a native window is nobody's
+script.
 
 ## License
 

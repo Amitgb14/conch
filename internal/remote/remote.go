@@ -232,6 +232,11 @@ func retryConnection(ctx context.Context, do func(attempt int) error) error {
 		if !errors.As(err, &conn) || attempt == connectionTries {
 			return err
 		}
+		// Asked first: with both ready, select picks at random, and a
+		// cancelled context could go on trying when the wait is short.
+		if ctx.Err() != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return err
@@ -291,7 +296,15 @@ func Connect(ctx context.Context, tr Transport, opts Options) (*client.Client, e
 		return nil, err
 	}
 	bin := probe.Bin
-	if missing := probe.Missing(); bin == "" || len(missing) > 0 {
+	if ni, ok := tr.(interface{ noInstall() bool }); ok && ni.noInstall() {
+		// conch comes with the machine (a cloud machine's image) and its
+		// server is not this conch's to replace: one that is older is
+		// bridged to and does without what it lacks, as every client
+		// does with an older server.
+		if bin == "" {
+			return nil, &InstallError{Platform: probe.Platform, Reason: fmt.Sprintf("%s has no conch: its image should carry one", target)}
+		}
+	} else if missing := probe.Missing(); bin == "" || len(missing) > 0 {
 		reason := fmt.Sprintf("conch is not installed on %s (%s)", target, probe.Platform)
 		if bin != "" {
 			reason = fmt.Sprintf("conch on %s is from an older build (lacks %s)", target, strings.Join(missing, ", "))

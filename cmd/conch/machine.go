@@ -240,7 +240,7 @@ func machineList() error {
 // about host keys or passwords) and in the background. A sandbox never
 // asks, and one set of credentials serves both.
 func transports(ctx context.Context, m remote.Machine) (watched, background remote.Transport, err error) {
-	if !m.IsSandbox() {
+	if !m.IsSandbox() && !m.IsCloud() {
 		return remote.SSH(m.Target, true, m.Opts...), remote.SSH(m.Target, false, m.Opts...), nil
 	}
 	tr, err := remote.TransportFor(ctx, m.Label, m.Target, false)
@@ -252,6 +252,10 @@ func transports(ctx context.Context, m remote.Machine) (watched, background remo
 
 // sandboxAdvice adds what to run to a stopped sandbox's error.
 func sandboxAdvice(err error, m remote.Machine) error {
+	var asleep *remote.CloudAsleepError
+	if errors.As(err, &asleep) {
+		return fmt.Errorf("%w; run: conch cloud machine wake %s", err, m.Label)
+	}
 	var stopped *remote.SandboxStoppedError
 	if provider, _, ok := remote.ParseSandboxTarget(m.Target); ok && errors.As(err, &stopped) {
 		return fmt.Errorf("%w; run: %s", err, sandboxCmd(provider, "start "+m.ID))
@@ -342,6 +346,8 @@ func connectMachine(ref string) (*client.Client, error) {
 	var needs *remote.InstallError
 	var outdated *remote.OutdatedServerError
 	switch {
+	case errors.As(err, &needs) && m.IsCloud():
+		return nil, err
 	case errors.As(err, &needs) && m.IsSandbox():
 		return nil, fmt.Errorf("%v; run: conch machine upgrade %s", err, m.ID)
 	case errors.As(err, &needs):

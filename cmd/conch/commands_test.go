@@ -1210,6 +1210,20 @@ func TestA4AgentLibrary(t *testing.T) {
 		got[0].Headers["Authorization"] != "Bearer ${T}" || len(got[0].Agents) != 5 {
 		t.Fatalf("replaced %+v", got)
 	}
+	// -plain marks a token written out as the person's choice; without it
+	// nothing is marked.
+	if _, err := run("add", "-plain", "-header", "Authorization=Bearer tok-1", "gh", "https://x.example/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if got := lib.Servers[0]; !got.Plain || got.Headers["Authorization"] != "Bearer tok-1" {
+		t.Fatalf("plain %+v", got)
+	}
+	if _, err := run("add", "-header", "Authorization=Bearer ${T}", "gh", "https://x.example/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if lib.Servers[0].Plain {
+		t.Fatal("marked plain without -plain")
+	}
 	// conch's own tools in one action: nothing to type, and twice is once.
 	if _, err := run("mcp"); err != nil {
 		t.Fatalf("library mcp: %v", err)
@@ -1446,6 +1460,35 @@ func TestA4AskSuggest(t *testing.T) {
 // A library skill from GitHub is fetched by the machine's server and saved
 // with where it came from; one of several must be named; an older server,
 // or a folder without a name, is refused.
+// -plain against a server from before it is refused, saying what to do,
+// rather than sent and refused as a token written out.
+func TestA4LibraryPlainOlderServer(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapLibraryPlain })
+		return h
+	})
+	saved := false
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodAgentLibrary {
+			var p proto.AgentLibraryParams
+			json.Unmarshal(msg.Params, &p)
+			saved = saved || p.Set != nil
+			return proto.AgentLibraryResult{Agents: []string{"claude"}}, nil
+		}
+		return nil, nil
+	})
+	var err error
+	a4Capture(t, "", func() {
+		err = runAgent([]string{"library", "add", "-plain", "-header", "Authorization=Bearer tok-1", "gh", "https://x.example/mcp"})
+	})
+	if err == nil || !strings.Contains(err.Error(), "reload") || saved {
+		t.Fatalf("older server: %v, saved %v", err, saved)
+	}
+}
+
 func TestA4LibrarySkillFromGitHub(t *testing.T) {
 	a4Env(t)
 	srv := startA4Server(t, config.SocketPath())

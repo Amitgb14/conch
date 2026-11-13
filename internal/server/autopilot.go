@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -326,7 +327,11 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 				delete(a.capSaid, ciCount(key))
 			}
 			delete(a.saved.PendingCI, key)
-			if !first && was != "pass" && a.saved.Policy.AutoMerge && b.Name != info.Base {
+			// A turn is from a colour seen here — pending or red — to
+			// green. A pull request with none before (opened, or gone
+			// green, while the server was stopped or between two reads)
+			// was first seen green, and a merge is not undone.
+			if !first && (was == "pending" || was == "fail") && a.saved.Policy.AutoMerge && b.Name != info.Base {
 				if _, waiting := a.saved.Waiting[key]; !waiting {
 					a.saved.Waiting[key] = ""
 				}
@@ -502,6 +507,7 @@ func (s *Server) runAutopilot(quit <-chan struct{}) {
 			return
 		case <-t.C:
 			s.autopilotMerges()
+			s.groups.merges() // a task's Merge All When Green
 			s.autopilotPendingCI()
 			go s.autopilotResolves() // a fetch can take a while; merges must not wait for it
 		}
@@ -773,6 +779,9 @@ func (s *Server) autopilotMerge(key string) {
 	}
 	why := s.mergeHold(info, branch, pr, failedAt != "" && failedAt == at)
 	if why == "" {
+		why = mergeOwnHead(p, branch, pr)
+	}
+	if why == "" {
 		why = s.mergeGates(p, info, branch, pr, at)
 	}
 	if why != "" {
@@ -849,6 +858,31 @@ func (s *Server) mergeGates(p *project, info proto.ProjectInfo, branch string, p
 	}
 	if unmet := s.gatesAt(p, key, info.Base, at); len(unmet) > 0 {
 		return strings.Join(unmet, " and ")
+	}
+	return ""
+}
+
+// commitID is a whole commit id as GitHub gives one (SHA-1 or SHA-256).
+var commitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// mergeOwnHead holds a pull request whose head is not this branch's own
+// work. GitHub names the commit it would merge, and one that is not on the
+// branch here — pushed by somebody else, or a fork's branch that happens
+// to share the name — is not what an agent here made, nor what any check
+// here saw, whatever CI says about it. The head may be behind the branch
+// (an agent's newer commit not pushed yet): that is still its own.
+func mergeOwnHead(p *project, branch string, pr proto.PRInfo) string {
+	if !commitID.MatchString(pr.Head) {
+		return fmt.Sprintf("the commit #%d would merge could not be read", pr.Number)
+	}
+	local := branchHead(p, branch)
+	if local == "" {
+		return fmt.Sprintf("%s is not a branch here, so conch cannot tell #%d's commit is its own", branch, pr.Number)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	if !gitx.IsAncestor(ctx, p.root, pr.Head, local) {
+		return fmt.Sprintf("#%d is at %s, which is not on %s here: conch merges only commits it has", pr.Number, shortCommit(pr.Head), branch)
 	}
 	return ""
 }

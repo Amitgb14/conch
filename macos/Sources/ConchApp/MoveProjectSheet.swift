@@ -9,9 +9,13 @@ import SwiftUI
 // says them. Closing the sheet doesn't stop it: the command runs on, and
 // the status bar says when it is done.
 
-/// The project a Move sheet is for (its machine|id key).
+/// The project a Move sheet is for (its machine|id key); cloud opens it
+/// on Conch Cloud (Move to Conch Cloud…), pick on the machine chosen for
+/// it already (Add project's From this Mac).
 struct MoveProjectTarget: Identifiable {
     var id: String
+    var cloud = false
+    var pick: CloudPick?
 }
 
 @MainActor
@@ -29,6 +33,18 @@ final class MoveProjectModel: ObservableObject {
     @Published var result: MoveResult?
     @Published var problem = ""
     @Published var showThere = true
+    /// Conch Cloud chosen: a cloud machine's id, or "new" for one made for
+    /// the move. It is readied — made, or woken, and connected to — before
+    /// the plan is read (Store.readyCloud), and then dest is its machine.
+    @Published var cloudChoice: String?
+    @Published var newName = ""
+    @Published var newSize = ""
+    @Published var prep: CloudPrep?
+    var newNameEdited = false
+    var cloudTouched = false
+    /// Opened for Conch Cloud: it is chosen once the account's machines
+    /// are read.
+    let wantsCloud: Bool
 
     struct Line: Identifiable, Equatable {
         var id: String { kind + ":" + name }
@@ -39,19 +55,86 @@ final class MoveProjectModel: ObservableObject {
         var detail = ""
     }
 
-    init(store: Store, project: String) {
+    init(store: Store, project: String, cloud: Bool = false, pick: CloudPick? = nil) {
         self.store = store
         self.project = project
+        wantsCloud = cloud || pick != nil
+        switch pick {
+        case .existing(let id)?:
+            cloudChoice = id
+            cloudTouched = true
+        case .new(let n, let s)?:
+            cloudChoice = "new"
+            cloudTouched = true
+            newName = n
+            newNameEdited = true
+            newSize = s
+        case nil: break
+        }
     }
 
     var machine: String { unkey(project).machine }
     var projectID: String { unkey(project).id }
     var info: ProjectInfo? { store.snapshots[machine]?.project(projectID) }
 
-    /// The machines it could go to: every other one, online first.
+    /// The machines it could go to: every other one, online first. Cloud
+    /// machines are Conch Cloud's group.
     var machines: [MachineLink] {
-        let others = store.machines.filter { $0.id != machine }
+        let others = store.machines.filter { $0.id != machine && !$0.cloud }
         return others.filter { $0.state.isEmpty } + others.filter { !$0.state.isEmpty }
+    }
+
+    /// The account's cloud machines it could go to: not the one it is on.
+    var cloudMachines: [CloudMachine] {
+        let here = cloudMachine(forCatalog: machine, catalog: store.catalog, machines: store.cloudMachines)?.id
+        return store.cloudMachines.filter { $0.pickable && $0.id != here }
+    }
+
+    /// The machine it goes to, when that is known: the one chosen, or the
+    /// cloud machine's (none yet for a new one).
+    var target: String? {
+        guard let c = cloudChoice else { return dest }
+        return catalogMachine(forCloud: c, in: store.catalog)
+    }
+
+    var targetLabel: String {
+        if let t = target { return store.label(t) }
+        return cloudChoice == "new" ? newName : ""
+    }
+
+    var canContinue: Bool {
+        guard let c = cloudChoice else { return dest != nil }
+        return store.cloudSignedIn && (c != "new" || cloudNewReady(store, name: newName, size: newSize))
+    }
+
+    func choose(_ m: String) {
+        dest = m
+        cloudChoice = nil
+    }
+
+    func chooseCloud(_ c: String) {
+        cloudChoice = c
+        cloudTouched = true
+        dest = nil
+        suggestName()
+    }
+
+    /// Opened for Conch Cloud: one running, else one asleep, else a new
+    /// one — until somebody picks.
+    func defaultCloud() {
+        guard wantsCloud, dest == nil, !cloudTouched || cloudChoice == nil else { return }
+        if let p = defaultCloudPick(cloudMachines), case .existing(let id) = p {
+            cloudChoice = id
+        } else {
+            cloudChoice = "new"
+        }
+        suggestName()
+    }
+
+    /// A new machine is named after the project, until its name is typed.
+    func suggestName() {
+        guard !newNameEdited else { return }
+        newName = defaultCloudMachineName(for: info?.name ?? "", taken: store.cloudMachines.map(\.name))
     }
 
     /// The project there cloned from the same origin, which a move joins.
@@ -60,23 +143,50 @@ final class MoveProjectModel: ObservableObject {
     }
 
     func makePlan() {
-        guard let d = dest, let b = store.binary else { return }
+        guard store.binary != nil, canContinue else { return }
         phase = .planning
         problem = ""
-        let args = moveArgs(project: projectID, from: machine, to: d, into: into, plan: true)
         Task {
-            await stream(b, args) { line in
-                switch line {
-                case .plan(let p, let n):
-                    self.plan = p
-                    self.steps = n
-                case .error(let e):
-                    self.problem = e
-                default: break
+            // A cloud machine is readied first: made, or woken (as the move
+            // would itself), and connected to, so the project can be shown
+            // there when it has moved.
+            if let c = cloudChoice {
+                let pick: CloudPick = c == "new" ? .new(name: newName, size: newSize) : .existing(id: c)
+                do {
+                    let m = try await store.readyCloud(pick) { self.prep = $0 }
+                    dest = m
+                    // Made now: asked again, it is only connected to.
+                    if let id = store.catalog.first(where: { $0.id == m })?.cloudID { cloudChoice = id }
+                } catch {
+                    prep = nil
+                    problem = "\(error)"
+                    phase = .pick
+                    return
                 }
+                prep = nil
             }
-            phase = plan != nil && problem.isEmpty ? .review : .pick
+            await readPlan()
         }
+    }
+
+    private func readPlan() async {
+        guard let d = dest, let b = store.binary else {
+            phase = .pick
+            return
+        }
+        plan = nil
+        let args = moveArgs(project: projectID, from: machine, to: d, into: into, plan: true)
+        await stream(b, args) { line in
+            switch line {
+            case .plan(let p, let n):
+                self.plan = p
+                self.steps = n
+            case .error(let e):
+                self.problem = e
+            default: break
+            }
+        }
+        phase = plan != nil && problem.isEmpty ? .review : .pick
     }
 
     func move() {
@@ -125,7 +235,11 @@ final class MoveProjectModel: ObservableObject {
     /// The checklist, before anything has run: a line a step.
     func planned(_ p: MovePlan) -> [Line] {
         var out: [Line] = []
-        if p.target == nil { out.append(Line(kind: "clone", name: p.remote ?? "", title: "Clone \(remoteLabel(p.remote)) into \(p.cloneTo ?? "")")) }
+        if p.target == nil {
+            out.append(p.bundle == true
+                ? Line(kind: "clone", name: p.name, title: "Copy the repository into \(p.cloneTo ?? "")")
+                : Line(kind: "clone", name: p.remote ?? "", title: "Clone \(remoteLabel(p.remote)) into \(p.cloneTo ?? "")"))
+        }
         for b in p.branches ?? [] { out.append(Line(kind: "branch", name: b.name, title: "\(b.name) — \(branchWhy(b))")) }
         for w in p.worktrees ?? [] {
             let agents = w.agents?.count ?? 0
@@ -202,9 +316,9 @@ struct MoveProjectSheet: View {
     @StateObject private var model: MoveProjectModel
     @Environment(\.conchTheme) private var theme
 
-    init(store: Store, project: String) {
+    init(store: Store, project: String, cloud: Bool = false, pick: CloudPick? = nil) {
         self.store = store
-        _model = StateObject(wrappedValue: MoveProjectModel(store: store, project: project))
+        _model = StateObject(wrappedValue: MoveProjectModel(store: store, project: project, cloud: cloud, pick: pick))
     }
 
     var name: String { model.info?.name ?? "the project" }
@@ -237,6 +351,12 @@ struct MoveProjectSheet: View {
         }
         .frame(width: 720)
         .background(Theme.raise)
+        .onAppear {
+            store.refreshCloud()
+            model.defaultCloud()
+        }
+        .onChange(of: store.cloudMachines) { _, _ in model.defaultCloud() }
+        .onChange(of: store.cloud) { _, _ in model.defaultCloud() } // signed in here, or read again
     }
 
     var header: some View {
@@ -244,7 +364,7 @@ struct MoveProjectSheet: View {
             Image(systemName: "shippingbox.and.arrow.backward").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.accent)
                 .frame(width: 36, height: 36).background(RoundedRectangle(cornerRadius: 9).fill(Theme.accentDeep.opacity(0.3)))
             VStack(alignment: .leading, spacing: 2) {
-                Text("Move \(name) to another machine").font(.ui(size: 16, weight: .semibold))
+                Text("Move \(name) to \(model.wantsCloud ? "Conch Cloud" : "another machine")").font(.ui(size: 16, weight: .semibold))
                 Text("Everything an agent is working on goes with it: branches, worktrees, uncommitted work and the agents' conversations.")
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
@@ -284,13 +404,12 @@ struct MoveProjectSheet: View {
 
     var wherePage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if model.machines.isEmpty {
-                Text("There is no other machine to move it to. Add one with Add machine… on the sidebar's machine menu, or conch machine add HOST.")
-                    .font(.ui(size: 12.5)).foregroundStyle(Theme.muted)
+            if !model.machines.isEmpty {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    ForEach(model.machines, id: \.id) { m in machineCard(m) }
+                }
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                ForEach(model.machines, id: \.id) { m in machineCard(m) }
-            }
+            cloudGroup
             HStack(spacing: 8) {
                 Text("Into").font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
                 TextField("", text: $model.into, prompt: Text(intoPrompt))
@@ -298,27 +417,107 @@ struct MoveProjectSheet: View {
                     .padding(.horizontal, 9).frame(height: 28)
                     .background(RoundedRectangle(cornerRadius: 7).fill(Theme.well))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line2))
-                    .disabled(model.dest.flatMap { model.cloneThere($0) } != nil)
+                    .disabled(model.target.flatMap { model.cloneThere($0) } != nil)
             }
             if model.phase == .planning {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Reading what moves, on \(store.label(model.machine)) and \(destLabel)…").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                    Text(model.prep?.text ?? "Reading what moves, on \(store.label(model.machine)) and \(model.targetLabel)…")
+                        .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 }
             }
         }
     }
 
     var intoPrompt: String {
-        if let d = model.dest, let p = model.cloneThere(d) { return "joins \(p.name) there (\(p.path))" }
+        if let d = model.target, let p = model.cloneThere(d) { return "joins \(p.name) there (\(p.path))" }
         return "where it is here, under the home folder"
+    }
+
+    // MARK: Conch Cloud
+
+    /// The account's machines, each with its state — one asleep is woken
+    /// before the plan — and a new one; signed out, the sign-in.
+    var cloudGroup: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                LucideIcon("cloud", color: Theme.text2, size: 12)
+                Text("CONCH CLOUD").font(.ui(size: 11, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.text2)
+                Spacer()
+            }
+            if !store.cloudSignedIn {
+                CloudSignInPrompt(store: store)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    ForEach(model.cloudMachines) { m in cloudCard(m) }
+                    newCloudCard
+                }
+                if model.cloudChoice == "new" {
+                    CloudNewMachineFields(store: store,
+                                          name: Binding(get: { model.newName }, set: { model.newName = $0; model.newNameEdited = true }),
+                                          size: $model.newSize)
+                        .disabled(model.phase == .planning)
+                }
+            }
+        }
+    }
+
+    func cloudCard(_ m: CloudMachine) -> some View {
+        let on = model.cloudChoice == m.id
+        let there = catalogMachine(forCloud: m.id, in: store.catalog)
+        let online = there.flatMap { t in store.machines.first { $0.id == t } }?.online == true
+        let clone = online ? there.flatMap { model.cloneThere($0) } : nil
+        return Button { model.chooseCloud(m.id) } label: {
+            HStack(alignment: .top, spacing: 10) {
+                LucideIcon("cloud", color: Theme.text2, size: 14)
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(m.name).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+                    HStack(spacing: 6) {
+                        tag(m.stateText, cloudToneColor(m.tone))
+                        if m.asleep { tag("woken first", Theme.muted) }
+                        if let c = clone { tag("has \(c.name)", Theme.accent) }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(on ? Theme.accentDeep.opacity(0.28) : Theme.raise2))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.accent : Theme.line2, lineWidth: on ? 1.5 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.phase == .planning)
+    }
+
+    var newCloudCard: some View {
+        let on = model.cloudChoice == "new"
+        return Button { model.chooseCloud("new") } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "plus").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.text2).frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("New cloud machine…").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text("made for it, then moved to").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: 10).fill(on ? Theme.accentDeep.opacity(0.28) : Theme.raise2))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.accent : Theme.line2, lineWidth: on ? 1.5 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.phase == .planning)
     }
 
     func machineCard(_ m: MachineLink) -> some View {
         let online = m.state.isEmpty
-        let on = model.dest == m.id
+        let on = model.dest == m.id && model.cloudChoice == nil
         let clone = model.cloneThere(m.id)
-        return Button { if online { model.dest = m.id } } label: {
+        return Button { if online { model.choose(m.id) } } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: m.id == "local" ? "laptopcomputer" : "server.rack").font(.system(size: 14))
                     .foregroundStyle(Theme.text2).frame(width: 30, height: 30)
@@ -363,8 +562,9 @@ struct MoveProjectSheet: View {
                 pill("\(agents.count)", agents.count == 1 ? "agent" : "agents")
             }
             .padding(.bottom, 2)
-            card("Repository", icon: "shippingbox", note: p.target == nil ? "cloned there from its origin" : "\(destLabel) has it already") {
-                row(left: Text(model.remoteLabel(p.remote)).font(.ui(size: 12, design: .monospaced)),
+            card("Repository", icon: "shippingbox", note: p.target != nil ? "\(destLabel) has it already"
+                    : p.bundle == true ? "no origin: copied there, every branch and tag" : "cloned there from its origin") {
+                row(left: Text(p.bundle == true ? p.name : model.remoteLabel(p.remote)).font(.ui(size: 12, design: .monospaced)),
                     right: [p.target == nil ? "→ \(p.cloneTo ?? "")" : "joins \(p.targetName ?? "") · \(p.targetPath ?? "")"])
             }
             if let w = p.worktrees, !w.isEmpty {
@@ -527,7 +727,7 @@ struct MoveProjectSheet: View {
             switch model.phase {
             case .pick, .planning:
                 Button("Continue") { model.makePlan() }.keyboardShortcut(.defaultAction)
-                    .disabled(model.dest == nil || model.phase == .planning)
+                    .disabled(!model.canContinue || model.phase == .planning)
             case .review:
                 Button("Move \(name) to \(destLabel)") { model.move() }.keyboardShortcut(.defaultAction)
             case .moving:

@@ -46,6 +46,16 @@ public func conchEnvironment(_ env: [String: String] = ProcessInfo.processInfo.e
     return out
 }
 
+/// What a conch run in a terminal of the server's (runCLIPane) is given
+/// of conchEnvironment: the server starts that terminal with its own
+/// environment, not the app's, so without CONCH_SOURCE the conch there
+/// could not build itself for a new sandbox and installed whatever older
+/// build its cache held — which the check after the install then refused.
+public func cliPaneEnv(_ env: [String: String] = conchEnvironment()) -> [String] {
+    guard let src = env["CONCH_SOURCE"], !src.isEmpty else { return [] }
+    return ["CONCH_SOURCE=" + src]
+}
+
 /// Runs conch with args and answers what it printed, or why it failed.
 public func runConch(_ binary: String, _ args: [String]) async throws -> Data {
     try await withCheckedThrowingContinuation { cont in

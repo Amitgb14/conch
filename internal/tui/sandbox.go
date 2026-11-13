@@ -191,13 +191,13 @@ func newAddMenu() *menu {
 	}}
 }
 
-// newSandboxMenu lists the providers conch can make a sandbox with. It is
-// built from the registry, so a new provider appears here by being in
-// sandbox.Names() and needs no menu of its own.
+// newSandboxMenu lists the providers conch offers for making a sandbox. It
+// is built from the registry, so a new provider appears here by being in
+// sandbox.Offered() and needs no menu of its own.
 func newSandboxMenu(back *menu) *menu {
 	mu := &menu{title: "New sandbox", back: back}
 	taken := map[string]bool{}
-	for _, name := range sandbox.Names() {
+	for _, name := range sandbox.Offered() {
 		// The first letter of its name another hasn't taken: Devin is e,
 		// beside Daytona's d. Enter still picks one that found none.
 		key := ""

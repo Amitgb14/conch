@@ -162,3 +162,28 @@ func TestA6ByBranch(t *testing.T) {
 		t.Fatal("nil")
 	}
 }
+
+// A fork's pull request names a branch of another repository, so it is
+// never this repository's branch of the same name — however recently it
+// was updated, and whether or not there is one of ours.
+func TestByBranchLeavesOutForks(t *testing.T) {
+	out, err := Parse([]byte(`[
+		{"number": 1, "state": "OPEN", "headRefName": "fix-login", "headRefOid": "aaa", "isCrossRepository": false, "updatedAt": "2026-01-01T00:00:00Z"},
+		{"number": 2, "state": "OPEN", "headRefName": "fix-login", "headRefOid": "bbb", "isCrossRepository": true, "updatedAt": "2026-01-02T00:00:00Z"},
+		{"number": 3, "state": "OPEN", "headRefName": "only-theirs", "isCrossRepository": true, "updatedAt": "2026-01-02T00:00:00Z"},
+		{"number": 4, "state": "OPEN", "headRefName": "older-gh", "updatedAt": "2026-01-02T00:00:00Z"}
+	]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out[1].Fork || out[0].Fork || out[3].Fork {
+		t.Fatalf("forks: %+v", out)
+	}
+	by := ByBranch(out)
+	if len(by) != 2 || by["fix-login"].Number != 1 || by["fix-login"].Head != "aaa" || by["older-gh"].Number != 4 {
+		t.Fatalf("by branch: %+v", by)
+	}
+	if _, ok := by["only-theirs"]; ok {
+		t.Fatal("a fork's branch is listed as ours")
+	}
+}

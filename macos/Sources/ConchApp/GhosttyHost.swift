@@ -62,10 +62,8 @@ final class GhosttyRuntime {
             read_clipboard_cb: { ud, loc, state, mimes, n, list in
                 GhosttyPaneView.readClipboard(ud, loc, state, mimes, n, list)
             },
-            confirm_read_clipboard_cb: { ud, _, state, _ in
-                // Only a program asking to read the clipboard (OSC 52) gets
-                // here; conch's panes are not given it.
-                if let v = GhosttyPaneView.from(ud), let s = v.surface { ghostty_surface_deny_clipboard_request(s, state) }
+            confirm_read_clipboard_cb: { ud, confirm, state, request in
+                GhosttyPaneView.confirmClipboard(ud, confirm, state, request)
             },
             write_clipboard_cb: { _, loc, content, len, _ in
                 GhosttyPaneView.writeClipboard(loc, content, len)
@@ -635,6 +633,43 @@ final class GhosttyPaneView: NSView {
                               _ mimes: UnsafePointer<UnsafePointer<CChar>?>?, _ n: Int, _ list: Bool) -> ghostty_clipboard_read_result_e {
         guard loc == GHOSTTY_CLIPBOARD_STANDARD, let v = from(ud), let s = v.surface,
               let text = NSPasteboard.general.string(forType: .string) else { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
+        complete(s, text: text, state: state, confirmed: false)
+        return GHOSTTY_CLIPBOARD_READ_STARTED
+    }
+
+    /// Ghostty asks before a paste it calls unsafe — a line break, which
+    /// runs a command in a program that did not ask for bracketed paste —
+    /// and before a program reads the clipboard. The paste is asked about,
+    /// as Ghostty's own window does; refusing it unasked dropped every
+    /// multi-line paste into a plain shell. A program reading the
+    /// clipboard (OSC 52) is still refused: conch's panes are not given it.
+    static func confirmClipboard(_ ud: UnsafeMutableRawPointer?, _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
+                                 _ state: UnsafeMutableRawPointer?, _ request: ghostty_clipboard_request_e) {
+        guard let v = from(ud), let s = v.surface else { return }
+        guard request == GHOSTTY_CLIPBOARD_REQUEST_PASTE, let c = confirm?.pointee, c.contents_len > 0, let first = c.contents else {
+            ghostty_surface_deny_clipboard_request(s, state)
+            return
+        }
+        // Copied now: Ghostty's buffer is only lent for the call.
+        let text = String(decoding: UnsafeRawBufferPointer(start: first.pointee.data, count: first.pointee.len), as: UTF8.self)
+        DispatchQueue.main.async {
+            guard let s = v.surface else { return }
+            let w = pasteWarning(text)
+            let alert = NSAlert()
+            alert.messageText = w.title
+            alert.informativeText = w.info
+            alert.addButton(withTitle: "Paste")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                complete(s, text: text, state: state, confirmed: true)
+            } else {
+                ghostty_surface_deny_clipboard_request(s, state)
+            }
+        }
+    }
+
+    /// Hands Ghostty the text it asked for.
+    static func complete(_ s: ghostty_surface_t, text: String, state: UnsafeMutableRawPointer?, confirmed: Bool) {
         let data = Array(text.utf8)
         "text/plain".withCString { mime in
             data.withUnsafeBufferPointer { buf in
@@ -642,13 +677,12 @@ final class GhosttyPaneView: NSView {
                     var content = ghostty_clipboard_content_s(mime: mime, data: ptr, len: buf.count)
                     withUnsafePointer(to: &content) { cp in
                         var done = ghostty_clipboard_complete_s(contents: cp, contents_len: 1, available: nil, available_len: 0,
-                                                                confirmed: false, remember: false)
+                                                                confirmed: confirmed, remember: false)
                         ghostty_surface_complete_clipboard_request(s, &done, state)
                     }
                 }
             }
         }
-        return GHOSTTY_CLIPBOARD_READ_STARTED
     }
 
     static func writeClipboard(_ loc: ghostty_clipboard_e, _ content: UnsafePointer<ghostty_clipboard_content_s>?, _ len: Int) {

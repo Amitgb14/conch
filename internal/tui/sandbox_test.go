@@ -330,7 +330,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	m.overlay = mu
 	mu.items[1].run(m)
 	sub, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud… | t Tensorlake… | * Install a provider from the registry… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
+	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud… | * Install a provider from the registry… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
 		t.Fatalf("sandbox menu: %#v", m.overlay)
 	}
 	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {

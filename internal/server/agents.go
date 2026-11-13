@@ -12,6 +12,7 @@ import (
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/detect"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -92,8 +93,14 @@ func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry
 }
 
 func (e *entry) info() proto.PaneInfo {
+	// What a program or an agent named itself is drawn on somebody's
+	// terminal by every client — the TUI, the app, a phone — so its
+	// control characters go here, once: a title or a name carrying OSC 52
+	// would otherwise write that person's clipboard, and a line break
+	// would break the layout.
 	info := e.p.Info()
-	info.Title = adapter.CleanTitle(e.p.Title())
+	info.Name = gitx.Printable(info.Name)
+	info.Title = gitx.Printable(adapter.CleanTitle(e.p.Title()))
 	e.mu.Lock()
 	proj := e.project
 	st := e.tracker.Status()
@@ -101,8 +108,11 @@ func (e *entry) info() proto.PaneInfo {
 	info.LastActive = e.lastActive
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
+	for i := range subs {
+		subs[i].Description = gitx.Printable(subs[i].Description)
+	}
 	if e.loginOK && info.State == proto.PaneRunning {
-		info.SSH = e.login.Host
+		info.SSH = gitx.Printable(e.login.Host)
 	}
 	if len(e.lineage) > 0 {
 		info.CreatedBy = e.lineage[0]
@@ -122,8 +132,8 @@ func (e *entry) info() proto.PaneInfo {
 		tokens := e.tokens
 		e.mu.Unlock()
 		info.Agent = &proto.AgentStatus{
-			Name: st.Agent, State: st.State, Source: st.Source, Reason: st.Reason,
-			Message: st.Message, SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
+			Name: st.Agent, State: st.State, Source: st.Source, Reason: gitx.Printable(st.Reason),
+			Message: gitx.Printable(st.Message), SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
 			Turn: turns, Subagents: subs,
 		}
 	}
@@ -375,6 +385,7 @@ func (s *Server) markSeen(e *entry) {
 func (s *Server) rename(e *entry, name string) {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
+	name = gitx.Printable(name) // see info
 	s.evaluate(e, func(*detect.Tracker) { e.p.Rename(name) })
 }
 

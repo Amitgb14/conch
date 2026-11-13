@@ -201,15 +201,16 @@ func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []str
 	sb, err := p.Create(ctx, spec)
 	if err != nil {
 		if sb.ID != "" {
-			abandonSandbox(p, sb.ID, yes)
+			abandonSandbox(p, sb.ID, err, yes)
 		}
 		return remote.Machine{}, sb, nil, err
 	}
 	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", sb.ID)
 	saved, c, err := setUpSandboxMachine(ctx, label, sb.ID)
 	if err != nil {
+		err = refusedKey(p, err)
 		if c == nil { // setting up failed, not saving
-			abandonSandbox(p, sb.ID, yes)
+			abandonSandbox(p, sb.ID, err, yes)
 		}
 		return remote.Machine{}, sb, nil, err
 	}
@@ -286,6 +287,7 @@ func sandboxAdd(args []string) error {
 	}
 	saved, c, err := setUpSandboxMachine(ctx, *label, id)
 	if err != nil {
+		err = refusedKey(p, err)
 		if c == nil {
 			return fmt.Errorf("%w (sandbox %s is left as it was)", err, id)
 		}
@@ -305,7 +307,31 @@ func sandboxAdd(args []string) error {
 
 // abandonSandbox offers to delete a sandbox whose setting up failed, since
 // it costs for as long as it runs.
-func abandonSandbox(p sandbox.Provider, id string, yes bool) {
+// refusedKey says in plain words that the provider's gateway refused the
+// ssh key, and how to get it registered, when that is what failed. A
+// provider whose gateway lets in only keys registered with the account
+// (Tensorlake) fails setting up in ssh's own words — "never answered:
+// Permission denied (publickey)", with advice about answering ssh prompts
+// that does not help — and the sandbox it has just made is left running.
+func refusedKey(p sandbox.Provider, err error) error {
+	ak, ok := p.(sandbox.AccountKeyed)
+	if !ok || !ak.AccountKey() || !strings.Contains(err.Error(), "Permission denied (publickey)") {
+		return err
+	}
+	how := "register your public key with your account there"
+	if n, ok := p.(sandbox.Noted); ok && n.Note() != "" {
+		how = n.Note()
+	}
+	return fmt.Errorf("%s refused your ssh key, so conch could not log in to set the sandbox up. %s", sandbox.ProviderLabel(p.Name()), how)
+}
+
+// Why it failed is said first: asked before the reason, somebody answers
+// without it, and the reason came after — in Conch.app, in a tab that
+// closed as the command ended, so it was never seen at all.
+func abandonSandbox(p sandbox.Provider, id string, why error, yes bool) {
+	if why != nil {
+		fmt.Fprintf(os.Stderr, "  failed: %v\n", why)
+	}
 	if !yes && !confirm(fmt.Sprintf("  Setting up sandbox %s failed. Delete it? [Y/n] ", id), true) {
 		fmt.Fprintf(os.Stderr, "  kept it; delete it with: %s\n", sandboxCmd(p.Name(), "rm "+id))
 		return
@@ -1002,15 +1028,16 @@ type providerJSON struct {
 	File    string `json:"file,omitempty"`
 }
 
-// sandboxProviders lists the providers conch can make a sandbox with, and
-// whether each is set up here.
+// sandboxProviders lists the providers conch offers for making a sandbox
+// (sandbox.Offered), and whether each is set up here. Conch.app's New
+// Sandbox sheet and its Sandboxes settings are drawn from it.
 func sandboxProviders(args []string) error {
 	asJSON := len(args) == 1 && args[0] == "-json"
 	if len(args) > 0 && !asJSON {
 		return errors.New("usage: conch sandbox providers [-json]")
 	}
 	out := []providerJSON{}
-	for _, name := range sandbox.Names() {
+	for _, name := range sandbox.Offered() {
 		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name)}
 		if !sandbox.Builtin(name) {
 			j.Adapted, j.File = true, sandbox.ProviderFilePath(name)

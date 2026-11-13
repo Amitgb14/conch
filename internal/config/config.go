@@ -17,7 +17,6 @@ import (
 // Config is the user configuration read from config.toml.
 type Config struct {
 	Keys    Keys       `toml:"keys"`
-	Pane    PaneCfg    `toml:"pane"`
 	Notify  NotifyCfg  `toml:"notify"`
 	UI      UICfg      `toml:"ui"`
 	Shell   ShellCfg   `toml:"shell"`
@@ -30,6 +29,7 @@ type Config struct {
 	Sandbox SandboxCfg `toml:"sandbox"`
 	Web     WebCfg     `toml:"web"`
 	App     AppCfg     `toml:"app"`
+	Cloud   CloudCfg   `toml:"cloud"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
@@ -50,6 +50,14 @@ type WebCfg struct {
 	// from any network without Tailscale: wss://relay.example.com, one
 	// `conch relay` serves. "" is none.
 	Relay string `toml:"relay,omitempty"`
+}
+
+// CloudCfg is Conch Cloud. API is the control plane to sign in to: ""
+// is the production server; CONCH_CLOUD_URL overrides it. A device keeps
+// the server it signed in to with its sign-in, so changing this takes
+// effect at the next conch login.
+type CloudCfg struct {
+	API string `toml:"api,omitempty"`
 }
 
 // AppCfg is how Conch.app (macos/) draws its window. The TUI reads none of
@@ -368,6 +376,12 @@ type AgentsCfg struct {
 	// default) answers by them, "dry-run" only records what they would
 	// have answered, "off" ignores them.
 	PermissionMode string `toml:"permission_mode,omitempty"`
+	// UnrestrictedLaunch lets an agent calling conch from its pane start
+	// panes however it likes: any command, environment and flags — a
+	// helper told to ask nobody before it acts among them. Off, an agent
+	// may choose only which agent to start and its --model
+	// (internal/server/launchrule.go).
+	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.
@@ -520,12 +534,6 @@ type Keys struct {
 	// field each because the set belongs to keymap, which the TUI, the
 	// doctor and that command all read; config only carries the file.
 	Bind map[string]string `toml:"bind"`
-}
-
-// PaneCfg holds defaults for new panes.
-type PaneCfg struct {
-	// DefaultCommand is the command a new pane runs; empty means $SHELL.
-	DefaultCommand string `toml:"default_command"`
 }
 
 // Default returns the built-in configuration.

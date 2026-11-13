@@ -147,3 +147,61 @@ func percent(n, total int64) int64 {
 	}
 	return n * 100 / total
 }
+
+// CopyProject carries a project that has no origin — nothing there could
+// clone it from — to another machine: its repository bundled by from, read
+// back through this client, uploaded to to and made a project at path
+// there, every branch and tag with the main checkout's branch checked out.
+func CopyProject(ctx context.Context, from, to *Client, projectID, path string) (proto.ProjectInfo, error) {
+	// Both servers have proto.CapProjectBundle: the caller asks, since it
+	// knows what to call each machine.
+	var info proto.ProjectInfo
+	bctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	var b proto.ProjectBundle
+	err := from.Call(bctx, proto.MethodProjectBundle, proto.ProjectRef{ID: projectID}, &b)
+	cancel()
+	if err != nil {
+		return info, fmt.Errorf("bundle the repository: %w", err)
+	}
+	data := make([]byte, 0, b.Size)
+	for {
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		var c proto.WorktreePackChunk
+		err := from.Call(rctx, proto.MethodWorktreePackRead, proto.WorktreePackReadParams{ID: b.ID, Offset: int64(len(data))}, &c)
+		cancel()
+		if err != nil {
+			return info, fmt.Errorf("read the bundle: %w", err)
+		}
+		if len(c.Data) == 0 && !c.EOF {
+			return info, errors.New("read the bundle: the server sent nothing")
+		}
+		data = append(data, c.Data...)
+		if int64(len(data)) > b.Size {
+			return info, fmt.Errorf("read the bundle: more than the %d bytes announced", b.Size)
+		}
+		if c.EOF {
+			break
+		}
+	}
+	if int64(len(data)) != b.Size {
+		return info, fmt.Errorf("read the bundle: it ended after %d of %d bytes", len(data), b.Size)
+	}
+	up := NewUpload(to, b.Name, data)
+	for {
+		uctx, cancel := context.WithTimeout(ctx, up.Timeout())
+		done, err := up.Step(uctx)
+		cancel()
+		if err != nil {
+			return info, fmt.Errorf("upload the bundle: %w", err)
+		}
+		if done {
+			break
+		}
+	}
+	uctx, cancel := context.WithTimeout(ctx, 11*time.Minute) // the server's own limit is 10
+	defer cancel()
+	if err := to.Call(uctx, proto.MethodProjectUnbundle, proto.ProjectUnbundleParams{Pack: up.Path(), Path: path, Branch: b.Branch}, &info); err != nil {
+		return info, fmt.Errorf("make the repository there: %w", err)
+	}
+	return info, nil
+}
