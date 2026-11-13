@@ -25,8 +25,6 @@ Conch.app shows the same agents and terminals as the TUI in a native macOS windo
 
 The sidebar is conch's tree: each machine, its projects, agents, branches and terminals. Tabs and splits are as in the TUI.
 
-Conch Cloud is not enabled in this release: `CONCH_CLOUD=1`, or `enabled = true` under `[cloud]` in `config.toml`, turns it on ([more](/docs/cli#conch-cloud-commands)). Until then nothing offers it, though a cloud machine already in the sidebar keeps **Wake**, **Sleep** and **Delete Machine…**.
-
 **How:** click a row to open it, right-click for its menu. ⌘K searches, ⌘. goes to the next waiting agent, ⌃⌘S hides the sidebar.
 
 ## Settings
@@ -59,7 +57,7 @@ A shell floating over the splits, in the project on screen.
 
 ## A branch's changes
 
-A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks and **Commit**; **✦ Write** drafts the message. Hover a line and press **+** to leave a note for the agent or a pull request comment.
+A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks, then **Commit**; **✦ Write** drafts a message. Hover a line and press **+** for a note to the agent or a pull request comment.
 
 **How:** ⋯ holds **Push**, **Merge into main…**, **Open Pull Request** and **Delete Branch…**.
 
@@ -105,7 +103,7 @@ An agent's files, a terminal and its chat in one tab.
 
 **How:** ⌥⌘B, or right-click an agent → **Open Workbench**. ⌥⌘1–⌥⌘4 pick the IDE, Chat First, Agent or JetBrains layout.
 
-**The chat is a preview, off in 0.2.0**: its Stop can take a while to reach the agent. Turn it on with `chat = true` under `[app]` (Settings → Mac app → **Workbench chat**), or `CONCH_CHAT=1`; while it is off the agent's own terminal takes its place and **Chat First** is not offered.
+**The chat is a preview, off in 0.2.0:** turn it on with `[app] chat = true`.
 
 ## Browser tabs
 
@@ -129,9 +127,9 @@ The project's history as a graph.
 
 A task gives an agent a prompt on a branch of its own.
 
-**How:** **File → New Task…** (⌘N); **File → Start Agent** (⇧⌘N) starts one where the focused pane is; **Add Project…** (⌘O).
+**How:** **File → New Task…** (⌘N), **File → Start Agent** (⇧⌘N), **Add Project…** (⌘O).
 
-In a folder that isn't a git repository yet, **Start** asks first: **Initialize Git** runs `git init` with an empty first commit and starts the task on a branch of its own; **Work in the Folder** starts it in the folder itself. A plain folder's menu has **Initialize Git…** too, and a task across a group asks the same of any repo that is a plain folder (a server older than `project.git_init.v1` says to reload).
+A plain folder is offered **Initialize Git** first.
 
 ## Keys
 
@@ -150,7 +148,7 @@ The TUI's prefix keys work too: `ctrl+b`, then a key from the [prefix table](/do
 
 ## Installing the beta
 
-Download `Conch_<version>_macos_arm64.zip` from the [GitHub release page](https://github.com/Amitgb14/conch/releases). It needs Apple Silicon and macOS 14 or later.
+Download `Conch_<version>_macos_arm64.zip` from the [releases](https://github.com/Amitgb14/conch/releases); it needs Apple Silicon and macOS 14+.
 
 **How:** unzip it, drag **Conch.app** into **Applications** and open it. To update, replace the app.
 

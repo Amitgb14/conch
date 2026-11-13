@@ -111,7 +111,7 @@ read   {"pane":"auth", "tail":20}
 
 An agent may start panes and tasks and read anything, but change only its own work: panes it started, panes in its project, and that project's branches. Anything else is refused with `out_of_scope` and a reason. The TUI and your own terminals are never limited.
 
-Agents may pick which agent to start and its `--model`, nothing more. They may open a plain terminal but not type into one — keys, typing and clicks go only to panes running an agent, since what is typed into a shell runs as a command — and may change a group task's folder only while working on that task. To allow more (it lifts both):
+Agents may pick which agent to start and its `--model`, nothing more, and type only into panes running an agent, never a shell. To allow more:
 
 ```toml
 [agents]

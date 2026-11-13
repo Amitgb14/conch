@@ -8,17 +8,17 @@ The TUI shows a tree of machines, projects, branches, agents and terminals besid
 
 ## The sidebar
 
-Each machine holds `Workspace` (its projects) and `CLI` (agents and terminals of no project). Badges: `⠋1` working, `⚑1` waiting, `✓1` done.
+Each machine holds `Workspace` (projects) and `CLI` (agents and terminals outside projects). Badges: `⠋1` working, `⚑1` waiting, `✓1` done.
 
 **How:** `a` adds a project, `c` starts an agent, `n` a terminal. `!` goes to the next waiting agent.
 
-A project that is a plain folder runs tasks in the folder itself; **Make it a git repository (git init)…** in its menu (or `conch project git-init`) gives its tasks branches of their own.
+A plain folder's menu can **Make it a git repository**.
 
 <TuiShot id="project" title="A project" caption="A project's branches, agents and terminals." />
 
 ## Workspaces
 
-Each workspace shows only its own projects, agents, terminals, hosts and tabs.
+Each workspace shows only its own projects, agents, terminals, hosts, tabs.
 
 **How:** `+` atop the sidebar or `ctrl+b N`; `ctrl+b (` and `)` switch.
 
@@ -26,7 +26,7 @@ Each workspace shows only its own projects, agents, terminals, hosts and tabs.
 
 A terminal logged in to another host with your own `ssh`. Nothing is installed there.
 
-**How:** `H`, then pick a host or type `user@host`; `y` saves it. On a saved host `K` sets up login without a password and `M` makes it a [machine](/docs/remote-machines).
+**How:** `H`, a host or `user@host`; `y` saves it. On a saved host, `K` sets up passwordless login and `M` makes it a [machine](/docs/remote-machines).
 
 ## SSH folders
 

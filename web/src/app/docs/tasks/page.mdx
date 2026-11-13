@@ -147,4 +147,4 @@ conch agent library apply
 conch agent library undo
 ```
 
-Values must refer to variables (`${TOKEN}`); in Conch.app a token can be kept in the macOS Keychain. A token kept in plain text goes into each agent's config file, readable by you alone (0600) — and, for Claude Code, onto `claude mcp add-json`'s command line for a moment, where anybody else logged in to the machine can see it: on a machine others use, keep it in the Keychain or a `${VAR}`.
+Values must refer to variables (`${TOKEN}`); Conch.app can keep a token in the Keychain; a plain one briefly shows on Claude's command line to others on the machine.
