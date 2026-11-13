@@ -2,343 +2,149 @@ export const metadata = { title: "Tasks and worktrees", description: "One branch
 
 # Tasks and worktrees
 
-A task is an agent on its own branch, in its own git worktree, so agents working in parallel never step on each other. conch also brings along the local files a fresh worktree would miss.
-
-## Tasks
-
-`t` on a project (or `conch task "PROMPT"`) creates a branch named from the prompt, checks it out into `<repo>.worktrees/<branch>`, and starts the agent with the prompt — every task isolated from the others.
+How to give each agent its own branch and worktree, finish its work, and set those worktrees up.
 
 <TaskFlow />
 
-The branch goes under the project's own name — a task in **OneNutri** becomes `onenutri/fix-flaky-login-test` — so the branches conch makes are grouped and obvious in a repository other people push to as well. `-branch B`, or the task dialog's Branch field, names it yourself.
+## Tasks
 
-Tasks use the default agent (Settings → Agents; until you choose one, Claude Code, or an agent the machine has when it has no Claude Code) unless the task dialog's Agent field, or `conch task -agent NAME`, names another.
+A task is an agent on its own branch and git worktree (`<repo>.worktrees/<branch>`), so parallel agents never step on each other.
 
-When that agent's plan window is already past an alert threshold (80% and 95% by default — see [notifications](/docs/configuration)), the task dialog says so before you start another one, and follows the Agent field as you change it. It is a warning, never a refusal: limits can be missing, stale, or unreported by an older server, and conch would rather let you work than block on a number it isn't sure of.
-
-```sh
-conch task -cwd ~/src/api "Add a health check endpoint"   # pane, worktree, branch
-```
-
-`conch task` also takes `-branch B` to name the branch and `-base B` to start from another branch than the project's base.
-
-**In a sandbox of its own.** `conch task -sandbox daytona "…"` (or `boat`, or any provider you have [set up](/docs/sandboxes)) makes a sandbox for the task, clones the project there from its origin remote, and starts the agent on its own branch inside it — so nothing the agent runs touches your computer. It works from what origin has: push what it needs first. The sandbox then sits in the sidebar like any other machine, with its usual idle stop, until you stop or remove it.
-
-**From a GitHub issue.** **New task from a GitHub issue…** in a project's menu (`m`) lists its open issues, read through `gh` on the machine the project is on, and choosing one starts the default agent on a branch named after it — `api/issue-12-login-fails-safari` — with the issue's title and body as the prompt and a reminder that its pull request should say `Fixes #12`. From a shell, `conch task -issue 12`; words after it are added to the issue as further instructions, and `-n`, `-agent`, `-queue` and `-at` work as for any task. Only GitHub, through your own `gh` login: conch holds no token of its own.
-
-No git repository is needed. `t` on a machine row — a sandbox's included — asks for a prompt, an agent and a number of attempts, and starts the agent in that machine's home directory, outside every project; `t` on a project that isn't a repository does the same in its folder. From a shell, in a folder that isn't one, `conch task` starts the agent there with the prompt — no branch, no worktree — which is what you want for a planning agent or a scratch folder. `-branch` and `-base` are refused there, and several attempts (`-n`, or several agents) share the folder, which conch says as it starts them. With `-m MACHINE` and no `-cwd`, the agent starts in that machine's home directory, outside every project:
+**How:** `t` on a project, or:
 
 ```sh
-conch -m fix-login task -agent claude "Plan a CLI for tracking expenses"   # in the sandbox's home
+conch task -cwd ~/src/api "Add a health check endpoint"
+conch task -issue 12                       # from a GitHub issue, via gh
+conch task -sandbox daytona "…"            # in a sandbox of its own
 ```
 
-A folder you `git init` after adding it becomes a git project within a second, with no restart. If the repository has no commits yet, the first task gives its base branch an empty first commit to branch from. Anything you staged stays staged and out of that commit. This needs git to have an author (`user.name` and `user.email`), and the task says so when it doesn't.
-
-- `c`/`n` on a branch that isn't checked out creates its worktree first.
-- `x` on a branch removes its worktree (never with uncommitted changes, never the main one).
+`-agent`, `-branch` and `-base` choose the agent and branches; see the [CLI](/docs/cli#task). Outside a git repository the agent starts in the folder, with no branch.
 
 ## Finishing a task
 
-When an agent is done, finish its branch from the changes view (select the branch, `tab` into it) or the branch's menu (`m`). Every step runs on the machine the project is on, so it works the same for remote machines.
+Finish a branch from its changes view (select it, `tab`) or its menu (`m`). The header always names the next key.
 
-You don't need to remember the keys. The changes view's header says the next one for where the branch stands: `c commit` while there is uncommitted work; once it is committed (agents often commit their own), `P push · p pull request · M merge`; once pushed, `p pull request · M merge`; with a pull request open, `o its pull request · M merge`; and once the base has every commit — or once you have merged it from here, since a squash merge leaves git counting the branch's own commits as ahead — `D removes the branch and worktree`. The status bar follows suit: with nothing uncommitted it leaves out marking and committing. Each step's message says the next one too — *committed 0123456 on feat · P pushes it, p opens a pull request*, *pushed feat · p opens a pull request*, *merged feat into main · D removes the branch and its worktree*.
+<TuiShot id="diff" title="Changes view" caption="A branch's changes, with the next step in the header." />
 
 | Key | What it does |
 | --- | --- |
-| `space`, `c` | Commit. `space` marks files; `c` commits the marked ones, or every change (untracked files included) when none are marked. Other changes stay as they were. |
-| `space` in a diff | Mark single hunks. `n` and `N` move between hunks, `space` marks the one under `▸`, and `c` commits just those. A file is committed either whole or by hunks, so marking a hunk drops its whole-file mark. |
-| `P` | Push the branch, setting its upstream on `origin` (or the only remote) the first time. |
-| `p` | Push, then open a pull request into the base with `gh`. Leave the title empty to take the title and description from the commits; tick Draft for a draft. |
-| `M` | Merge the branch's commits into the base where the base is checked out, as one squashed commit (the default) or a merge commit. The base checkout must have no uncommitted changes, and the branch must have its changes committed. A merge that conflicts is undone: nothing changes, and conch names the conflicting files. |
-| `D` | Discard: remove the worktree and delete the branch. conch first shows what that loses — uncommitted files, and commits that are in neither the base, the base's upstream, nor the branch's upstream (a branch squash-merged, or merged through its pull request, loses nothing). Only `y` confirms. |
+| `space`, `c` | Mark files (or hunks in a diff), then commit them — or everything when none are marked |
+| `P` | Push |
+| `p` | Push and open a pull request with `gh` |
+| `M` | Merge into the base, squashed by default |
+| `D` | Remove the worktree and branch, after showing what is lost |
 
-Committing hunks stages them and commits what is staged, as `git add -p` then `git commit` does, so anything you had staged already goes in too; the dialog says so. conch commits exactly the hunks it showed you: if the file changed in between, the commit is refused (`R` reloads the diff) rather than committing something else. Binary files and branches that aren't checked out have no hunks to mark.
-
-The same steps are `conch branch commit | push | pr | merge | discard` and `conch worktree ls | clean` from a shell, so a script or an agent can finish its own task; see the [CLI](/docs/cli#branch).
-
-None of these touch the base branch itself except a merge into it. Discarding refuses while panes are still running in the worktree, and never removes the main checkout.
+From a shell: `conch branch commit | push | pr | merge | discard` ([CLI](/docs/cli#branch)).
 
 ## Cleaning up worktrees
 
-Worktrees outlive their tasks. `W` on a project (also in its menu) lists every worktree besides the main checkout, with what removing it would lose and why it looks finished:
+`W` on a project lists every worktree besides the main checkout, with what removing it would lose and why it looks finished (merged, pull request closed, folder gone).
 
-- **merged into main**, or **no commits of its own** — the base already has everything on the branch (a squash merge counts)
-- **pull request merged** or **closed**, **upstream deleted**
-- **folder gone** — deleted by hand; git still lists it until it is pruned
-- **detached** — a checkout with no branch
-
-The finished ones that lose nothing come ticked. `space` ticks others, `a` toggles the finished ones, `enter` reviews. Removing a worktree deletes its branch too, except the base branch; a folder that is already gone is pruned. Worktrees with panes running, or locked with `git worktree lock`, can't be ticked.
-
-Ticking one with uncommitted files, or commits that are in neither the base nor an upstream, is allowed, but the confirmation names what is lost and only `y` accepts it. Each worktree is checked again when it is removed: work added after the list was read makes conch keep it and say why.
+**How:** finished ones come ticked; `space` ticks others, `a` toggles the finished ones, `enter` reviews, `y` confirms. From a shell: `conch worktree ls | clean`.
 
 ## Several attempts at one task
 
-The same prompt can be tried more than once, each attempt on its own branch and worktree, so you can compare the results and keep one. Name several agents, ask for a number of attempts, or both:
+Try one prompt several times, each attempt on its own branch, and keep the best.
 
 ```sh
-conch task -agent claude,codex "Add a health check endpoint"   # one attempt each
+conch task -agent claude,codex "Add a health check endpoint"   # one each
 conch task -n 3 "Fix the flaky login test"                     # three, same agent
-conch task -agent claude,codex -n 3 "Fix the flaky login test" # three, agents cycling
 ```
 
-In the TUI, the task dialog's **Agent** field takes a list (`claude,codex`) and **Attempts** a number; it shows the branches it will create before anything starts.
+In the task dialog, fill **Agent** with a list and **Attempts** with a number.
 
-Attempts are branches under the task's own name, so they sort together in the tree:
-
-```text
-conch/fix-flaky-login-test/claude
-conch/fix-flaky-login-test/codex
-conch/fix-flaky-login-test/claude-2
-```
-
-A single attempt keeps the plain branch name, exactly as before. Branch names already in the project are never reused, and at most 10 attempts start at once. An attempt that can't start — a branch taken, an agent missing — leaves the others running and is reported on its own.
-
-<Callout type="warning">
-
-Attempts multiply what you spend: three Claude attempts use three times the plan window. The task dialog warns when an agent's window is already nearly used.
-
-</Callout>
+<Callout type="note">Three attempts use three times the plan window.</Callout>
 
 ### Comparing them
 
-`A` on an attempt's changes, or **Compare the N attempts…** in its branch menu, puts them side by side:
+`A` on an attempt's changes shows the attempts side by side.
 
-```text
-╭─ Compare attempts ────────────────────────────────────────────────────╮
-│ Attempts at conch/fix-flaky-test                                      │
-│ ▸ claude    2 files · +16 −3 · 1 commit · passed        $0.90 working │
-│   claude-2  nothing yet                                               │
-│   codex     1 file · +4 · 1 commit · failed (exit 2)            done  │
-│                                                                       │
-│ enter its changes · t rerun go test ./... · o its terminal ·          │
-│ M merge · D discard · x keep it, discard the rest · R reload · esc    │
-╰───────────────────────────────────────────────────────────────────────╯
-```
-
-Each row is what that attempt changed, what its agent is doing and what it has spent. `enter` opens its diff, and the rest are the ordinary [harvest](#finishing-a-task) steps: `M` merges it into the base, `D` throws it away, `x` keeps the selected one and discards the others — each still naming what it would lose and asking first. An attempt whose agent is still running is never discarded by `x`; close it or let it finish.
-
-### Running a command in each
-
-`t` asks for a command — `go test ./...`, `npm test`, `make check` — and runs it in every attempt's worktree, each in its own terminal named `test · claude`. The row then shows `running…`, `passed` or `failed (exit 2)`, straight from that terminal's exit code, so a comparison rests on what the tests say rather than on the size of the diff.
-
-The terminals stay open: `o` shows the selected attempt's one so you can read the output, and they close like any other terminal (`x` in the tree). `t` again reruns the same command, in fresh terminals.
+**How:** `enter` opens a diff, `M` merges, `D` discards, `x` keeps the selected one and discards the rest, `t` runs a command such as `go test ./...` in every attempt and shows `passed` or `failed`.
 
 ## Later, and on a schedule
 
-The server keeps a list of things to do later, so they happen with conch closed — which is usually the point:
+The server runs scheduled tasks with conch closed.
 
 ```sh
-conch task -at 02:00 "Upgrade the test framework and fix what breaks"   # tonight
+conch task -at 02:00 "Upgrade the test framework and fix what breaks"
 conch task -every daily -at 07:00 "Bump the dependencies and run the tests"
-conch agent prompt -at +30m reviewer "Check the CI result and report"
-conch schedule            # what is scheduled, when, and how its last run went
-conch schedule rm s1a2b3  # take one away
+conch task -queue "Add rate limiting to the login endpoint"    # starts when fewer than 3 agents run
+conch task -after api/model "Add a REST endpoint for invoices" # starts from that branch once it is done
+conch schedule            # list; conch schedule rm ID removes one
 ```
 
-`-at` takes `14:05` (today, or tomorrow once it has passed), `+30m` / `+2h` / `+1d`, or `2026-10-15 09:00`. `-every` takes `hourly`, `daily`, `weekly` or a span such as `6h` or `2d`, five minutes at the least; with no `-at`, the first run is now. A span of whole days (`daily`, `weekly`, `2d`) keeps its time on the clock — a task set for 21:24 runs at 21:24 on the night the clocks change, too — while shorter ones (`hourly`, `6h`) count hours as they pass. A repeating task starts on a branch of its own each time — the prompt's branch name with the date and time after it — so one morning's work never lands on the last's. Missed runs, a laptop asleep overnight, are skipped rather than run in a burst.
+In the task dialog, the **When** field takes `queue`, `after api/model` or a time. For an agent stopped at its plan limit, `C` in the [review queue](/docs/interface) resumes it after the reset.
 
-**A queue.** Starting ten agents at once makes ten diffs to read at once, and reading is the slow part. `-queue` adds a task to the project's queue instead: it starts as soon as fewer than three agents are running in the project (`-wip N` for another number), in the order queued. Closing an agent you have finished with is what makes room. Reviewers are not counted — they read work rather than make more of it.
-
-```sh
-conch task -queue "Add rate limiting to the login endpoint"
-conch task -queue -wip 2 "Move the settings page to the new form library"
-```
-
-**After other work.** Some changes need another first: the endpoint needs the model it serves. `-after` holds a task until that work has finished, then starts it from that work's branch, so the second agent builds on what the first committed:
-
-```sh
-conch task -branch api/model "Add the Invoice model and its migration"
-conch task -after api/model "Add a REST endpoint for invoices"
-conch task -after p4 "Write the client for the new endpoint"   # the branch the agent in pane p4 is on
-```
-
-`-after` takes a branch of the project, a pane working on one, or a task still on the schedule — by the ID `conch task -queue` printed, or the `-branch` it was given — so a whole stack can be queued at once, each waiting for the one before. "Finished" is the agent on that branch having worked and stopped: not still at work, not waiting on a question. With `-queue` too it also waits for room; with `-base` it waits but starts from that base instead.
-
-When it can't be sure, it waits and says why in `conch schedule` and the queue, rather than starting on the wrong code:
-
-- the branch has **uncommitted changes**, which a branch made from it would not have — commit them and it starts;
-- the branch is **gone without being merged** — discarded, so there is nothing to build on. A branch that was merged into the base and then deleted is fine: the task starts from the base, which now has that work;
-- the task it waits for was **taken off the schedule or failed to start**.
-
-In the TUI, the task dialog's **When** field does the same: leave it empty to start now, type `queue` to queue it, `after api/model` to wait for other work, or a time — `02:00`, `+2h` — to schedule it.
-
-A scheduled message waits for its agent: it is never typed into one that is working, or waiting on a question of its own — the schedule says so beside it — and is sent once the agent is free. A message for a pane that has since closed, or now runs another agent, is dropped rather than typed into something that never asked for it.
-
-**After a plan limit.** An agent that stopped because its plan ran out is in the [review queue](/docs/interface#review-queue) as `stopped at its plan limit, which resets at 14:00`. `C` there has the server tell it to carry on a minute after the limit resets — whether or not conch is open then. Everything scheduled shows at the bottom of the queue too (`⏲`), and `x` on one takes it off the schedule.
+<TuiShot id="queue" title="Review queue" caption="The review queue, with scheduled work at the bottom." />
 
 ## Local files in worktrees
 
-A fresh worktree has only what git tracks, so an agent there would miss your `.env` or personal agent settings. When conch creates a worktree it copies the main checkout's **gitignored** files that match the project's patterns — by default:
+A new worktree gets copies of the main checkout's gitignored local files — `.env`, `.env.*`, `.envrc`, `.claude/settings.local.json`, `CLAUDE.local.md`, `.mcp.json`, `AGENTS.override.md`, `.gemini/.env` — so the agent has your settings.
 
-- `.env`, `.env.*`, `.envrc`
-- `.claude/settings.local.json`, `CLAUDE.local.md`
-- `.mcp.json`
-- `AGENTS.override.md`
-- `.gemini/.env`
-
-Untracked files git doesn't ignore are never copied, so an agent can't commit them on the task's branch by accident; the setup view lists them instead.
-
-`F` on a project changes the patterns, which are git globs. Existing files in a worktree are never overwritten.
+**How:** `F` on a project changes the patterns, or:
 
 ```sh
-conch project files ID PATTERN...   # set the patterns
-conch project files ID -reset       # restore the defaults
-conch project files ID -none        # copy no local files
+conch project files ID PATTERN...   # set
+conch project files ID -reset       # defaults
+conch project files ID -none        # none
 ```
 
 ## Setup and ports in worktrees
 
-Copied files make a worktree *configured*; they don't make it *run*. It still has no `node_modules`, no virtualenv, no database. Give the project a **setup command** and conch runs it in every new worktree — tasks, attempts, `c` on a branch, a worktree moved from another machine — in a terminal of its own named `setup`, beside the agent rather than before it:
+A **setup command** runs in every new worktree, in a terminal named `setup` beside the agent.
+
+**How:** `F` on a project, or:
 
 ```sh
-conch project setup ID 'npm ci && cp .env.example .env'   # set it
-conch project setup ID                                    # show it
-conch project setup -none ID                              # run nothing
+conch project setup ID 'npm ci && cp .env.example .env'
+conch project setup -none ID
 ```
 
-`F` on a project sets it too. The command runs in your login shell, so the `PATH` your version managers set up (nvm, pyenv, asdf) is the one it sees. A setup that works closes its terminal by itself; one that fails stays open at a shell in the worktree, with `setup failed (exit N)` under its output, which is where you fix it from. The command is kept with the project on that machine, never read from the repository: a branch somebody else pushed can't bring a command that runs on checkout.
-
-The command can read where it is: `CONCH_WORKTREE`, `CONCH_BRANCH`, `CONCH_ROOT` (the main checkout, to copy a database from) and `CONCH_PROJECT`.
+It can read `CONCH_WORKTREE`, `CONCH_BRANCH`, `CONCH_ROOT` and `CONCH_PROJECT`.
 
 ### Ports
 
-Every checkout is given **ten ports of its own**, from `$CONCH_PORT` (and `$CONCH_PORT_COUNT`, which is 10), set in every terminal and agent started there and in its setup. Two agents each running `npm run dev` in their own worktree then don't fight over port 3000 — start servers on the port conch gave:
+Each checkout gets ten ports of its own, starting at `$CONCH_PORT`, so two dev servers don't fight over one port. `L` on a branch opens `http://localhost:$CONCH_PORT`.
 
 ```sh
 npm run dev -- --port $CONCH_PORT
-PORT=$CONCH_PORT rails s
-uvicorn app:app --port $CONCH_PORT
 ```
-
-A checkout keeps its ports for as long as it is on disk, through restarts and reloads, so a link to it still works tomorrow; ports already in use on the machine are skipped. `L` on a branch, or on a pane in a checkout, opens `http://localhost:$CONCH_PORT` in your browser — on another machine through a port forward on conch's own ssh connection, in a sandbox through the provider's link. When nothing answers there yet, conch says how to start a server on it and keeps the link on your clipboard.
 
 ## Agent setup
 
-`i` on a project, branch or pane shows what each agent loads there, read from the agents' own configuration (conch only reads it), a tab per agent — `tab` moves between them. In a narrow window the tab strip moves along to keep the open tab in view, with `‹` where it has left tabs off:
+`i` on a project, branch or pane shows what each agent loads there, a tab per agent: instructions, skills, commands, MCP servers, plugins, hooks conch added, and warnings. In a worktree it lists local files that are missing; `c` copies them. `S` installs conch's own skill.
 
-- **Instructions** — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` and friends, from your home and every folder the agent reads them from, plus the files `CLAUDE.md` and `GEMINI.md` pull in with `@path` imports (marked *imported by*)
-- **Skills** — `~/.claude/skills`, `.agents/skills` (Codex, Gemini, OpenCode, Devin), `.gemini/skills`, `.opencode/skills`, `.devin/skills`, plugin skills. Devin's tab also lists what it reads of Claude Code's — `CLAUDE.md`, `.claude/skills`, `.mcp.json` — marked *Claude Code compatibility*
-- **Commands and subagents**, **MCP servers** (names and transport only — never commands, URLs or secrets), **plugins and extensions**
-- **Added by conch** — the hooks or plugin conch injects for state tracking
-- Warnings, e.g. a folder Claude or Codex hasn't trusted yet
-- **conch** — whether conch's own skill, the one that teaches an agent to start, prompt and read other agents, is installed for this agent **on this machine**: `S` installs it or takes it away, after a question naming the file. A skill of that name conch didn't write is yours and is left alone. Settings → Agents → **conch's own skill…** does the same for every agent at once; see [Agents working together](/docs/agents-together)
-
-In a worktree it also compares with the main checkout: local files that are missing (`c` copies them) and setup that only the main checkout has, such as Claude MCP servers registered for that folder or an uncommitted `.mcp.json`.
-
-```sh
-conch agent setup [-agent NAME] [-copy] [-json] [DIR]
-```
-
-prints the same.
+**How:** `i`, or `conch agent setup [-agent NAME] [-copy] [-json] [DIR]`.
 
 ## One setup, every agent
 
-Running several agents should not mean setting each one up three times. In the setup view, `s` takes the setup of the agent whose tab is open and gives it to the others, in this checkout: its instructions, its skills and the MCP servers it declares, each written where that agent looks for it.
-
-It says what it would write before it writes anything:
-
-```
- Sync agent setup
-
- Give Codex, Gemini CLI and OpenCode Claude Code's setup in this checkout?
-
-   create AGENTS.md (a copy of CLAUDE.md)
-   create GEMINI.md (pointing at CLAUDE.md)
-   link review → .agents/skills/review (pointing at ../../.claude/skills/review)
-   create gh → .codex/config.toml (stdio · npx · 1 variable)
-
- Left out — 1 item: its environment holds a value, not a ${VAR} reference:
- conch does not copy secrets
-```
-
-What it does, and what it refuses to do:
-
-| | |
-| --- | --- |
-| **Instructions** | an agent that expands `@path` (Claude Code, Gemini CLI) is pointed at the other file, so the two never drift; one that doesn't (Codex, OpenCode read `AGENTS.md`) gets the text in a block conch can find again, between `<!-- conch:instructions from … -->` and `<!-- conch:end -->` |
-| **Skills** | linked, not copied: one folder holds the skill and `.agents/skills` is read by Codex, Gemini and OpenCode alike, so one link serves three |
-| **MCP servers** | written in each agent's own format — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json`, `.devin/mcp_config.json` — keeping everything else in those files. A server already declared there is left as it is |
-| **Variables** | each agent names one its own way, and conch writes that way: `${TOKEN}` for Claude Code and Gemini, `{env:TOKEN}` for OpenCode, `${env:TOKEN}` for Devin. Codex expands nothing in its config, so it is told the names to pass on — `env_vars = ["TOKEN"]`, `bearer_token_env_var` for an `Authorization: Bearer ${TOKEN}` header, `env_http_headers` for the rest. A server Codex cannot express — a variable passed under another name, a reference in its arguments, an SSE server — is left out for Codex with the reason |
-| **Devin** | reads Claude Code's `CLAUDE.md`, `.claude/skills` and `.mcp.json`, and OpenCode's servers, by itself, so it is given only what it would not otherwise see — a second copy would be read twice. Turn that off with `read_config_from` in Devin's `config.json` and it gets its own `AGENTS.md`, skills link and `.devin/mcp_config.json` |
-| **Nothing else** | logins are each agent's own and are never touched. A server whose environment or headers hold a value rather than a `${VAR}` reference is not copied: conch does not carry secrets between files |
-| **Hand-written files** | left alone. conch writes its own block, or a file that wasn't there; a file somebody wrote is reported as skipped, and a second sync updates the block rather than the rest |
-| **Undo** | `u` puts the last sync back, file by file, from a record conch keeps in its own folder (`~/.config/conch/agent-sync/checkouts/`), never in the checkout — a record in a checkout could have come with a clone. A file conch created is removed; one it changed goes back to what it held. Undoing touches only the files a sync writes, and only inside the checkout. A record an older conch left in `.conch/agent-sync/` is listed but not acted on: undoing it names the files, for `git` to put back |
-
-A file conch cannot rewrite without losing something is left alone and says so — a `.json` with comments in it, for instance, since rewriting it would drop them.
-
-The plan also says where the instructions came from, and which agents want the folder trusted before they will read what was written: **Codex** reads a project's `config.toml` only once you have trusted it, and **Gemini** leaves a project's MCP servers *and* skills out until then — the servers with a warning, the skills silently, which is how an afternoon goes missing. Trust the folder in the agent itself (conch never answers that prompt for you) and both appear.
-
-Undoing names each thing it puts back, and takes away the folders the sync made — `.codex`, `.agents/skills` — so the checkout looks as it did. A folder with anything else in it stays.
+`s` in the setup view gives the open agent's instructions, skills and MCP servers to the other agents in this checkout, each where that agent looks. It shows the plan first, never copies secrets, and leaves hand-written files alone. `u` undoes it.
 
 ```sh
-conch agent sync                                 # what it would do, from Claude Code
-conch agent sync -from codex -to claude,gemini   # from another agent, to some of them
-conch agent sync -apply                          # write it
-conch agent sync -undo                           # put the last one back
-conch agent sync -undo -stamp 20260926-101500    # or a particular one
+conch agent sync                                 # show the plan
+conch agent sync -from codex -to claude,gemini
+conch agent sync -apply
+conch agent sync -undo
+conch agent sync -user -apply                    # your home, not a checkout
 ```
 
-`-from` is `claude` unless you say otherwise, `-to` is every other agent, and without `-apply` nothing is written. It works on a remote machine's checkout with `-m` as well, since the server does the writing; a server too old to know how says so.
-
-### Your own setup, not just a checkout's
-
-The half that follows you from project to project — `~/.claude/CLAUDE.md` and `~/.claude/skills`, `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.config/opencode` — is machine-wide, so it lives in Settings → **Agents** → **Your own setup…** rather than on a row that names a folder: a page with one row per agent to take the setup from, and **Put the last one back…**. From a shell it is `-user`:
-
-```sh
-conch agent sync -user                    # what it would write in your home
-conch agent sync -user -apply
-conch agent sync -user -undo
-```
-
-The rules are the checkout's, with two differences that matter:
-
-- **There is no `git status` here.** Nothing shows what changed in your home afterwards, so the plan carries every path in full (`~/.codex/AGENTS.md`, `~/.agents/skills/tide-check`) and the record — under `~/.config/conch/agent-sync/`, not a `.conch` in your home — is what puts it back.
-- **A file that is a link is left alone.** These files are often symlinks into a dotfiles repository, and writing through the link would edit that repository. conch skips one and says so rather than touching it.
-
-Claude is never *given* MCP servers here: its own live in `~/.claude.json`, the file it keeps its state and every project's history in, and conch does not rewrite that for a setting — it reads from it happily enough, so Claude's servers still reach the other agents. (The library below gives Claude servers through its own `claude mcp add-json` instead.) Devin's go in `~/.config/devin/mcp_config.json` and its skills in `~/.config/devin/skills`, since it does not read `~/.agents/skills`.
+The home version is also in Settings → **Agents** → **Your own setup…**.
 
 ## Shared MCP servers and skills
 
-A sync copies one agent's setup to the others, once. The library is what they *follow*: MCP servers and skills kept in conch, each ticked for the agents that should have it. Untick an agent and applying takes the server back out of it; change a server and every agent that has it is told. It lives in Settings → **Agents** → **Shared MCP servers & skills…** (in the [Mac app](/docs/mac-app), **Settings → Skills & MCP servers**), is kept per machine in `~/.config/conch/library/`, and covers your home — the setup that follows you from project to project.
+The library keeps MCP servers and skills in conch, each ticked for the agents that should have them. Applying writes them into each agent's own configuration; unticking takes them out.
 
-```
- Shared MCP servers & skills          given to the agents you choose
- ‹ Agents                                                        esc
+<Shot name="desktop-skills" alt="Skills & MCP Servers in Conch.app's Settings" caption="The library in Conch.app." />
 
- MCP servers                                          Cl Cx Gm Oc Dv
- ○ docs http                                          ✓  +  ·  ·  ✓
- ○ github stdio · npx                                 ✓  ✓  !  ·  ✓
-      Gm declared there by hand, differently: conch leaves it alone
- ○ Add a server…
-
- Skills                                               Cl Cx Gm Oc Dv
- ○ review ~/skills/review                             ✓  ✓  ✓  ✓  ·
-```
-
-- **Take an agent's into the library…** starts it from what you have: an agent's servers and skills in your home go in, ticked for it and for any agent that already has the same. Nothing is written to any agent.
-- **Add a server…** takes a command (`npx -y @modelcontextprotocol/server-github`) or a URL, its environment and headers as `NAME=value; …`, and a box per agent. A value must refer to a variable — `GITHUB_TOKEN=${GITHUB_TOKEN}`, `Authorization=Bearer ${TOKEN}` — and a literal token is never written into an agent's file: the secret stays out of them, and each agent is given its own way of naming it.
-- **A token** for a server: paste it in the form's **Token** field (or into its `Authorization` header, from where it is moved). On **Save** Conch.app asks whether to keep it securely. **Yes** keeps it in the macOS Keychain as `CONCH_MCP_<NAME>_TOKEN` (service `conch-mcp`), a URL's header becomes `Authorization=Bearer ${CONCH_MCP_<NAME>_TOKEN}`, and the conch server gives that variable to every agent it starts from then on — read from the Keychain, never written to disk. A variable you export yourself wins over it. A command's server says where it reads the token, e.g. `API_KEY=${CONCH_MCP_JIRA_TOKEN}`. Taking the server out of the library takes its token out of the Keychain. After a Keychain save it says where to find the token in Keychain Access (login → search “conch”). **No** writes the token in plain text into each agent's config file — made readable by you alone (0600) — where anything running as you can read it. Claude Code takes servers only on `claude mcp add-json`'s command line, so it is handed the token there, and for that moment anybody else logged in to the machine can see it in the process list: on a machine others use, keep it in the Keychain or a `${VAR}` instead; the server is marked `plain`, and editing it shows the token in the Token field rather than in the header. On another machine the Keychain is out of reach, so a token is written in plain text there, or you set the variable in the environment its conch server starts with — a variable exported in your shell's rc file does not reach a server started by the app.
-- **Add a skill…** takes a folder holding a `SKILL.md`, wherever you keep it — or, under **From GitHub**, a skill shared there: `owner/repo`, `owner/repo/path/to/skill`, `@ref` at the end, or the link to its folder. The machine's own server downloads it (a shallow `git clone`; nothing in it is run) into conch's library there, `~/.config/conch/library/skills/NAME`, and keeps where it came from so **Fetch again** brings it up to date. A repository holding several skills, none named, lists them for you to pick one. Each agent gets a link to it: one in `~/.claude/skills`, one in `~/.agents/skills` for Codex, Gemini and OpenCode together, one in `~/.config/devin/skills`. Since that middle link is shared, it stays while any of the three still wants it, and the row says so.
-- **Apply…** shows every write first, then makes it. **Put the last one back…** undoes the last apply, file by file.
-
-What keeps it safe is the sync's, plus one thing of its own: conch remembers what it wrote (`library/written.json`), and only that is ever changed or taken out. A server somebody declared by hand under the same name is marked `!` or `○` and left alone; a config that is a link into a dotfiles repository is skipped. Claude's servers are added with `claude mcp add-json --scope user` and taken out with `claude mcp remove`, since conch does not write `~/.claude.json`. Devin is not given a server Claude Code or OpenCode already has, because it reads theirs.
-
-From a shell:
+**How:** Settings → **Agents** → **Shared MCP servers & skills…** (in the [Mac app](/docs/mac-app), **Settings → Skills & MCP servers**), or:
 
 ```sh
-conch agent library                                        # the library, a column per agent
-conch agent library import claude                          # take Claude Code's in
+conch agent library                                        # a column per agent
+conch agent library import claude
 conch agent library add -to codex,devin -env GITHUB_TOKEN='${GITHUB_TOKEN}' github -- npx -y @modelcontextprotocol/server-github
-conch agent library add -header 'Authorization=Bearer ${DOCS_TOKEN}' docs https://docs.example/mcp
-conch agent library add -plain -header 'Authorization=Bearer tok-123' docs https://docs.example/mcp   # the token as it is, in plain text
-conch agent library mcp                                    # conch's own tools (conch mcp), one action
-conch agent library skill review ~/skills/review
-conch agent library skill anthropics/skills/skills/pdf      # from GitHub, named by its folder
-conch agent library skill -to claude docs owner/repo@v2     # named, at a tag
-conch agent library off github codex                       # untick one
-conch agent library plan                                   # what apply would write
+conch agent library skill anthropics/skills/skills/pdf      # from GitHub
 conch agent library apply
 conch agent library undo
 ```
 
-Quote the `${…}` in a shell, or the shell expands it before conch sees it.
+Values must refer to variables (`${TOKEN}`); in Conch.app a token can be kept in the macOS Keychain. A token kept in plain text goes into each agent's config file, readable by you alone (0600) — and, for Claude Code, onto `claude mcp add-json`'s command line for a moment, where anybody else logged in to the machine can see it: on a machine others use, keep it in the Keychain or a `${VAR}`.
