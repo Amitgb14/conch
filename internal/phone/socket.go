@@ -392,24 +392,50 @@ func (s *socket) handle(m ClientMessage) {
 			s.fail(m.ID, apiErr(CodeBadRequest, "too many panes open on this socket; close one first"))
 			return
 		}
-		if err := s.call(c, proto.MethodPaneSubscribe, proto.PaneRef{ID: pane}, nil); err != nil {
-			s.mu.Lock()
+		err := s.call(c, proto.MethodPaneSubscribe, proto.PaneRef{ID: pane}, nil)
+		// The connection may have left while this was asked, after forget
+		// had run: then the subscription went with it, and the entry would
+		// be a pane that never draws.
+		s.mu.Lock()
+		left := s.clients[fleet.MachineOf(id)] != c
+		if err != nil || left {
 			delete(s.open, id)
-			s.mu.Unlock()
+		}
+		s.mu.Unlock()
+		if err != nil {
 			s.fail(m.ID, fromServer(err))
+		} else if left {
+			s.fail(m.ID, apiErr(CodeServerUnavailable, s.g.machineWhy(fleet.MachineOf(id))))
 		}
 
 	case MsgFrameClose:
-		c, pane, id, aerr := s.paneOn(m.Pane)
+		machine, pane, aerr := splitPaneID(m.Pane)
 		if aerr != nil {
 			s.fail(m.ID, aerr)
 			return
 		}
+		id := fleet.ComposePaneID(machine, pane)
 		s.mu.Lock()
 		was := s.open[id]
 		delete(s.open, id)
+		delete(s.sizes, id)
 		s.mu.Unlock()
-		if was {
+		// Closing is forgetting, whatever the machine's state: a pane on a
+		// machine just taken from this device, or not answering, still
+		// counted toward maxOpenFrames, and refusing to close it left the
+		// socket unable to open anything else until the phone reconnected.
+		// Only the unsubscribing needs the machine, and it is not waited
+		// for — a connection that is gone has no subscription to end.
+		if !was {
+			if aerr := s.reaches(machine); aerr != nil {
+				s.fail(m.ID, aerr)
+			}
+			return
+		}
+		if s.reaches(machine) != nil {
+			return
+		}
+		if c := s.clientOn(machine); c != nil {
 			_ = s.call(c, proto.MethodPaneUnsubscribe, proto.PaneRef{ID: pane}, nil)
 		}
 
@@ -437,6 +463,10 @@ func (s *socket) pump(machine string, c *client.Client) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, machine)
+		s.forget(machine)
+		// After forgetting, under the same lock: a join waits for pumping
+		// to clear, so a machine that comes back finds nothing of the
+		// connection it had.
 		delete(s.pumping, machine)
 		s.mu.Unlock()
 		c.Close()
@@ -552,6 +582,7 @@ func (s *socket) event(machine string, msg proto.Message) {
 		id := fleet.ComposePaneID(machine, ref.ID)
 		s.mu.Lock()
 		delete(s.open, id)
+		delete(s.sizes, id)
 		wasPane := s.knownPanes[id]
 		delete(s.knownPanes, id)
 		s.mu.Unlock()
@@ -775,6 +806,29 @@ func (s *socket) dropUnreached(dev Device) {
 	}
 	if len(gone) > 0 {
 		s.tellMachines()
+	}
+}
+
+// forget drops the panes a socket draws on a machine once its connection
+// has gone — revoked, or the bridge dropped. The subscriptions were that
+// connection's and ended with it, so an entry left in open read as drawn
+// when it was not: opening the pane again on the next connection returned
+// early and drew nothing, and it went on counting toward maxOpenFrames.
+//
+// known and knownPanes stay. They are what the phone has been told, and
+// the phone keeps showing those rows while a machine is away; forgetting
+// them would swallow the agent.gone or pane.gone for one that ends after
+// the machine is back. The caller holds s.mu.
+func (s *socket) forget(machine string) {
+	for id := range s.open {
+		if fleet.MachineOf(id) == machine {
+			delete(s.open, id)
+		}
+	}
+	for id := range s.sizes {
+		if fleet.MachineOf(id) == machine {
+			delete(s.sizes, id)
+		}
 	}
 }
 
