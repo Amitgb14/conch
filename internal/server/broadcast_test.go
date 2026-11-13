@@ -105,7 +105,7 @@ func TestBroadcastSkipsAnAgentThatIsAsking(t *testing.T) {
 func TestBroadcastHoldsTheEnterWhenAQuestionComesUp(t *testing.T) {
 	s, _, work := shareFixture(t)
 	e := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
-	if perr := s.pasteUnlessAsked(e, "run the tests"); perr != nil {
+	if perr := s.pasteUnlessAsked(e, "run the tests", false); perr != nil {
 		t.Fatal(perr)
 	}
 	s.report(e, proto.AgentReportParams{ID: "p1", Agent: "claude", Event: "Notification",
@@ -122,5 +122,20 @@ func TestBroadcastHoldsTheEnterWhenAQuestionComesUp(t *testing.T) {
 		if strings.Contains(l, "run the tests") && !strings.Contains(l, "marker-line") {
 			t.Fatalf("submitted on its own: %q", l)
 		}
+	}
+}
+
+// A pane the caller took for an agent at the last tick may be a shell by
+// the time the message is typed: looked at again, it is refused unless
+// shells were asked for, since a shell would run the message.
+func TestPasteOnlyIntoAnAgentUnlessShells(t *testing.T) {
+	s, _, work := shareFixture(t)
+	e := agentPane(t, s, "p1", "", work, "stty -echo; exec cat")
+	perr := s.pasteUnlessAsked(e, "rm -rf build", false)
+	if perr == nil || !strings.Contains(perr.Message, "not running an agent any more; nothing was typed") {
+		t.Fatalf("into a shell: %v", perr)
+	}
+	if perr := s.pasteUnlessAsked(e, "echo shells-asked-for", true); perr != nil {
+		t.Fatalf("shells asked for: %v", perr)
 	}
 }

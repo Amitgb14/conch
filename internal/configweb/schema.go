@@ -182,7 +182,7 @@ func Schema(c Choices) []Section {
 				{Key: "permission_mode", Label: "Permission rules", Kind: KindSelect,
 					Options: []Option{{"", "On: answer by them"}, {config.PermissionsDryRun, "Dry run: only record"}, {config.PermissionsOff, "Off"}}},
 				{Key: "unrestricted_launch", Label: "Let agents start agents however they like", Kind: KindBool,
-					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else. On: any command, environment and flags, a helper that asks nobody before it acts among them."},
+					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else, and types only into agents, never a shell. On: any command, environment and flags, a helper that asks nobody before it acts among them, and typing into shells."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{

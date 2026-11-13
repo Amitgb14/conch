@@ -247,7 +247,7 @@ func TestScopeAgentInAPane(t *testing.T) {
 
 	for _, step := range []struct{ method, arg, want string }{
 		{proto.MethodPaneSendText, h.id, "ok"},                             // itself
-		{proto.MethodPaneSendText, inA, "ok"},                              // its project
+		{proto.MethodPaneSendText, inA, proto.ErrOutOfScope},               // its project, but no agent runs there (launchrule.go)
 		{proto.MethodPaneSendText, inB, proto.ErrOutOfScope},               // another project
 		{proto.MethodPaneClose, loose, proto.ErrOutOfScope},                // in no project
 		{proto.MethodPaneMarkSeen, inB, proto.ErrOutOfScope},               // hiding another's work
@@ -410,9 +410,14 @@ func TestScopeAcrossMachines(t *testing.T) {
 			t.Fatalf("created there by %q, want %q", p.CreatedBy, id)
 		}
 	}
-	// Its own pane there is its own, and so now is that pane's project.
-	if code, _ := h.do(proto.MethodPaneSendText, made); code != "ok" {
-		t.Errorf("type into its own there: %s", code)
+	// Its own pane there is its own, and so now is that pane's project —
+	// though it is a shell, which an agent does not type into, there as
+	// here (launchrule.go).
+	if code, _ := h.do(proto.MethodPaneSendText, made); code != proto.ErrOutOfScope {
+		t.Errorf("type into its own shell there: %s", code)
+	}
+	if code, _ := h.do(proto.MethodPaneRename, made); code != "ok" {
+		t.Errorf("rename its own there: %s", code)
 	}
 	if code, _ := h.do(proto.MethodBranchDiscard, proj.ID); code == proto.ErrOutOfScope {
 		t.Errorf("discard in the project it works in there: %s", code)

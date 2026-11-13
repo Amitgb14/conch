@@ -209,7 +209,7 @@ const submitDelay = 150 * time.Millisecond
 // submitPrompt pastes text into an agent's input and submits it, as
 // agent.prompt does: never into a question the agent is asking.
 func (s *Server) submitPrompt(e *entry, text string) *proto.Error {
-	if perr := s.pasteUnlessAsked(e, text); perr != nil {
+	if perr := s.pasteUnlessAsked(e, text, false); perr != nil {
 		return perr
 	}
 	time.Sleep(submitDelay)
@@ -220,13 +220,20 @@ func (s *Server) submitPrompt(e *entry, text string) *proto.Error {
 // on a question — a permission menu, a choice — where the Enter that
 // follows would pick whatever is highlighted, often "Yes". Held across
 // the check and the paste, as agent.prompt holds it, so no evaluation
-// moves the state in between; a shell (no agent) has nothing to ask.
-func (s *Server) pasteUnlessAsked(e *entry, text string) *proto.Error {
+// moves the state in between; a shell (no agent) has nothing to ask. And
+// unless shell is set, only into an agent: the caller decided by the last
+// tick, and an agent that has exited since leaves a shell that would run
+// the message as a command.
+func (s *Server) pasteUnlessAsked(e *entry, text string, shell bool) *proto.Error {
 	e.evalMu.Lock()
 	defer e.evalMu.Unlock()
 	s.evaluate(e, func(*detect.Tracker) {})
-	if info := e.info(); info.Agent != nil && info.Agent.State == proto.AgentBlocked {
+	info := e.info()
+	if info.Agent != nil && info.Agent.State == proto.AgentBlocked {
 		return blockedErr(info, "nothing was typed")
+	}
+	if info.Agent == nil && !shell {
+		return proto.Errorf(proto.ErrBadRequest, "pane %s is not running an agent any more; nothing was typed", info.ID)
 	}
 	if err := e.p.SendText(text, true); err != nil {
 		return proto.Errorf(proto.ErrBadRequest, "%v", err)
@@ -281,7 +288,7 @@ func (s *Server) broadcastMessage(p proto.AgentBroadcastParams) (proto.AgentBroa
 		case info.Agent == nil && !p.Shells:
 			out.Error = "not running an agent"
 		default:
-			if perr := s.pasteUnlessAsked(e, text); perr != nil {
+			if perr := s.pasteUnlessAsked(e, text, p.Shells); perr != nil {
 				out.Error = perr.Message
 			} else {
 				typed[len(res.Results)] = e
