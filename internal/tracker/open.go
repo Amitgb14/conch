@@ -95,16 +95,36 @@ func Choose(cfg config.TrackersCfg, project, root, ref string, look Lookup) (nam
 			return "", "", fmt.Errorf("both Linear and Jira are set up, so say which: linear:KEY-1 or jira:KEY-1, or tie %s to one with [[trackers.projects]]", firstOf(project, "the project"))
 		}
 	}
-	if ok && strings.EqualFold(p.Tracker, name) && p.Key != "" {
-		return name, p.Key, nil
+	if name != Linear && name != Jira {
+		return "", "", fmt.Errorf("conch knows the trackers %s, not %q", strings.Join(Names, " and "), name)
+	}
+	return name, Scope(cfg, project, root, name), nil
+}
+
+// Scope is the team or project of the tracker named whose tickets a
+// project lists: its [[trackers.projects]] key, else the tracker's own.
+func Scope(cfg config.TrackersCfg, project, root, name string) string {
+	if p, ok := cfg.ForProject(project, root); ok && strings.EqualFold(p.Tracker, name) && p.Key != "" {
+		return p.Key
 	}
 	switch name {
 	case Linear:
-		return name, cfg.Linear.Team, nil
+		return cfg.Linear.Team
 	case Jira:
-		return name, cfg.Jira.Project, nil
+		return cfg.Jira.Project
 	}
-	return "", "", fmt.Errorf("conch knows the trackers %s, not %q", strings.Join(Names, " and "), name)
+	return ""
+}
+
+// Title is the tracker's name as it calls itself.
+func Title(name string) string {
+	switch name {
+	case Linear:
+		return "Linear"
+	case Jira:
+		return "Jira"
+	}
+	return name
 }
 
 func firstOf(s ...string) string {

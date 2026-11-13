@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -252,6 +252,13 @@ const CapSchedule = "schedule.v1"
 // CapIssues is project.issues and task.create's Issue: work started from a
 // GitHub issue, read through gh on the machine the project is on.
 const CapIssues = "project.issues.v1"
+
+// CapTickets is project.tickets, ticket.get, ticket.update and
+// task.create's Ticket: work started from a Linear or Jira ticket, and the
+// ticket commented on, moved and linked to its branch or pull request —
+// all through the tracker's API with the key on the machine the project
+// is on ([trackers] in its config.toml).
+const CapTickets = "tickets.v1"
 
 // CapPermissionRules is agent.permission: the server answering an agent's
 // permission request by the person's rules, before it is asked on screen.
@@ -519,6 +526,13 @@ const (
 	MethodAgentBackgroundStop = "agent.background.stop"
 
 	MethodProjectIssues = "project.issues"
+
+	// MethodProjectTickets lists a project's open tickets in its tracker,
+	// MethodTicketGet reads one, and MethodTicketUpdate comments on it,
+	// moves it or links something to it (CapTickets).
+	MethodProjectTickets = "project.tickets"
+	MethodTicketGet      = "ticket.get"
+	MethodTicketUpdate   = "ticket.update"
 
 	MethodAgentPermission = "agent.permission"
 
@@ -2030,6 +2044,11 @@ type TaskCreateParams struct {
 	// prompt — Prompt, when given too, is added as further instructions —
 	// and its number starts the branch's name.
 	Issue int `json:"issue,omitempty"`
+	// Ticket is a Linear or Jira ticket to work on (CapTickets): ENG-123,
+	// linear:ENG-123 or its address. The server reads it, its title, body
+	// and comments become the prompt as an issue's do, and its key starts
+	// the branch's name.
+	Ticket string `json:"ticket,omitempty"`
 }
 
 // PermissionAsk is an agent asking to use a tool, as its hook saw it:
@@ -2084,6 +2103,70 @@ type IssueInfo struct {
 // IssueList is a project's open issues, newest first.
 type IssueList struct {
 	Issues []IssueInfo `json:"issues"`
+}
+
+// TicketsParams lists a project's open tickets (CapTickets), from the
+// tracker its [[trackers.projects]] entry names, or the one set up.
+type TicketsParams struct {
+	ProjectID string `json:"project_id"`
+	// Tracker is linear or jira, when both are set up; "" chooses as a
+	// ticket's key would.
+	Tracker string `json:"tracker,omitempty"`
+	// Assigned keeps the tickets assigned to the key's own person.
+	Assigned bool `json:"assigned,omitempty"`
+	Limit    int  `json:"limit,omitempty"`
+}
+
+// TicketComment is one comment on a ticket.
+type TicketComment struct {
+	Author string `json:"author,omitempty"`
+	Body   string `json:"body"`
+}
+
+// TicketLink is a link attached to a ticket.
+type TicketLink struct {
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url"`
+}
+
+// TicketInfo is one ticket. A list leaves out the body, comments and
+// links.
+type TicketInfo struct {
+	Tracker  string          `json:"tracker"`
+	Key      string          `json:"key"`
+	Title    string          `json:"title"`
+	URL      string          `json:"url,omitempty"`
+	Status   string          `json:"status,omitempty"`
+	Body     string          `json:"body,omitempty"`
+	Comments []TicketComment `json:"comments,omitempty"`
+	Links    []TicketLink    `json:"links,omitempty"`
+}
+
+// TicketList is a project's open tickets, most recently changed first.
+type TicketList struct {
+	Tracker string       `json:"tracker"`
+	Tickets []TicketInfo `json:"tickets"`
+}
+
+// TicketGetParams reads one ticket (CapTickets).
+type TicketGetParams struct {
+	ProjectID string `json:"project_id"`
+	// Ticket is its key, linear:KEY or its address.
+	Ticket string `json:"ticket"`
+}
+
+// TicketUpdateParams changes a ticket (CapTickets): each of a comment, a
+// status and a link that is given, in that order. The reply is the
+// ticket as it is after.
+type TicketUpdateParams struct {
+	ProjectID string `json:"project_id"`
+	Ticket    string `json:"ticket"`
+	Comment   string `json:"comment,omitempty"`
+	// Status is the status to move it to (In Review, Done), as the
+	// tracker names it.
+	Status    string `json:"status,omitempty"`
+	LinkURL   string `json:"link_url,omitempty"`
+	LinkTitle string `json:"link_title,omitempty"`
 }
 
 // ScheduledItem is something the server does at a time to come: a

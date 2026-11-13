@@ -31,6 +31,8 @@ func TestCheckItem(t *testing.T) {
 		"negative wip":     {proto.ScheduledItem{At: at, Task: &proto.TaskCreateParams{Prompt: "x"}, Queue: true, WIP: -1}, "1 to 20"},
 		"a queued task":    {proto.ScheduledItem{At: at, Task: &proto.TaskCreateParams{Prompt: "x"}, Queue: true}, ""},
 		"a daily task":     {proto.ScheduledItem{At: at, Task: &proto.TaskCreateParams{Prompt: "bump deps"}, EveryMinutes: 1440}, ""},
+		"a queued ticket":  {proto.ScheduledItem{At: at, Task: &proto.TaskCreateParams{Ticket: "ENG-7"}, Queue: true}, ""},
+		"a blank ticket":   {proto.ScheduledItem{At: at, Task: &proto.TaskCreateParams{Ticket: "  "}}, "needs a prompt"},
 	} {
 		perr := checkItem(&tc.it)
 		switch {
