@@ -4,6 +4,35 @@ export const metadata = { title: "Introduction", description: "What conch is and
 
 conch is a terminal orchestrator for AI coding agents. A background server owns the terminals your agents run in, so they keep working when you close the UI.
 
+<TuiShot
+  id="project"
+  title="conch — a project"
+  caption="A project in the TUI: its branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside them."
+/>
+
+## What's new
+
+<FeatureGrid>
+<Feature icon="workbench" title="Workbench, in Conch.app" href="/docs/mac-app#workbench" badge="desktop">
+An agent's whole branch in one tab: its files, a terminal in its checkout, the agent as a chat, and its own terminal, in four layouts.
+</Feature>
+<Feature icon="git" title="A branch's changes and review" href="/docs/mac-app#a-branchs-changes" badge="desktop">
+Overview, changes and graph for a branch: commit single hunks, leave the agent a note on a line it answers in a thread, and see the pull request's checks.
+</Feature>
+<Feature icon="browser" title="Browser tabs" href="/docs/mac-app#browser-tabs" badge="desktop">
+Your dev server's page in a tab beside the agents, split and moved like any other.
+</Feature>
+<Feature icon="files" title="Files and Edit with Agent" href="/docs/mac-app#files-and-sessions" badge="desktop">
+A project's files in a tab, each marked by its language, and any of them handed to the agent you pick.
+</Feature>
+<Feature icon="loop" title="Autopilot in the server" href="/docs/why#it-finishes-the-job-without-you">
+Failed CI goes back to the agent, and green pull requests merge, with every window closed.
+</Feature>
+<Feature icon="phone" title="Phone, per device" href="/docs/phone">
+Answer a waiting agent from your phone. Each phone sees only the machines you gave it.
+</Feature>
+</FeatureGrid>
+
 ## Is conch for you?
 
 **conch is for running several coding agents at once and keeping track of them.** If you have three or four going — on different branches, worktrees or machines — and the hard part is knowing which one is waiting on you, what each has changed, and getting back to it after your laptop slept, that is what this is. It assumes you live in a terminal, that you want work to survive the UI closing, and that you want to answer an agent's question from wherever you are, including [a phone](/docs/phone).
@@ -26,6 +55,8 @@ conch has two parts:
 
 - **The server.** Each machine runs one conch server. It owns every pane — the pseudo-terminals your agents and shells run in — along with their screens, scrollback and agent states. It starts on its own the first time you run `conch`.
 - **The TUI.** Running `conch` opens a client that connects to the server. Press `q` to detach: the TUI exits, and the server and everything in it keep running. Run `conch` again to pick up where you left off.
+
+<Architecture />
 
 Because the server owns the panes, you can close your terminal, lose your ssh session or update conch without stopping an agent. The server on a [remote machine](/docs/remote-machines) keeps working when your laptop sleeps, and the TUI connects to every machine at once.
 
@@ -65,12 +96,7 @@ See [The interface](/docs/interface) for every detail of the tree.
 
 ## Agent states at a glance
 
-| State | Meaning |
-| --- | --- |
-| `⠋` working | the agent is busy |
-| `!` waiting | blocked on you: a permission, trust or other question |
-| `✓` done | finished while you were looking elsewhere |
-| `○` idle | waiting for a prompt |
+<AgentStates />
 
 `!` jumps to the next agent waiting for you, and a desktop notification fires when one you aren't viewing needs you. [Agents](/docs/agents#agent-states) explains how conch decides a state.
 
@@ -80,14 +106,21 @@ See [The interface](/docs/interface) for every detail of the tree.
 - **Codex**
 - **Gemini CLI**
 - **OpenCode**
+- **Devin** (preview)
+
+Others — Aider, Amp, Cursor CLI and more — run from a manifest: conch starts and watches them without reading their saved conversations.
 
 conch can install any of them for your user, on any machine, without root. See [Agents](/docs/agents).
 
 ## Where to go next
 
-- [Installation](/docs/installation) — install conch and keep it up to date.
-- [Quick start](/docs/quick-start) — from an empty terminal to agents working in parallel.
-- [Tasks and worktrees](/docs/tasks) — one branch and worktree per task.
-- [Remote machines](/docs/remote-machines) — run agents on other machines over ssh.
-- [Brain](/docs/brain) — ask for work in plain words and approve the plan.
-- [Keys and mouse](/docs/keys) and [Command line](/docs/cli) — the reference.
+<FeatureGrid>
+<Feature icon="terminal" title="Installation" href="/docs/installation">Install conch and keep it up to date.</Feature>
+<Feature icon="sparkles" title="Quick start" href="/docs/quick-start">From an empty terminal to agents working in parallel.</Feature>
+<Feature icon="git" title="Tasks and worktrees" href="/docs/tasks">One branch and worktree per task.</Feature>
+<Feature icon="desktop" title="Mac app" href="/docs/mac-app">conch in a native window, with panes drawn by Ghostty.</Feature>
+<Feature icon="cloud" title="Remote machines" href="/docs/remote-machines">Run agents on other machines over ssh.</Feature>
+<Feature icon="chat" title="Brain" href="/docs/brain">Ask for work in plain words and approve the plan.</Feature>
+</FeatureGrid>
+
+[Keys and mouse](/docs/keys) and [Command line](/docs/cli) are the reference.
