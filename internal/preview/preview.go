@@ -102,7 +102,9 @@ func developerDir(get func(string) string, setting string) (dir, problem string)
 		return "", ""
 	}
 	apps, _ := filepath.Glob(filepath.Join(applicationsDir, "Xcode*.app"))
-	sort.SliceStable(apps, func(i, j int) bool { return filepath.Base(apps[i]) == "Xcode.app" && filepath.Base(apps[j]) != "Xcode.app" })
+	sort.SliceStable(apps, func(i, j int) bool {
+		return filepath.Base(apps[i]) == "Xcode.app" && filepath.Base(apps[j]) != "Xcode.app"
+	})
 	for _, a := range apps {
 		d := filepath.Join(a, "Contents", "Developer")
 		if st, err := os.Stat(filepath.Join(d, "usr", "bin")); err == nil && st.IsDir() {
