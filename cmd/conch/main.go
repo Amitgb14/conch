@@ -139,6 +139,10 @@ Usage:
                                 -to NAMES, -env K=${VAR}; mcp adds conch's own tools
                                 (conch mcp); plan says what apply writes
   conch project add PATH | create [-no-git] PATH | clone URL [DIR] | ls | rm ID | files ID [-reset | -none | PATTERN...]
+                | git-init ID|PATH
+                                make a plain-folder project a git repository: git init and an
+                                empty first commit (its files stay uncommitted), so a task can
+                                make a branch in it
                 | move [-plan] [-into DIR] [-y] [-json] ID -to MACHINE
                                 move a whole project to another machine: the repository (cloned
                                 there from its origin), every worktree with its uncommitted work,
