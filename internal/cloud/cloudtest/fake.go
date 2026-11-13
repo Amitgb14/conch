@@ -175,6 +175,29 @@ func (f *Fake) Approve(state string) {
 	}
 }
 
+// ApproveWhenAsked waits, in the background, for a sign-in to be asked
+// for and then answers it with state. It waits for the code itself, not
+// the request: serve counts a request before it makes the code, so an
+// answer given in between found no code to answer, and the sign-in then
+// waited out the code's ten minutes — TestMoveWakesCloudDestination
+// failing at 601s on a loaded machine.
+func (f *Fake) ApproveWhenAsked(state string) {
+	go func() {
+		for {
+			f.Mu.Lock()
+			asked := len(f.Codes) > 0
+			for _, c := range f.Codes {
+				c.State = state
+			}
+			f.Mu.Unlock()
+			if asked {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+}
+
 func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	route := r.Method + " " + r.URL.Path

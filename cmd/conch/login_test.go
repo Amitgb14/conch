@@ -53,12 +53,7 @@ func cloudIsolated(t *testing.T) (*cloudtest.Fake, *syncBuf) {
 // asked for it.
 func signIn(t *testing.T, f *cloudtest.Fake, args ...string) error {
 	t.Helper()
-	go func() {
-		for f.Count("POST /v1/auth/device") == 0 {
-			time.Sleep(5 * time.Millisecond)
-		}
-		f.Approve("approved")
-	}()
+	f.ApproveWhenAsked("approved")
 	return runLogin(append([]string{"-no-browser"}, args...))
 }
 
@@ -68,12 +63,7 @@ func TestLoginJSONAccountLogout(t *testing.T) {
 	old := openInBrowser
 	openInBrowser = func(u string) error { opened = append(opened, u); return nil }
 	t.Cleanup(func() { openInBrowser = old })
-	go func() {
-		for f.Count("POST /v1/auth/device") == 0 {
-			time.Sleep(5 * time.Millisecond)
-		}
-		f.Approve("approved")
-	}()
+	f.ApproveWhenAsked("approved")
 	if err := runLogin([]string{"-json", "-client", "mac_app"}); err != nil {
 		t.Fatal(err)
 	}
@@ -116,12 +106,7 @@ func TestLoginJSONAccountLogout(t *testing.T) {
 
 func TestLoginDeniedSaysSo(t *testing.T) {
 	f, out := cloudIsolated(t)
-	go func() {
-		for f.Count("POST /v1/auth/device") == 0 {
-			time.Sleep(5 * time.Millisecond)
-		}
-		f.Approve("denied")
-	}()
+	f.ApproveWhenAsked("denied")
 	err := runLogin([]string{"-json", "-no-browser"})
 	if err == nil || !strings.Contains(out.String(), `"event":"error"`) || !strings.Contains(out.String(), "denied") {
 		t.Fatalf("err %v out %q", err, out.String())
