@@ -201,7 +201,7 @@ func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []str
 	sb, err := p.Create(ctx, spec)
 	if err != nil {
 		if sb.ID != "" {
-			abandonSandbox(p, sb.ID, yes)
+			abandonSandbox(p, sb.ID, err, yes)
 		}
 		return remote.Machine{}, sb, nil, err
 	}
@@ -210,7 +210,7 @@ func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []str
 	if err != nil {
 		err = refusedKey(p, err)
 		if c == nil { // setting up failed, not saving
-			abandonSandbox(p, sb.ID, yes)
+			abandonSandbox(p, sb.ID, err, yes)
 		}
 		return remote.Machine{}, sb, nil, err
 	}
@@ -325,7 +325,13 @@ func refusedKey(p sandbox.Provider, err error) error {
 	return fmt.Errorf("%s refused your ssh key, so conch could not log in to set the sandbox up. %s", sandbox.ProviderLabel(p.Name()), how)
 }
 
-func abandonSandbox(p sandbox.Provider, id string, yes bool) {
+// Why it failed is said first: asked before the reason, somebody answers
+// without it, and the reason came after — in Conch.app, in a tab that
+// closed as the command ended, so it was never seen at all.
+func abandonSandbox(p sandbox.Provider, id string, why error, yes bool) {
+	if why != nil {
+		fmt.Fprintf(os.Stderr, "  failed: %v\n", why)
+	}
 	if !yes && !confirm(fmt.Sprintf("  Setting up sandbox %s failed. Delete it? [Y/n] ", id), true) {
 		fmt.Fprintf(os.Stderr, "  kept it; delete it with: %s\n", sandboxCmd(p.Name(), "rm "+id))
 		return
@@ -1022,15 +1028,16 @@ type providerJSON struct {
 	File    string `json:"file,omitempty"`
 }
 
-// sandboxProviders lists the providers conch can make a sandbox with, and
-// whether each is set up here.
+// sandboxProviders lists the providers conch offers for making a sandbox
+// (sandbox.Offered), and whether each is set up here. Conch.app's New
+// Sandbox sheet and its Sandboxes settings are drawn from it.
 func sandboxProviders(args []string) error {
 	asJSON := len(args) == 1 && args[0] == "-json"
 	if len(args) > 0 && !asJSON {
 		return errors.New("usage: conch sandbox providers [-json]")
 	}
 	out := []providerJSON{}
-	for _, name := range sandbox.Names() {
+	for _, name := range sandbox.Offered() {
 		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name)}
 		if !sandbox.Builtin(name) {
 			j.Adapted, j.File = true, sandbox.ProviderFilePath(name)

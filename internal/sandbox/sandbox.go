@@ -268,6 +268,26 @@ var Names = func() []string {
 	return append(append([]string(nil), builtin...), good...)
 }
 
+// unoffered are providers conch knows but does not offer for making a
+// sandbox: Tensorlake's gateway lets in only keys registered with the
+// account, which conch cannot do, so a sandbox made there was paid for
+// and then could not be set up. Its sandboxes are still listed, added
+// and deleted, and -provider tensorlake create still makes one for
+// somebody who has registered their key.
+var unoffered = []string{"tensorlake"}
+
+// Offered lists the providers a sandbox is made with from a menu: Names
+// without the ones conch knows but does not offer.
+func Offered() []string {
+	var out []string
+	for _, n := range Names() {
+		if !slices.Contains(unoffered, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // Known reports whether name is a provider conch knows.
 func Known(name string) bool { return name != "" && slices.Contains(Names(), name) }
 

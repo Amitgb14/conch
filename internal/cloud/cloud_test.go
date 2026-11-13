@@ -475,3 +475,21 @@ func TestEventsResume(t *testing.T) {
 		t.Fatalf("Last-Event-ID %q", lastIDs)
 	}
 }
+
+// An answer arranged before the sign-in is even asked for still answers
+// it: the fake approves the code once there is one, never a code that is
+// not there yet — which left a sign-in waiting out its ten minutes.
+func TestApproveWhenAskedBeforeTheCode(t *testing.T) {
+	isolate(t)
+	f := cloudtest.New(t)
+	f.ApproveWhenAsked("approved")
+	time.Sleep(20 * time.Millisecond) // the answer is looking before any code exists
+	ctx := ctxT(t)
+	da, err := cloud.StartLogin(ctx, f.URL(), cloud.ClientCLI, "x", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cloud.FinishLogin(ctx, f.URL(), da); err != nil {
+		t.Fatalf("not approved: %v", err)
+	}
+}

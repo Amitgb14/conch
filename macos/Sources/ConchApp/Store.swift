@@ -2811,10 +2811,13 @@ final class Store: ObservableObject {
             var command: [String]
             var cwd: String
             var no_project: Bool
+            var env: [String]?
         }
+        let env = cliPaneEnv()
         Task {
             do {
-                let p = try await c.call("pane.create", Create(name: name, command: [b] + args, cwd: NSHomeDirectory(), no_project: true), as: PaneInfo.self)
+                let p = try await c.call("pane.create", Create(name: name, command: [b] + args, cwd: NSHomeDirectory(), no_project: true,
+                                                               env: env.isEmpty ? nil : env), as: PaneInfo.self)
                 snapshots["local", default: Snapshot()].upsert(p)
                 layout.open(key("local", p.id))
                 focusTerminal()

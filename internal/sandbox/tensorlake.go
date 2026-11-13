@@ -87,7 +87,7 @@ func (t *Tensorlake) Check() error {
 
 // Note says what has to be done once before conch can get in.
 func (t *Tensorlake) Note() string {
-	return "Tensorlake lets in the ssh keys registered with your account, which conch cannot do with an API key: register yours once with Tensorlake's CLI — pip install tensorlake, tl login, then env -u TENSORLAKE_API_KEY tl sbx ssh keys add ~/.ssh/id_ed25519.pub (conch offers ~/.ssh/id_ed25519, id_ecdsa or id_rsa, the first it finds, else its own key)."
+	return "Tensorlake lets in the ssh keys registered with your account, which conch cannot do with an API key: register yours once with Tensorlake's CLI — pip install tensorlake, tl login, then env -u TENSORLAKE_API_KEY tl sbx ssh keys add --name laptop ~/.ssh/id_ed25519.pub (conch offers ~/.ssh/id_ed25519, id_ecdsa or id_rsa, the first it finds, else its own key)."
 }
 
 // AccountKey says the gateway takes a key registered with the account, so
