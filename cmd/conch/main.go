@@ -74,7 +74,9 @@ Usage:
                                 fitted to the terminal (-wide: every column, as piped)
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
-  conch send ID TEXT            type TEXT into a pane (-keys to send key names)
+  conch send ID TEXT            type TEXT into a pane (-keys to send key names); from an agent's
+                                pane, only into panes running an agent, never a plain shell
+                                ([agents] unrestricted_launch lifts it)
   conch read ID                 print a pane's visible screen
   conch attach [-hold] [-raw] [-view] ID
                                 show a pane in this terminal and type into it (the Mac app's panes);
