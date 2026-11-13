@@ -13,8 +13,11 @@ import (
 // run directly they say how to turn it on rather than "unknown command".
 // Hidden is not broken, so what reaches a cloud machine already in
 // machines.json — `conch cloud bridge` and `exec`, which remote's
-// transport runs — still works, as does what runs inside one (`agent`,
-// `install`, `git-credential`), whose image knows nothing of the switch.
+// transport runs — still works, and so do the verbs on one somebody has
+// (wake, sleep, rm, forget-key: Conch.app's row menu runs them), as does
+// what runs inside one (`agent`, `install`, `git-credential`), whose
+// image knows nothing of the switch. What is refused is what offers
+// Cloud: signing in, the account, listing and making machines.
 
 // cloudCommands are Conch Cloud's own commands.
 var cloudCommands = []string{"login", "logout", "account", "cloud"}
@@ -35,6 +38,10 @@ func cloudNotEnabled(cmd string) error {
 	return fmt.Errorf("conch %s: Conch Cloud is not enabled in this release; to try it, set %s=1 or put enabled = true under [cloud] in config.toml", cmd, config.CloudEnv)
 }
 
+// cloudMachineVerbs are the `conch cloud machine` verbs on a machine
+// somebody already has, which run with Cloud off.
+var cloudMachineVerbs = []string{"wake", "start", "sleep", "stop", "rm", "delete", "forget-key"}
+
 // cloudGate is nil when the command may run: any command that is not
 // Cloud's, Cloud's while it is enabled, and the plumbing either way.
 func cloudGate(cmd string, args []string) error {
@@ -42,6 +49,9 @@ func cloudGate(cmd string, args []string) error {
 		return nil
 	}
 	if cmd == "cloud" && len(args) > 0 && slices.Contains(cloudPlumbing, args[0]) {
+		return nil
+	}
+	if cmd == "cloud" && len(args) > 1 && (args[0] == "machine" || args[0] == "machines") && slices.Contains(cloudMachineVerbs, args[1]) {
 		return nil
 	}
 	if cloudOn() {
@@ -94,12 +104,4 @@ func withoutCommands(text string, cmds []string) string {
 		}
 	}
 	return b.String()
-}
-
-// cloudWakeHint is what to run to wake cloud machine label.
-func cloudWakeHint(label string) string {
-	if cloudOn() {
-		return "conch cloud machine wake " + label
-	}
-	return config.CloudEnv + "=1 conch cloud machine wake " + label
 }

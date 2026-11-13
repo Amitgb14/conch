@@ -113,15 +113,6 @@ func (m Model) hasCloudMachine() bool {
 	return false
 }
 
-// cloudWakeCommand is the command that wakes cloud machine label, which
-// runs only with Conch Cloud enabled: so with it hidden, it says how.
-func cloudWakeCommand(cfg config.Config, label string) string {
-	if config.CloudEnabled(cfg) {
-		return "conch cloud machine wake " + label
-	}
-	return config.CloudEnv + "=1 conch cloud machine wake " + label
-}
-
 // cloudID is the machine's Conch Cloud id, for a cloud machine.
 func (mach *machine) cloudID() (string, bool) { return remote.ParseCloudTarget(mach.target) }
 

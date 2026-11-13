@@ -175,14 +175,9 @@ func TestCloudHiddenKeepsAMachineSomebodyHas(t *testing.T) {
 	if menu := a2MenuLabels(newRowMenu(*m, r, 0, 0)); !strings.Contains(menu, "w Wake") {
 		t.Fatalf("an asleep cloud machine has no Wake: %s", menu)
 	}
-	// The command it names works only with the switch on, so it says so.
+	// The command it names runs with Cloud hidden too.
 	page := ansi.Strip(strings.Join(m.machineLines(mach, 120, 30), "\n"))
-	if !strings.Contains(page, "CONCH_CLOUD=1 conch cloud machine wake box") {
-		t.Fatalf("page:\n%s", page)
-	}
-	t.Setenv("CONCH_CLOUD", "1")
-	page = ansi.Strip(strings.Join(m.machineLines(mach, 120, 30), "\n"))
 	if !strings.Contains(page, "run: conch cloud machine wake box") {
-		t.Fatalf("on, page:\n%s", page)
+		t.Fatalf("page:\n%s", page)
 	}
 }

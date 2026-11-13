@@ -13,8 +13,11 @@ import (
 // machine is not, and nothing else is touched. Turned on, everything runs.
 func TestCloudGate(t *testing.T) {
 	a4Env(t)
-	refused := [][]string{{"login"}, {"logout"}, {"account", "-json"}, {"cloud"}, {"cloud", "machine", "ls"}, {"cloud", "machines"}, {"cloud", "nope"}}
-	allowed := [][]string{{"cloud", "bridge", "box"}, {"cloud", "exec", "box"}, {"cloud", "agent"}, {"cloud", "install"}, {"cloud", "git-credential", "get"},
+	refused := [][]string{{"login"}, {"logout"}, {"account", "-json"}, {"cloud"}, {"cloud", "machine", "ls"}, {"cloud", "machines"}, {"cloud", "nope"},
+		{"cloud", "machine"}, {"cloud", "machine", "new", "box"}, {"cloud", "machine", "sizes"}, {"cloud", "machine", "nope", "box"}}
+	allowed := [][]string{{"cloud", "machine", "wake", "box"}, {"cloud", "machines", "sleep", "box"}, {"cloud", "machine", "rm", "box", "-y"},
+		{"cloud", "machine", "forget-key", "box"}, {"cloud", "machine", "start", "box"}, {"cloud", "machine", "stop", "box"}, {"cloud", "machine", "delete", "box"},
+		{"cloud", "bridge", "box"}, {"cloud", "exec", "box"}, {"cloud", "agent"}, {"cloud", "install"}, {"cloud", "git-credential", "get"},
 		{"machine", "ls"}, {"status"}, {"project", "move", "x", "-to", "box"}, {"frobnicate"}, {""}}
 	for _, a := range refused {
 		err := cloudGate(a[0], a[1:])
@@ -128,9 +131,6 @@ func TestCloudHiddenFromCompletion(t *testing.T) {
 	if near := nearestCommand("clod"); near == "cloud" {
 		t.Error("off: a typo is pointed at conch cloud")
 	}
-	if got := cloudWakeHint("box"); got != "CONCH_CLOUD=1 conch cloud machine wake box" {
-		t.Errorf("off: wake hint %q", got)
-	}
 
 	t.Setenv("CONCH_CLOUD", "1")
 	top = words(compCandidates(nil, ""))
@@ -144,9 +144,6 @@ func TestCloudHiddenFromCompletion(t *testing.T) {
 	}
 	if near := nearestCommand("clod"); near != "cloud" {
 		t.Errorf("on: clod → %q", near)
-	}
-	if got := cloudWakeHint("box"); got != "conch cloud machine wake box" {
-		t.Errorf("on: wake hint %q", got)
 	}
 	if help := commandHelp("cloud"); !strings.Contains(help, "conch cloud machine ls") {
 		t.Errorf("on: help cloud:\n%s", help)

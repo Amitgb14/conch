@@ -1258,7 +1258,7 @@ func (m Model) machinePage(mach *machine, cols, rows int) []string {
 	case stateAttention:
 		if _, isCloud := mach.cloudID(); isCloud && mach.sandboxState != "" {
 			lines = append(lines, styleMuted.Render(mach.err+": its disk is kept; waking it counts toward the plan's hours"), "",
-				styleMuted.Render("m → Wake   (or run: "+cloudWakeCommand(m.cfg, mach.label)+")"))
+				styleMuted.Render("m → Wake   (or run: conch cloud machine wake "+mach.label+")"))
 			break
 		}
 		if mach.sandboxState != "" {
