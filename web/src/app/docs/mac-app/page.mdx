@@ -79,6 +79,12 @@ Hover a line and press **+** to comment on it — a line of the new file, so a r
 
 On the right, the commit: the message (**✦ Write** drafts it from what is ticked, or from everything, with the brain set in Settings, by [`conch commit-message`](/docs/cli#commit-message)), and a box to credit the branch's agent with a `Co-Authored-By` line. Below it the review: the notes for the agent, and for a branch with an open pull request **Approve**, **Request changes** or **Comment**, a summary, and **Submit review**, which sends it with its waiting comments through `gh` (requesting changes also sends the notes to the agent). Approving needs nothing else; requesting changes or commenting needs a summary or a comment. Then the pull request's checks. Submitting needs `pr.review.v1` on the machine's server.
 
+<Shot
+  name="desktop-git"
+  alt="Conch.app's Changes view: the uncommitted files and the branch's commits on the left, a unified diff in the middle with a note the agent has answered on a line, and the commit message, the checks and the review on the right"
+  caption="Changes: tick a hunk, write the message, and leave the agent a note on a line — it answers in the thread, beside the pull request's checks."
+/>
+
 **Graph** is the project's [commit graph](#commits), in the tab.
 
 ## Agent setup
@@ -101,7 +107,15 @@ Files open in **tabs** across the top of the editor, each keeping its edits whil
 
 **Edit with Agent** (`⌘I`, or the button in the file's bar) hands the file — or the lines selected in it — to an agent: pick one of the agents installed there from the menu at the top, each with its own logo, say what to do or press **Explain**, **Fix the bug**, **Add tests**, **Add comments** or **Simplify**, and name other files it may need. The agent runs in a pane of its own in that checkout, as one started from the sidebar would — it shows there, and **Open its pane** goes to it — while a banner over the file says it is working. When it writes the file, its change is shown as a diff against the file as it was handed over: **Keep** it, or **Undo It**, which writes the old text back if the agent's version is still what is on disk. An ask that changes nothing, an explanation, is read in the agent's pane; **Stop Waiting** puts the banner away. The panel lists what agents were asked in this checkout. The file has to be saved before it is handed over, since the agent edits it on disk.
 
+<Shot
+  name="desktop-files"
+  alt="Conch.app's Files tab: a project's folders down the left with each file marked by its language's logo, and a TypeScript file open in the editor beside them"
+  caption="Files: the checkout in a tab, each file marked by its language, and ⌘S to save — checked against what an agent may have written meanwhile."
+/>
+
 Not every file is text. A picture (PNG, JPEG, GIF, WebP, HEIC, TIFF, ICO, SVG) is shown fitted to the pane — pinch or ⌘-scroll to zoom, double-click to fit again; a video (MP4, MOV, M4V) or a sound (MP3, M4A, WAV, AIFF, FLAC) plays with the system's controls, full screen and Picture in Picture; a PDF pages through; and an HTML page is rendered, reading its stylesheets and pictures from the checkout around it. A page or an SVG has **Page** / **Source** (**Picture** / **Source**) to switch to its text and edit it; saving a page shows it again as saved. The bar's ↗ opens the file in its own app (Preview, QuickTime, your browser), and a page's 🌐 opens it in a browser tab. On another machine the file is fetched into the app's cache first, with its progress shown (`fs.transfer.v1`, up to 512 MB; a page there gets its own file only, not the files beside it).
+
+The **Sessions** row of a project opens its saved conversations in a tab of their own: every agent's, the newest first, any interrupted by a restart above them and starred ones next, each with its agent, title, branch and how long ago. Search narrows them by title, branch or agent, and from three letters looks inside the conversations too (`session.search`), each match with the words around it. **Resume** (or a double-click) starts the agent on that conversation again in a pane; one already running says **open**, and **Open** goes to its pane; **Resume N interrupted** brings back every conversation a restart cut off. The star on a row keeps it to find again — conch's mark, not the agent's. A row's right-click menu also has **Hand Off To ▸**, which writes the conversation out where it was and starts another agent there to read it and carry on. The bin on a row deletes the conversation where its agent keeps it, after asking.
 
 ## Workbench
 
@@ -124,7 +138,11 @@ Each part is an ordinary split: drag between them to resize, ⌘W closes one. Th
 
 **File → New Browser Tab** (⇧⌘B) opens a web page in a tab beside the agents, as a terminal or a branch's changes are — split it, move it, close it with ⌘W. Type in the address bar: a port on this computer (`localhost:3000`, `127.0.0.1:8080`) or an address on your network goes over http, since that is what a dev server speaks; anything else with a dot over https; a full address as it is. Back, forward and reload are beside it (or swipe), a page that fails to load says why with **Try Again**, links that would open a window open in the same tab, and the tab is named by the page's title. The compass opens the page in your own browser, for the extensions, sign-ins and devtools that live there — though **Develop → Inspect** works here too, as in Safari. A port in a pane's header opens here.
 
-The **Sessions** row of a project opens its saved conversations in a tab of their own: every agent's, the newest first, any interrupted by a restart above them and starred ones next, each with its agent, title, branch and how long ago. Search narrows them by title, branch or agent, and from three letters looks inside the conversations too (`session.search`), each match with the words around it. **Resume** (or a double-click) starts the agent on that conversation again in a pane; one already running says **open**, and **Open** goes to its pane; **Resume N interrupted** brings back every conversation a restart cut off. The star on a row keeps it to find again — conch's mark, not the agent's. A row's right-click menu also has **Hand Off To ▸**, which writes the conversation out where it was and starts another agent there to read it and carry on. The bin on a row deletes the conversation where its agent keeps it, after asking.
+<Shot
+  name="desktop-browser"
+  alt="Conch.app with a browser tab open on a dev server's page served from 127.0.0.1, the agents still in the sidebar beside it"
+  caption="A browser tab: the dev server's own page beside the agents writing it, rather than in another window."
+/>
 
 ## Commits
 

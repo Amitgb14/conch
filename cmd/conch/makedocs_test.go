@@ -1,7 +1,9 @@
 package main
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -122,4 +124,73 @@ func makeRecipes(t *testing.T) map[string]string {
 		t.Fatalf("read %d targets from the Makefile: %v", len(recipes), recipes)
 	}
 	return recipes
+}
+
+// readmeAsset is a picture the README shows, served from the repository
+// (assets/README.md: that URL names a branch, so the name in here and the
+// file have to agree, and a file may never be renamed).
+var readmeAsset = regexp.MustCompile(`https://raw\.githubusercontent\.com/Amitgb14/conch/master/assets/([^)"'\s]+)`)
+
+// TestReadmeMediaIsThere: every picture the README points at is a file in
+// assets/. A README link is drawn by GitHub from the branch, not from the
+// checkout, so a name that is wrong here is a broken image on the front
+// page and nothing in the build says so.
+func TestReadmeMediaIsThere(t *testing.T) {
+	body, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := readmeAsset.FindAllStringSubmatch(string(body), -1)
+	if len(names) == 0 {
+		t.Fatal("no assets link found — the regexp or the README moved")
+	}
+	for _, m := range names {
+		if _, err := os.Stat("../../assets/" + m[1]); err != nil {
+			t.Errorf("README shows assets/%s: %v", m[1], err)
+		}
+	}
+}
+
+// docShot is a picture a docs page shows, by the name doc-shot.tsx gives
+// it: `<Shot name="desktop-git" alt="…" />`, over however many lines.
+var docShot = regexp.MustCompile(`<Shot\s[^>]*name="([^"]+)"`)
+
+// TestDocShotsAreThere: every picture a docs page asks for is registered in
+// doc-shot.tsx and is a file in web/src/images. MDX cannot import a
+// picture and next/image wants the import, so that name is the only link
+// between a page and its file — and a wrong one throws while the page
+// renders, which is `next build`, run by the website's own workflow and
+// only on a pull request that touches web/.
+func TestDocShotsAreThere(t *testing.T) {
+	reg, err := os.ReadFile("../../web/src/components/doc-shot.tsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shots := 0
+	err = filepath.WalkDir("../../web/src/app/docs", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".mdx") {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range docShot.FindAllStringSubmatch(string(body), -1) {
+			shots++
+			if !strings.Contains(string(reg), `"`+m[1]+`":`) {
+				t.Errorf("%s shows %q, which doc-shot.tsx does not name", path, m[1])
+				continue
+			}
+			if _, err := os.Stat("../../web/src/images/" + m[1] + ".png"); err != nil {
+				t.Errorf("%s shows %q: %v", path, m[1], err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shots == 0 {
+		t.Fatal("no <Shot> in the docs — the regexp or the pages moved")
+	}
 }
