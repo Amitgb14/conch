@@ -152,6 +152,7 @@ struct BenchBar: View {
                 Text(b).font(.ui(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1)
             }
             Pill.state(p?.agent?.state)
+            BackgroundPill(store: store, pane: agent)
             Spacer(minLength: 8)
             if let parts {
                 toggle("Files", icon: "folder", leaf: parts.files)

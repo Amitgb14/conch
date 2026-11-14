@@ -15,7 +15,27 @@ func (mach *machine) setLimits(l proto.PlanLimits) {
 	if mach.limits == nil {
 		mach.limits = map[string]proto.PlanLimits{}
 	}
-	mach.limits[l.Agent] = l
+	mach.limits[accountKey(l.Agent, l.Account)] = l
+}
+
+// accountKey is where an account's limits are kept in machine.limits: the
+// agent's own under its name, as they always were, so everything reading
+// an agent's limits reads its own account's; another account under
+// agent@name.
+func accountKey(agent, account string) string {
+	if account == "" {
+		return agent
+	}
+	return agent + "@" + account
+}
+
+// accountAgent is the short name of an agent on an account: "Claude",
+// "Claude work".
+func accountAgent(agent, account string) string {
+	if account == "" {
+		return shortAgent(agent)
+	}
+	return shortAgent(agent) + " " + account
 }
 
 // liveWindow drops a window whose reset time has passed: its usage is stale.
@@ -50,7 +70,7 @@ func limitsChip(l proto.PlanLimits, now time.Time) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return styleMuted.Render(shortAgent(l.Agent)+" ") + strings.Join(parts, styleMuted.Render(" · "))
+	return styleMuted.Render(accountAgent(l.Agent, l.Account)+" ") + strings.Join(parts, styleMuted.Render(" · "))
 }
 
 func shortAgent(agent string) string {
@@ -78,7 +98,7 @@ func (m Model) statusLimits(now time.Time) []statusItem {
 	agent := ""
 	if r.kind == kindPane {
 		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil {
-			agent = p.Agent.Name
+			agent = accountKey(p.Agent.Name, p.Account)
 		}
 	}
 	order := []string{agent, "claude", "codex"}
@@ -121,8 +141,8 @@ func resetText(t, now time.Time) string {
 func (m Model) limitsLines(mach *machine, w int) []string {
 	now := time.Now()
 	var lines []string
-	for _, agent := range []string{"claude", "codex"} {
-		l, ok := mach.limits[agent]
+	for _, key := range limitKeys(mach, []string{"claude", "codex"}) {
+		l, ok := mach.limits[key]
 		if !ok {
 			continue
 		}
@@ -144,7 +164,11 @@ func (m Model) limitsLines(mach *machine, w int) []string {
 		if len(rows) == 0 {
 			continue
 		}
-		lines = append(lines, "", styleBold.Render(agentLabel(agent)+" plan usage")+styleMuted.Render("  as of "+ago(l.At)))
+		label := agentLabel(l.Agent)
+		if l.Account != "" {
+			label += " · " + l.Account
+		}
+		lines = append(lines, "", styleBold.Render(label+" plan usage")+styleMuted.Render("  as of "+ago(l.At)))
 		lines = append(lines, rows...)
 	}
 	return lines

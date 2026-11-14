@@ -270,3 +270,25 @@ func TestAppTextAndFontSize(t *testing.T) {
 		t.Fatalf("half point: %+v %v", got.App, err)
 	}
 }
+
+// Conch.app's own updates: checked for by default, installed only when
+// asked, and neither written by a default config.
+func TestAppUpdateSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	if a := (AppCfg{}); !a.ChecksUpdates() || a.AutoUpdate {
+		t.Fatalf("defaults: %+v", a)
+	}
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[app]\ncheck_updates = false\nauto_update = true\n"), 0o644)
+	got, err := Load()
+	if err != nil || got.App.ChecksUpdates() || !got.App.AutoUpdate {
+		t.Fatalf("read: %+v %v", got.App, err)
+	}
+	if err := Save(Default()); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	if strings.Contains(string(b), "check_updates") || strings.Contains(string(b), "auto_update") {
+		t.Fatalf("default config wrote them:\n%s", b)
+	}
+}

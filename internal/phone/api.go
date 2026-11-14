@@ -167,6 +167,18 @@ type Agent struct {
 	// Review is what was said about its branch's diff and not yet handed
 	// to it, oldest first: POST /api/review/send hands it over.
 	Review []ReviewNote `json:"review,omitempty"`
+	// Background is what the agent left running while it is not working
+	// — a dev server, a watcher — from a server with agent.background.v1.
+	Background []BackgroundJob `json:"background,omitempty"`
+}
+
+// BackgroundJob is one program an agent left running. A server that
+// counted it without saying what it is leaves all but the count empty.
+type BackgroundJob struct {
+	PID     int       `json:"pid,omitempty"`
+	Command string    `json:"command,omitempty"`
+	Since   time.Time `json:"since,omitzero"`
+	Ports   []int     `json:"ports,omitempty"`
 }
 
 // ReviewNote is one comment on an agent's branch, written in the TUI's
@@ -288,6 +300,9 @@ type Project struct {
 type PairRequest struct {
 	Code       string `json:"code"`
 	DeviceName string `json:"device_name"`
+	// Name is taken for DeviceName when that is not given: a client
+	// written by hand sends "name", and was listed as "phone" (#199).
+	Name string `json:"name,omitempty"`
 }
 
 // PairResponse answers it, along with the cookie.

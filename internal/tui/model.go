@@ -47,6 +47,8 @@ type Model struct {
 	// agents, keyed by machine: read when its page is opened, since it asks
 	// that machine's server.
 	skill map[string]*skillPlan
+	// accounts is each machine's agent accounts, for Settings (accounts.go).
+	accounts map[string]*accountsState
 	// prompts are messages sent to an agent from the tree and not yet
 	// answered, keyed by machine and pane: what watchPrompt reports on.
 	prompts map[string]*promptWatch
@@ -709,6 +711,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.receivePromptSent(msg)
 	case skillMsg:
 		return m, m.receiveSkill(msg)
+	case accountsMsg:
+		return m, m.receiveAccounts(msg)
 	case libraryMsg:
 		return m, m.receiveLibrary(msg)
 
@@ -1223,15 +1227,24 @@ func (m Model) isViewing(mid, paneID string) bool {
 
 // attentionBody says why an agent needs the user.
 func attentionBody(info proto.PaneInfo) string {
+	// What it left running, which "finished" alone would hide.
+	bg := backgroundSummary(info.Agent)
+	sep := ", "
+	var body string
 	switch {
 	case info.Agent.State == proto.AgentBlocked && info.Agent.Message != "":
-		return info.Agent.Message
+		body, sep = info.Agent.Message, " · " // the agent's own sentence
 	case info.Agent.State == proto.AgentBlocked:
-		return info.DisplayName() + " is waiting for you"
+		body = info.DisplayName() + " is waiting for you"
 	case info.Agent.Failed:
-		return info.DisplayName() + " stopped: " + info.Agent.Message
+		body = info.DisplayName() + " stopped: " + info.Agent.Message
+	default:
+		body = info.DisplayName() + " finished"
 	}
-	return info.DisplayName() + " finished"
+	if bg != "" {
+		body += sep + bg
+	}
+	return body
 }
 
 func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd {

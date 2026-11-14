@@ -331,10 +331,13 @@ final class WorkspacesHost: NSHostingView<WorkspacesControl> {
         let p = convert(locationInWindow, from: nil)
         guard bounds.contains(p) else { return nil }
         let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
-        guard let i = WorkspaceHits.shared.index(at: point) else { return nil }
+        guard let i = WorkspaceHits.shared.index(at: point), rootView.store.projectScope == nil else { return nil }
         let store = rootView.store
         let m = NSMenu()
         m.addItem(ClosureItem("Rename…") { store.renameWorkspace(i) })
+        if let id = store.workspaces.indices.contains(i) ? store.workspaces[i].id : nil {
+            m.addItem(ClosureItem("Open in New Window") { AppWindows.shared.openWindow(workspace: id) })
+        }
         if i > 0 {
             m.addItem(.separator())
             m.addItem(ClosureItem("Close Workspace…") { store.closeWorkspace(i) })
@@ -387,6 +390,26 @@ struct WorkspacesControl: View {
     var body: some View { content.environment(\.conchTheme, store.themeLook) }
 
     @ViewBuilder var content: some View {
+        if let p = store.projectScope { projectLabel(p) } else { switcher }
+    }
+
+    /// A window showing one project: its name where the workspaces would
+    /// be, since it is in none of them.
+    func projectLabel(_ p: String) -> some View {
+        Text(store.scopeName(p)).font(.ui(size: 12.5, weight: .semibold))
+            .foregroundStyle(Theme.text)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 24)
+            .padding(Theme.ink ? 1 : 3)
+            .background(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
+            .fixedSize()
+            .help("This window shows one project — File → New Window for a workspace")
+            .accessibilityLabel("Project \(store.scopeName(p))")
+    }
+
+    @ViewBuilder var switcher: some View {
         HStack(spacing: 4) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
                 WorkspaceTab(store: store, index: i, ws: ws)
@@ -1168,6 +1191,7 @@ struct NodeView: View {
                     } else if let pill = Pill.state(p.agent?.state) {
                         pill.fixedSize().layoutPriority(1)
                     }
+                    if paneEndBadge(p) == nil { BackgroundPill(store: store, pane: id).layoutPriority(1) }
                 }
             }
         case .machine(let m):
@@ -1463,6 +1487,7 @@ struct TaskSheet: View {
     @ObservedObject var store: Store
     @State var draft: TaskDraft
     @State private var issues: [IssueInfo] = []
+    @State private var tickets: [TicketInfo] = []
     @FocusState private var promptFocused: Bool
 
     var project: ProjectInfo? {
@@ -1501,6 +1526,14 @@ struct TaskSheet: View {
                     .frame(maxWidth: 300)
                     .help("Work on a GitHub issue: its title and body are the prompt, and anything typed above is added")
                 }
+                if !tickets.isEmpty {
+                    Picker("Ticket", selection: Binding(get: { draft.ticket }, set: { draft.ticket = $0; if !$0.isEmpty { draft.issue = nil } })) {
+                        Text("None").tag("")
+                        ForEach(tickets) { Text($0.label).lineLimit(1).tag($0.ref) }
+                    }
+                    .frame(maxWidth: 300)
+                    .help("Work on a Linear or Jira ticket: its title, body and comments are the prompt, and anything typed above is added")
+                }
                 TextField("When: now, 14:05, +30m, every 1d, queue, after BRANCH", text: $draft.when)
                     .frame(maxWidth: 360)
                     .help("Later is kept by the server, and starts with conch closed too")
@@ -1510,14 +1543,18 @@ struct TaskSheet: View {
                 Button("Cancel") { store.taskDraft = nil }.keyboardShortcut(.cancelAction)
                 Button(taskWhenArgs(draft.when).isEmpty ? "Start" : "Schedule") { store.startTask(draft) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0)
+                    .disabled(draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.issue ?? 0) == 0 && draft.ticket.isEmpty)
             }
             Text("⌘↩ starts it").font(.ui(size: 11)).foregroundStyle(.secondary)
         }
         .padding(18)
         .frame(width: 560)
         .onAppear { promptFocused = true }
-        .task { issues = await store.issues(for: draft.project) }
+        .task {
+            async let i = store.issues(for: draft.project)
+            async let t = store.tickets(for: draft.project)
+            (issues, tickets) = await (i, t)
+        }
     }
 }
 
@@ -2019,6 +2056,7 @@ struct PaneCard: View {
                 } else {
                     Pill.state(p?.agent?.state)
                 }
+                BackgroundPill(store: store, pane: pane)
             }
             .padding(.horizontal, store.appLook.compact ? 8 : 10).frame(height: store.appLook.compact ? 22 : 30)
             .font(.ui(size: store.appLook.compact ? 11 : 12))
@@ -2298,6 +2336,8 @@ struct StatusBar: View {
                     .overlay(Rectangle().strokeBorder(Theme.ink ? Theme.inkLine : .clear, lineWidth: 1.5))
             }
             .buttonStyle(.plain).help("conch's settings (⌘,); an open TUI takes in what you save")
+            // A newer Conch.app, or one just installed (AppUpdater.swift).
+            AppUpdateBarItem(updater: store.updater, store: store)
             // The version is where updates are said: in the warn colour, with
             // how many machines are behind, when any are — a click lists them
             // and does the ones picked.
@@ -2328,7 +2368,7 @@ struct StatusBar: View {
             }
             .buttonStyle(.plain).help("Memory and CPU conch uses on this computer")
             .onHover { monitorHover = $0 }
-            .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store) }
+            .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store, close: { showMonitor = false }) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
@@ -2487,10 +2527,31 @@ struct MonitorIcon: View {
 /// server, the panes with each one's tree under them, the total.
 struct MonitorPopover: View {
     @ObservedObject var store: Store
+    var close: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("monitor").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).padding(.bottom, 4)
+            HStack(spacing: 8) {
+                Text("monitor").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+                Spacer()
+                // The whole machine, every process and the history: the
+                // System Monitor window.
+                Button {
+                    close()
+                    store.openSystemMonitor()
+                } label: {
+                    LucideIcon("maximize-2", color: Theme.text2, size: 12)
+                        .frame(width: 24, height: 24)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
+                }
+                .buttonStyle(.plain)
+                .help("Open System Monitor (⌥⌘M)")
+                .accessibilityLabel("Open System Monitor")
+            }
+            .padding(.bottom, 4)
+            if let s = store.systemStats["local"], s.cpu != nil || s.memory != nil {
+                systemStrip(s).padding(.bottom, 6)
+            }
             if let r = store.resources {
                 line(name: "", mem: "memory", cpu: Text("    cpu").foregroundStyle(Theme.muted), bold: false, header: true)
                 ForEach(Array(r.rows.enumerated()), id: \.offset) { _, row in
@@ -2508,6 +2569,36 @@ struct MonitorPopover: View {
         .padding(12)
         .background(Theme.chrome)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.accent.opacity(0.6)))
+    }
+
+    /// The whole computer, above what conch uses of it.
+    func systemStrip(_ s: SystemStats) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let c = s.cpu {
+                HStack(spacing: 8) {
+                    Text("system cpu").foregroundStyle(Theme.muted).frame(width: 116, alignment: .leading)
+                    stripBar(c.total / 100, Color(red: 0.30, green: 0.55, blue: 1.0))
+                    Text(String(format: "%5.1f%%", c.total)).foregroundStyle(Theme.text)
+                }
+            }
+            if let m = s.memory, m.total > 0 {
+                HStack(spacing: 8) {
+                    Text("system memory").foregroundStyle(Theme.muted).frame(width: 116, alignment: .leading)
+                    stripBar(m.usedFraction, Color(red: 0.95, green: 0.64, blue: 0.23))
+                    Text("\(formatBytes(m.used)) / \(formatBytes(m.total, whole: true))").foregroundStyle(Theme.text)
+                }
+            }
+        }
+    }
+
+    /// A share as a bar in the System Monitor's colours: a machine busy is
+    /// not a fault, so not the green-to-red of a plan's use.
+    func stripBar(_ f: Double, _ color: Color) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(Theme.line2)
+            Capsule().fill(color).frame(width: 160 * min(max(f, 0), 1))
+        }
+        .frame(width: 160, height: 6)
     }
 
     func line(name: String, mem: String, cpu: Text, bold: Bool, muted: Bool = false, header: Bool = false) -> some View {

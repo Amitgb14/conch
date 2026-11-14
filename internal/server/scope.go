@@ -107,6 +107,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
 	proto.MethodAgentPrompt:    scopePane,
 	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
+	// Ending what an agent left running is changing that pane.
+	proto.MethodAgentBackgroundStop: scopePane,
 	// An agent's hook asks for its own pane, and only its own.
 	proto.MethodAgentPermission: scopePane,
 	proto.MethodAgentBroadcast:  scopePanes,
@@ -146,6 +148,13 @@ var scoped = map[string]scopeKind{
 	// the person's to decide — and a check's verdict lifts or sets a hold
 	// on a merge, so an agent does not get to report its own.
 	proto.MethodAutopilotSet: scopeHome, proto.MethodAutopilotCheck: scopeHome,
+	// Whose subscription pays for what: the person's to arrange. Starting
+	// an agent on an account stays open, as choosing the agent does.
+	proto.MethodAccountAdd: scopeHome, proto.MethodAccountRemove: scopeHome,
+	proto.MethodAccountPin: scopeHome, proto.MethodAccountFailover: scopeHome,
+	// A ticket is changed with the person's key, as their own pull
+	// request is: an agent may for its own project's tracker.
+	proto.MethodTicketUpdate: scopeProject,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -409,7 +418,7 @@ var verbs = map[string]string{
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
-	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
+	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
@@ -420,6 +429,7 @@ var verbs = map[string]string{
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",
+	proto.MethodTicketUpdate: "change a ticket",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
 	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
@@ -430,6 +440,8 @@ var verbs = map[string]string{
 	proto.MethodAgentSync:    "sync one agent's setup to the others",
 	proto.MethodReviewSet:    "comment on a branch", proto.MethodReviewSend: "send review comments", proto.MethodReviewReply: "reply to review comments in",
 	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
+	proto.MethodAccountAdd: "add an agent account", proto.MethodAccountRemove: "remove an agent account",
+	proto.MethodAccountPin: "pin a folder to an agent account", proto.MethodAccountFailover: "change when agents move to another account",
 }
 
 // madeBy records that the connection's pane started pane id: it and the

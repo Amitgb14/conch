@@ -79,7 +79,7 @@ let sfSymbols: [String: String] = [
     "shield-check": "checkmark.shield", "git-merge": "arrow.triangle.merge", "sparkles": "sparkles",
     "terminal": "terminal", "square-terminal": "apple.terminal", "server": "server.rack",
     "refresh-cw": "arrow.clockwise", "smartphone": "iphone", "laptop": "laptopcomputer",
-    "box": "shippingbox", "zap": "bolt", "lock": "lock", "book-open": "book",
+    "box": "shippingbox", "zap": "bolt", "lock": "lock", "book-open": "book", "ticket": "ticket",
     // The window's sidebar: machines, a workspace, projects and what is
     // in them.
     "cloud": "cloud", "layers": "square.stack.3d.up", "folder": "folder", "folder-open": "folder",
@@ -103,7 +103,7 @@ let tileColors: [String: String] = [
     "palette": "#e05aa0", "keyboard": "#8e8e93", "bell": "#ff453a", "bot": "#ff9f0a",
     "book-open": "#bf5af2", "shield-check": "#30d158", "sparkles": "#5e5ce6", "git-merge": "#f05033",
     "terminal": "#636366", "square-terminal": "#64748b", "laptop": "#0a84ff", "server": "#0a84ff",
-    "smartphone": "#32ade6", "box": "#ac8e68", "refresh-cw": "#30b0a6", "zap": "#e6b800", "lock": "#8e8e93",
+    "smartphone": "#32ade6", "box": "#ac8e68", "refresh-cw": "#30b0a6", "zap": "#e6b800", "lock": "#8e8e93", "ticket": "#5e5ce6",
     "cloud": "#64d2ff", "layers": "#5e5ce6", "folder": "#3a8ee6", "folder-open": "#3a8ee6",
     "globe": "#32ade6", "monitor": "#5e8ebf", "git-branch": "#f05033", "history": "#a2845e",
 ]

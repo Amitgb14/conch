@@ -32,7 +32,8 @@ type fseventsBackend struct {
 	// lost says events were thrown away because the reader was behind.
 	// The watcher clears it and announces that the worktrees changed
 	// without naming paths, which is the truth and is what More is for.
-	lost atomic.Bool
+	lost  atomic.Bool
+	drops dropLog
 
 	closeOnce sync.Once
 	pumps     sync.WaitGroup // one per started stream
@@ -56,7 +57,18 @@ func newBackend() (watchBackend, error) {
 func (b *fseventsBackend) budgeted() bool                                { return false }
 func (b *fseventsBackend) cost(root string, ignored []string) (int, int) { return 0, 0 }
 func (b *fseventsBackend) paths() <-chan string                          { return b.out }
-func (b *fseventsBackend) missed() bool                                  { return b.lost.Swap(false) }
+
+func (b *fseventsBackend) missed() bool {
+	b.drops.report(log.Printf)
+	return b.lost.Swap(false)
+}
+
+// noteDropped is a path thrown away: counted, and logged with the rest of
+// its burst when the watcher next asks.
+func (b *fseventsBackend) noteDropped(path string) {
+	b.lost.Store(true)
+	b.drops.add(path)
+}
 
 // loseOne says an event was dropped, without needing a flood to make
 // one happen: a test cannot reliably outrun a channel of 256.
@@ -161,8 +173,7 @@ func (b *fseventsBackend) pump(root string, es *fsevents.EventStream) {
 				// The reader is behind. Blocking here would stop the pump
 				// draining a stream that must keep being drained, so the
 				// path goes — but not the fact that something changed.
-				b.lost.Store(true)
-				log.Printf("worktree watch: dropped an event for %s", ev.Path)
+				b.noteDropped(ev.Path)
 			}
 		}
 	}

@@ -83,7 +83,7 @@ func checkItem(it *proto.ScheduledItem) *proto.Error {
 		return proto.Errorf(proto.ErrBadRequest, "a scheduled item is a message (a pane and its text) or a task")
 	case it.Task != nil && it.Pane != "":
 		return proto.Errorf(proto.ErrBadRequest, "a scheduled item is a message or a task, not both")
-	case it.Task != nil && strings.TrimSpace(it.Task.Prompt) == "" && it.Task.Issue <= 0:
+	case it.Task != nil && strings.TrimSpace(it.Task.Prompt) == "" && it.Task.Issue <= 0 && strings.TrimSpace(it.Task.Ticket) == "":
 		return proto.Errorf(proto.ErrBadRequest, "a scheduled task needs a prompt")
 	case it.EveryMinutes < 0, it.EveryMinutes > 0 && it.EveryMinutes < scheduleMinEvery:
 		return proto.Errorf(proto.ErrBadRequest, "repeat every %d minutes or more", scheduleMinEvery)

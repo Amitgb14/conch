@@ -4,7 +4,7 @@ export type Field = {
   key: string
   label: string
   help?: string
-  kind: "bool" | "string" | "secret" | "text" | "int" | "float" | "select" | "list" | "ints" | "map" | "tables" | "keyed"
+  kind: "bool" | "string" | "secret" | "text" | "int" | "float" | "select" | "list" | "ints" | "map" | "tables" | "keyed" | "table"
   options?: Option[]
   placeholder?: string
   default?: unknown

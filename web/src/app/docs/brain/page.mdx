@@ -2,78 +2,37 @@ export const metadata = { title: "Brain", description: "Ask for work in plain wo
 
 # Brain
 
-The brain turns a request in plain words into a plan of conch actions — start tasks, message agents, answer questions — and summarises what agents are doing. It uses your own agent login or API key.
+How to ask conch for work in plain words, approve the plan it proposes, and get summaries of what agents are doing.
 
 ## Asking
 
-Press `:` (or click **✦ Ask**) and say what you want:
+Say what you want; the brain turns it into a plan of conch actions — start tasks, message agents, hand work over — using your own agent login or API key.
 
-- _"start 3 agents on api: fix the flaky login test, add rate limiting, update the README"_ — split into tasks, each on its own branch and worktree with a self-contained prompt
-- _"tell the agent on fix-login to also cover the logout path"_ — a message typed into that agent
-- _"hand the auth thread to Codex"_ — the Claude conversation in that pane is written to a handoff file and Codex is started on it, [as `s` does in Sessions](/docs/sessions#sharing-with-another-agent)
-- _"tell every agent in api to run the tests"_ — one message to several agents at once, [as `B` does in the tree](/docs/agents#broadcast)
-- _"what is waiting for me?"_ — an answer, no actions
+**How:** press `:` (or click **✦ Ask**), or `conch ask [-y | -n] [-model] "…"` from a shell.
 
-Under the request the window says what it applies to (the row selected in the tree), how many agents are waiting, working or done, and which model would plan it. Below that are things worth asking now — _"what is waiting for me?"_ while an agent waits, _"show claude"_ for each one waiting, _"tell claude to …"_ for the agent selected, _"tell everyone to …"_, _"start an agent here to …"_ — and the last few requests you made. Each says whether conch answers it at once or the model plans it, and typing narrows the list.
+- _"start 3 agents on api: fix the flaky login test, add rate limiting, update the README"_
+- _"tell the agent on fix-login to also cover the logout path"_
+- _"what is waiting for me?"_
 
-| Key | |
-| --- | --- |
-| `↑` `↓` | choose an option |
-| `enter`, a click | ask it; one ending in _…_ is put in the box for you to finish |
-| `tab` | fill the box from the option chosen, or the first |
-| `ctrl+p` `ctrl+n` | earlier and later requests, as in a shell |
-| `esc` | close |
-
-Once something is typed, the line above the keys says what `enter` will cost: _conch answers it at once, no model_, or which model plans it.
-
-From a shell, `conch ask [-y | -n] [-model] "…"` does the same: `-y` runs the plan without asking, `-n` only shows it, `-model` always asks the model. In [Conch.app](/docs/mac-app), **✦ Ask** in the status bar offers the same list, for the pane in front.
+`↑` `↓` choose a suggestion, `enter` asks, `tab` fills the box, `ctrl+p` `ctrl+n` recall earlier requests, `esc` closes.
 
 ## Without the model
 
-Some requests mean only one thing, and conch plans them at once, without a model call. That works even when no provider is set up:
+Requests that mean only one thing are planned at once, with no model call — even with no provider set up.
 
 | Request | Plan |
 | --- | --- |
-| _"show codex"_, _"go to fix-login"_ | Show that pane |
+| _"show codex"_ | Show that pane |
 | _"close the zsh terminal"_ | Close it |
-| _"tell codex to run the tests"_ | Send _Run the tests_ to that agent |
-| _"tell everyone to commit"_ | Broadcast to every agent, one action per machine |
-| _"what is waiting?"_, _"what's working?"_ | An answer listing those agents, no actions |
+| _"tell codex to run the tests"_ | Send _Run the tests_ |
+| _"tell everyone to commit"_ | Broadcast to every agent |
+| _"what is waiting?"_ | List those agents |
 
-A pane is named by its name, its branch, its agent or its id. The plan says _answered without the model_; press `m` to send the same request to the model instead.
-
-conch does this only when exactly one reading is possible. Anything else goes to the model:
-
-- a name that matches two panes, or matches a project or a machine
-- a shell named as the one to tell
-- a message about the agent rather than to it, such as _"tell codex to check its tests"_, since the model can rewrite that
-
-`no_fast_path = true` under `[brain]` sends every request to the model.
+**How:** press `m` on the plan to send it to the model instead.
 
 ## Approving the plan
 
-The brain sees every connected machine, its projects, branches and agents (with their states and summaries) and proposes a plan. Each action is listed with a checkbox; invalid ones (an unknown project, an agent that isn't installed, an offline machine) are marked and skipped.
-
-It can propose these actions:
-
-| Action | What it does |
-| --- | --- |
-| Start a task | a new branch and worktree with an agent working on a prompt |
-| Start an agent | an agent in a project or branch you already have |
-| Send | a message typed into one running agent and submitted |
-| Share | hand one agent's conversation to another, new or already running |
-| Broadcast | one message to several agents on a machine at once |
-| Show, Close | focus a pane, or close it (only when you ask) |
-
-A broadcast and a share only ever reach agents: a terminal would run the text as a shell command, so conch skips it and says so. Sharing needs the agent to have saved a conversation; until it has, the action is refused rather than starting an agent with nothing to read.
-
-## Handing work to another agent
-
-Say who should take over, and from where:
-
-- _"hand the auth thread to Codex"_
-- _"let Gemini continue what Claude is doing on fix-login"_
-- _"give the drag-and-drop thread to the Codex that is already running"_
+Each proposed action has a checkbox; invalid ones are marked and skipped.
 
 ```text
 ✦ Plan
@@ -81,82 +40,48 @@ Say who should take over, and from where:
   enter run · space tick · esc cancel
 ```
 
-On enter, conch writes that agent's conversation to a handoff file in the checkout and starts the other agent on it with a prompt to read it and continue — the same handoff as `s` in [Sessions](/docs/sessions#sharing-with-another-agent). Name an agent that is already running and the conversation goes to it instead of starting a pane.
+<Callout type="note">**Nothing runs until you press enter.**</Callout>
+
+## Handing work to another agent
+
+Say who should take over. conch writes the conversation to a handoff file and starts the other agent on it, or gives it to one already running — the same as `s` in [Sessions](/docs/sessions).
+
+**How:** _"hand the auth thread to Codex"_, _"let Gemini continue what Claude is doing on fix-login"_.
 
 ## One message to several agents
 
-- _"tell every agent in api to run the tests before committing"_
-- _"ask both agents on conch to stop and summarise what they changed"_
+Each agent gets the message once, as its next one — like `B` in the tree ([Agents](/docs/agents)).
 
-```text
-✦ Plan
-  1. Send to 2 agents on this computer (fix login, codex): run the tests before committing
-```
-
-Each agent receives it once, submitted as its next message, like [`B` in the tree](/docs/agents#broadcast). Agents on several machines take one action per machine, each confirmed on its own.
+**How:** _"tell every agent in api to run the tests before committing"_.
 
 ## Finding what needs you
 
-`/` then `!` keeps only the agents waiting for an answer, on every machine, without asking the model anything:
+`/` then `!` keeps only the agents waiting for an answer, on every machine. `!` alone jumps to the next one; `esc` clears.
 
-```text
-/ !  agents waiting for you
-▾ ● local                          ⠋1 ⚑3
-  ▾ ◆ api                          ⠋1 ⚑2
-    ▾ Agents                           3
-        ! claude                    feat
-        ✓ gemini                    done
-```
-
-`esc` clears it; `!` on its own jumps to the next waiting agent instead of filtering.
-
-<Callout type="note">
-
-**Nothing runs until you press enter.**
-
-</Callout>
+<TuiShot id="waiting" title="A waiting agent" caption="An agent waiting for an answer." />
 
 ## Summaries
 
-`S` on an agent asks for a one-line summary — what it is doing and what it needs from you — shown in its title bar and on the project page, and given to the planner.
+`S` on an agent asks for a one-line summary of what it is doing and what it needs from you, shown in its title bar.
 
-Settings → Brain → _Summarise agents_ does this on its own whenever an agent finishes or starts waiting.
-
-<Callout type="warning">
-
-Each automatic summary is a small model request, and the agent's visible screen is sent to the provider.
-
-</Callout>
-
-## Providers
-
-Choose a provider in Settings → Brain, or with `[brain]` in config.toml:
-
-| Provider | Uses | Default models |
-| --- | --- | --- |
-| `claude` _(default)_ | the Claude Code CLI headless (`claude -p`, no tools, MCP servers, settings or session history) with your existing Claude login | sonnet · haiku for summaries |
-| `anthropic` | the API with `$ANTHROPIC_API_KEY` | claude-sonnet-5 · claude-haiku-4-5 |
-| `openai` | any OpenAI-compatible endpoint: `base_url = "http://localhost:11434/v1"` for Ollama | set `model` |
+**How:** `S`, or Settings → Brain → _Summarise agents_ to do it whenever an agent finishes or starts waiting. Each summary is a small model request that sends the agent's screen to the provider.
 
 ## Configuration
+
+Choose a provider in Settings → Brain, or in `config.toml`:
+
+| Provider | Uses |
+| --- | --- |
+| `claude` _(default)_ | the Claude Code CLI with your Claude login |
+| `anthropic` | the API with `$ANTHROPIC_API_KEY` |
+| `openai` | any OpenAI-compatible endpoint, such as Ollama |
 
 ```toml
 [brain]
 provider = "claude"
 model = ""            # provider default
-summary_model = ""    # a small, fast model by default
+summary_model = ""
 summaries = false     # automatic summaries
 ```
 
-Four more keys are optional:
-
-| Key | Effect |
-| --- | --- |
-| `base_url` | overrides the API endpoint (`anthropic`, `openai`) |
-| `api_key_env` | names the environment variable holding the API key (default `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) |
-| `command` | the `claude` binary for the `claude` provider; empty finds it on `PATH` |
-| `no_fast_path` | `true` sends every request to the model, even those [conch plans alone](#without-the-model) |
-
-## New providers
-
-New providers implement `brain.Provider` (`Complete` with an optional JSON schema for structured output).
+Other keys (`base_url`, `api_key_env`, `command`, `no_fast_path`) are on [Configuration](/docs/configuration).

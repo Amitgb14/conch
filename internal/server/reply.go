@@ -30,7 +30,7 @@ func (s *Server) agentReply(ref proto.PaneRef) (proto.AgentReply, *proto.Error) 
 		return proto.AgentReply{}, proto.Errorf(proto.ErrNotFound,
 			"%s has not said which conversation it is in yet, so there is nothing saved to read", info.Agent.Name)
 	}
-	env := sessions.CurrentEnv()
+	env := s.sessionEnv()
 	for _, f := range sessions.List(env, []string{info.Cwd}, 0) {
 		if f.Agent != info.Agent.Name || f.ID != info.Agent.SessionID {
 			continue
@@ -81,7 +81,7 @@ func (s *Server) agentChat(p proto.AgentChatParams) (proto.AgentChat, *proto.Err
 	if out.Session == "" {
 		return out, nil
 	}
-	env := sessions.CurrentEnv()
+	env := s.sessionEnv()
 	f, ok := chatSession(env, info.Agent.Name, info.Agent.SessionID, info.Cwd)
 	if !ok {
 		// Named but not on disk yet: an agent writes its transcript after

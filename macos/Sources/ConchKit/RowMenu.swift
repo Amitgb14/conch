@@ -146,6 +146,9 @@ public enum RowAction: Equatable, Sendable {
     case groupTaskPush(machine: String, group: String, branch: String)
     case groupTaskPRs(machine: String, group: String, branch: String)
     case removeGroupTask(machine: String, group: String, branch: String)
+    /// A project in a window of its own: its rows alone in the sidebar,
+    /// with tabs and splits of its own.
+    case openWindow(project: String)
     case divider
 }
 
@@ -289,6 +292,7 @@ extension Snapshot {
             if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
+            out += [.divider, RowMenuItem("Open in New Window", .openWindow(project: pk))]
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]
             // Only this Mac's folders are the Finder's to show.
             if machine == "local" { out.append(RowMenuItem("Reveal in Finder", .reveal(pr.path))) }

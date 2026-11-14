@@ -41,7 +41,11 @@ type Manifest struct {
 	// notation, each sent on its own: escape for most, escape twice for an
 	// agent whose screen says "esc twice to interrupt". Empty is escape.
 	Interrupt []string `toml:"interrupt"`
-	Rules     []Rule   `toml:"rules"`
+	// Helpers are programs the agent keeps running below it for its own
+	// sake — a language server, a keep-awake — matched by name like
+	// process_names. They are not work it left running in the background.
+	Helpers []string `toml:"helpers"`
+	Rules   []Rule   `toml:"rules"`
 }
 
 // InterruptKeys is the keys that stop the agent: its manifest's, or escape.
