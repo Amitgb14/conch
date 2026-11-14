@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -278,6 +278,12 @@ const CapIssues = "project.issues.v1"
 // all through the tracker's API with the key on the machine the project
 // is on ([trackers] in its config.toml).
 const CapTickets = "tickets.v1"
+
+// CapTicketCheck is ticket.check: whether each tracker — GitHub through
+// gh, Linear, Jira — can be reached with what this server has, whose the
+// key is, what it can see and how many tickets are open, for Settings to
+// say a key works before anything is asked of it.
+const CapTicketCheck = "ticket.check.v1"
 
 // CapPermissionRules is agent.permission: the server answering an agent's
 // permission request by the person's rules, before it is asked on screen.
@@ -555,6 +561,8 @@ const (
 	MethodProjectTickets = "project.tickets"
 	MethodTicketGet      = "ticket.get"
 	MethodTicketUpdate   = "ticket.update"
+	// MethodTicketCheck says how each tracker stands (CapTicketCheck).
+	MethodTicketCheck = "ticket.check"
 
 	MethodAgentPermission = "agent.permission"
 
@@ -2126,6 +2134,66 @@ type IssueInfo struct {
 type IssueList struct {
 	Issues []IssueInfo `json:"issues"`
 }
+
+// TicketCheckParams asks how the trackers stand (CapTicketCheck). With a
+// project, GitHub's counts are that project's issues.
+type TicketCheckParams struct {
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+// Tracker states.
+const (
+	TrackerConnected = "connected"
+	TrackerOff       = "off"   // not set up
+	TrackerError     = "error" // set up, and it did not answer as hoped
+)
+
+// TrackerArea is a Linear team or a Jira project the key can see.
+type TrackerArea struct {
+	Key  string `json:"key"`
+	Name string `json:"name,omitempty"`
+}
+
+// TrackerState is how one tracker stands. KeyFrom says where its key is
+// read from (config.toml, $VARIABLE, the Keychain, gh's own login) — never
+// the key. Open and Mine count the open tickets in Area (the team or
+// project tickets are listed from, "" for all), up to TicketCountMax;
+// More says there were that many or more.
+type TrackerState struct {
+	Tracker   string        `json:"tracker"`
+	State     string        `json:"state"`
+	Who       string        `json:"who,omitempty"`
+	Email     string        `json:"email,omitempty"`
+	Workspace string        `json:"workspace,omitempty"`
+	Areas     []TrackerArea `json:"areas,omitempty"`
+	Area      string        `json:"area,omitempty"`
+	Open      int           `json:"open,omitempty"`
+	Mine      int           `json:"mine,omitempty"`
+	More      bool          `json:"more,omitempty"`
+	KeyFrom   string        `json:"key_from,omitempty"`
+	Error     string        `json:"error,omitempty"`
+}
+
+// TrackerProjectState is one [[trackers.projects]] entry: a project, its
+// tracker and team or project, and how many tickets are open there.
+type TrackerProjectState struct {
+	Project string `json:"project"`
+	Tracker string `json:"tracker"`
+	Area    string `json:"area,omitempty"`
+	Open    int    `json:"open,omitempty"`
+	More    bool   `json:"more,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// TicketCheckResult is ticket.check's answer: GitHub, Linear and Jira in
+// that order, then each project's entry.
+type TicketCheckResult struct {
+	Trackers []TrackerState        `json:"trackers"`
+	Projects []TrackerProjectState `json:"projects,omitempty"`
+}
+
+// TicketCountMax is the most tickets a check counts.
+const TicketCountMax = 100
 
 // TicketsParams lists a project's open tickets (CapTickets), from the
 // tracker its [[trackers.projects]] entry names, or the one set up.

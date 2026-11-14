@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Issue is a GitHub issue, as much of it as a task needs.
@@ -67,6 +68,34 @@ func IssueByNumber(ctx context.Context, dir string, number int) (Issue, error) {
 		return Issue{}, fmt.Errorf("gh issue view: %w", err)
 	}
 	return r.issue(), nil
+}
+
+// Whoami is the GitHub login gh is signed in as, asked in dir (any folder
+// will do: the login is gh's, not the repository's).
+func Whoami(ctx context.Context, dir string) (string, error) {
+	out, err := run(ctx, dir, "api", "user", "--jq", ".login")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// IssueCount counts the open issues of the repository at dir, up to limit;
+// mine counts those assigned to the person gh is signed in as.
+func IssueCount(ctx context.Context, dir string, mine bool, limit int) (int, error) {
+	args := []string{"issue", "list", "--state", "open", "--limit", strconv.Itoa(limit), "--json", "number"}
+	if mine {
+		args = append(args, "--assignee", "@me")
+	}
+	out, err := run(ctx, dir, args...)
+	if err != nil {
+		return 0, err
+	}
+	var raw []struct{ Number int }
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return 0, fmt.Errorf("gh issue list: %w", err)
+	}
+	return len(raw), nil
 }
 
 // IssuesLabelled lists the open issues of the repository at dir that carry
