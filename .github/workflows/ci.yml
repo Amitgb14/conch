@@ -32,6 +32,28 @@ jobs:
       # pull request that never touched it.
       - run: go test -race -timeout 20m ./...
 
+  # Conch.app (macos/) is Swift, which go test never builds. swift test
+  # builds every target — ConchApp too, not only what ConchKitTests
+  # imports — so a change that breaks the app's compile fails here rather
+  # than on master: a duplicate declaration from two merged pull requests
+  # once did. No Ghostty library on the runner, so it builds the SwiftTerm
+  # side of TerminalHost; GhosttyHost.swift is checked locally.
+  swift:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          # The packages it fetches (SwiftTerm), not the build itself.
+          path: |
+            macos/.build/checkouts
+            macos/.build/repositories
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('macos/Package.resolved') }}
+      - run: swift test
+
   # The settings page is committed as built (internal/configweb/dist) so
   # conch builds with go alone. Rebuilding it here says whether what is
   # committed is still the build of app/.
