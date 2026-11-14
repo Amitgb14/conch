@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +154,59 @@ func TestGit3Repository(t *testing.T) {
 	}
 	if got, _ := HaveCommits(ctx, root, []string{head}); len(got) != 1 {
 		t.Errorf("HaveCommits = %v", got)
+	}
+}
+
+// A bundle carries its repository's hash. The repository made to take it
+// has to be made with the same one, whatever git would make by default —
+// SHA-1 now, SHA-256 under git 3 — or the fetch is refused.
+func TestInitFromBundleKeepsObjectFormat(t *testing.T) {
+	git3(t)
+	for _, c := range []struct{ src, dflt string }{
+		{"sha256", "sha1"}, // a git 3 repository moved to a machine with git 2
+		{"sha1", "sha256"}, // an old repository moved to a machine with git 3
+	} {
+		t.Run(c.src+"-into-"+c.dflt, func(t *testing.T) {
+			dir := t.TempDir()
+			src := filepath.Join(dir, "src")
+			bundleGit(t, dir, "init", "-q", "--object-format="+c.src, "-b", "main", src)
+			os.WriteFile(filepath.Join(src, "a.txt"), []byte("a\n"), 0o644)
+			bundleGit(t, src, "add", "a.txt")
+			bundleGit(t, src, "commit", "-q", "-m", "one")
+			file := filepath.Join(dir, "all.bundle")
+			if err := BundleAll(ctx, src, file); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_DEFAULT_HASH", c.dflt)
+			dst := filepath.Join(dir, "dst")
+			if err := InitFromBundle(ctx, file, dst, "main"); err != nil {
+				t.Fatal(err)
+			}
+			if got := bundleGit(t, dst, "rev-parse", "--show-object-format"); got != c.src {
+				t.Errorf("made a %s repository from a %s bundle", got, c.src)
+			}
+			if a, b := bundleGit(t, src, "rev-parse", "HEAD"), bundleGit(t, dst, "rev-parse", "HEAD"); a != b {
+				t.Errorf("HEAD %s, want %s", b, a)
+			}
+		})
+	}
+}
+
+func TestBundleObjectFormat(t *testing.T) {
+	dir := t.TempDir()
+	for name, c := range map[string]struct{ body, want string }{
+		"v2":        {"# v2 git bundle\nabc refs/heads/main\n\nPACK", "sha1"},
+		"v3 sha256": {"# v3 git bundle\n@object-format=sha256\n@filter=blob:none\nabc refs/heads/main\n\nPACK", "sha256"},
+		"v3 no cap": {"# v3 git bundle\nabc refs/heads/main\n\nPACK", "sha1"},
+		"empty":     {"", "sha1"},
+	} {
+		p := filepath.Join(dir, strings.ReplaceAll(name, " ", "-"))
+		os.WriteFile(p, []byte(c.body), 0o644)
+		if got := bundleObjectFormat(p); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+	if got := bundleObjectFormat(filepath.Join(dir, "missing")); got != "sha1" {
+		t.Errorf("missing: %q", got)
 	}
 }
