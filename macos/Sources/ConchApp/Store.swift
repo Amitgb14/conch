@@ -734,6 +734,11 @@ final class Store: ObservableObject {
     @Published var systemPaused = false
     var systemPoll: Task<Void, Never>?
     var onOpenSystemMonitor: (() -> Void)?
+    /// The Tickets window (TicketsWindow.swift).
+    var onOpenTickets: (() -> Void)?
+    func openTickets() { onOpenTickets?() }
+    /// [verify.intake]'s labels: what means ready for conch in Tickets.
+    @Published private(set) var intakeLabels: Set<String> = []
 
     /// What the resource monitor shows, while it is open.
     @Published private(set) var resources: (rows: [ResourceRow], total: ResourceRow)?
@@ -931,6 +936,8 @@ final class Store: ObservableObject {
         notifySettings = NotifySettings(toml: toml)
         let offers = cloudEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
         if offers != offersCloud { offersCloud = offers }
+        let ready = Set(tomlTableValues("verify", "intake", in: toml))
+        if ready != intakeLabels { intakeLabels = ready }
         let chat = chatEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
         if chat != offersChat {
             offersChat = chat
@@ -2451,6 +2458,7 @@ final class Store: ObservableObject {
         case "focusSidebar": focusSidebar()
         case "settings": openSettings()
         case "systemMonitor": openSystemMonitor()
+        case "tickets": openTickets()
         case "addProject": addProject()
         case "sshToHost": sshToHost()
         case "addMachine": addMachine()

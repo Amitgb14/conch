@@ -230,3 +230,44 @@ func TestA4TicketCheck(t *testing.T) {
 		t.Fatalf("older server: %v", err)
 	}
 }
+
+// conch ticket all: each project's tickets with what conch is doing.
+func TestA4TicketAll(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodTicketOverview {
+			return proto.TicketOverview{Projects: []proto.TicketProject{
+				{ProjectID: "r1", Name: "conch", Sources: []string{"github", "linear · ENG"}, Tickets: []proto.TicketRow{
+					{Source: "github", Key: "221", Number: 221, Title: "Tickets view", Mine: true, Doing: proto.TicketDoing{State: proto.DoingWorking, Pane: "p9"}},
+					{Source: "github", Key: "219", Number: 219, Title: "Intake", Doing: proto.TicketDoing{State: proto.DoingPR, PR: &proto.PRInfo{Number: 219, Checks: "pass"}}},
+					{Source: "linear", Key: "ENG-142", Title: "Retry uploads", Doing: proto.TicketDoing{State: proto.DoingQueued}},
+				}},
+				{ProjectID: "r2", Name: "cloud", Sources: []string{"jira · C"}, Errors: []string{"Jira refused the key"}},
+				{ProjectID: "r3", Name: "quiet", Sources: []string{"github"}},
+			}}, nil
+		}
+		return nil, nil
+	})
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTicket([]string{"all"}) })
+	for _, want := range []string{"conch  (github, linear · ENG)\n", "* #221     Tickets view   agent working (p9)", "#219     Intake         PR #219 · CI pass", "ENG-142  Retry uploads  queued", "cloud  (jira · C)\n  ! Jira refused the key\n"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("all lacks %q:\n%s%v", want, out, err)
+		}
+	}
+	if strings.Contains(out, "quiet") {
+		t.Fatalf("a project with nothing to say:\n%s", out)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"all", "-mine"}) })
+	if err != nil || !strings.Contains(out, "#221") || strings.Contains(out, "#219") {
+		t.Fatalf("-mine:\n%s", out)
+	}
+	if s := overviewLines(proto.TicketOverview{}); s != "no open tickets\n" {
+		t.Fatalf("empty: %q", s)
+	}
+	srv.Hello = func(n int) proto.HelloResult { h := currentHello(n); h.Capabilities = nil; return h }
+	if _, _ = a4Capture(t, "", func() { err = runTicket([]string{"all"}) }); err == nil || !strings.Contains(err.Error(), "reload") {
+		t.Fatalf("older server: %v", err)
+	}
+}
