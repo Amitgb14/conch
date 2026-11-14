@@ -196,15 +196,18 @@ func TestTicketCheckDeadline(t *testing.T) {
 	t.Cleanup(hang.Close)
 	t.Cleanup(func() { close(release) })
 	writeConfig(t, s, "[trackers.linear]\napi_key = \"k\"\napi_url = \""+hang.URL+"\"\n")
+	// Long enough for the fake gh, a shell script, to answer on a machine
+	// under load (300ms was not, and GitHub was killed with Linear); the
+	// hanging Linear still costs exactly this and no more.
 	was := checkTimeout
-	checkTimeout = 300 * time.Millisecond
+	checkTimeout = 5 * time.Second
 	t.Cleanup(func() { checkTimeout = was })
 	start := time.Now()
 	res, perr := s.ticketCheck(proto.TicketCheckParams{})
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	if d := time.Since(start); d > 5*time.Second {
+	if d := time.Since(start); d > 20*time.Second {
 		t.Fatalf("took %v", d)
 	}
 	if res.Trackers[1].State != proto.TrackerError || res.Trackers[0].State != proto.TrackerConnected {
