@@ -331,10 +331,13 @@ final class WorkspacesHost: NSHostingView<WorkspacesControl> {
         let p = convert(locationInWindow, from: nil)
         guard bounds.contains(p) else { return nil }
         let point = isFlipped ? p : CGPoint(x: p.x, y: bounds.height - p.y)
-        guard let i = WorkspaceHits.shared.index(at: point) else { return nil }
+        guard let i = WorkspaceHits.shared.index(at: point), rootView.store.projectScope == nil else { return nil }
         let store = rootView.store
         let m = NSMenu()
         m.addItem(ClosureItem("Rename…") { store.renameWorkspace(i) })
+        if let id = store.workspaces.indices.contains(i) ? store.workspaces[i].id : nil {
+            m.addItem(ClosureItem("Open in New Window") { AppWindows.shared.openWindow(workspace: id) })
+        }
         if i > 0 {
             m.addItem(.separator())
             m.addItem(ClosureItem("Close Workspace…") { store.closeWorkspace(i) })
@@ -387,6 +390,26 @@ struct WorkspacesControl: View {
     var body: some View { content.environment(\.conchTheme, store.themeLook) }
 
     @ViewBuilder var content: some View {
+        if let p = store.projectScope { projectLabel(p) } else { switcher }
+    }
+
+    /// A window showing one project: its name where the workspaces would
+    /// be, since it is in none of them.
+    func projectLabel(_ p: String) -> some View {
+        Text(store.scopeName(p)).font(.ui(size: 12.5, weight: .semibold))
+            .foregroundStyle(Theme.text)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(minHeight: 24)
+            .padding(Theme.ink ? 1 : 3)
+            .background(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).fill(Theme.meadow ? Theme.frost : Theme.window))
+            .overlay(RoundedRectangle(cornerRadius: Theme.corner(9, meadow: 22)).strokeBorder(Theme.ink ? Theme.inkLine : Theme.meadow ? .clear : Theme.line, lineWidth: Theme.ink ? 2 : 1))
+            .fixedSize()
+            .help("This window shows one project — File → New Window for a workspace")
+            .accessibilityLabel("Project \(store.scopeName(p))")
+    }
+
+    @ViewBuilder var switcher: some View {
         HStack(spacing: 4) {
             ForEach(Array(store.workspaces.enumerated()), id: \.offset) { i, ws in
                 WorkspaceTab(store: store, index: i, ws: ws)
