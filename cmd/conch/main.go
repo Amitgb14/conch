@@ -179,7 +179,8 @@ Usage:
                                 -n / several agents try it once each, one branch per attempt;
                                 -name names the pane; -at starts it later (14:05, +2h), -every
                                 again and again (1d, weekly), each run on a branch of its own;
-                                -queue holds it until fewer than -wip (3) agents run in the project;
+                                -queue holds it until fewer than -wip (3) agents are busy in the project
+                                (working, waiting on you, or just started);
                                 -after REF waits for that branch, pane or scheduled task to finish
                                 and starts from its branch (stacked work; -base to start elsewhere);
                                 -issue N works on that GitHub issue (PROMPT is then optional);

@@ -192,6 +192,17 @@ func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 	if len(checks) > 0 {
 		p.Checks = checks
 	}
+	intake := map[string]string{}
+	for id, label := range p.Intake {
+		if label = strings.TrimSpace(label); id != "" && label != "" {
+			intake[id] = label
+		}
+	}
+	p.Intake = nil
+	if len(intake) > 0 {
+		p.Intake = intake
+	}
+	p.IntakeWIP = max(0, min(p.IntakeWIP, maxWIP))
 	return p
 }
 

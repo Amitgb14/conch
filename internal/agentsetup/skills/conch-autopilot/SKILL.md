@@ -134,11 +134,19 @@ conch schedule
 
 `-issue` puts a GitHub issue in the prompt, and `-ticket` a Linear or
 Jira one (set up in `[trackers]` in config.toml; `conch ticket ls` lists
-them); `-queue -wip 2` keeps at most
-two agents working; `-every` repeats a task, each run on a branch of its
+them); `-queue -wip 2` starts it once fewer than two agents are busy
+(working, waiting, or just started); `-every` repeats a task, each run on a branch of its
 own; `-n 3` makes three attempts to keep the best. Asking an agent to
 "take the ready issues to merged pull requests" is the `conch-factory`
 skill, which runs the same line with agents in panes.
+
+To have the backlog taken with nobody handing it in, offer intake: a label
+per project in `[verify.intake]` (`r1a2b3c = "ready"`, and `intake_wip`
+for the queue's limit). The server reads the open issues with that label
+every few minutes, queues each one once as `-issue N`, and comments on the
+issue. Which label means "take this" is the person's choice — ask, don't
+pick one — and, as with the rest of `[verify]`, set it only once they agree:
+every issue it takes spends their usage.
 
 The autopilot does not touch a ticket by itself. If the person wants
 theirs to follow the work — a comment when the pull request opens, moved

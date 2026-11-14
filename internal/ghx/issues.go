@@ -97,3 +97,31 @@ func IssueCount(ctx context.Context, dir string, mine bool, limit int) (int, err
 	}
 	return len(raw), nil
 }
+
+// IssuesLabelled lists the open issues of the repository at dir that carry
+// label, oldest first — the order a backlog is worked in — up to limit.
+func IssuesLabelled(ctx context.Context, dir, label string, limit int) ([]Issue, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	out, err := run(ctx, dir, "issue", "list", "--state", "open", "--label", label, "--limit", strconv.Itoa(limit),
+		"--json", "number,title,url,labels")
+	if err != nil {
+		return nil, err
+	}
+	var raw []rawIssue
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("gh issue list: %w", err)
+	}
+	issues := make([]Issue, 0, len(raw))
+	for i := len(raw) - 1; i >= 0; i-- { // gh lists newest first
+		issues = append(issues, raw[i].issue())
+	}
+	return issues, nil
+}
+
+// CommentIssue adds a comment to issue number of the repository at dir.
+func CommentIssue(ctx context.Context, dir string, number int, body string) error {
+	_, err := run(ctx, dir, "issue", "comment", strconv.Itoa(number), "--body", body)
+	return err
+}
