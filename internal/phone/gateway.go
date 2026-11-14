@@ -48,6 +48,9 @@ type Gateway struct {
 	// stop every request the gateway is serving.
 	pool *fleet.Pool
 
+	// meter samples this computer for GET /api/resources (resources.go).
+	meter *resourceMeter
+
 	mu       sync.Mutex
 	c        *client.Client // the local server; a socket has its own
 	devices  []Device
@@ -115,6 +118,7 @@ func newGateway(store *Store, dial func() (*client.Client, error), logf func(for
 		quit:      make(chan struct{}), done: make(chan struct{}),
 	}
 	g.pool = g.newPool()
+	g.meter = newResourceMeter()
 	go g.watch()
 	go g.pushes()
 	go g.sendPushes()
@@ -318,6 +322,7 @@ var routes = []route{
 	{"GET", "/api/machines", PermView, (*Gateway).listMachines},
 	{"GET", "/api/projects", PermView, (*Gateway).listProjects},
 	{"GET", "/api/project", PermView, (*Gateway).projectDetail},
+	{"GET", "/api/resources", PermView, (*Gateway).resources},
 	{"POST", "/api/reply", PermReply, (*Gateway).reply},
 	{"POST", "/api/answer", PermReply, (*Gateway).answer},
 	{"POST", "/api/review/send", PermReply, (*Gateway).reviewSend},

@@ -366,6 +366,43 @@ type ProjectUsage struct {
 	OutputTokens int     `json:"output_tokens,omitempty"`
 }
 
+// Resources is GET /api/resources: what this computer and conch on it are
+// using, as the TUI's resource monitor adds it up. CPU is a rate, worked
+// out between two samples; a CPU field is left out when it cannot be
+// (cpu_percent on a system conch cannot read it on). 1.0 of CPUCores is
+// one core busy; CPUPercent is the whole machine, 0–100. Memory is in
+// bytes; MemUsed is what free(1) or Activity Monitor calls used, without
+// the file cache (procs.Memory). Panes are never null.
+type Resources struct {
+	Machine    string          `json:"machine"`
+	SampledAt  time.Time       `json:"sampled_at"`
+	Cores      int             `json:"cores"`
+	CPUPercent *float64        `json:"cpu_percent,omitempty"`
+	MemTotal   int64           `json:"mem_total"`
+	MemUsed    int64           `json:"mem_used"`
+	Conch      ResourceUse     `json:"conch"`
+	Panes      []PaneResources `json:"panes"`
+}
+
+// ResourceUse is a group of processes: conch's is the server with every
+// pane and everything they started.
+type ResourceUse struct {
+	CPUCores *float64 `json:"cpu_cores,omitempty"`
+	Mem      int64    `json:"mem"`
+}
+
+// PaneResources is one pane: its program and everything it started.
+// Procs counts those processes; Top names up to three that used the most
+// CPU (memory breaking ties), the pane's own shell left out while
+// something else runs under it. Top is never null.
+type PaneResources struct {
+	Pane     string   `json:"pane"`
+	CPUCores *float64 `json:"cpu_cores,omitempty"`
+	Mem      int64    `json:"mem"`
+	Procs    int      `json:"procs"`
+	Top      []string `json:"top"`
+}
+
 // PairRequest is POST /pair.
 type PairRequest struct {
 	Code       string `json:"code"`
