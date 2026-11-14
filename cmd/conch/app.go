@@ -42,7 +42,8 @@ import (
 // terminal it is standing in for.
 
 const appUsage = `usage: conch app [-terminal NAME] [-n]
-       conch app ls | install | remove`
+       conch app ls | install | remove
+       conch app update check | install VERSION | rollback`
 
 // appTerminal is a terminal conch knows how to start on its own terms.
 type appTerminal struct {
@@ -373,6 +374,8 @@ func runApp(args []string) error {
 			return appInstall(args[1:])
 		case "remove":
 			return appRemove(args[1:])
+		case "update":
+			return appUpdate(args[1:])
 		default:
 			return fmt.Errorf("conch app has no %q; %s", verb, appUsage)
 		}

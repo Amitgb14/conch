@@ -25,6 +25,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return i
     }()
 
+    /// Shown only while an update has left the app before it to go back to.
+    lazy var rollBackItem: NSMenuItem = {
+        let i = NSMenuItem(title: "Roll Back Update", action: #selector(runCommand(_:)), keyEquivalent: "")
+        i.representedObject = "rollBackUpdate"
+        i.target = self
+        i.isHidden = true
+        return i
+    }()
+
     /// The conch menu opening: what quitting leaves running, said now.
     func menuNeedsUpdate(_ menu: NSMenu) {
         // A theme file added or fixed since is in the menu as it opens.
@@ -36,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             updateBenchMenu()
             return
         }
+        rollBackItem.isHidden = !store.updater.canRollBack
         runOnItem.attributedTitle = NSAttributedString(string: runOnNote(panes: store.runningPanes),
                                                        attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
     }
@@ -98,6 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         store.connect()
+        // Conch.app's own updates: once for the app, not for each window.
+        AppUpdater.shared.start()
         // The windows open when the app last quit, behind the first.
         for saved in loadSavedWindows(UserDefaults.standard.data(forKey: Self.windowsKey)) {
             let s = Store(windowID: saved.id, workspace: saved.workspace, project: saved.project, layout: saved.layout.layout())
@@ -299,6 +311,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu("conch", [
             NSMenuItem(title: "About Conch (Beta)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
+            item("Check for Updates…", "", [], "checkForUpdates"),
+            rollBackItem,
             .separator(),
             item("Settings…", ",", .command, "settings"),
             item("Run in Terminal", "", [], "openTUI"),
