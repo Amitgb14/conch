@@ -269,6 +269,7 @@ func (s *Server) Run() error {
 	s.ln = ln
 	s.mu.Unlock()
 	log.Printf("conch server %s listening on %s (pid %d)", proto.Version, s.sockPath, os.Getpid())
+	go s.autoResume()
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -517,7 +518,8 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 		return false
 	}
 	if msg.Method == proto.MethodServerStop && perr == nil { // refused (scope.go), it stays up
-		c.flush(replyWait) // the answer is out before the server goes
+		c.flush(replyWait)   // the answer is out before the server goes
+		s.runs.markStopped() // asked to stop: the next server offers its agents, it doesn't restart them
 		s.Stop()
 	}
 	if msg.Method == proto.MethodServerReload && perr == nil {

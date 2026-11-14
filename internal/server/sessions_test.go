@@ -51,7 +51,9 @@ func TestSessionsInterruptedAndResume(t *testing.T) {
 		}
 		os.Chtimes(p, when, when)
 	}
-	runs, _ := json.Marshal(map[string]any{"active": []map[string]any{{
+	// Its server was stopped on purpose (conch server stop), so the run is
+	// offered rather than resumed by itself — this test is the offering.
+	runs, _ := json.Marshal(map[string]any{"stopped": true, "active": []map[string]any{{
 		"pane": "p1", "agent": "claude", "dir": repo, "session": "old",
 		"started": time.Now().Add(-3 * time.Hour), "seen": time.Now().Add(-2 * time.Hour),
 	}}})

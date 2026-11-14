@@ -455,6 +455,11 @@ type AgentsCfg struct {
 	// --model, and types only into panes running an agent
 	// (internal/server/launchrule.go).
 	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
+	// NoAutoResume leaves the agents a server was running when it went —
+	// a reboot, a crash — for the person to resume (I in Sessions) rather
+	// than having the next server resume them by itself. A server stopped
+	// on purpose (conch server stop) never resumes them either way.
+	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.

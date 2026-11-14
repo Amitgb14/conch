@@ -8,7 +8,7 @@ conch lists the conversations your agents saved, per project, so you can resume,
 <Feature icon="sessions" title="Saved conversations" href="#saved-conversations">Every agent's conversations for a project, newest first.</Feature>
 <Feature icon="reload" title="Resume" href="#resuming-a-session">Pick one up in its folder with the agent's own resume option.</Feature>
 <Feature icon="chat" title="Share" href="#sharing-with-another-agent">Hand a conversation to another agent, here or on another machine.</Feature>
-<Feature icon="signal" title="Interrupted runs" href="#interrupted-runs">Agents that were running when the server stopped, back in one key.</Feature>
+<Feature icon="signal" title="Interrupted runs" href="#interrupted-runs">Agents running at a reboot or crash come back by themselves.</Feature>
 </FeatureGrid>
 
 ## Saved conversations
@@ -80,6 +80,8 @@ Pick a project on another online machine — or its **home folder**, for one wit
 
 ## Interrupted runs
 
-When the server stops — `conch server stop`, a crash, a reboot — running agents are marked `⚠ interrupted` in Sessions for a week.
+After a reboot or a crash, the agents that were running come back by themselves when the server starts, each on its own conversation and account.
+
+After `conch server stop`, or with `[agents] no_auto_resume = true`, they wait in Sessions marked `⚠ interrupted` for a week instead. So does one that can't come back, such as one whose worktree was removed.
 
 **How:** `I` resumes all of them, `x` dismisses one.
