@@ -34,6 +34,14 @@ public struct AgentMark: Equatable, Sendable {
         case "grok": return .init(glyph: "\u{f00d}", symbol: "xmark")
         case "kilo": return .init(glyph: "\u{f009}", symbol: "square.grid.2x2.fill")
         case "pi": return .init(glyph: "π", symbol: nil)
+        case "kiro": return .init(glyph: "\u{f2ac}", symbol: "cloud.fill") // a ghost; SF Symbols has none, a cloud is its outline
+        case "crush": return .init(glyph: "\u{f0d0}", symbol: "wand.and.stars")
+        case "droid": return .init(glyph: "\u{f17b}", symbol: "gearshape.fill")
+        case "kimi": return .init(glyph: "\u{f186}", symbol: "moon.fill")
+        case "vibe": return .init(glyph: "\u{f001}", symbol: "music.note")
+        case "antigravity": return .init(glyph: "\u{f197}", symbol: "airplane")
+        case "auggie": return .init(glyph: "\u{f12e}", symbol: "puzzlepiece.fill")
+        case "continue": return .init(glyph: "\u{f04e}", symbol: "forward.fill")
         // An agent from somebody's own manifest: the TUI's default, a
         // microchip, so the row still says it is an agent.
         default: return .init(glyph: "\u{f2db}", symbol: "cpu")
@@ -62,6 +70,14 @@ public func agentColor(_ name: String?) -> RGB? {
     case "grok": return RGB("#E8E8E8") // xAI is black and white
     case "kilo": return RGB("#FEE685") // Kilo Code's own
     case "pi": return RGB("#4D9ABF") // the blue of its three blocks
+    case "kiro": return RGB("#9046FF") // chosen: kiro.dev's purple
+    case "crush": return RGB("#6B50FF") // Charple, Crush's own
+    case "droid": return RGB("#B08968") // chosen: Factory is black and white
+    case "kimi": return RGB("#3D8BFF") // chosen
+    case "vibe": return RGB("#FA520F") // Mistral's orange
+    case "antigravity": return RGB("#34A853") // chosen: Google's green
+    case "auggie": return RGB("#A78BFA") // chosen
+    case "continue": return RGB("#9CA3AF") // chosen: its mark is black and white
     default: return nil
     }
 }

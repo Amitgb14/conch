@@ -1,0 +1,32 @@
+# Continue's CLI, `cn` (https://docs.continue.dev/cli). The "runs here"
+# tier.
+#
+# Verified against its source (extensions/cli) on 2026-11-13, not with
+# the real CLI:
+#   - `cn "prompt"` starts an interactive session with it; -p/--print is
+#     the one that answers and exits.
+#   - --resume reopens the last session. There is no flag that reopens
+#     one by id (--fork copies one), so there is no resume line.
+#   - sessions are ~/.continue/sessions/<id>.json; conch does not read
+#     them.
+#   - it runs under node, and conch matches the script's name.
+agent = "continue"
+label = "Continue CLI"
+process_names = ["cn"]
+
+[run]
+binary = "cn"
+prompt = "{prompt}"
+resume_last = "--resume"
+install = "npm install -g @continuedev/cli"
+
+# Its permission prompt, and the hint while it works.
+[[rules]]
+name = "permission"
+state = "blocked"
+pattern = 'Would you like to continue\?'
+
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = 'esc to interrupt'

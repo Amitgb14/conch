@@ -375,3 +375,49 @@ func TestClaudeSpinnerKeepsWorking(t *testing.T) {
 		t.Fatalf("after the spinner: %+v", s)
 	}
 }
+
+// The agents conch only runs: what their manifests read off a screen, and
+// which process each is found by. The strings are the ones their sources
+// show (each manifest says where); none of these has been watched live.
+func TestLaterAgentRules(t *testing.T) {
+	ms := manifests(t)
+	for _, tc := range []struct {
+		agent  string
+		screen []string
+		rule   string
+	}{
+		{"crush", screen("  Permission Required", "  Allow   Allow for Session   Deny"), "permission"},
+		{"crush", screen("> "), ""},
+		{"continue", screen("Would you like to continue?", "> Continue", "  Continue + don't ask again"), "permission"},
+		{"continue", screen("⠋ Thinking… (3s • esc to interrupt)"), "interruptible"},
+		{"auggie", screen("Working... (esc to interrupt)"), "interruptible"},
+		{"auggie", screen("› "), ""},
+	} {
+		got := ""
+		if r := ms[tc.agent].Match(tc.screen, ""); r != nil {
+			got = r.Name
+		}
+		if got != tc.rule {
+			t.Errorf("%s screen %q: matched %q, want %q", tc.agent, tc.screen, got, tc.rule)
+		}
+	}
+	for _, tc := range []struct {
+		p    Process
+		want string
+	}{
+		{Process{Name: "kiro-cli", Args: []string{"kiro-cli", "chat"}}, "kiro"},
+		{Process{Name: "droid", Args: []string{"droid"}}, "droid"},
+		{Process{Name: "kimi-code", Args: []string{"kimi"}}, "kimi"},
+		{Process{Name: "crush", Args: []string{"crush"}}, "crush"},
+		{Process{Name: "agy", Args: []string{"agy"}}, "antigravity"},
+		// The node ones are found by their script's name.
+		{Process{Name: "node", Args: []string{"node", "/usr/local/bin/auggie"}}, "auggie"},
+		{Process{Name: "node", Args: []string{"node", "/usr/local/bin/cn"}}, "continue"},
+		// Vibe's launcher execs the Rust interface.
+		{Process{Name: "vibe-rs", Args: []string{"vibe-rs"}}, "vibe"},
+	} {
+		if m := MatchAny(ms, tc.p); m != ms[tc.want] {
+			t.Errorf("%+v is not found as %s", tc.p, tc.want)
+		}
+	}
+}

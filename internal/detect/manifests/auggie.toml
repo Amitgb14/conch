@@ -1,0 +1,27 @@
+# Auggie — Augment's CLI (https://docs.augmentcode.com/cli/overview). The
+# "runs here" tier.
+#
+# Verified against docs.augmentcode.com/cli/reference and the 1.x
+# package (2026-11-13), not with the real CLI:
+#   - `auggie "instruction"` starts an interactive session with it;
+#     -p/--print is the one that answers and exits.
+#   - --continue reopens the most recent session. In 1.x --resume opens a
+#     picker rather than taking an id, so there is no resume-by-id line.
+#   - the docs describe 1.x, which npm still calls @prerelease; plain
+#     @augmentcode/auggie installs 0.x.
+#   - it runs under node, and conch matches the script's name.
+agent = "auggie"
+label = "Auggie"
+process_names = ["auggie"]
+
+[run]
+binary = "auggie"
+prompt = "{prompt}"
+resume_last = "--continue"
+install = "npm install -g @augmentcode/auggie@prerelease"
+
+# 1.x shows "Working... (esc to interrupt)", 0.x "• esc to interrupt".
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = 'esc to interrupt'

@@ -254,7 +254,8 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 	// What the shipped manifests promise, which is deliberately little:
 	// every one of them starts, and says for itself whether it can be
 	// given a first message or resumed, rather than being assumed to.
-	for _, name := range []string{"aider", "amp", "cursor", "grok", "kilo", "pi"} {
+	for _, name := range []string{"aider", "amp", "cursor", "grok", "kilo", "pi",
+		"kiro", "droid", "kimi", "crush", "antigravity", "auggie", "vibe", "continue"} {
 		a, ok := r.Get(name)
 		if !ok {
 			t.Fatalf("no manifest for %s", name)
@@ -267,6 +268,9 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 		}
 		if len(a.Command("/bin/sh", "")) == 0 {
 			t.Errorf("%s has no command", name)
+		}
+		if a.InstallScript() == "" {
+			t.Errorf("%s has no installer, so the menu cannot offer one", name)
 		}
 	}
 	// Aider cannot be given a first message: its --message answers and
@@ -322,4 +326,67 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 	if pi.Tier() != TierRunsHere {
 		t.Errorf("pi tier %q", pi.Tier())
 	}
+}
+
+// The agents added after the first six, each as its own docs describe it.
+// These are the shapes a manifest has to get right, and the ones a slip
+// would turn into an agent started in a mode that answers and exits.
+func TestTheLaterManifests(t *testing.T) {
+	r := shippedRegistry(t)
+	get := func(name string) Adapter {
+		t.Helper()
+		a, ok := r.Get(name)
+		if !ok {
+			t.Fatalf("no manifest for %s", name)
+		}
+		return a
+	}
+	for _, c := range []struct {
+		name, prompt, resume, last string
+	}{
+		// Kiro's session is `kiro-cli chat`, with the first message after it.
+		{"kiro", "hello", "--resume-id s1", "--resume"},
+		// Droid's --resume takes an id, and alone means the latest.
+		{"droid", "hello", "--resume s1", "--resume"},
+		// Kimi and Crush cannot be given a first message: their prompt
+		// options run one prompt and exit.
+		{"kimi", "", "--session s1", "--continue"},
+		{"crush", "", "--session s1", "--continue"},
+		// Antigravity's -i is the interactive one; -p would exit.
+		{"antigravity", "-i hello", "--conversation s1", "--continue"},
+		// Auggie and Continue reopen only the latest.
+		{"auggie", "hello", "", "--continue"},
+		{"vibe", "hello", "--resume s1", "--continue"},
+		{"continue", "hello", "", "--resume"},
+	} {
+		a := get(c.name)
+		if got := a.PromptArgs("hello"); got != c.prompt {
+			t.Errorf("%s prompt args %q, want %q", c.name, got, c.prompt)
+		}
+		if got := a.ResumeArgs("s1"); got != c.resume {
+			t.Errorf("%s resume %q, want %q", c.name, got, c.resume)
+		}
+		if got := a.ResumeArgs(""); got != c.last {
+			t.Errorf("%s resume last %q, want %q", c.name, got, c.last)
+		}
+	}
+	// The flag is a subcommand that comes before anything typed.
+	cmd := get("kiro").Command("/bin/sh", "--resume")
+	if line := cmd[len(cmd)-1]; !strings.HasSuffix(line, "exec kiro-cli chat --resume") {
+		t.Errorf("kiro's command: %q", line)
+	}
+	// A message beginning with a dash is still a message, after -i too.
+	if got := get("antigravity").PromptArgs("--yolo"); got != "-i ' --yolo'" {
+		t.Errorf("antigravity took an option for a message: %q", got)
+	}
+}
+
+// shippedRegistry is the registry with no manifests of the person's own.
+func shippedRegistry(t *testing.T) Registry {
+	t.Helper()
+	r, err := New("/usr/local/bin/conch", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
 }

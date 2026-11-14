@@ -640,7 +640,10 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   `agentDots`, `agentGlyphs` and `agentColors` (`internal/tui/view.go`),
   and no two agents share one: **circles** for the supported tier,
   **squares** for an agent conch only runs, so the shape says which tier it
-  is. Take the shape from the agent's own mark wherever a character comes
+  is — and once the six coloured squares ran out, anything but a circle
+  (👻 for Kiro, 🔷 for Kimi). The tests read the shipped manifests
+  (`shippedAgentNames`, `internal/tui/shipped_test.go`), so an agent with
+  a manifest and no mark fails them. Take the shape from the agent's own mark wherever a character comes
   close (a cube for Cursor, an ✕ for Grok, six-fold for Codex), and its
   colour from the brand where one is published; the comment beside each
   line says which are the agent's own and which were chosen, because a

@@ -1810,6 +1810,8 @@ var agentLabels = map[string]string{
 	// themselves is named by its manifest, which the server sends with
 	// the agent list; this map is for the places that have only a name.
 	"aider": "Aider", "amp": "Amp", "cursor": "Cursor CLI", "grok": "Grok", "kilo": "Kilo Code", "pi": "Pi",
+	"kiro": "Kiro CLI", "droid": "Droid", "kimi": "Kimi Code", "crush": "Crush", "antigravity": "Antigravity CLI",
+	"auggie": "Auggie", "vibe": "Mistral Vibe", "continue": "Continue CLI",
 }
 
 func agentLabel(agent string) string {

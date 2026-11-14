@@ -1,0 +1,28 @@
+# Crush — Charm's coding agent (github.com/charmbracelet/crush). The
+# "runs here" tier.
+#
+# Verified against its source (internal/cmd/root.go,
+# internal/ui/dialog/permissions.go) on 2026-11-13, not with the real
+# CLI:
+#   - the root command takes no argument, and `crush run PROMPT` answers
+#     and exits, so there is no prompt line.
+#   - --session ID reopens a session and --continue the most recent.
+#     (-c is --cwd, not continue, which is why the long forms are here.)
+#   - sessions are in a SQLite database, .crush/crush.db in the project
+#     by default; conch does not read it.
+#   - it publishes no curl installer; npm is the one that needs no root.
+agent = "crush"
+label = "Crush"
+process_names = ["crush"]
+
+[run]
+binary = "crush"
+resume = "--session {id}"
+resume_last = "--continue"
+install = "npm install -g @charmland/crush"
+
+# Its permission dialog's title (internal/ui/dialog/permissions.go).
+[[rules]]
+name = "permission"
+state = "blocked"
+pattern = 'Permission Required'
