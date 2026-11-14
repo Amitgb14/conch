@@ -20,7 +20,7 @@ There are six, installed together:
 | `conch` | start a helper agent on a branch of its own, prompt it, wait for it and read its answer — the rest build on this |
 | `conch-team` | several agents at once: one task tried by two or three to keep the best, a task split into parts that run side by side, or a chain where each starts from the last one's branch |
 | `conch-review` | another agent reviews a branch and comments on its lines, the author fixes or answers each comment, and the reviewer looks again — until it is clean, or three rounds and it asks you |
-| `conch-ship` | the project's tests, a commit, a push, the pull request, CI watched and a failure sent back to the branch's agent, and a merge once it is green — only when you asked for one |
+| `conch-ship` | the project's tests, a commit, a push, the pull request, CI watched and a failure sent back to the branch's agent, and a merge once it is green — only when you asked for one, or `[verify] auto_merge` says so. With `auto_pr` on it pushes and opens the pull request without asking once the tests pass, for branches an agent made itself as for conch's own |
 | `conch-autopilot` | set up the automated workflow for a project: it finds the project's check and runs it once, proposes the `[verify]` policy (the check, a reviewer, failures sent back, pull requests opened, merging left off until you trust it), guardrails and a worktree's setup, applies only what you agree to, and shows the ways to feed it work |
 | `conch-factory` | a ticket all the way: read it (a GitHub issue, or your tracker through the agent's own tools), one agent builds it test-first, another reviews, the builder fixes, review again, a tester tries it, then the pull request, CI and the merge |
 
