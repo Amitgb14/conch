@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -173,31 +175,46 @@ func TestJobsKey(t *testing.T) {
 	}
 }
 
-// bgPane is a pane conch takes for a Claude Code in a done state, with a
-// process table of the test's own in which its program is that agent.
-// The program is sleep itself, not `sh -c sleep`: a shell that does not
-// exec its last command (Ubuntu's dash) stays in front, and conch never
-// takes a shell in front for an agent.
+// bgPane is a pane running a Claude Code in a done state: this test
+// binary copied under the name claude, waiting on its input
+// (TestBackgroundAgentHelper), so it is found by its name as a real one
+// is. Not a link or copy of sleep or cat: Linux runners ship uutils
+// coreutils, one binary that refuses to run under a name not its own,
+// and a shell around it (sh -c) can stay in front instead. The process
+// table each test gives names its own children.
 func bgPane(t *testing.T, s *Server) (proto.PaneInfo, *entry) {
 	t.Helper()
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(claude, self, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	res, perr := s.dispatch(&client{subs: map[string]*subscription{}}, proto.Message{Method: proto.MethodPaneCreate,
-		Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"sleep", "30"}, Cols: 40, Rows: 5})})
+		Params: proto.Marshal(proto.PaneCreateParams{Command: []string{claude, "-test.run=^TestBackgroundAgentHelper$"},
+			Env: []string{"CONCH_BG_AGENT=1"}, Cols: 40, Rows: 5})})
 	if perr != nil {
 		t.Fatal(perr)
 	}
 	info := res.(proto.PaneInfo)
 	e := a5Entry(t, s, info.ID)
-	e.evalMu.Lock()
-	e.mu.Lock()
-	e.tracker = detect.NewTracker(s.manifests, "claude")
-	e.mu.Unlock()
-	e.evalMu.Unlock()
 	a5WaitFor(t, "the agent taken for claude", func() bool {
 		s.observe(e)
 		a := e.info().Agent
 		return a != nil && a.Name == "claude" && a.State != detect.StateWorking
 	})
 	return info, e
+}
+
+// TestBackgroundAgentHelper is the Claude bgPane runs: it reads its input
+// until it ends, as an agent waiting for a prompt would.
+func TestBackgroundAgentHelper(t *testing.T) {
+	if os.Getenv("CONCH_BG_AGENT") != "1" {
+		t.Skip("run by bgPane")
+	}
+	io.Copy(io.Discard, os.Stdin)
 }
 
 func bgFakes(t *testing.T, table func() (map[int]psRow, error), ports map[int][]int) *int {
