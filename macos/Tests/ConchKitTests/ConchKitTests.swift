@@ -1688,6 +1688,23 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 // does not change with the theme. One that did
 // neither kept the last theme's colours — the answer buttons and the
 // focused pane's border did, the first time this was tried.
+// An answer's box drawn around a plain button, rather than as its label,
+// takes a click only on the word: the strip along a waiting agent's card
+// did that, and a click on the rest of its Yes went to the card.
+@Test func answerBoxesAreTheButtons() throws {
+    let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
+    var found = 0
+    for f in try FileManager.default.contentsOfDirectory(atPath: dir) where f.hasSuffix(".swift") {
+        let lines = try String(contentsOfFile: dir + "/" + f, encoding: .utf8).components(separatedBy: "\n")
+        for (i, line) in lines.enumerated() where line.contains(".modifier(AnswerLook(") {
+            found += 1
+            let button = lines[..<i].last { $0.contains("Button") } ?? ""
+            #expect(button.contains("label:"), "\(f):\(i + 1): AnswerLook outside a Button's label")
+        }
+    }
+    #expect(found >= 2)
+}
+
 @Test func everyThemedViewRepaints() throws {
     let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
     let files = try FileManager.default.contentsOfDirectory(atPath: dir).filter { $0.hasSuffix(".swift") }
