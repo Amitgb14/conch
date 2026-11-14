@@ -143,27 +143,53 @@ private func att(_ name: String, _ size: Int64, _ src: ChatAttachment.Source = .
 // its words and its chips.
 @Test func attachmentPromptPerAgent() {
     let refs = [AttachedRef(path: "src/a.go", image: false), AttachedRef(path: ".conch/attachments/7f3a/shot.png", image: true)]
-    #expect(attachmentPrompt("  fix it \n", refs, agent: "claude") == "fix it\n\nAttached: @src/a.go\nAttached image: @.conch/attachments/7f3a/shot.png")
-    #expect(attachmentPrompt("fix it", refs, agent: "gemini").contains("Attached: @src/a.go"))
-    #expect(attachmentPrompt("fix it", refs, agent: "codex") == "fix it\n\nAttached: src/a.go\nAttached image: .conch/attachments/7f3a/shot.png")
-    #expect(attachmentPrompt("fix it", refs, agent: "devin").hasSuffix("shot.png " + attachImageNote))
+    // The files first, then the words: the message must not end on an @path.
+    #expect(attachmentPrompt("  fix it \n", refs, agent: "claude") == "Attached: @src/a.go\nAttached image: @.conch/attachments/7f3a/shot.png\n\nfix it")
+    #expect(attachmentPrompt("fix it", refs, agent: "gemini").hasPrefix("Attached: @src/a.go"))
+    #expect(attachmentPrompt("fix it", refs, agent: "codex") == "Attached: src/a.go\nAttached image: .conch/attachments/7f3a/shot.png\n\nfix it")
+    #expect(attachmentPrompt("fix it", refs, agent: "devin").contains("shot.png " + attachImageNote + "\n\nfix it"))
     #expect(attachmentPrompt("fix it", [], agent: "claude") == "fix it")
-    #expect(attachmentPrompt("", refs, agent: "opencode") == "Attached: src/a.go\nAttached image: .conch/attachments/7f3a/shot.png")
+    #expect(attachmentPrompt("", refs, agent: "opencode") == "Attached: src/a.go\nAttached image: .conch/attachments/7f3a/shot.png\n\n" + attachOnlyNote)
     // A path with a space is quoted, and loses the @ an agent would stop at.
     #expect(attachmentLine(AttachedRef(path: "docs/my spec.pdf", image: false), agent: "claude") == "Attached: \"docs/my spec.pdf\"")
     #expect(agentReadsImages("claude") && agentReadsImages("gemini") && !agentReadsImages("codex") && !agentReadsImages("devin"))
 
     for agent in ["claude", "gemini", "codex", "opencode", "devin", "pi"] {
-        let sent = attachmentPrompt("fix it\nplease", refs + [AttachedRef(path: "a b.txt", image: false)], agent: agent)
+        let all = refs + [AttachedRef(path: "a b.txt", image: false)]
+        let sent = attachmentPrompt("fix it\nplease", all, agent: agent)
         let (text, back) = splitAttached(sent)
         #expect(text == "fix it\nplease", "\(agent)")
-        #expect(back == refs + [AttachedRef(path: "a b.txt", image: false)], "\(agent)")
+        #expect(back == all, "\(agent)")
+        // Only files: the closing line is the agent's, not words to show.
+        let only = splitAttached(attachmentPrompt("", all, agent: agent))
+        #expect(only.text == "" && only.refs == all, "\(agent)")
     }
     #expect(splitAttached("just words").refs.isEmpty && splitAttached("just words").text == "just words")
     #expect(splitAttached("").text == "" && splitAttached("Attached: ").refs.isEmpty)
-    // Only lines at the end are attachments.
+    // Lines naming files and then words, with no blank line between, are words.
     let mid = splitAttached("Attached: x\nthen words")
     #expect(mid.refs.isEmpty && mid.text == "Attached: x\nthen words")
+    // A message sent before, with its files named at its end, still parts.
+    let old = splitAttached("fix it\n\nAttached: @src/a.go\nAttached image: @.conch/attachments/7f3a/shot.png")
+    #expect(old.text == "fix it" && old.refs == refs)
+}
+
+// Claude Code opens its file menu on an @word being typed, and the Enter
+// that should send the message picks from the menu instead: the message
+// stayed in the agent's input, unsent. Seen with the real agent. So no
+// message to an agent ends on an @path, whatever it holds.
+@Test func attachmentPromptNeverEndsOnAnAtPath() {
+    let refs = [AttachedRef(path: ".conch/attachments/b26c/shot.png", image: true), AttachedRef(path: "src/a.go", image: false)]
+    for agent in ["claude", "gemini", "codex", "opencode", "devin", "pi"] {
+        for text in ["", "review the screenshot", "  \n "] {
+            for r in [refs, [refs[0]], [refs[1]]] {
+                let sent = attachmentPrompt(text, r, agent: agent)
+                let last = sent.split(whereSeparator: { $0 == " " || $0 == "\n" }).last.map(String.init) ?? ""
+                #expect(!last.hasPrefix("@"), "\(agent) \(text.debugDescription): ends on \(last)")
+                #expect(!sent.hasSuffix(r.last!.path), "\(agent): ends on the path")
+            }
+        }
+    }
 }
 
 // A message with attachments reaches the conversation when its words do,

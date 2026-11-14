@@ -191,21 +191,38 @@ public func attachmentLine(_ r: AttachedRef, agent: String) -> String {
 /// Whether an agent is known to read a picture given by path.
 public func agentReadsImages(_ agent: String) -> Bool { imageAgents.contains(agent) }
 
-/// A message and its attachments as the text the agent is sent: what was
-/// written, then a line naming each file. Sending stays agent.prompt, so
-/// this is the same for every agent and every machine.
+/// What a message of files alone says after them, so that it ends on
+/// words rather than on a path.
+public let attachOnlyNote = "Look at the attached files."
+
+/// A message and its attachments as the text the agent is sent: a line
+/// naming each file, a blank line, then what was written. The files come
+/// first because Claude Code opens its file menu on an @path being typed,
+/// and the Enter that sends the message picked from that menu instead —
+/// the message sat in the agent's input, unsent. Sending stays
+/// agent.prompt, so this is the same for every agent and every machine.
 public func attachmentPrompt(_ text: String, _ refs: [AttachedRef], agent: String) -> String {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     let lines = refs.map { attachmentLine($0, agent: agent) }
     if lines.isEmpty { return t }
-    return (t.isEmpty ? "" : t + "\n\n") + lines.joined(separator: "\n")
+    return lines.joined(separator: "\n") + "\n\n" + (t.isEmpty ? attachOnlyNote : t)
 }
 
 /// A message as sent, parted into what was written and the attachments
-/// named at its end, for drawing a sent message with its chips.
+/// named in it, for drawing a sent message with its chips: named first
+/// and then a blank line, or named at its end as messages were before.
 public func splitAttached(_ s: String) -> (text: String, refs: [AttachedRef]) {
     var lines = s.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
     var refs: [AttachedRef] = []
+    // Files first: a run of them from the top, then a blank line (or nothing).
+    var head: [AttachedRef] = []
+    var i = 0
+    while i < lines.count, let r = parseAttachedLine(lines[i]) { head.append(r); i += 1 }
+    if !head.isEmpty && (i == lines.count || lines[i].trimmingCharacters(in: .whitespaces).isEmpty) {
+        var text = lines[i...].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if text == attachOnlyNote { text = "" }
+        return (text, head)
+    }
     while let last = lines.last, let r = parseAttachedLine(last) {
         refs.insert(r, at: 0)
         lines.removeLast()
