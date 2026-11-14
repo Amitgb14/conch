@@ -1,12 +1,19 @@
-export const metadata = { title: "Sessions", description: "Resume saved conversations and interrupted runs." }
+export const metadata = { title: "Sessions", description: "Resume, search and share saved conversations, and interrupted runs." }
 
 # Sessions
 
-Agents save their conversations; conch lists them per project so you can resume any of them in the right folder. It also remembers agents that were running when the server stopped.
+conch lists the conversations your agents saved, per project, so you can resume, search or hand on any of them.
+
+<FeatureGrid>
+<Feature icon="sessions" title="Saved conversations" href="#saved-conversations">Every agent's conversations for a project, newest first.</Feature>
+<Feature icon="reload" title="Resume" href="#resuming-a-session">Pick one up in its folder with the agent's own resume option.</Feature>
+<Feature icon="chat" title="Share" href="#sharing-with-another-agent">Hand a conversation to another agent, here or on another machine.</Feature>
+<Feature icon="signal" title="Interrupted runs" href="#interrupted-runs">Agents that were running when the server stopped, back in one key.</Feature>
+</FeatureGrid>
 
 ## Saved conversations
 
-Every project has a **Sessions** section in the tree. Select it to list, on the right, the conversations agents saved for the project and its worktrees — Claude Code, Codex, Gemini CLI, OpenCode and Devin — newest first, with the agent, title, branch, what it used and its age:
+Select a project's **Sessions** section in the tree to list what Claude Code, Codex, Gemini CLI, OpenCode and Devin saved for it and its worktrees, with the agent, title, branch, what it used and its age.
 
 ```text
 Sessions · api   enter resume · * star · / search · s share · d delete · a agent
@@ -18,19 +25,13 @@ Sessions · api   enter resume · * star · / search · s share · d delete · a
   · Gemini CLI   Explain the auth flow                                main · 3d
 ```
 
-What a session used comes from the agent's own store, so it differs by agent: Claude Code and OpenCode record a cost, Codex the tokens it generated, and Gemini CLI neither — that row simply says nothing rather than showing `$0.00`. Costs are read from the end of the store, so listing stays fast on long conversations.
-
-**`*` stars a session**, and starred ones are listed first — after anything interrupted, which is work waiting rather than a bookmark. A project collects hundreds of conversations and the useful one is remembered by its first line, which is no way to find it next week; the star is how you say "this one". It has a column of its own, so the mark beside it still says what the session is doing: `★·` is a starred conversation sitting there, `★●` one that is open in a pane.
-
-The star is **conch's**, not the agent's. It is kept by the server that owns those sessions (`stars.json`), so a second terminal, the phone and the command line see the same ones and it survives a restart — and the agents' own files are left exactly as they are. `*` again takes it off; a run that saved no conversation has nothing to star and says so.
-
-conch reads the agents' own session stores and never changes them (except `d`, which deletes one after asking); on remote machines the server there lists its sessions.
+**How:** `*` stars a session so it is listed first, `a` filters by agent, `d` deletes one after asking, `R` reloads. `●` sessions are already open; `enter` shows their pane.
 
 ## Resuming a session
 
 A session started on another of the agent's [accounts](/docs/agents#several-accounts) is listed with it (`Claude Code · work`) and resumes on that account.
 
-`enter` (or a click on the selected row) resumes a session in its folder with the agent's own resume option:
+`enter` (or a click on the selected row) resumes a session in its folder:
 
 | Agent | Resume option |
 | --- | --- |
@@ -40,17 +41,15 @@ A session started on another of the agent's [accounts](/docs/agents#several-acco
 | OpenCode | `opencode --session` |
 | Devin | `devin -r` |
 
-Devin keeps its sessions in a database of its own, so conch lists them by asking its CLI (`devin list`) in each folder, and `d` deletes one with `devin rm`. Devin conversations can't be searched inside or shared with another agent yet; their titles and IDs still match `/`.
+## Reading a conversation
 
-Asking another program takes a moment, and a slow or signed-out one used to hold up the whole list. It no longer does: the list waits about a second and a half for it, then shows the agents whose sessions are files on disk and fills the rest in a moment later.
+`Y` opens a conversation to read and copy from; on an agent in the tree it opens the one it is writing now.
 
-`Y` opens a conversation to read and copy from — and `Y` on an agent in the tree opens the one it is writing now. It opens on the newest part. Scroll with the wheel or `↑` `↓`, a page at a time with `pgup` `pgdn`, and jump with `g` (top) and `G` (bottom, also `home` and `end`). Drag over the part you want — dragging past the top or bottom keeps scrolling — and releasing copies just that; `a` copies all of it, `esc` closes. What is shown is the conversation as text: escape sequences in it (people paste terminal output into agents) are taken out, so nothing the transcript holds can move your cursor or reach your clipboard as an escape. This is how a long answer is taken out of an agent: an agent draws on the alternate screen, which keeps no scrollback, so dragging over its pane can only ever reach what is on screen.
-
-`●` sessions are already open and `enter` shows their pane. `a` filters by agent, and `R` reloads the list.
+**How:** scroll with the wheel, `↑` `↓`, `pgup` `pgdn`, `g` and `G`. Drag over a part to copy it, `a` copies all, `esc` closes.
 
 ## Searching
 
-`/` searches the list as you type: titles, agents, branches and session IDs match at once, and a moment after you stop typing the server searches inside the conversations too — what you asked and what the agents answered, not tool output. A conversation match shows the text around it:
+`/` matches titles, agents, branches and session IDs as you type, then searches inside the conversations too. Every word must appear.
 
 ```text
 / cross compiler  2 found
@@ -59,26 +58,24 @@ Asking another program takes a moment, and a slow or signed-out one used to hold
   · Codex        Release script         “…needs a cross compiler for linux/arm64…”  main · 5d
 ```
 
-Every word must appear. `enter` keeps the results and returns to the list keys, `esc` clears the search, `ctrl+u` empties it.
+**How:** `enter` keeps the results, `esc` clears the search, `ctrl+u` empties it. Devin conversations match by title and ID only.
 
-## Sharing a session with another agent
+## Sharing with another agent
 
-`s` hands a conversation to a different agent, so it can pick up where the other left off:
+`s` hands a conversation to a different agent so it picks up where the other left off:
 
-- **Start an agent with it** — Claude Code, Codex, Gemini CLI or OpenCode starts in the session's folder.
-- **Send to a running agent** — any agent already running in the project gets it as its next message.
-- **On another machine** (`o`) — pick a project on another online machine, then an agent to start there or one already running in that project. A machine with no project yet — a sandbox conch has just made, before anything is cloned — is offered as **home folder** instead, so a conversation can go to it too.
+- **Start an agent with it** in the session's folder.
+- **Send to a running agent** in the project, as its next message.
+- **On another machine** (`o`) — see below.
 
-The [brain](/docs/brain#handing-work-to-another-agent) does the same from a plain request, such as _"hand the auth thread to Codex"_, for the conversation of an agent that is running.
-
-conch writes the conversation — the messages, without tool calls or their output — to `.conch/handoff/<agent>-<session>.md` in the session's folder and asks the agent to read it, summarise what was done and what remains, and continue. The new pane takes the **same name** as the work it continues — the name of the pane the session is running in, or the session's title — so the tree shows two rows of the same piece of work rather than one called "fix the flaky login test" and one called "codex"; the agent replaces it with its own title once it has one. `.conch/` is added to the repository's local `.git/info/exclude`, so it never shows up as a change. Very long conversations keep the first request and the latest messages.
+conch writes the conversation to `.conch/handoff/<agent>-<session>.md` and asks the agent to read it and continue. The [brain](/docs/brain) does the same from a plain request.
 
 ### On another machine
 
-The other machine can't read this one's session files, so conch asks this machine's server for the conversation and sends the document to the other one, which writes it to `.conch/handoff/` in that project and tells the agent which machine it came from. It goes into the checkout of the session's branch when the project there has one, otherwise into the project's folder — or into the home folder, for a machine with no project, where the agent starts and reads it.
-
-Only the conversation moves, not the code: push the branch and check it out on the other machine first if the agent needs the changes. The agent's own session isn't copied either, so it can't be resumed there with the agent's resume option. Both servers need a build that has this; an older one says to reload it.
+Pick a project on another online machine — or its **home folder**, for one with no project yet — then an agent to start or one already running there. Only the conversation moves, not the code: push the branch first if the agent needs the changes.
 
 ## Interrupted runs
 
-conch remembers which agents are running. When its server stops — `conch server stop`, a crash, a reboot — those agents are marked `⚠ interrupted` in Sessions (and counted in the tree) for a week. `I` resumes all of them, `x` dismisses one.
+When the server stops — `conch server stop`, a crash, a reboot — running agents are marked `⚠ interrupted` in Sessions for a week.
+
+**How:** `I` resumes all of them, `x` dismisses one.

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/BurntSushi/toml"
 )
 
 // Adapter launches one kind of agent.
@@ -622,13 +624,27 @@ func writeFileAtomic(path string, data []byte) error {
 // — for the agents that take them: Claude Code's and Codex's --add-dir,
 // Gemini CLI's --include-directories. Any other gets nothing and works
 // from where it starts, which holds the worktrees anyway.
+//
+// Codex takes them only where its sandbox may write — in read-only, its
+// default in a folder it has not been told to trust, it refuses them and
+// exits (#190) — so it is asked for workspace-write with them; TaskDirArgs
+// keeps a mode the person's own config gives instead.
 func DirArgs(agent string, dirs []string) string {
+	return TaskDirArgs(agent, dirs, "workspace-write")
+}
+
+// TaskDirArgs is DirArgs with the sandbox Codex is started in
+// (CodexTaskSandbox); other agents ignore it.
+func TaskDirArgs(agent string, dirs []string, codexSandbox string) string {
 	if len(dirs) == 0 {
 		return ""
 	}
 	var words []string
 	switch agent {
 	case "claude", "codex":
+		if agent == "codex" {
+			words = append(words, "--sandbox", ShellQuote(codexSandbox))
+		}
 		for _, d := range dirs {
 			words = append(words, "--add-dir", ShellQuote(d))
 		}
@@ -636,4 +652,29 @@ func DirArgs(agent string, dirs []string) string {
 		words = []string{"--include-directories", ShellQuote(strings.Join(dirs, ","))}
 	}
 	return strings.Join(words, " ")
+}
+
+// CodexTaskSandbox is the sandbox a task's Codex is started in so it can
+// write in every worktree it is given: workspace-write, or
+// danger-full-access when the person's config.toml ($CODEX_HOME, else
+// ~/.codex) already chose that — a task asks for what it needs and never
+// takes away what was given. Only the top-level setting counts: a
+// profile's applies only when that profile is picked.
+func CodexTaskSandbox(home string, env func(string) string) string {
+	dir := env("CODEX_HOME")
+	if dir == "" {
+		if home == "" {
+			return "workspace-write"
+		}
+		dir = filepath.Join(home, ".codex")
+	}
+	var cfg struct {
+		SandboxMode string `toml:"sandbox_mode"`
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "config.toml")); err == nil {
+		if _, err := toml.Decode(string(b), &cfg); err == nil && cfg.SandboxMode == "danger-full-access" {
+			return cfg.SandboxMode
+		}
+	}
+	return "workspace-write"
 }

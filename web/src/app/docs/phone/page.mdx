@@ -2,79 +2,35 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 # Phone
 
-`conch web` lets a phone reach the agents on this machine: see what each is doing, reply to one, and answer the question it is waiting on. It is a small web server that conch runs on your laptop, in front of the same server the TUI talks to. The phone reaches the laptop over [Tailscale](https://tailscale.com), or from any network through a [relay](#through-a-relay) of your own, which carries the traffic without being able to read it.
-
-<Callout type="note">
-
-Notifications are built but haven't been seen on a real phone yet. On an iPhone they need iOS 16.4 or later and conch added to the Home Screen.
-
-</Callout>
-
-## What you need
-
-- **Tailscale on both.** The phone reaches the laptop over your tailnet, so install Tailscale on the phone as well and sign in to the same account. There is no relay and no service of conch's in between: the two talk directly, and a phone that is not on the tailnet cannot reach the gateway at all.
-- **`tailscale serve`**, once, to put HTTPS in front — phones need it, and the next section says why.
-- **conch running on the laptop.** `conch web` starts the server itself if it is not up.
-
-Without a tailnet, the simplest way is a [relay](#through-a-relay): a server of yours that the phone and the laptop both connect out to. The other ways — a certificate of your own (`-cert`/`-key`) or a tunnel that terminates HTTPS in front of a loopback gateway (`-url`) — are under [Without Tailscale](#without-tailscale).
-
-## Start it
-
-The simplest way is from the TUI: **⚙ Settings → Web**. Set the address phones open — the `https://…ts.net` name `tailscale serve` gives this computer — and, if you like, the port; then **Start conch web**. It runs in the background, with no window of its own, and keeps running when the TUI closes; **Stop conch web** there, or `conch web stop`, ends it. Put Tailscale's HTTPS in front of it once: `tailscale serve --bg http://127.0.0.1:8722`. The settings are saved in `config.toml`:
-
-```toml
-[web]
-url = "https://laptop.tail1234.ts.net"
-port = 8722
-```
-
-From a terminal it is the same:
-
-```sh
-tailscale serve --bg http://127.0.0.1:8722        # Tailscale's HTTPS in front of the gateway
-conch web -url https://laptop.tail1234.ts.net      # listens on 127.0.0.1:8722, for tailscale serve
-conch web pair            # a QR code and a one-time code for the phone — or P in the TUI
-```
-
-`conch web` starts conch's server if it isn't running, and keeps running in the foreground; stop it with `ctrl+c`. It is a client of that server like the TUI is, so agents keep running whether or not the gateway does.
-
-**It is reachable only over your tailnet.** A paired phone can type into your agents, so this is remote access to your machine. With `-url`, `tailscale serve` is in front and `conch web` listens on `127.0.0.1` only: the Tailscale app can't proxy back to the machine's own tailnet address (on macOS it gets "connection refused"), and nothing on the tailnet should reach the plain-http port directly. Without `-url` it listens on the Tailscale address, and with no Tailscale address it refuses to start. `-listen ADDR` names another address (with a warning unless it is loopback or Tailscale's); `-port N` changes the port.
-
-**Phones need HTTPS.** The device's token travels in a cookie marked `Secure`, which a browser only sends over HTTPS. `tailscale serve` puts HTTPS in front with a certificate for your machine's tailnet name; tell conch that address with `-url`, so the QR code points phones there rather than at the plain address it listens on, and so pages from it count as the gateway's own. Without either, `conch web` prints the two commands to run, with your machine's tailnet name filled in, and `conch web pair` says the same rather than pointing a phone at the plain address — and draws no QR code for it. Pairing from a plain `http://` page is refused with that reason — the browser would pair and then drop the key — except on the laptop itself (`localhost`), which browsers treat as secure. Or give conch a certificate yourself with `-cert FILE -key FILE` (`tailscale cert` makes one).
-
-## The app
-
-The gateway serves the app itself, so it always matches your conch build; there is nothing to install from a store. It is plain HTML, CSS and ES modules with no framework and no build step, deflated as it is served — about 34 KB for a cold start, which matters on a phone that is on mobile data rather than at home. **The live connection is deflated too**, with the window kept between messages: a pane's frame is the whole screen as styled text and the next one is that screen with a few rows changed, so a burst of them crossed the wire about fifteen times smaller when measured end to end, and cost less processor time a frame than compressing each on its own. Open the gateway's address in the phone's browser. **Add it to the Home Screen** (Safari: Share → Add to Home Screen; Chrome: Install app) and it opens like an app, without the browser's bars. It is laid out like the Claude app: warm colours, one conversation at a time, everything else a tap away.
+`conch web` lets a phone see your agents, reply to one, and answer the question it is waiting on.
 
 <Shot
   name="phone-agents"
   phone
   alt="The phone app's Agents tab: a waiting agent with its question and three answers to tap, a working agent below it with the last line it printed, and the tab bar"
-  caption="What needs you, first: the question an agent is waiting on, with its answers as buttons. The tab's badge counts them."
+  caption="What needs you, first: the question an agent is waiting on, with its answers as buttons."
 />
 
-Four tabs run along the bottom — **Agents**, **Watch**, **Machines** and **Settings** — and **＋** floats above them (devices with `full`).
+## What you need
 
-- **Agents** — what needs you, first. Chips along the top narrow it: **All**, **Waiting**, **Working**, **Done**, **Terminals**, each with how many. An agent waiting on a question shows the question and its choices right there: tap one to answer without opening anything. Each **working** agent shows the last line it printed under its name, live, so you can tell what it is doing without opening it; then what is done or idle, and your terminals. Each agent has its mark in a circle of its colour, ringed by its state — coral while it waits, a turning blue while it works, green when it is done. The tab's badge says how many wait for you. **⟳2** on a card is two things the agent [left running](/docs/agents#left-running-in-the-background); its page names them, and a push says how many, never what.
-- **One message to many** — **long-press** an agent's card to start choosing, tap others to add them, then **Message N**: the same message goes to each, as its own reply, with a row of the usual ones to tap (*commit and push*, *stop and summarise*, *run the tests*). An agent waiting on a question is left out, and the sheet says so — a reply would be typed onto its question.
-- **Watch** — every agent's and terminal's screen at once, small and live, two to a row: a wall of monitors. A tile turns coral when its agent waits; tap one to open it. Only the tiles on screen stream (up to eight), and a project menu narrows it.
-- **Machines** — each machine and how the phone reaches it (*relay*, *direct*, or *offline*), and each project on it with its branches, agents and terminals, and a dot count by state. Tap a project and **Agents** and **Watch** narrow to it; the ✕ on its chip widens them again. When the device reaches more than one [machine](#and-where-a-phone-reaches-this-computer-only), every one is listed — **a machine with nothing running on it is listed all the same**, since leaving it out reads as the phone having lost it. A machine whose own conch is older than this one says what that costs (“replies need a newer conch there”), since each machine is reached with the conch installed on it. Trying it anyway is refused with the machine named and `conch machine upgrade NAME` to mend it.
-- **An agent** — a conversation: every agent along the top, ringed by its state, to move to another with a tap — or **swipe sideways** for the next one, or the one before — then its state, the question it asks with its choices as buttons, its output, and a composer pinned to the bottom, with the usual replies over it to tap (*continue*, *run the tests*, *commit it*, *open a pull request*). **Scroll the output up** to read back. An agent with a full-screen view — Claude Code, Codex — keeps its own history, as at the laptop: scroll to the top of the box and keep pulling down (or turn the mouse wheel, or tap the line at the top) and the agent scrolls back through its conversation; at the bottom, pushing up brings it forward. Because it is the agent's own view, the laptop sees it scrolled too. For anything else — a shell — earlier output loads above, as far back as the pane keeps. Back at the bottom it follows along again. While it works and the box is empty, the send button becomes **■ stop** (Esc, as at the laptop; needs `full`). A reply is held back while it waits on a question, and it says why.
-- **Its terminal** — the whole screen, live, fitted to what the keyboard leaves visible so the prompt and the key row stay in view. In a window with room to spare — a browser on a laptop, rather than a phone — conch asks for the **pane itself** to be made wider, since the page can otherwise only grow its type and the columns are the laptop's. It only ever asks to **grow**: a phone never shrinks the pane your laptop is working in, and a pane already as wide as the window is left alone. A terminal has one size, so the laptop sees the change too, and if its TUI is also showing that pane it will set the size back to its own — the last one to look wins, which is the rule the TUI has always had. Devices with `view` cannot resize, because it changes what everybody sees. **Tap it and type**: the phone's keyboard goes straight to the pane, accents, paste and all. A row of keys rides on top of the keyboard — esc, tab, **ctrl** and **alt** (tap once for the next key, twice to lock), the arrows, shift+tab, `| ~ / -`, and ^C (two taps). **Aa** changes the text size; a wide terminal scrolls sideways, and scrolling up loads its history. A plain terminal opens straight on its screen.
-- **Your other machines** — the gateway reaches every machine in your catalog, not only the one it runs on, keeping a client per machine as the TUI does. A row on another machine carries its name beside the agent's, and nothing is drawn for the laptop itself or when there is only one machine: the machine is only ever news when there is more than one. A machine still being reached, or one that would not answer, shows above the lists with what is wrong (`ssh: connect to host vm1 port 22: Host is unreachable`), so an empty list is an empty list rather than a phone quietly missing half of them. Notifications come from every machine, and **＋ New** asks which machine to start on.
-- **⋯** on an agent or terminal — switch between conversation and terminal, rename it, or close it (two taps).
-- **＋** (devices with `full`) — a new **task** (branch, worktree and agent), a new **agent** in a project or your home folder, with an optional first message, or a new **terminal**. The agent is a tile to tap, each with its own logo. A task can be started as **2 or 3 tries** at once, each on a branch of its own named as `conch task -n` names them, to keep the best; they open in **Watch**.
+- **Tailscale** on the laptop and the phone, signed in to the same account — or a [relay](#through-a-relay) of your own.
+- **HTTPS** in front, which `tailscale serve` gives you.
+- **conch** on the laptop.
 
-**When the laptop can't be reached** — asleep, or off the tailnet — the app still opens, says so, and shows the agents and terminals as they were when it last heard from the laptop, with the time. It keeps trying and catches up by itself. Questions are not kept on the phone between visits: they can quote a command.
+## Start it
 
-<Shot
-  name="phone-watch"
-  phone
-  alt="The phone app's Watch tab: every agent's and terminal's screen live, two to a row, the waiting one ringed in coral"
-  caption="Watch: a wall of monitors. Only the tiles on screen stream."
-/>
+In the TUI, **⚙ Settings → Web**: set the address phones open, then **Start conch web**. Or from a terminal:
+
+```sh
+tailscale serve --bg http://127.0.0.1:8722
+conch web -url https://laptop.tail1234.ts.net
+```
+
+`conch web stop` ends it. Every flag is on [Command line](/docs/cli#web).
 
 ## Pair a phone
+
+Run `conch web pair`, or click 🌐 in the status bar (`P` in the tree). Point the phone's camera at the QR code, or type the six-digit code.
 
 ```sh
 conch web pair                       # full: everything, typing into terminals included
@@ -83,130 +39,56 @@ conch web pair -permission view      # look only
 conch web pair -machine busybox      # and let it reach that machine, not only this computer
 ```
 
-Pairing says where the device will reach as well as what it may do, because a phone that reaches this computer alone is the thing people are surprised by: a machine it was not given is not shown to it at all. `-machine` pairs it for one in the same breath; without it, `conch web permission ID PERM -machine NAME` adds one afterwards.
+A phone reaches this computer only until you name a machine for it. **Add it to the Home Screen** to open it like an app.
 
-This prints a QR code and a six-digit code. Point the phone's camera at the QR code: it opens conch with the code filled in, and one tap pairs it. Or open the gateway's address on the phone and type the code. Either way the phone gets a token of its own, kept in a cookie the page's scripts can't read.
+## The app
 
-**In the TUI, click 🌐 in the status bar** (beside ⚙ Settings), or press `P` in the tree, for the same: a QR code and a code, for a phone with `full`. `v`, `r` and `f` give a new code for `view`, `reply` or `full`. The dialog draws over the screen, so its text can't be selected: **click the code** to copy it, or anywhere else in the dialog to copy the pairing link (`c` and `y` do the same). The QR code needs about 37 columns by 17 rows, so it shows in an 80×24 terminal; a smaller one shows the code and the address alone. It pairs with this computer's `conch web`, whichever machine is selected in the tree. The dialog also says whether `conch web` is running; if it has run before and isn't now, **`s`** starts it again in the background, with the same flags as last time — no terminal to keep open — logging to `web.log` in conch's directory. `conch web stop` ends it.
+- **Agents** — what needs you first; tap an answer to a waiting agent's question. **⟳2** is what one [left running](/docs/agents#left-running-in-the-background).
+- **Watch** — every screen at once, small and live.
+- **Machines** — each machine and its projects.
+- **An agent** — its output and a composer; swipe sideways for the next one.
+- **＋** — a new task, agent or terminal.
 
-The code travels in the link's fragment (`#code=…`), which a browser never sends to a server, so it is in no log.
-
-- A code works **once**, for **5 minutes**. Asking for a new one cancels the old.
-- Guesses are limited: a few attempts a minute, and five wrong codes cancel the one outstanding.
-- conch keeps only a hash of each token, in `phone.json` in its [directory](/docs/configuration). The file alone doesn't let anyone in.
-
-| Permission | The device can |
-| --- | --- |
-| `view` | see the agents, their state and their screens |
-| `reply` | also send an agent its next message, pick an answer to the question it asks, and resize a pane it has open |
-| `full` (default) | also type into terminals, stop an agent, start tasks, agents and terminals, rename and close them |
-
-The permission is checked on every request and on every message over the live connection, not only when the phone connects.
-
-### And where: a phone reaches this computer only
-
-A permission says what a device may do. It does not say **where**, and the gateway can reach every [machine](/docs/remote-machines) in your catalog — over ssh, with your own credentials. So a device reaches **this computer and nothing else** until you name a machine for it:
-
-```sh
-conch web permission d_7h2k full -machine busybox          # and this computer, always
-conch web permission d_7h2k full -machine busybox -machine gpu-1
-conch web permission d_7h2k full -machine local            # take them away again
-```
-
-A phone without a machine is not merely unable to act on it: it is never told the machine exists. It is left out of the machine list, out of the agent and pane lists, out of `hello`, and out of notifications — a push names a pane and taps through to it, so one about a machine the device may not see is not sent. A request naming it is refused before conch says whether there is such a machine, so asking is not a way to learn what is in your catalog.
-
-The reason is that conch cannot tell a test box from a production one, and a machine is reached as you. Pairing a phone is one decision; letting it into a machine is another, taken on purpose, one machine at a time. **Devices paired before conch could reach machines keep this computer alone** — nobody's phone gained reach because conch was updated.
-
-Giving or taking away a machine applies at once, on connections already open: a phone loses a machine mid-session without being paired again, and gains one without reconnecting.
+<Shot
+  name="phone-watch"
+  phone
+  alt="The phone app's Watch tab: every agent's and terminal's screen live, two to a row, the waiting one ringed in coral"
+  caption="Watch: a wall of monitors."
+/>
 
 ## Devices
 
-In the TUI, **⚙ Settings → Web → Devices…** opens a panel of every paired phone and browser: its name, ID, what it may do, the machines it reaches, when it was paired and when it was last seen — `on · relay` or `on · direct` while it has the app open — and the settings row counts the phones on now. `v`, `r` and `f` set what the selected one may do, `n` renames it, `x` twice revokes it, esc goes back. Every phone pairs as what its browser calls itself — iPhone, Browser — so naming them is how two iPhones are told apart. A change applies to the device's next request at once.
-
-From a terminal:
+**⚙ Settings → Web → Devices…** lists paired phones, or from a terminal:
 
 ```sh
-conch web devices        # ID, name, permission, the machines it reaches, when it was paired, when last seen
-conch web devices -json  # the same, with whether conch web is on its relay, for a program to show
-conch web revoke d_7h2k  # cut one off
-conch web rename d_7h2k Amit's iPhone   # name it; no quotes needed
-conch web permission d_7h2k full   # let it type into terminals, without pairing again
-conch web permission d_7h2k full -machine busybox   # and let it reach a machine
+conch web devices
+conch web revoke d_7h2k
+conch web permission d_7h2k full -machine busybox
 ```
 
-**SEEN** says `on` while the phone has the app open, and otherwise when it last reached conch web, by the app or a call of its own.
-
-In Conch.app, the phone icon in the status bar shows how many phones are on now, by its colour and a count, and turns amber while `conch web` is running but not on its relay; its tooltip names each phone and its route. Its popover pairs a phone — the QR code, the code to type, what it may do, the routes it can come by with whether each is up now, and the relay's **safety code** — and **Paired phones…** lists them, each with its route or when it was last seen, what it may do (changed there), renaming it (the pencil, or double-click its name) and revoking it. **Settings → Phone** shows the same list under the relay's state, and whether `conch web` is running. **Restart** there, or **Restart conch web** in the popover, stops it and starts it again on the app's own conch — what to do after an update, since the gateway keeps running the build it started with. Phones reconnect by themselves.
-
-`permission` without `-machine` leaves the machines as they were: what a device may do and where it may do it are two decisions, and changing one does not quietly change the other.
-
-Revoking takes effect at once: the token stops working, and a running gateway closes the connections that device has open — within a quarter of a second — telling the phone why.
-
-An agent that conch [keeps to its own work](/docs/cli#when-an-agent-runs-these-commands) may not run `conch web pair` or `revoke`: a paired phone acts as you, not as the agent.
+**SEEN** says `on` while the phone has the app open, else when it last reached conch web.
 
 ## Replying and answering
 
-These are two different things, on purpose.
-
-**A reply** is the agent's next message, as [`conch agent prompt`](/docs/cli#agent) sends it. It is refused while the agent waits on a question — typed in, its Enter would answer the question — and the phone is told the agent is waiting.
-
-An agent's or terminal's screen ends its subtitle with the pane's ID — `p12`, or `busybox:p12` on another machine — what `conch read` and `conch send` take on the computer; a tap on it copies it, as **Copy pane ID** in the **⋯** menu does.
-
-**An answer** picks one of the choices of the question an agent is asking. conch reads the choices off the agent's screen — a numbered menu with a cursor on one row — and the phone shows them as buttons. Tapping one moves the cursor to that row and presses Enter; nothing else is sent. The answer carries the ID of the question it was shown for, and is refused if the agent is no longer asking that question, so a tap that arrives late can't answer the next one.
-
-When conch can't read choices — no menu, or no cursor to steer by — the question comes without any. A device with `full` answers it in the terminal, with the key bar; the others at the laptop.
+**A reply** is the agent's next message. **An answer** picks one of the choices of the question it is asking, shown as buttons.
 
 ## Review comments
 
-Comments written on a branch's diff — in the [changes view](/docs/interface#changes-view) at the laptop, with [`conch review add`](/docs/cli#review), or by a reviewing agent — show on the card of the agent working on that branch, with `✎ 2` on its row in the list. **Send to the agent** hands them all over as one message, as `S` does at the laptop, and needs what a reply needs: `reply` or `full`. Like a reply, it is refused while the agent is waiting on a question, and the comments stay until it can take them. The phone shows and sends comments; writing them needs the diff, which is at the laptop. The unresolved comments on the branch's pull request are on the card too, with the reviewer's name, the thread's replies and **Open on GitHub** to answer them there.
+Comments on a branch's diff show on its agent's card. **Send to the agent** hands them over as one message.
 
 ## Through a relay
 
-A relay is how a phone reaches the laptop from any network with nothing to install on the phone and no port opened at home. `conch web` connects *out* to the relay and keeps the connection open; the phone opens the relay's address and connects there too; the relay pairs the two and copies what passes between them.
-
-What it copies, it cannot read. The pairing QR code carries the laptop's key as well as the code — in the part of the link after `#`, which a browser never sends anywhere — so the phone knows the key before it talks to anything, through the camera rather than the network. The phone and `conch web` then make a [Noise](https://noiseprotocol.org) session with it (`Noise_NK_25519_AESGCM_SHA256`, all of it in the browser's own WebCrypto), and every call, every screen and every keystroke travels inside. A relay that tried to answer in the laptop's place could not finish the handshake, and the device token that says who the phone is goes inside the session too. The relay sees that a room exists, when it is used and how many bytes pass — never what they are.
-
-<Callout type="warning">
-
-**Run the relay yourself, or use one run by somebody you trust as you trust the laptop.** The encryption keeps the relay out of what it *carries*, but the relay also *serves the app* the phone opens — the code that makes the session and keeps the phone's token. A relay that served a changed app could read every screen and type into every terminal the phone may. No encryption between the two ends can rule that out; only running the relay on a server of your own does.
-
-</Callout>
-
-Run one on any server that has a name and a certificate:
+Reach the laptop from any network through a relay you run; it carries the traffic without being able to read it. Run the relay yourself.
 
 ```sh
-conch relay -listen :8443                    # behind a proxy that does HTTPS (Caddy: reverse_proxy :8443)
-conch relay -listen :443 -cert FILE -key FILE  # or with a certificate of its own
+conch relay -listen :8443
 ```
 
-Then, on the laptop, point `conch web` at it — in **Settings → Phone (conch web) → Relay**, or in `config.toml`:
+Then point `conch web` at it in **Settings → Phone (conch web) → Relay**, or in `config.toml`:
 
 ```toml
 [web]
 relay = "wss://relay.example.com"
 ```
 
-and start `conch web` as usual. Without Tailscale it listens on loopback only and takes phones through the relay. `conch web pair` puts the relay's address in the QR code, and says the laptop's key as four words — `brook dove camel thistle` — which the phone shows too when it pairs: the same words, the same laptop. The phone asks before pairing — **They match — continue**, or **They don't match**, which forgets the link and sends nothing. The words come from the key in the QR code, so a code that did not come from your laptop shows different ones. `conch web relay` says whether `conch web` is connected to the relay now; `conch web relay reset` makes a new key and revokes every phone that paired through the relay; restart `conch web` to use it. A phone it revoked can't be told so — the laptop is no longer where the phone's link points — so the phone says the laptop isn't connected to the relay, and that a reset key is one reason why; pair it again with a new code.
-
-On the phone, open the link once from the QR code and add it to the Home Screen; from then on it reaches the laptop through the relay wherever the phone is. When it can't, it says which part is missing: the relay answered, but the laptop isn't connected to it — asleep, or `conch web` isn't running.
-
-The relay keeps nothing — no accounts, no list of laptops, no messages — and one relay serves any number of laptops, each in a room only its own `conch web` can open: the room's id is a hash of a secret the laptop keeps, so a phone that knows the id can ask for the laptop but cannot stand in for it.
-
-## Without Tailscale
-
-Phones need HTTPS, so something has to provide it. Besides a [relay](#through-a-relay), three ways, in the order they are worth trying:
-
-1. **Any tunnel in front of a loopback gateway** — Cloudflare Tunnel, ngrok, a VPS with Caddy. conch does not care which: `conch web -listen 127.0.0.1 -port 8722 -url https://conch.example.com`, with the tunnel forwarding to that port. `-url` is the same seam `tailscale serve` uses: it tells conch what phones will open, so the QR code and the cookie's origin agree. This is the one that works away from your network.
-2. **A certificate of your own** — `conch web -listen 0.0.0.0 -port 8443 -cert FILE -key FILE -url https://192.168.1.23:8443`. The work is on the phone, not in conch: it has to trust the certificate, which for a local CA (`mkcert`) means installing the root on the phone and turning full trust on. Your LAN only.
-3. **An SSH port forward from the phone**, if its SSH app can hold one: `conch web -listen 127.0.0.1`, forward the port, and open `http://localhost:8722` on the phone. Browsers treat `localhost` as a secure context, so the cookie and the service worker work with no certificate anywhere. It lasts as long as the forward does.
-
-`-listen` on anything but loopback or a Tailscale address warns, deliberately: a paired phone can type into your agents, so you are publishing control of this machine and the pairing code is what stands in the way.
-
-## What it doesn't do yet
-
-- Showing the question in a notification: there is no setting for it, so it is never shown.
-- A list of the agents installed on the laptop: the new-task form offers every agent conch knows, installed or not.
-
-## What is logged
-
-One line per request and per message: its kind, its status and its size. Never a screen, a reply, a question or a token.
+When you pair, check that the four words the phone shows match the ones `conch web pair` printed.
