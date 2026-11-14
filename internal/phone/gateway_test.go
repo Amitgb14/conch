@@ -29,6 +29,8 @@ func TestRoutesAreTheContract(t *testing.T) {
 	want := []string{
 		"DELETE /api/push/subscribe view",
 		"GET /api/agents view",
+		"GET /api/changes view",
+		"GET /api/diff view",
 		"GET /api/hello view",
 		"GET /api/machines view",
 		"GET /api/panes view",
@@ -39,11 +41,16 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"POST /api/answer reply",
 		"POST /api/attach full",
 		"POST /api/close full",
+		"POST /api/commit full",
 		"POST /api/panes full",
+		"POST /api/pr full",
+		"POST /api/push full",
 		"POST /api/push/subscribe view",
 		"POST /api/rename full",
 		"POST /api/reply reply",
+		"POST /api/review/note reply",
 		"POST /api/review/send reply",
+		"POST /api/stage full",
 		"POST /api/task full",
 	}
 	var got []string
@@ -66,7 +73,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 	}
 	// Every code the contract lists has its status.
 	for code, status := range map[string]int{"bad_request": 400, "unauthorized": 401, "forbidden": 403, "not_found": 404,
-		"agent_blocked": 409, "not_waiting": 409, "question_changed": 409, "no_choices": 422, "pair_expired": 410,
+		"agent_blocked": 409, "not_waiting": 409, "question_changed": 409, "no_choices": 422, "hunk_changed": 409, "pair_expired": 410,
 		"rate_limited": 429, "server_unavailable": 503} {
 		if httpStatus[code] != status {
 			t.Errorf("%s travels with %d, want %d", code, httpStatus[code], status)

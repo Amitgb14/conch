@@ -281,6 +281,10 @@ func fromServer(err error) *APIError {
 			return apiErr(CodeAgentBlocked, perr.Message)
 		case proto.ErrOutOfScope:
 			return apiErr(CodeForbidden, perr.Message)
+		case proto.ErrPushRejected, proto.ErrRebaseConflict:
+			// The remote has commits the branch lacks: something to do in
+			// the worktree, not a server that is down.
+			return apiErr(CodeBadRequest, perr.Message)
 		case proto.ErrUnknown:
 			return apiErr(CodeServerUnavailable, "the conch server is from an older build; reload it with `conch server reload`")
 		}
@@ -343,6 +347,13 @@ var routes = []route{
 	{"POST", "/api/close", PermFull, (*Gateway).closePane},
 	{"POST", "/api/rename", PermFull, (*Gateway).renamePane},
 	{"POST", "/api/attach", PermFull, (*Gateway).attach},
+	{"GET", "/api/changes", PermView, (*Gateway).changes},
+	{"GET", "/api/diff", PermView, (*Gateway).fileDiff},
+	{"POST", "/api/stage", PermFull, (*Gateway).stage},
+	{"POST", "/api/review/note", PermReply, (*Gateway).reviewNote},
+	{"POST", "/api/commit", PermFull, (*Gateway).commit},
+	{"POST", "/api/push", PermFull, (*Gateway).push},
+	{"POST", "/api/pr", PermFull, (*Gateway).openPR},
 }
 
 // SocketPath is where the WebSocket is opened.

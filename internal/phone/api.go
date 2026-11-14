@@ -100,6 +100,7 @@ const (
 	CodeNotWaiting        = "not_waiting"
 	CodeQuestionChanged   = "question_changed"
 	CodeNoChoices         = "no_choices"
+	CodeHunkChanged       = "hunk_changed"
 	CodePairExpired       = "pair_expired"
 	CodeRateLimited       = "rate_limited"
 	CodeServerUnavailable = "server_unavailable"
@@ -115,6 +116,7 @@ var httpStatus = map[string]int{
 	CodeNotWaiting:        409,
 	CodeQuestionChanged:   409,
 	CodeNoChoices:         422,
+	CodeHunkChanged:       409,
 	CodePairExpired:       410,
 	CodeRateLimited:       429,
 	CodeServerUnavailable: 503,
@@ -284,6 +286,165 @@ type AttachResponse struct {
 	Rel  string `json:"rel,omitempty"`
 	Size int64  `json:"size"`
 	Note string `json:"note,omitempty"`
+}
+
+// BranchChanges is GET /api/changes?pane=…: the branch the pane is on,
+// as the TUI's changes view reads it — the uncommitted files where it is
+// checked out, and its commits ahead of the base, newest first. Ahead and
+// Behind count commits against the project's base branch. Files and
+// Commits are never null; PR is its pull request, when it has one.
+type BranchChanges struct {
+	Pane    string          `json:"pane"`
+	Branch  string          `json:"branch"`
+	Base    string          `json:"base"`
+	Ahead   int             `json:"ahead,omitempty"`
+	Behind  int             `json:"behind,omitempty"`
+	Files   []ChangedFile   `json:"files"`
+	Commits []CommitSummary `json:"commits"`
+	PR      *BranchPR       `json:"pr,omitempty"`
+}
+
+// File states and how much of a file is staged.
+const (
+	FileModified  = "modified"
+	FileAdded     = "added"
+	FileDeleted   = "deleted"
+	FileRenamed   = "renamed"
+	FileUntracked = "untracked"
+
+	StagedNone    = "none"
+	StagedPartial = "partial"
+	StagedAll     = "all"
+)
+
+// ChangedFile is one uncommitted file. OldPath is a rename's old name;
+// Staged says how much of it is in the index.
+type ChangedFile struct {
+	Path    string `json:"path"`
+	OldPath string `json:"old_path,omitempty"`
+	Status  string `json:"status"`
+	Added   int    `json:"added"`
+	Removed int    `json:"removed"`
+	Staged  string `json:"staged"`
+	Binary  bool   `json:"binary,omitempty"`
+}
+
+// CommitSummary is one commit: Short is the abbreviated SHA.
+type CommitSummary struct {
+	SHA     string    `json:"sha"`
+	Short   string    `json:"short"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// BranchPR is a branch's pull request: State as PullRequest's, Checks never
+// null.
+type BranchPR struct {
+	Number int       `json:"number"`
+	URL    string    `json:"url"`
+	State  string    `json:"state"`
+	Checks []PRCheck `json:"checks"`
+}
+
+// FileDiff is GET /api/diff?pane=…&path=…[&commit=…]: one file's diff cut
+// into hunks. Truncated says hunks were left out to keep it small.
+type FileDiff struct {
+	Path      string     `json:"path"`
+	OldPath   string     `json:"old_path,omitempty"`
+	Binary    bool       `json:"binary"`
+	Truncated bool       `json:"truncated"`
+	Hunks     []DiffHunk `json:"hunks"`
+}
+
+// DiffHunk is one hunk. ID names it to POST /api/stage for as long as the
+// worktree stays as it is; Staged says it is in the index.
+type DiffHunk struct {
+	ID     string     `json:"id"`
+	Header string     `json:"header"`
+	Staged bool       `json:"staged"`
+	Lines  []DiffLine `json:"lines"`
+}
+
+// DiffLine is one line of a hunk: K is " ", "+" or "-"; Old and New its
+// numbers in the old and new file, the one it is not in left out.
+type DiffLine struct {
+	K   string `json:"k"`
+	Old int    `json:"old,omitempty"`
+	New int    `json:"new,omitempty"`
+	T   string `json:"t"`
+}
+
+// StageRequest is POST /api/stage: a file, or one of its hunks, put in
+// the index or (Unstage) taken out of it.
+type StageRequest struct {
+	Pane    string `json:"pane"`
+	Path    string `json:"path"`
+	Hunk    string `json:"hunk,omitempty"`
+	Unstage bool   `json:"unstage,omitempty"`
+}
+
+// StageResponse is how much of the file is staged now.
+type StageResponse struct {
+	Pane   string `json:"pane"`
+	Path   string `json:"path"`
+	Staged string `json:"staged"`
+}
+
+// NoteRequest is POST /api/review/note: a note on a line of the pane's
+// branch, for its agent. Side is "new" (the default) or "old", the side
+// of the diff Line counts on. The answer is the ReviewNote made.
+type NoteRequest struct {
+	Pane string `json:"pane"`
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Side string `json:"side,omitempty"`
+	Note string `json:"note"`
+}
+
+// CommitRequest is POST /api/commit: what is staged, or with All every
+// change, untracked files included.
+type CommitRequest struct {
+	Pane    string `json:"pane"`
+	Message string `json:"message"`
+	All     bool   `json:"all,omitempty"`
+}
+
+// CommitResponse is the commit made.
+type CommitResponse struct {
+	Pane    string `json:"pane"`
+	SHA     string `json:"sha"`
+	Short   string `json:"short"`
+	Subject string `json:"subject"`
+}
+
+// PushRequest is POST /api/push.
+type PushRequest struct {
+	Pane string `json:"pane"`
+}
+
+// PushResponse says which branch went to which remote.
+type PushResponse struct {
+	Pane   string `json:"pane"`
+	Branch string `json:"branch"`
+	Remote string `json:"remote"`
+}
+
+// PRRequest is POST /api/pr: an empty Title takes the title and
+// description from the commits.
+type PRRequest struct {
+	Pane  string `json:"pane"`
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
+	Draft bool   `json:"draft,omitempty"`
+}
+
+// PRResponse is the branch's pull request: the one opened, or the one
+// already open.
+type PRResponse struct {
+	Pane   string `json:"pane"`
+	Number int    `json:"number"`
+	URL    string `json:"url"`
 }
 
 // Frame is a pane's screen as the server renders it: a snapshot, drawn
