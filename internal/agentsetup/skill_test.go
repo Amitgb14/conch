@@ -606,3 +606,34 @@ func TestInstallSkillsNamed(t *testing.T) {
 		t.Errorf("no names: %d changes, all: %d", len(none), len(all))
 	}
 }
+
+// conch-ship takes the person's [verify] auto_pr and auto_merge as their
+// standing answer for a branch an agent made itself, not only for the
+// branches conch's autopilot ships: asked after every green change, the
+// person turned these on so they would stop being asked. A diff past
+// max_diff still waits for them, as a draft.
+func TestShipSkillTakesTheStandingAnswer(t *testing.T) {
+	b, err := skillFiles.ReadFile("skills/conch-ship/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	for _, want := range []string{
+		"standing answer for a branch you\nmade yourself",
+		"with `auto_pr = true`, once the tests are green you\npush and open the pull request without asking",
+		"with `auto_merge = true`\ntoo, you merge it once CI is green",
+		"`conch branch pr -draft`",
+		"`[verify] auto_merge = true` says it for them",
+		"Never force-push, and never merge red.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("conch-ship no longer says %q", want)
+		}
+	}
+	end := strings.Index(text[4:], "\n---\n")
+	for _, line := range strings.Split(text[:end+4], "\n") {
+		if strings.HasPrefix(line, "description: ") && len(line) > 1024+len("description: ") {
+			t.Fatal("description over 1024 characters: agents cut it")
+		}
+	}
+}
