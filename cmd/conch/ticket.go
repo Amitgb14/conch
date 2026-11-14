@@ -31,6 +31,9 @@ const ticketUsage = `Usage:
                                          move it to a status, as the tracker names it (In Review)
   conch ticket link    [-cwd DIR] [-title T] TICKET URL
                                          attach a link: a branch, a pull request
+  conch ticket all     [-mine] [-json]
+                                         every project's open tickets (GitHub issues, Linear,
+                                         Jira) and what conch is doing about each
   conch ticket check   [-cwd DIR] [-json]
                                          whether GitHub, Linear and Jira can be reached with
                                          what the server has: whose key, open tickets, what is wrong
@@ -57,6 +60,8 @@ func runTicket(args []string) error {
 		return ticketChange("link", args)
 	case "check":
 		return ticketCheck(args)
+	case "all", "overview":
+		return ticketAll(args)
 	case "help", "-h", "--help":
 		fmt.Println(ticketUsage)
 		return nil
@@ -335,4 +340,98 @@ func trackerLines(res proto.TicketCheckResult) string {
 		tw.Flush()
 	}
 	return b.String()
+}
+
+// ticketAll is every project's tickets with what conch is doing about each,
+// as Conch.app's Tickets window shows them.
+func ticketAll(args []string) error {
+	fs := flag.NewFlagSet("ticket all", flag.ContinueOnError)
+	mine := fs.Bool("mine", false, "only the tickets assigned to you")
+	asJSON := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, err := connect(true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapTicketOverview})) > 0 {
+		return errors.New("the conch server there predates the tickets overview; reload it with `conch server reload`")
+	}
+	var ov proto.TicketOverview
+	if err := callFor(c, proto.MethodTicketOverview, proto.TicketOverviewParams{}, &ov, harvestWait); err != nil {
+		return err
+	}
+	if *mine {
+		for i := range ov.Projects {
+			var keep []proto.TicketRow
+			for _, t := range ov.Projects[i].Tickets {
+				if t.Mine {
+					keep = append(keep, t)
+				}
+			}
+			ov.Projects[i].Tickets = keep
+		}
+	}
+	if *asJSON {
+		return printJSON(ov)
+	}
+	fmt.Print(overviewLines(ov))
+	return nil
+}
+
+// overviewLines is the overview as text: a heading a project, then a line
+// a ticket with what conch is doing about it.
+func overviewLines(ov proto.TicketOverview) string {
+	var b strings.Builder
+	for _, p := range ov.Projects {
+		if len(p.Tickets) == 0 && len(p.Errors) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "%s  (%s)\n", p.Name, strings.Join(p.Sources, ", "))
+		for _, e := range p.Errors {
+			fmt.Fprintf(&b, "  ! %s\n", e)
+		}
+		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+		for _, t := range p.Tickets {
+			key := t.Key
+			if t.Source == "github" {
+				key = "#" + key
+			}
+			mark := " "
+			if t.Mine {
+				mark = "*"
+			}
+			fmt.Fprintf(tw, "  %s %s\t%s\t%s\n", mark, key, t.Title, doingWords(t.Doing))
+		}
+		tw.Flush()
+	}
+	if b.Len() == 0 {
+		return "no open tickets\n"
+	}
+	return b.String()
+}
+
+// doingWords says what conch is doing about a ticket.
+func doingWords(d proto.TicketDoing) string {
+	switch d.State {
+	case proto.DoingWaiting:
+		return "waiting on you (" + d.Pane + ")"
+	case proto.DoingWorking:
+		return "agent working (" + d.Pane + ")"
+	case proto.DoingPR:
+		s := fmt.Sprintf("PR #%d", d.PR.Number)
+		if d.PR.Checks != "" {
+			s += " · CI " + d.PR.Checks
+		}
+		return s
+	case proto.DoingQueued:
+		return "queued"
+	case proto.DoingIdle:
+		return "agent idle (" + d.Pane + ")"
+	case proto.DoingMerged:
+		return "merged"
+	}
+	return ""
 }

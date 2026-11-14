@@ -125,3 +125,60 @@ func CommentIssue(ctx context.Context, dir string, number int, body string) erro
 	_, err := run(ctx, dir, "issue", "comment", strconv.Itoa(number), "--body", body)
 	return err
 }
+
+// IssueRow is an issue as a list of them shows it: no body, and who it is
+// assigned to.
+type IssueRow struct {
+	Number    int
+	Title     string
+	URL       string
+	Labels    []string
+	Assignees []string
+}
+
+// IssueRows lists the open issues of the repository at dir, newest first,
+// up to limit, without their bodies.
+func IssueRows(ctx context.Context, dir string, limit int) ([]IssueRow, error) {
+	out, err := run(ctx, dir, "issue", "list", "--state", "open", "--limit", strconv.Itoa(limit),
+		"--json", "number,title,url,labels,assignees")
+	if err != nil {
+		return nil, err
+	}
+	var raw []struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		URL    string `json:"url"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		Assignees []struct {
+			Login string `json:"login"`
+		} `json:"assignees"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("gh issue list: %w", err)
+	}
+	rows := make([]IssueRow, 0, len(raw))
+	for _, r := range raw {
+		row := IssueRow{Number: r.Number, Title: r.Title, URL: r.URL}
+		for _, l := range r.Labels {
+			row.Labels = append(row.Labels, l.Name)
+		}
+		for _, a := range r.Assignees {
+			row.Assignees = append(row.Assignees, a.Login)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// NoRepository says whether err is gh finding no GitHub repository in the
+// checkout: a project with no GitHub remote has no issues to list, which is
+// not a failure.
+func NoRepository(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "no git remotes") || strings.Contains(m, "known github host") || strings.Contains(m, "not a git repository")
+}
