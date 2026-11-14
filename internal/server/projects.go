@@ -55,6 +55,47 @@ type projectManager struct {
 	bgMu     sync.Mutex
 	bg       sync.WaitGroup
 	bgClosed bool
+
+	// loading is open while the catalog is read at start, so a call that
+	// needs the projects can wait for them rather than find none (#199: a
+	// group task a second after a restart said its group had no repo).
+	// nil when nothing is being read.
+	loading chan struct{}
+}
+
+// projectsLoadWait is how long a call waits for the catalog at start.
+var projectsLoadWait = 15 * time.Second
+
+// startLoading marks the catalog as being read; the func it returns says
+// it has been, and is safe to call more than once.
+func (pm *projectManager) startLoading() func() {
+	ch := make(chan struct{})
+	pm.mu.Lock()
+	pm.loading = ch
+	pm.mu.Unlock()
+	var once sync.Once
+	return func() { once.Do(func() { close(ch) }) }
+}
+
+// waitLoaded waits up to projectsLoadWait for the catalog read at start,
+// and says whether it has been read.
+func (pm *projectManager) waitLoaded() bool {
+	pm.mu.Lock()
+	ch := pm.loading
+	pm.mu.Unlock()
+	if ch == nil {
+		return true
+	}
+	t := time.NewTimer(projectsLoadWait)
+	defer t.Stop()
+	select {
+	case <-ch:
+		return true
+	case <-t.C:
+		return false
+	case <-pm.s.quit:
+		return false
+	}
 }
 
 // background runs f in a goroutine the server waits for when it stops. Once

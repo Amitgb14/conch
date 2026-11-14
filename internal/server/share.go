@@ -32,7 +32,7 @@ func (s *Server) searchSessions(p proto.SessionSearchParams) (proto.SessionList,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	env := sessions.CurrentEnv()
+	env := s.sessionEnv()
 	hits := sessions.Match(ctx, env, sessions.List(env, dirs, 1000), p.Query)
 	limit := p.Limit
 	if limit <= 0 {
@@ -117,7 +117,7 @@ func (s *Server) shareSession(p proto.SessionShareParams) (proto.SessionShareRes
 			return res, proto.Errorf(proto.ErrInternal, "write the conversation: %v", err)
 		}
 	} else {
-		found, doc, perr := handoffDoc(p.Agent, p.ID, p.Dir)
+		found, doc, perr := s.handoffDoc(p.Agent, p.ID, p.Dir)
 		if perr != nil {
 			return res, perr
 		}
@@ -167,8 +167,8 @@ func paneName(name string) string {
 const maxSharedDoc = 2 << 20
 
 // handoffDoc finds a saved session in dir and renders its conversation.
-func handoffDoc(agent, id, dir string) (sessions.Session, string, *proto.Error) {
-	env := sessions.CurrentEnv()
+func (s *Server) handoffDoc(agent, id, dir string) (sessions.Session, string, *proto.Error) {
+	env := s.sessionEnv()
 	for _, f := range sessions.List(env, []string{dir}, 0) {
 		if f.Agent != agent || f.ID != id {
 			continue
@@ -195,7 +195,7 @@ func (s *Server) exportSession(p proto.SessionRef) (proto.SessionExport, *proto.
 	if p.ID == "" {
 		return proto.SessionExport{}, proto.Errorf(proto.ErrBadRequest, "this run has no saved conversation to share")
 	}
-	found, doc, perr := handoffDoc(p.Agent, p.ID, p.Dir)
+	found, doc, perr := s.handoffDoc(p.Agent, p.ID, p.Dir)
 	if perr != nil {
 		return proto.SessionExport{}, perr
 	}

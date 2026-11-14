@@ -37,7 +37,11 @@ type Manifest struct {
 	// no working rule has matched the screen for this long. Hooks miss some
 	// transitions (an Esc interrupt fires no hook); 0 disables.
 	HookWorkingStale duration `toml:"hook_working_stale"`
-	Rules            []Rule   `toml:"rules"`
+	// Helpers are programs the agent keeps running below it for its own
+	// sake — a language server, a keep-awake — matched by name like
+	// process_names. They are not work it left running in the background.
+	Helpers []string `toml:"helpers"`
+	Rules   []Rule   `toml:"rules"`
 }
 
 // Rule maps a pattern to a state. Rules are tried in order.

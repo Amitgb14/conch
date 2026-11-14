@@ -199,6 +199,16 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			title = "subagent of " + p.DisplayName()
 		}
 		items = []menuItem{{"enter", "Open its agent", enter}}
+	case kindJob: // something its agent left running
+		title = "running in the background"
+		if p := m.pane(r.machine, r.paneID); p != nil {
+			title = "left running by " + p.DisplayName()
+		}
+		mid, pane, pid := r.machine, r.paneID, atoiOr(r.label)
+		items = []menuItem{
+			{"enter", "Open its agent", enter},
+			{"", "Stop it (and what it started)", func(m *Model) tea.Cmd { return m.stopJob(mid, pane, pid) }},
+		}
 	case kindBranch:
 		title = r.branch
 		items = []menuItem{
@@ -1437,6 +1447,9 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "tree", what: "an agent started by another is listed under it, folding away with it", more: []string{
 			"elsewhere — another section, another machine — it says ↳ for the pane that started it, and that pane counts them (⑂2, amber with ! when one of them is waiting); Q, ! and notifications name it too",
+		}},
+		{keys: "tree", what: "⟳2 on an agent: two things it left running — a dev server, a watcher — listed under it", more: []string{
+			"command, ports and how long it has run; its menu (m) stops one; notifications say what is still running",
 		}},
 		{keys: "Sessions", what: "what each saved conversation cost, or the tokens it generated"},
 		{what: "a task warns before it starts when that agent's plan window is nearly used; it never refuses"},

@@ -147,10 +147,22 @@ sidebar = ""           # "glass": the desktop through the sidebar, as Finder's
 ports = true           # the ports a pane's programs listen on, in its header
 scratch_key = false    # option-space shows the scratch layer with Conch.app in the background
 prefix_keys = true     # the TUI's prefix keys ([keys]) in the app's panes too
+check_updates = true   # Conch.app asks GitHub daily for a newer release of itself
+auto_update = false    # and installs it without asking, to run from the next launch
 text_size = 100        # the window's own text, in percent (80–160); ⇧⌘+ / ⇧⌘− step it
 font_size = 14         # the terminal's font in every pane, in points (9–28); ⌘+ / ⌘− step it
 icons = ""             # Settings' and the sidebar's icons: "" Lucide's outlines, "sf" / "sf-fill" the Mac's SF Symbols
 icon_style = ""        # "" plain, "tinted" in each section's colour, "tiles" on a square of it, as System Settings
+
+[trackers.linear]      # tickets for conch task -ticket; see below
+api_key_env = "LINEAR_API_KEY"  # the variable holding a personal API key
+team = ""              # the team whose tickets are listed: "ENG"; "" every team
+
+[trackers.jira]
+url = ""               # your Jira Cloud site: "https://acme.atlassian.net"
+email = ""             # your Atlassian account's email
+api_token_env = "JIRA_API_TOKEN"
+project = ""           # the project whose tickets are listed: "PROJ"
 
 [[actions]]            # your own commands on the row menus; none by default
 name = "Run tests"     # the label on the menu
@@ -286,10 +298,40 @@ How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, 
 | `ports` | `true` | the TCP ports a pane's programs listen on, in its header — a click opens one in the browser, or on another machine copies the ssh tunnel to it |
 | `scratch_key` | `false` | option-space shows the scratch layer from anywhere, Conch.app in the background or not, as Ghostty's quick terminal does; off, it works in the window only |
 | `prefix_keys` | `true` | `[keys] prefix` and the keys after it work in the app's panes as in the TUI, from the same table; off, the prefix goes to the program |
+| `check_updates` | `true` | Conch.app asks GitHub once a day whether a newer release of itself is out and says so in the status bar; **Conch → Check for Updates…** asks now. `[update]` is the command line's. A build from source never asks |
+| `auto_update` | `false` | install that release as soon as the check finds one — downloaded, verified (checksum, signature, Team ID, notarization) and put in place of the app — to run from the next launch; off, the app asks first |
 | `text_size` | `100` | the window's own text — the sidebar, tabs, the git tab, the status bar — in percent, 80 to 160; **View → Bigger / Smaller Window Text** (⇧⌘+ / ⇧⌘−) steps it through 80, 90, 100, 110, 125, 140, 160 and ⌃⇧⌘0 puts it back, writing it here. The sidebar widens with it |
 | `icons` | `""` | the icons beside each section of Settings and each row of the window's sidebar (machines, workspace, projects, branches, terminals, Sessions and Files; agents keep their own marks): `""` Lucide's outlines, or the Mac's own SF Symbols, `"sf"` in line or `"sf-fill"` filled. Chosen in **Settings → Appearance → Icons**, from a card of each set's icons: the pointer on one shows it in the sidebar, a click chooses it |
 | `icon_style` | `""` | `"tinted"` draws each icon in a colour of its own — Appearance pink, Notifications red, Git orange, Brain violet; in the sidebar projects blue, branches orange — and `"tiles"` puts it, white, on a rounded square of that colour, as System Settings does; `""` draws it plain, in the text's colour |
 | `font_size` | `14` | the terminal's font in every pane, in points, 9 to 28, half points allowed; **View → Bigger / Smaller Terminal Text** (⌘+ / ⌘−) moves it a point and ⌃⌘0 puts it back, writing it here. Every pane takes it at once |
+
+**Conch.app's own updates.** A release found is said in the status bar and a notification, with **Install**, **Later** and **Skip This Version** and its release notes. Install downloads `Conch_<version>_macos_arm64.zip`, checks it against its `.sha256`, checks the app inside (`codesign --verify --deep --strict`, the same Team ID as the running app, and Gatekeeper taking it as notarized), puts it in place of the app and relaunches; the first launch then offers **Reload Server**, which moves the server onto the app's conch, keeping panes and agents. The app it replaced is kept for one update: **Conch → Roll Back Update** puts it back. An app run from its disk image, a temporary copy macOS made (App Translocation) or a folder you can't write (installed by an admin) is refused, saying why. The same runs from a shell: `conch app update check | install VERSION | rollback`.
+
+## `[trackers]`
+
+Where [`conch task -ticket`](/docs/tasks#tasks) and `conch ticket` find tickets besides GitHub issues: Linear, and Jira Cloud. The server on the project's machine reads them, so set this up there. Set from **Settings → Trackers** on the settings page.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `linear.api_key_env` | `LINEAR_API_KEY` | the variable holding a Linear personal API key (Linear → Settings → Security & access). Not in the environment, the Mac's Keychain is read: a `conch-mcp` item with the variable's name as its account |
+| `linear.api_key` | none | the key itself, kept in this file as it is |
+| `linear.team` | none | the team key whose tickets `conch ticket ls` lists |
+| `linear.api_url` | Linear's | another GraphQL endpoint |
+| `jira.url`, `jira.email` | none | your Jira Cloud site and your Atlassian account's email |
+| `jira.api_token_env` | `JIRA_API_TOKEN` | the variable holding an API token (id.atlassian.com → Security → API tokens), read as Linear's is |
+| `jira.api_token` | none | the token itself |
+| `jira.project` | none | the project key whose tickets are listed |
+
+With both set up, say which tracker a project uses — Linear's and Jira's keys look alike — or name it in the ticket (`linear:ENG-123`):
+
+```toml
+[[trackers.projects]]
+project = "api"        # a conch project, by name or path
+tracker = "linear"
+key = "ENG"            # its team (Linear) or project (Jira); "" is the default above
+```
+
+conch never moves or comments on a ticket by itself: `conch ticket` does, when you (or an agent you asked) run it. OAuth sign-in is not supported yet; a personal key is.
 
 ## `[[actions]]`
 

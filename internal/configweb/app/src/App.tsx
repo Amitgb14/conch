@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle, Bell, Bot, Box, FileCode2, GitMerge, Keyboard, Laptop, Loader2, Lock, Palette, RefreshCw, Save, Search, Server,
-  ShieldCheck, Smartphone, Sparkles, SquareTerminal, Terminal, Undo2, WifiOff, Zap, type LucideIcon,
+  ShieldCheck, Smartphone, Sparkles, SquareTerminal, Terminal, Ticket, Undo2, WifiOff, Zap, type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -16,7 +16,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { FieldRow } from "@/components/fields"
 import { KeyedEditor, TablesEditor } from "@/components/tables"
 import { ApiError, load, saveConfig, saveRaw } from "@/api"
-import { changedSections, getValue, same, searchSections, setValue } from "@/lib/model.js"
+import { changedSections, getValue, same, searchSections, setIn, setValue } from "@/lib/model.js"
 import { useTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { ThemeSwitch } from "@/components/theme-switch"
@@ -25,7 +25,7 @@ import type { Cfg, Payload, Section } from "@/types"
 const icons: Record<string, LucideIcon> = {
   palette: Palette, keyboard: Keyboard, bell: Bell, bot: Bot, "shield-check": ShieldCheck, "git-merge": GitMerge,
   sparkles: Sparkles, terminal: Terminal, "square-terminal": SquareTerminal, server: Server, "refresh-cw": RefreshCw,
-  smartphone: Smartphone, box: Box, zap: Zap, lock: Lock, laptop: Laptop,
+  smartphone: Smartphone, box: Box, zap: Zap, lock: Lock, laptop: Laptop, ticket: Ticket,
 }
 
 export default function App() {
@@ -278,6 +278,23 @@ function SectionCard({ section, draft, saved, changed, onChange }: {
             return (
               <div key={f.key} className="py-4">
                 <TablesEditor field={f} value={v} onChange={set} />
+              </div>
+            )
+          }
+          if (f.kind === "table") {
+            // One nested table, [trackers.linear]: its keys as rows of their own.
+            const t = (v ?? undefined) as Record<string, unknown> | undefined
+            const was = (getValue(saved, section.key, f.key) ?? {}) as Record<string, unknown>
+            return (
+              <div key={f.key} className="py-3">
+                <div className="pb-1 text-sm font-medium">{f.label}</div>
+                {f.help && <p className="pb-1 text-xs text-muted-foreground">{f.help}</p>}
+                <div className="divide-y pl-3">
+                  {(f.fields ?? []).map((sub) => (
+                    <FieldRow key={sub.key} field={sub} value={t?.[sub.key]} changed={!same(was[sub.key], t?.[sub.key])}
+                      onChange={(nv) => set(setIn(t, sub.key, nv))} />
+                  ))}
+                </div>
               </div>
             )
           }

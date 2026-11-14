@@ -2,7 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, groupByMachine, agentLabel,
-  ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
+  ago, route, can, backoff, reviewCount, backgroundLine, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
   markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, relayWhy,
 } from "../ui/lib.mjs"
 
@@ -680,4 +680,17 @@ test("paneRef names a machine only by what reaches it", async () => {
   assert.equal(paneRef("x:p3", machines), "x:p3")
   assert.equal(paneRef("tab:p3", machines), "tab:p3")
   assert.equal(paneRef("nl:p3", machines), "nl:p3")
+})
+
+test("what an agent left running", () => {
+  assert.equal(backgroundLine({}), "")
+  assert.equal(backgroundLine(null), "")
+  assert.equal(backgroundLine({ background: [] }), "")
+  assert.equal(backgroundLine({ background: "x" }), "")
+  assert.equal(backgroundLine({ background: [{ pid: 4, command: "npm run dev", ports: [5173] }] }), "1 still running: npm run dev (:5173)")
+  assert.equal(backgroundLine({ background: [{ command: "npm run dev" }, { command: "pytest -f" }, { command: "x" }] }),
+    "3 still running: npm run dev, pytest -f, …")
+  // Counted by a server that did not say what: the count alone.
+  assert.equal(backgroundLine({ background: [{}, {}] }), "2 still running")
+  assert.equal(backgroundLine({ background: [{ command: "y".repeat(80) }] }), `1 still running: ${"y".repeat(39)}…`)
 })

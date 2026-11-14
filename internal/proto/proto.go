@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -238,6 +238,11 @@ const CapProjectGitInit = "project.git_init.v1"
 // it used, from its saved transcript, for a chat drawn beside its terminal.
 const CapAgentChat = "agent.chat.v1"
 
+// CapAgentBackground is AgentStatus.Background and Jobs: what an agent
+// that is not working left running below it — a dev server, a watcher,
+// a background shell — and agent.background.stop to end one of them.
+const CapAgentBackground = "agent.background.v1"
+
 // CapSchedule is schedule.add, schedule.list and schedule.remove: a
 // message for a running agent, or a task, kept by the server for a time
 // to come — after a plan limit resets, overnight, every morning — so it
@@ -247,6 +252,13 @@ const CapSchedule = "schedule.v1"
 // CapIssues is project.issues and task.create's Issue: work started from a
 // GitHub issue, read through gh on the machine the project is on.
 const CapIssues = "project.issues.v1"
+
+// CapTickets is project.tickets, ticket.get, ticket.update and
+// task.create's Ticket: work started from a Linear or Jira ticket, and the
+// ticket commented on, moved and linked to its branch or pull request —
+// all through the tracker's API with the key on the machine the project
+// is on ([trackers] in its config.toml).
+const CapTickets = "tickets.v1"
 
 // CapPermissionRules is agent.permission: the server answering an agent's
 // permission request by the person's rules, before it is asked on screen.
@@ -509,8 +521,18 @@ const (
 	// MethodAgentChat is a pane's agent's conversation, tools and all,
 	// read from its saved transcript (CapAgentChat).
 	MethodAgentChat = "agent.chat"
+	// MethodAgentBackgroundStop ends one of the jobs an agent left running
+	// (AgentStatus.Jobs), and only one of those (agent.background.v1).
+	MethodAgentBackgroundStop = "agent.background.stop"
 
 	MethodProjectIssues = "project.issues"
+
+	// MethodProjectTickets lists a project's open tickets in its tracker,
+	// MethodTicketGet reads one, and MethodTicketUpdate comments on it,
+	// moves it or links something to it (CapTickets).
+	MethodProjectTickets = "project.tickets"
+	MethodTicketGet      = "ticket.get"
+	MethodTicketUpdate   = "ticket.update"
 
 	MethodAgentPermission = "agent.permission"
 
@@ -722,6 +744,9 @@ type PaneInfo struct {
 	Created  time.Time `json:"created"`
 	// Agent is set while an agent is detected in the pane.
 	Agent *AgentStatus `json:"agent,omitempty"`
+	// Account is the account its agent was started on, "" for the agent's
+	// own (CapAccounts).
+	Account string `json:"account,omitempty"`
 	// Title is the terminal title with decoration (spinners, the agent's
 	// default title) stripped; agents set it to a summary of their task.
 	Title string `json:"title,omitempty"`
@@ -1011,6 +1036,7 @@ type GroupTaskParams struct {
 	Prompt   string   `json:"prompt"`
 	Branch   string   `json:"branch,omitempty"`
 	Agent    string   `json:"agent,omitempty"`
+	Account  string   `json:"account,omitempty"` // as PaneCreateParams has it
 	Projects []string `json:"projects,omitempty"`
 	Each     bool     `json:"each,omitempty"`
 	Cols     int      `json:"cols,omitempty"`
@@ -2006,6 +2032,8 @@ type TaskCreateParams struct {
 	Branch    string `json:"branch,omitempty"`
 	Base      string `json:"base,omitempty"`
 	Agent     string `json:"agent,omitempty"` // default: the server's first agent (claude)
+	// Account is the agent's account, as PaneCreateParams has it.
+	Account string `json:"account,omitempty"`
 	// Name names the pane, as pane.rename does, so it can be addressed
 	// by it; see IsPaneID.
 	Name string `json:"name,omitempty"`
@@ -2016,6 +2044,11 @@ type TaskCreateParams struct {
 	// prompt — Prompt, when given too, is added as further instructions —
 	// and its number starts the branch's name.
 	Issue int `json:"issue,omitempty"`
+	// Ticket is a Linear or Jira ticket to work on (CapTickets): ENG-123,
+	// linear:ENG-123 or its address. The server reads it, its title, body
+	// and comments become the prompt as an issue's do, and its key starts
+	// the branch's name.
+	Ticket string `json:"ticket,omitempty"`
 }
 
 // PermissionAsk is an agent asking to use a tool, as its hook saw it:
@@ -2070,6 +2103,70 @@ type IssueInfo struct {
 // IssueList is a project's open issues, newest first.
 type IssueList struct {
 	Issues []IssueInfo `json:"issues"`
+}
+
+// TicketsParams lists a project's open tickets (CapTickets), from the
+// tracker its [[trackers.projects]] entry names, or the one set up.
+type TicketsParams struct {
+	ProjectID string `json:"project_id"`
+	// Tracker is linear or jira, when both are set up; "" chooses as a
+	// ticket's key would.
+	Tracker string `json:"tracker,omitempty"`
+	// Assigned keeps the tickets assigned to the key's own person.
+	Assigned bool `json:"assigned,omitempty"`
+	Limit    int  `json:"limit,omitempty"`
+}
+
+// TicketComment is one comment on a ticket.
+type TicketComment struct {
+	Author string `json:"author,omitempty"`
+	Body   string `json:"body"`
+}
+
+// TicketLink is a link attached to a ticket.
+type TicketLink struct {
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url"`
+}
+
+// TicketInfo is one ticket. A list leaves out the body, comments and
+// links.
+type TicketInfo struct {
+	Tracker  string          `json:"tracker"`
+	Key      string          `json:"key"`
+	Title    string          `json:"title"`
+	URL      string          `json:"url,omitempty"`
+	Status   string          `json:"status,omitempty"`
+	Body     string          `json:"body,omitempty"`
+	Comments []TicketComment `json:"comments,omitempty"`
+	Links    []TicketLink    `json:"links,omitempty"`
+}
+
+// TicketList is a project's open tickets, most recently changed first.
+type TicketList struct {
+	Tracker string       `json:"tracker"`
+	Tickets []TicketInfo `json:"tickets"`
+}
+
+// TicketGetParams reads one ticket (CapTickets).
+type TicketGetParams struct {
+	ProjectID string `json:"project_id"`
+	// Ticket is its key, linear:KEY or its address.
+	Ticket string `json:"ticket"`
+}
+
+// TicketUpdateParams changes a ticket (CapTickets): each of a comment, a
+// status and a link that is given, in that order. The reply is the
+// ticket as it is after.
+type TicketUpdateParams struct {
+	ProjectID string `json:"project_id"`
+	Ticket    string `json:"ticket"`
+	Comment   string `json:"comment,omitempty"`
+	// Status is the status to move it to (In Review, Done), as the
+	// tracker names it.
+	Status    string `json:"status,omitempty"`
+	LinkURL   string `json:"link_url,omitempty"`
+	LinkTitle string `json:"link_title,omitempty"`
 }
 
 // ScheduledItem is something the server does at a time to come: a
@@ -2276,6 +2373,28 @@ type AgentStatus struct {
 	// process — Claude Code's Agent tool — which have no pane of their
 	// own. Servers from before them send none.
 	Subagents []Subagent `json:"subagents,omitempty"`
+	// Background counts what the agent left running below it while it is
+	// not working — a dev server, a test watcher, a background shell — and
+	// Jobs says what each is (agent.background.v1). Both are empty while it
+	// works, since then its children are the work, and from older servers.
+	Background int             `json:"background,omitempty"`
+	Jobs       []BackgroundJob `json:"jobs,omitempty"`
+}
+
+// BackgroundJob is one program an agent left running: the process below
+// the agent that started it, with the ports it and its children listen on.
+type BackgroundJob struct {
+	PID     int       `json:"pid"`
+	Command string    `json:"command"`
+	Since   time.Time `json:"since"`
+	Ports   []int     `json:"ports,omitempty"`
+}
+
+// AgentBackgroundStopParams names a job to end: a pane and one of the
+// pids in its agent's Jobs.
+type AgentBackgroundStopParams struct {
+	ID  string `json:"id"`
+	PID int    `json:"pid"`
 }
 
 // Subagent is an agent running inside another agent's process, known from
@@ -2311,7 +2430,10 @@ type LimitWindow struct {
 // agent last reported it: Claude's 5-hour and weekly windows, Codex's
 // primary and secondary windows, or a gateway spend limit.
 type PlanLimits struct {
-	Agent    string       `json:"agent"`
+	Agent string `json:"agent"`
+	// Account is which of the agent's accounts, "" for its own
+	// (CapAccounts): each has a plan of its own.
+	Account  string       `json:"account,omitempty"`
 	FiveHour *LimitWindow `json:"five_hour,omitempty"`
 	Week     *LimitWindow `json:"week,omitempty"`
 	Spend    *LimitWindow `json:"spend,omitempty"`
@@ -2374,7 +2496,10 @@ type SessionListParams struct {
 
 // SessionInfo is a saved agent conversation.
 type SessionInfo struct {
-	Agent   string    `json:"agent"`
+	Agent string `json:"agent"`
+	// Account is the account whose folder holds the conversation, "" for
+	// the agent's own (CapAccounts); resuming it starts on that account.
+	Account string    `json:"account,omitempty"`
 	ID      string    `json:"id,omitempty"` // "" for an interrupted run whose conversation wasn't found
 	Dir     string    `json:"dir"`
 	Branch  string    `json:"branch,omitempty"`
@@ -2655,10 +2780,13 @@ type SessionList struct {
 // SessionRef names a session to resume or dismiss.
 type SessionRef struct {
 	Agent string `json:"agent"`
-	ID    string `json:"id,omitempty"`
-	Dir   string `json:"dir"`
-	Cols  int    `json:"cols,omitempty"`
-	Rows  int    `json:"rows,omitempty"`
+	// Account is the session's own (SessionInfo.Account). The server finds
+	// it when it is not given, so an older client resumes on the right one.
+	Account string `json:"account,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Dir     string `json:"dir"`
+	Cols    int    `json:"cols,omitempty"`
+	Rows    int    `json:"rows,omitempty"`
 }
 
 // AgentSetupParams asks what agents load when started in Dir. Agent limits
@@ -2915,6 +3043,9 @@ type PaneCreateParams struct {
 	Name      string `json:"name,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	AgentArgs string `json:"agent_args,omitempty"` // shell words, e.g. "--model opus"
+	// Account is which of the agent's accounts it starts on (CapAccounts):
+	// "" is the folder's pin, else the agent's own; "default" is its own.
+	Account string `json:"account,omitempty"`
 	// Prompt is a first message for the agent, passed the way it expects.
 	Prompt  string   `json:"prompt,omitempty"`
 	Command []string `json:"command,omitempty"`

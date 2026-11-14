@@ -294,7 +294,7 @@ func (m *Model) activate(r row) tea.Cmd {
 		return m.toggle(r, nil)
 	case kindSavedSSH:
 		return m.connectSSH(savedSSHTarget(r.id))
-	case kindSubagent: // it has no screen of its own: the agent running it does
+	case kindSubagent, kindJob: // it has no screen of its own: the agent running it does
 		if a := m.agentRowOf(r); a.kind == kindPane {
 			m.cursor = a.id
 			m.keepCursorVisible()

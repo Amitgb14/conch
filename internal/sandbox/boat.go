@@ -391,10 +391,8 @@ func (b *Boat) SSHAccess(ctx context.Context, id string) (Access, error) {
 		if time.Now().After(deadline) {
 			return Access{}, fmt.Errorf("sandbox %s has no address yet (it is %s)", id, out.Sandbox.sandbox().State)
 		}
-		select {
-		case <-ctx.Done():
-			return Access{}, fmt.Errorf("sandbox %s has no address yet: %w", id, ctx.Err())
-		case <-time.After(pollEvery):
+		if err := pause(ctx); err != nil {
+			return Access{}, fmt.Errorf("sandbox %s has no address yet: %w", id, err)
 		}
 	}
 	a := Access{User: boatUser, PlainUser: true, Host: out.Sandbox.IP}
@@ -557,10 +555,8 @@ func (b *Boat) wait(ctx context.Context, s Sandbox, want State) (Sandbox, error)
 		case s.State == StateError || s.State == "cancelled":
 			return s, &FailedError{ID: s.ID, State: s.State, Reason: s.Reason}
 		}
-		select {
-		case <-ctx.Done():
-			return s, fmt.Errorf("sandbox %s is still %s: %w", s.ID, s.State, ctx.Err())
-		case <-time.After(pollEvery):
+		if err := pause(ctx); err != nil {
+			return s, fmt.Errorf("sandbox %s is still %s: %w", s.ID, s.State, err)
 		}
 		got, err := b.Get(ctx, s.ID)
 		if err != nil {

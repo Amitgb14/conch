@@ -998,6 +998,8 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("focusSidebar", "Go to the Sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
     ("biggerFont", "Terminal Text Bigger / Smaller / Default", "⌘+ ⌘− ⌃⌘0"),
     ("biggerText", "Window Text Bigger / Smaller / Default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
+    ("checkForUpdates", "Check for Updates…", ""),
+    ("systemMonitor", "System Monitor (CPU, Memory, Processes)", "⌥⌘M"),
     ("openTUI", "Run in Terminal", ""),
 ]
 

@@ -680,6 +680,24 @@ func (s *Store) SocketOpened(pid int, id, route string, now time.Time) error {
 	})
 }
 
+// Called records a device's call: it was there now, though no socket of
+// its may be open.
+func (s *Store) Called(pid int, id, route string, now time.Time) error {
+	return s.update(func(st *state) error {
+		resetSeen(st, pid)
+		e := st.Seen[id]
+		if e == nil {
+			e = &Seen{}
+			st.Seen[id] = e
+		}
+		if e.Sockets == 0 {
+			e.Route = route
+		}
+		e.LastSeen = now
+		return nil
+	})
+}
+
 // SocketClosed records a device's socket closing.
 func (s *Store) SocketClosed(pid int, id string, now time.Time) error {
 	return s.update(func(st *state) error {

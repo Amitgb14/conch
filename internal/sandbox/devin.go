@@ -408,10 +408,8 @@ func (d *Devin) wait(ctx context.Context, s Sandbox, want State) (Sandbox, error
 			// usage limit, a declined payment.
 			return s, &FailedError{ID: s.ID, State: s.State, Reason: s.Reason}
 		}
-		select {
-		case <-ctx.Done():
-			return s, fmt.Errorf("session %s is still %s: %w", s.ID, s.State, ctx.Err())
-		case <-time.After(pollEvery):
+		if err := pause(ctx); err != nil {
+			return s, fmt.Errorf("session %s is still %s: %w", s.ID, s.State, err)
 		}
 		got, err := d.Get(ctx, s.ID)
 		if err != nil {

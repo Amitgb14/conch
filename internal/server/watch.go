@@ -489,3 +489,36 @@ func skipPath(rel string, ignored []string) bool {
 	}
 	return false
 }
+
+// dropLog counts the paths a backend threw away because the reader was
+// behind, so a burst — a large node_modules rewritten — is one line in
+// server.log rather than one per path (#199). Backends add as they drop
+// and report when the watcher asks what they missed, once a tick.
+type dropLog struct {
+	mu    sync.Mutex
+	n     int
+	first string
+}
+
+func (d *dropLog) add(path string) {
+	d.mu.Lock()
+	if d.n == 0 {
+		d.first = path
+	}
+	d.n++
+	d.mu.Unlock()
+}
+
+// report logs what was dropped since the last report, if anything.
+func (d *dropLog) report(logf func(string, ...any)) {
+	d.mu.Lock()
+	n, first := d.n, d.first
+	d.n, d.first = 0, ""
+	d.mu.Unlock()
+	switch {
+	case n == 1:
+		logf("worktree watch: dropped an event for %s", first)
+	case n > 1:
+		logf("worktree watch: dropped %d events, the first for %s; the worktrees are re-read", n, first)
+	}
+}

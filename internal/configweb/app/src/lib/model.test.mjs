@@ -138,3 +138,12 @@ test("themePref reads back only the three choices", () => {
   assert.equal(m.themePref("light"), "light")
   for (const v of [null, undefined, "", "system", "DARK", "x"]) assert.equal(m.themePref(v), "system")
 })
+
+test("setIn sets one key of a nested table, and drops a table left empty", () => {
+  const t = { team: "ENG" }
+  assert.deepEqual(m.setIn(t, "api_key_env", "MY"), { team: "ENG", api_key_env: "MY" })
+  assert.deepEqual(t, { team: "ENG" })
+  assert.deepEqual(m.setIn(t, "team", undefined), undefined)
+  assert.deepEqual(m.setIn(undefined, "team", "X"), { team: "X" })
+  assert.deepEqual(m.setIn({ a: 1, b: 2 }, "a", undefined), { b: 2 })
+})

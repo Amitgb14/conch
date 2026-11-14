@@ -124,6 +124,8 @@ h2 { display: flex; align-items: center; gap: 8px; font: 600 0.72rem var(--sans)
 .review-list p { margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .review-list .reply { margin-left: .8em; padding-left: 8px; border-left: 2px solid var(--line); font-size: .9rem; }
 .review-list .open { font-size: .8rem; color: var(--accent); }
+.background-tag { margin-left: 6px; font-size: 0.75rem; font-weight: 600; color: var(--working); white-space: nowrap; }
+.background { color: var(--working); }
 .review-tag { margin-left: 6px; font-size: 0.75rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .choice { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 10px 12px; text-align: left; font: 500 0.95rem var(--sans);
   color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); }

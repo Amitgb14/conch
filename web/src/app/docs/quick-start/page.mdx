@@ -2,7 +2,13 @@ export const metadata = { title: "Quick start", description: "From an empty term
 
 # Quick start
 
-This guide takes you from installing conch to several agents working in parallel, each on its own branch. It takes a few minutes and assumes you have at least one agent, such as Claude Code, or are happy to let conch install one.
+From installing conch to several agents working in parallel, each on its own branch.
+
+<TuiShot
+  id="working"
+  title="conch — agents at work"
+  caption="Agents working in the tree, one tab each."
+/>
 
 ## Your first session
 
@@ -14,9 +20,7 @@ This guide takes you from installing conch to several agents working in parallel
 curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 ```
 
-This installs `~/.local/bin/conch`, and says what to add to your shell if that folder isn't on your `PATH`. With Homebrew, `brew install Amitgb14/conch/conch` instead. See [Installation](/docs/installation) for other ways.
-
-`conch completion zsh` (or `bash`, `fish`) says how to get tab completion, which also lists what each command does. If anything below does not work, `conch doctor` checks git, gh, your agents and your terminal, and says how to fix what it finds.
+Other ways are on [Installation](/docs/installation). `conch doctor` checks what conch needs.
 
 </Step>
 
@@ -26,65 +30,51 @@ This installs `~/.local/bin/conch`, and says what to add to your shell if that f
 conch
 ```
 
-The first run starts the conch server in the background. You see the tree on the left, with your computer as `local`, and a live view of the selection on the right. `?` lists every key.
-
-Until you have tried them, the page on the right also lists five steps under **Getting started**: install an agent (`c`; already ticked if you have one), add a project, give an agent a task, open the review queue, and detach. Each ticks itself off once you have done it, the list goes away once all five are, and `x` on `local` hides it sooner. The steps below go through them.
+The first run starts the server. `?` lists every key.
 
 </Step>
 
 <Step title="Add a project">
 
-Select `local` and press `a`. A folder browser opens: `enter` opens a folder, `←` goes up, `/` filters and `g` jumps to a typed path. Press `a` to add the selected folder, or `.` to add the folder you're in. `p` creates a new project instead — a folder with a git repository and an initial commit.
-
-Projects also appear on their own when you open a pane inside a git repository. From a shell, `conch project add PATH` does the same, and `conch project clone https://github.com/owner/repo.git` clones a repository and adds it. In Conch.app, **File → Add Project…** (⌘O) opens a folder, clones a repository from its URL, or makes a new git repository.
+Select `local` and press `a`, pick a folder and press `a` again. Or `conch project add PATH`.
 
 </Step>
 
 <Step title="Start an agent here">
 
-With the project selected, press `c`. conch lists every agent installed on the machine with your default pre-selected, so `c` `enter` starts it in the project's folder. A missing agent can be installed from the same list.
-
-The agent's pane opens on the right. Type into it as you would in any terminal; `ctrl+b` then any key returns to the tree.
+Press `c` then `enter` to start your default agent in the project. `ctrl+b` then any key returns to the tree.
 
 </Step>
 
 <Step title="Start a task on its own worktree">
 
-Press `t` on the project and describe the work, for example "Add a health check endpoint". conch creates a branch named from the prompt, checks it out into `<repo>.worktrees/<branch>`, copies your local files such as `.env` into it, and starts the agent with the prompt. Start a few tasks: each is isolated from the others.
-
-The same from a shell:
+Press `t` on the project and describe the work. conch makes a branch and worktree and starts the agent there. See [Tasks and worktrees](/docs/tasks).
 
 ```sh
 conch task -cwd ~/src/api "Add a health check endpoint"
 ```
 
-See [Tasks and worktrees](/docs/tasks).
-
 </Step>
 
 <Step title="Watch the agents">
 
-Each agent shows its state in the tree: `⠋` working, `!` waiting for you, `✓` done, `○` idle. Press `!` (or `ctrl+b !` from inside a pane) to jump to the next agent waiting for you, or click the count in the status bar. It keeps the two apart — `⚑ 1 waiting · 1 done` — as the tree's badges do (`⚑1 ✓1`): **waiting** means the agent stopped to ask you something (a permission, a question) and does nothing until you answer; **done** means it finished while you weren't watching, and turns idle once you look at it or type into it.
-
-To tell several agents the same thing — "run the tests and fix what you broke" — select the project and press `B`: pick who receives it and confirm.
-
-A desktop notification fires when an agent you aren't viewing needs you. Press `,` to open Settings, where Notifications sets how you are told — desktop, sound, terminal beep — and quiet hours.
+`⠋` working, `!` waiting for you, `✓` done, `○` idle. Press `!` to jump to the next waiting agent, and `B` to tell several agents the same thing.
 
 </Step>
 
 <Step title="Review a branch">
 
-Select a task's branch to see its changes: its pull request (checks, review), uncommitted files, commits ahead and diffs. `enter` on a file shows its diff, `o` opens the branch's pull request and `esc` goes back. `x` on the branch removes its worktree once you're done (never with uncommitted changes).
+Select a branch to see its changes. `enter` on a file shows its diff, `o` opens the pull request, `x` removes the worktree.
 
 </Step>
 
 <Step title="Detach and come back">
 
-Press `q`. The TUI exits, but the server keeps every agent running. Close the terminal, go for lunch, then run `conch` again: everything is where you left it, including agents that finished or started waiting meanwhile.
+Press `q` to detach; agents keep running. Run `conch` again to come back.
 
 <Callout type="warning">
 
-`q` only detaches. `conch server stop` stops the server **and every pane it owns**.
+`conch server stop` stops the server **and every pane it owns**.
 
 </Callout>
 
@@ -98,27 +88,13 @@ Press `q`. The TUI exits, but the server keeps every agent running. Close the te
 
 <Step title="Add a remote machine">
 
-Press `M`, or from a shell:
-
-```sh
-conch machine add gpu-box   # an alias from ~/.ssh/config, user@host or ssh://user@host:port
-```
-
-conch probes the machine over ssh, installs itself there if needed and connects. The machine appears in the tree, and you add projects and start agents on it exactly as on `local`. See [Remote machines](/docs/remote-machines).
+Press `M`, or run `conch machine add gpu-box`. See [Remote machines](/docs/remote-machines).
 
 </Step>
 
 <Step title="Ask the brain">
 
-Press `:` (or click **✦ Ask**) and say what you want, for example "start 3 agents on api: fix the flaky login test, add rate limiting, update the README". conch proposes a plan with a checkbox for each action.
-
-<Callout type="note">
-
-Nothing runs until you press enter.
-
-</Callout>
-
-See [Brain](/docs/brain).
+Press `:` and say what you want. Nothing runs until you press enter. See [Brain](/docs/brain).
 
 </Step>
 

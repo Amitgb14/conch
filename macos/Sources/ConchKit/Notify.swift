@@ -92,14 +92,21 @@ public func attentionAlert(old: PaneInfo?, new p: PaneInfo, machine: String?, vi
     if a.state == .blocked && !s.waiting { return nil }
     if a.state == .done && !s.done { return nil }
     if s.quiet(now) { return nil } // the sidebar still shows it
-    let body: String
-    if a.state == .blocked {
-        body = (a.message?.isEmpty == false) ? a.message! : p.displayName + " is waiting for you"
+    var body: String
+    var sep = ", "
+    if a.state == .blocked, a.message?.isEmpty == false {
+        body = a.message!
+        sep = " · " // the agent's own sentence
+    } else if a.state == .blocked {
+        body = p.displayName + " is waiting for you"
     } else if a.failed == true {
         body = p.displayName + " stopped: " + (a.message ?? "")
     } else {
         body = p.displayName + " finished"
     }
+    // What it left running, which "finished" alone would hide.
+    let bg = backgroundSummary(a)
+    if !bg.isEmpty { body += sep + bg }
     return Alert(title: "conch · " + a.name + (machine.map { " on " + $0 } ?? ""), body: body)
 }
 
