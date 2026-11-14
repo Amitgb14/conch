@@ -43,7 +43,10 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     #expect(shownKids(kids, hidden: ["b"]) == [0, 1, 2]) // c still shows
     #expect(shownKids(kids, hidden: ["b", "c", "d"]) == [0])
     #expect(shownKids([], hidden: []).isEmpty)
-    #expect(shownShares([0.5, 0.25, 0.25], shown: [0, 2]) == [2.0 / 3, 1.0 / 3])
+    // Typed apart: inside #expect, Xcode 26's compiler gave up on the
+    // literal arithmetic ("unable to type-check … in reasonable time").
+    let thirds: [Double] = [2.0 / 3, 1.0 / 3]
+    #expect(shownShares([0.5, 0.25, 0.25], shown: [0, 2]) == thirds)
     #expect(shownShares([0, 0], shown: [0, 1]) == [0.5, 0.5])
     #expect(shownShares([0.5], shown: [0, 3]) == [1, 0]) // an index past the end has no share
     #expect(shownShares([], shown: []).isEmpty)
