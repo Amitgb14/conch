@@ -84,6 +84,7 @@ func TestOverrideManifest(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "claude.toml"), []byte(`
 agent = "claude"
 process_names = ["claude", "claude-wrapper"]
+helpers = ["my-lsp"]
 [[rules]]
 name = "custom"
 state = "blocked"
@@ -99,6 +100,9 @@ pattern = "z"`), 0o600)
 	}
 	if !m["claude"].MatchProcess(Process{Name: "claude-wrapper"}) {
 		t.Fatal("override not applied")
+	}
+	if got := m["claude"].Helpers; len(got) != 1 || got[0] != "my-lsp" {
+		t.Fatalf("helpers %v", got)
 	}
 	if r := m["claude"].MatchScreen([]string{"HALT"}); r == nil || r.Name != "custom" {
 		t.Fatalf("override rule not used: %v", r)

@@ -1461,6 +1461,27 @@ final class Store: ObservableObject {
     }
 
     /// A terminal watched, or no longer, for going quiet or printing — the
+    /// Ends one job an agent left running, and what it started
+    /// (agent.background.stop); the server takes only one it listed.
+    func stopJob(_ k: String, pid: Int) {
+        let (m, id) = unkey(k)
+        guard let c = conns[m], let p = pane(k) else { return }
+        guard c.hello?.capabilities?.contains("agent.background.v1") == true else {
+            say("conch on \(label(m)) is too old to stop background jobs: reload its server", .err)
+            return
+        }
+        let what = p.agent?.jobs?.first(where: { $0.pid == pid }).map { $0.command.isEmpty ? "pid \(pid)" : $0.command } ?? "pid \(pid)"
+        struct P: Encodable { var id: String; var pid: Int }
+        Task {
+            do {
+                try await c.call("agent.background.stop", P(id: id, pid: pid))
+                self.say("Stopped \(what)")
+            } catch {
+                self.say("Could not stop \(what): \(error)", .err)
+            }
+        }
+    }
+
     /// TUI's ctrl+b M and A (pane.monitor).
     func toggleMonitor(_ k: String, quiet: Bool) {
         let (m, id) = unkey(k)
