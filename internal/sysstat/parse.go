@@ -353,10 +353,6 @@ type psLine struct {
 	comm      string
 }
 
-// psArgs are the fields read from ps, the same in BSD ps and procps; comm
-// last because it may hold spaces.
-var psArgs = []string{"-A", "-o", "pid=,ppid=,rss=,time=,etime=,user=,comm="}
-
 // parsePS reads `ps -o pid=,ppid=,rss=,time=,etime=,user=,comm=`, skipping
 // a line it cannot read.
 func parsePS(b []byte) []psLine {

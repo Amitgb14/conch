@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// psArgs are the fields read from ps, the same in BSD ps and procps; comm
+// last because it may hold spaces. parsePS reads them.
+var psArgs = []string{"-A", "-o", "pid=,ppid=,rss=,time=,etime=,user=,comm="}
+
 // psProcs lists every process with ps, where there is no /proc to read.
 func psProcs(ctx context.Context) ([]Proc, error) {
 	out, err := exec.CommandContext(ctx, "ps", psArgs...).Output()
