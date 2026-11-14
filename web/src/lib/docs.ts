@@ -10,6 +10,7 @@ export const docs: DocSection[] = [
       { title: "Introduction", href: "/docs", description: "What conch is and how it is put together." },
       { title: "Installation", href: "/docs/installation", description: "Install, update and reload conch." },
       { title: "Quick start", href: "/docs/quick-start", description: "From an empty terminal to agents working in parallel." },
+      { title: "Why conch", href: "/docs/why", description: "What conch does that other agent orchestrators leave to you." },
     ],
   },
   {
