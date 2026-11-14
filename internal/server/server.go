@@ -450,6 +450,7 @@ var slowMethods = map[string]bool{
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
+	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
@@ -1423,6 +1424,24 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.decidePermission(ask)
 
+	case proto.MethodProjectTickets:
+		tp, perr := decode[proto.TicketsParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.tickets(tp)
+	case proto.MethodTicketGet:
+		gp, perr := decode[proto.TicketGetParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.ticketGet(gp)
+	case proto.MethodTicketUpdate:
+		up, perr := decode[proto.TicketUpdateParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.ticketUpdate(up)
 	case proto.MethodProjectIssues:
 		ip, perr := decode[proto.IssuesParams](msg)
 		if perr != nil {
@@ -1717,8 +1736,12 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 // startTask is createTask saying the branch the task is on, which it may
 // have named itself: a task waiting for this one starts from it.
 func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
-	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 {
+	tp.Ticket = strings.TrimSpace(tp.Ticket)
+	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 && tp.Ticket == "" {
 		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
+	}
+	if tp.Issue > 0 && tp.Ticket != "" {
+		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task works on a GitHub issue or a ticket, not both")
 	}
 	p, perr := s.projects.get(tp.ProjectID)
 	if perr != nil {
@@ -1726,6 +1749,11 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 	}
 	if tp.Issue > 0 {
 		if perr := s.issueTask(p, &tp); perr != nil {
+			return proto.PaneInfo{}, "", perr
+		}
+	}
+	if tp.Ticket != "" {
+		if perr := s.ticketTask(p, &tp); perr != nil {
 			return proto.PaneInfo{}, "", perr
 		}
 	}

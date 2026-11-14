@@ -24,6 +24,7 @@ const (
 	KindMap    = "map"    // string keys to string values
 	KindTables = "tables" // an array of tables, each with Fields
 	KindKeyed  = "keyed"  // tables keyed by name, each with Fields
+	KindTable  = "table"  // one nested table, [trackers.linear], with Fields
 )
 
 // Field is one setting.
@@ -271,6 +272,27 @@ func Schema(c Choices) []Section {
 		{ID: "sandbox", Key: "sandbox", Title: "Sandboxes", Icon: "box", Description: "Hosted sandbox providers, one table each.",
 			Fields: []Field{
 				{Key: "", Label: "Providers", Kind: KindKeyed, KeyLabel: "Provider", Fields: provider, Suggest: c.Providers},
+			}},
+		{ID: "trackers", Key: "trackers", Title: "Trackers", Icon: "ticket", Description: "Tickets from Linear and Jira for conch task -ticket, besides GitHub issues.",
+			Fields: []Field{
+				{Key: "linear", Label: "Linear", Kind: KindTable, Help: "A personal API key, from Linear's Settings → Security & access.", Fields: []Field{
+					{Key: "api_key", Label: "API key", Kind: KindSecret, Help: "Kept in this file as it is. Leave it empty to read the variable below, or the Keychain's conch-mcp item of that name."},
+					{Key: "api_key_env", Label: "Key's variable", Kind: KindString, Placeholder: "LINEAR_API_KEY"},
+					{Key: "team", Label: "Team", Kind: KindString, Placeholder: "ENG", Help: "The team whose tickets are listed; empty is every team."},
+					{Key: "api_url", Label: "API address", Kind: KindString, Placeholder: "https://api.linear.app/graphql"},
+				}},
+				{Key: "jira", Label: "Jira Cloud", Kind: KindTable, Help: "Your Atlassian account's email and an API token, from id.atlassian.com → Security → API tokens.", Fields: []Field{
+					{Key: "url", Label: "Site", Kind: KindString, Placeholder: "https://acme.atlassian.net"},
+					{Key: "email", Label: "Email", Kind: KindString, Placeholder: "you@example.com"},
+					{Key: "api_token", Label: "API token", Kind: KindSecret, Help: "Kept in this file as it is. Leave it empty to read the variable below, or the Keychain's conch-mcp item of that name."},
+					{Key: "api_token_env", Label: "Token's variable", Kind: KindString, Placeholder: "JIRA_API_TOKEN"},
+					{Key: "project", Label: "Project", Kind: KindString, Placeholder: "PROJ", Help: "The project whose tickets are listed; empty is every project."},
+				}},
+				{Key: "projects", Label: "Projects", Kind: KindTables, Help: "Which tracker a conch project's tickets come from, when more than one is set up.", Fields: []Field{
+					{Key: "project", Label: "Project", Kind: KindString, Placeholder: "conch", Help: "By name or path."},
+					{Key: "tracker", Label: "Tracker", Kind: KindSelect, Options: opts("linear", "jira")},
+					{Key: "key", Label: "Team or project key", Kind: KindString, Placeholder: "ENG"},
+				}},
 			}},
 		{ID: "actions", Key: "", Title: "Actions", Icon: "zap", Description: "Commands of your own on the row menus (m, or right-click).",
 			Fields: []Field{

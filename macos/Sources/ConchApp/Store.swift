@@ -3168,6 +3168,16 @@ final class Store: ObservableObject {
         return (try? await c.call("project.issues", P(project_id: pr, limit: 50), as: R.self))?.issues ?? []
     }
 
+    /// A project's open Linear or Jira tickets, for the same picker; none
+    /// from a server without tickets.v1, or a machine with no tracker set
+    /// up — which is most, so its refusal is not shown.
+    func tickets(for pk: String) async -> [TicketInfo] {
+        let (m, pr) = unkey(pk)
+        guard let c = conns[m], c.hello?.capabilities?.contains("tickets.v1") == true else { return [] }
+        struct P: Encodable { var project_id: String; var limit: Int }
+        return (try? await c.call("project.tickets", P(project_id: pr, limit: 50), as: TicketList.self))?.tickets ?? []
+    }
+
     /// checked says a plain-folder project has been dealt with: made a git
     /// repository, or the person asked for the folder itself.
     func startTask(_ d: TaskDraft, checked: Bool = false) {
@@ -3177,12 +3187,12 @@ final class Store: ObservableObject {
             whenBranchable(machine: m, projects: [pr], inFolder: { self.startTaskInFolder(d) }) { self.startTask(d, checked: true) }
             return
         }
-        // An issue or a time other than now: `conch task`, which reads the
-        // issue and the time's words the way the TUI does.
-        if (d.issue ?? 0) > 0 || !taskWhenArgs(d.when).isEmpty {
+        // An issue, a ticket or a time other than now: `conch task`, which
+        // reads the issue and the time's words the way the TUI does.
+        if (d.issue ?? 0) > 0 || !d.ticket.isEmpty || !taskWhenArgs(d.when).isEmpty {
             guard let b = binary, let dir = snapshots[m]?.project(pr)?.path else { return }
             taskDraft = nil
-            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, when: d.when))
+            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when))
             job(d.when.isEmpty ? "Starting the task" : "Scheduling the task") {
                 let out = String(decoding: try await runConch(b, args), as: UTF8.self)
                 let said = out.split(separator: "\n").last.map(String.init) ?? ""
@@ -3437,6 +3447,8 @@ struct TaskDraft: Identifiable {
     var branch = ""
     /// A GitHub issue to work on (its title and body are the prompt).
     var issue: Int?
+    /// A Linear or Jira ticket to work on, as tracker:KEY; "" for none.
+    var ticket = ""
     /// When it starts: "" now, else as `conch task -at` and the rest take it.
     var when = ""
 }

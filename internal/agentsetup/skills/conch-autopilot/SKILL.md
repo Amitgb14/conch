@@ -125,17 +125,26 @@ Show them the ways in, so they can pick:
 conch task "Add retries to the uploader"
 conch task -issue 123
 conch task -queue -wip 2 -issue 124
+conch task -ticket ENG-125
 conch task -after api "Build the client on the new API"
 conch task -every 1d -at 09:00 "Update dependencies and fix what breaks"
 conch task -n 3 "Fix the flaky parser test"
 conch schedule
 ```
 
-`-issue` puts a GitHub issue in the prompt; `-queue -wip 2` keeps at most
+`-issue` puts a GitHub issue in the prompt, and `-ticket` a Linear or
+Jira one (set up in `[trackers]` in config.toml; `conch ticket ls` lists
+them); `-queue -wip 2` keeps at most
 two agents working; `-every` repeats a task, each run on a branch of its
 own; `-n 3` makes three attempts to keep the best. Asking an agent to
 "take the ready issues to merged pull requests" is the `conch-factory`
 skill, which runs the same line with agents in panes.
+
+The autopilot does not touch a ticket by itself. If the person wants
+theirs to follow the work — a comment when the pull request opens, moved
+to In Review, then Done once it merges — that is something they ask for,
+and it is done with `conch ticket comment`, `conch ticket link` and
+`conch ticket status` as each step happens.
 
 ## 6. Try it once
 

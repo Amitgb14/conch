@@ -15,6 +15,7 @@ A task is an agent on its own branch and git worktree (`<repo>.worktrees/<branch
 ```sh
 conch task -cwd ~/src/api "Add a health check endpoint"
 conch task -issue 12                       # from a GitHub issue, via gh
+conch task -ticket ENG-123                 # from a Linear or Jira ticket
 conch task -sandbox daytona "…"            # in a sandbox of its own
 ```
 

@@ -539,8 +539,17 @@ func TestSchemaCoversConfig(t *testing.T) {
 		switch {
 		case ft.Kind() == reflect.Struct:
 			for j := 0; j < ft.NumField(); j++ {
-				if k := table + "." + tomlName(ft.Field(j)); !have[k] {
+				k := table + "." + tomlName(ft.Field(j))
+				if !have[k] {
 					missing = append(missing, k)
+				}
+				// A table within the table ([trackers.linear]): its keys too.
+				if sub := ft.Field(j).Type; sub.Kind() == reflect.Struct {
+					for n := 0; n < sub.NumField(); n++ {
+						if sk := k + "[]." + tomlName(sub.Field(n)); !have[sk] {
+							missing = append(missing, sk)
+						}
+					}
 				}
 			}
 		case ft.Kind() == reflect.Slice || ft.Kind() == reflect.Map:

@@ -151,6 +151,9 @@ var scoped = map[string]scopeKind{
 	// an agent on an account stays open, as choosing the agent does.
 	proto.MethodAccountAdd: scopeHome, proto.MethodAccountRemove: scopeHome,
 	proto.MethodAccountPin: scopeHome, proto.MethodAccountFailover: scopeHome,
+	// A ticket is changed with the person's key, as their own pull
+	// request is: an agent may for its own project's tracker.
+	proto.MethodTicketUpdate: scopeProject,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -425,6 +428,7 @@ var verbs = map[string]string{
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",
+	proto.MethodTicketUpdate: "change a ticket",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
 	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
