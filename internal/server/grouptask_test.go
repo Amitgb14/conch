@@ -246,3 +246,24 @@ func TestGroupTaskBriefThroughFS(t *testing.T) {
 		t.Fatal("the folder above a task's was taken as a root")
 	}
 }
+
+// A group task's agents start on the account asked for — every one of
+// them, with Each — and an account that cannot be had makes no worktree.
+func TestGroupTaskOnAnAccount(t *testing.T) {
+	c, dir, _, _ := groupTaskFixture(t)
+	ctx := a5Ctx(t)
+	if err := c.Call(ctx, proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "work"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	badRequest(t, c.Call(ctx, proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "x", Branch: "nope", Agent: "claude", Account: "nope"}, nil), "unknown account")
+	if _, err := os.Stat(filepath.Join(dir, "spring.worktrees", "nope")); err == nil {
+		t.Error("a refused account left a worktree")
+	}
+	var res proto.GroupTaskResult
+	if err := c.Call(ctx, proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "Add search", Branch: "add-search", Agent: "claude", Account: "work", Each: true, Cols: 80, Rows: 20}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Panes) != 2 || res.Panes[0].Account != "work" || res.Panes[1].Account != "work" {
+		t.Fatalf("panes %+v", res.Panes)
+	}
+}

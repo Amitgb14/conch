@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,14 +80,14 @@ func (v *limitsView) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 // every window it reported, and what conch has seen the machine spend.
 func (m Model) limitsWindowLines(mach *machine, now time.Time, w int, grown float64) []string {
 	var lines []string
-	agents := knownAgents(&m)
 	seen := map[string]bool{}
-	for _, agent := range agents {
-		l, ok := mach.limits[agent]
-		if !ok || seen[agent] {
+	for _, key := range limitKeys(mach, knownAgents(&m)) {
+		l, ok := mach.limits[key]
+		if !ok || seen[key] {
 			continue
 		}
-		seen[agent] = true
+		seen[key] = true
+		agent := l.Agent
 		var rows []string
 		for _, win := range planWindows(l) {
 			lw := win.w
@@ -112,7 +113,11 @@ func (m Model) limitsWindowLines(mach *machine, now time.Time, w int, grown floa
 		if len(rows) == 0 {
 			rows = []string{styleMuted.Render("   nothing reported yet")}
 		}
-		head := " " + styleBold.Render(agentLabel(agent))
+		label := agentLabel(agent)
+		if l.Account != "" {
+			label += " · " + l.Account
+		}
+		head := " " + styleBold.Render(label)
 		if !l.At.IsZero() {
 			head += styleMuted.Render("  as the agent last said, " + ago(l.At))
 		}
@@ -144,13 +149,31 @@ func (m Model) limitsWindowLines(mach *machine, now time.Time, w int, grown floa
 	return lines
 }
 
+// limitKeys orders a machine's limits: by agent as agents lists them, each
+// agent's own account first and then its others by name.
+func limitKeys(mach *machine, agents []string) []string {
+	var keys []string
+	for _, agent := range agents {
+		keys = append(keys, agent)
+		var others []string
+		for k, l := range mach.limits {
+			if l.Agent == agent && l.Account != "" && k == accountKey(l.Agent, l.Account) {
+				others = append(others, k)
+			}
+		}
+		sort.Strings(others)
+		keys = append(keys, others...)
+	}
+	return keys
+}
+
 func (v *limitsView) render(m Model) box {
 	now := time.Now()
 	grown := v.fill
 	if grown <= 0 {
 		grown = 1.0 / limitsFillSteps // never a row of nothing
 	}
-	w := clamp(76, 20, max(m.width-2, 20))
+	w := clamp(76, 1, max(m.width-2, 1)) // the frame adds two
 	var lines []string
 
 	// The machine whose chip was clicked first, then every other machine

@@ -176,10 +176,18 @@ type accountJSON struct {
 }
 
 func runAccount(args []string) error {
+	// Its subcommands are agent accounts (accounts.go); on its own it is
+	// the Conch Cloud account this device signed in to.
+	if len(args) > 0 && agentAccountCommands[args[0]] {
+		return runAgentAccount(args)
+	}
 	fs := flag.NewFlagSet("account", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print it as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if fs.NArg() > 0 {
+		return errors.New("usage: conch account [-json] — or, for agent accounts, " + strings.TrimPrefix(accountUsage, "usage: "))
 	}
 	c, err := cloud.Open()
 	if errors.Is(err, cloud.ErrNotSignedIn) {

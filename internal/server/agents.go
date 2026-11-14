@@ -86,6 +86,11 @@ type entry struct {
 	// as one before the agent's process is seen, which a queue starting
 	// work against a limit must not wait for.
 	launched string
+	// account is the account the agent was started on, "" for its own
+	// (accounts.go). Set before the pane is listed and never changed: a
+	// conversation lives in its account's folder, so an agent is never
+	// moved to another.
+	account string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -106,6 +111,7 @@ func (e *entry) info() proto.PaneInfo {
 	st := e.tracker.Status()
 	info.Monitor, info.Alert = e.monitor.info()
 	info.LastActive = e.lastActive
+	info.Account = e.account
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {

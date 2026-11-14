@@ -145,6 +145,10 @@ var scoped = map[string]scopeKind{
 	// the person's to decide — and a check's verdict lifts or sets a hold
 	// on a merge, so an agent does not get to report its own.
 	proto.MethodAutopilotSet: scopeHome, proto.MethodAutopilotCheck: scopeHome,
+	// Whose subscription pays for what: the person's to arrange. Starting
+	// an agent on an account stays open, as choosing the agent does.
+	proto.MethodAccountAdd: scopeHome, proto.MethodAccountRemove: scopeHome,
+	proto.MethodAccountPin: scopeHome, proto.MethodAccountFailover: scopeHome,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -429,6 +433,8 @@ var verbs = map[string]string{
 	proto.MethodAgentSync:    "sync one agent's setup to the others",
 	proto.MethodReviewSet:    "comment on a branch", proto.MethodReviewSend: "send review comments", proto.MethodReviewReply: "reply to review comments in",
 	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
+	proto.MethodAccountAdd: "add an agent account", proto.MethodAccountRemove: "remove an agent account",
+	proto.MethodAccountPin: "pin a folder to an agent account", proto.MethodAccountFailover: "change when agents move to another account",
 }
 
 // madeBy records that the connection's pane started pane id: it and the
