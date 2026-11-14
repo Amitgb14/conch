@@ -21,7 +21,7 @@ conch runs the agents below in panes it owns, tracks what each is doing, and sho
 | **Devin** (preview) | `curl -fsSL https://cli.devin.ai/install.sh \| bash`, then `devin auth login` |
 | **Copilot CLI**, **Cline**, **Qwen Code**, **Goose** | `c` → install |
 
-Devin is Cognition's `devin` CLI. A Devin pane that needs an answer looks idle.
+A Devin pane that needs an answer looks idle.
 
 ## Two tiers
 
@@ -67,7 +67,7 @@ conch never edits an agent's own configuration or answers its trust prompts for 
 
 ### Left running in the background
 
-An idle agent can leave something running — a `run_in_background` shell, a dev server, a watcher. Its row says **⟳2** and lists each under it; the notification, the phone, the Mac app and `conch status` say so too. Its helpers (MCP servers, `caffeinate`, a manifest's `helpers`) don't count.
+An idle agent that left a dev server or a background shell running shows **⟳2**, with each listed under it. MCP servers and other helpers don't count.
 
 **How:** `m` on a job → **Stop it**.
 
@@ -84,9 +84,7 @@ Most reliable first:
 
 ### conch reports its own state too
 
-conch sends one OSC 7501 report to your terminal — `blocked` while any agent waits on you — for the terminal's tab to show.
-
-**How:** it is off inside tmux and screen; `CONCH_STATUS=0` turns it off anywhere, `1` turns it on.
+Your terminal's tab shows `blocked` while any agent waits on you. `CONCH_STATUS=0` turns it off.
 
 ## Agents working together
 
@@ -108,20 +106,18 @@ Context used, output tokens, and cost where the agent reports one.
 
 <Shot name="desktop-limits" alt="Claude plan limits shown as bars with their reset times" caption="Plan limits and when each window resets." />
 
-For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%`, amber from 70% and red from 90%. Codex's windows come from its session files; API-key logins have none.
+The status bar shows Claude's and Codex's windows, e.g. `Claude 5h 42% · 7d 18%`, amber from 70% and red from 90%.
 
 **How:** click it for reset times. conch alerts once at 80% and again at 95% (see [notify](/docs/configuration#notify)).
 
 ## Several accounts
 
-Several Claude Code or Codex subscriptions side by side, each project, worktree or task on the one you choose.
+A work and a home subscription of Claude Code or Codex side by side.
 
-```sh
-conch account add claude work                  # a folder of its own to sign in to
-conch new -agent claude -account work          # start it there, and /login once
-conch account pin ~/src/acme work              # agents started in acme use work
-conch task -account home "Fix the flaky test"  # this task's agent uses home
-conch account failover 90                      # new agents leave an account past 90%
-```
+1. **Add one:** `conch account add claude work`.
+2. **Sign in once:** `conch new -agent claude -account work`, then `/login`.
+3. **Pin a folder:** `conch account pin ~/src/acme work`; agents started there use it.
+4. **Or per task:** `conch task -account home "Fix the flaky test"`.
+5. **Failover:** `conch account failover 90`; a new agent skips an account past 90%.
 
-Limits are per account (`Claude work 5h 88%`); **Settings → Agents → Agent accounts…** lists them. Sessions resume on their own account. See [Agent accounts](/docs/cli#agent-accounts).
+`conch account list` or **Settings → Agents → Agent accounts…** shows each one's limits. Sessions resume on their own account. A new account starts empty: copy in your `CLAUDE.md` and skills. See [Agent accounts](/docs/cli#agent-accounts).

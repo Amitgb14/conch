@@ -1,4 +1,5 @@
 import {
+  ActivityIcon,
   BotIcon,
   CloudIcon,
   CornerDownLeftIcon,
@@ -17,6 +18,8 @@ import {
   SmartphoneIcon,
   SparklesIcon,
   SquareTerminalIcon,
+  TicketIcon,
+  UsersIcon,
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
@@ -30,6 +33,7 @@ import { cn } from "@/lib/utils"
 
 // Icons by name, since an MDX page cannot import them.
 const icons: Record<string, LucideIcon> = {
+  accounts: UsersIcon,
   agents: BotIcon,
   browser: GlobeIcon,
   chat: MessageSquareIcon,
@@ -39,6 +43,7 @@ const icons: Record<string, LucideIcon> = {
   files: FolderTreeIcon,
   git: GitBranchIcon,
   loop: RefreshCwIcon,
+  monitor: ActivityIcon,
   phone: SmartphoneIcon,
   reload: RotateCwIcon,
   scope: ShieldCheckIcon,
@@ -46,6 +51,7 @@ const icons: Record<string, LucideIcon> = {
   signal: RadioIcon,
   sparkles: SparklesIcon,
   terminal: SquareTerminalIcon,
+  tickets: TicketIcon,
   workbench: PanelsTopLeftIcon,
 }
 

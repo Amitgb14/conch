@@ -8,7 +8,7 @@ How to give each agent its own branch and worktree, finish its work, and set tho
 
 ## Tasks
 
-A task is an agent on its own branch and git worktree (`<repo>.worktrees/<branch>`), so parallel agents never step on each other.
+A task is an agent on its own branch and worktree, so parallel agents never collide.
 
 **How:** `t` on a project, or:
 
@@ -19,7 +19,7 @@ conch task -ticket ENG-123                 # from a Linear or Jira ticket
 conch task -sandbox daytona "…"            # in a sandbox of its own
 ```
 
-`-agent`, `-branch` and `-base` choose the agent and branches; see the [CLI](/docs/cli#task). Outside a git repository the agent starts in the folder, with no branch.
+More options in the [CLI](/docs/cli#task).
 
 ## Finishing a task
 
@@ -39,7 +39,7 @@ From a shell: `conch branch commit | push | pr | merge | discard` ([CLI](/docs/c
 
 ## Cleaning up worktrees
 
-`W` on a project lists every worktree besides the main checkout, with what removing it would lose and why it looks finished (merged, pull request closed, folder gone).
+`W` on a project lists worktrees, what removing each would lose, and which look finished.
 
 **How:** finished ones come ticked; `space` ticks others, `a` toggles the finished ones, `enter` reviews, `y` confirms. From a shell: `conch worktree ls | clean`.
 
@@ -74,6 +74,28 @@ conch task -after api/model "Add a REST endpoint for invoices" # starts from tha
 conch schedule            # list; conch schedule rm ID removes one
 ```
 
+In the task dialog, the **When** field takes `queue`, `after api/model` or a time. For an agent stopped at its plan limit, `C` in the [review queue](/docs/interface) resumes it after the reset.
+
+<TuiShot id="queue" title="Review queue" caption="The review queue, with scheduled work at the bottom." />
+
+## Tickets
+
+Every project's GitHub issues and Linear or Jira tickets in one list.
+
+**How:** add a Linear or Jira key in [`[trackers]`](/docs/configuration#trackers), check it with `conch ticket check`, then:
+
+```sh
+conch ticket all -mine          # every project's open tickets, and what conch is doing
+conch task -ticket ENG-123      # work on one
+conch ticket status ENG-123 "In Review"
+```
+
+In the [Mac app](/docs/mac-app#tickets), ⇧⌘I opens the Tickets window.
+
+## The backlog by itself
+
+An agent triages each new issue; ready ones become queued tasks.
+
 ```toml
 # The backlog, taken by itself: every open issue labelled "ready" is queued
 # as a task, once, with a comment on the issue (configuration: [verify] intake).
@@ -85,9 +107,7 @@ r1a2b3c = "ready"
 r1a2b3c = "new"
 ```
 
-In the task dialog, the **When** field takes `queue`, `after api/model` or a time. For an agent stopped at its plan limit, `C` in the [review queue](/docs/interface) resumes it after the reset.
-
-<TuiShot id="queue" title="Review queue" caption="The review queue, with scheduled work at the bottom." />
+**How:** project IDs are in `conch project ls`.
 
 ## Local files in worktrees
 
@@ -130,7 +150,7 @@ npm run dev -- --port $CONCH_PORT
 
 ## One setup, every agent
 
-`s` in the setup view gives the open agent's instructions, skills and MCP servers to the other agents in this checkout, each where that agent looks. It shows the plan first, never copies secrets, and leaves hand-written files alone. `u` undoes it.
+`s` in the setup view copies one agent's instructions, skills and MCP servers to the others, after showing the plan. `u` undoes it.
 
 ```sh
 conch agent sync                                 # show the plan
@@ -144,7 +164,7 @@ The home version is also in Settings → **Agents** → **Your own setup…**.
 
 ## Shared MCP servers and skills
 
-The library keeps MCP servers and skills in conch, each ticked for the agents that should have them. Applying writes them into each agent's own configuration; unticking takes them out.
+MCP servers and skills kept in conch, each ticked for the agents that should have them.
 
 <Shot name="desktop-skills" alt="Skills & MCP Servers in Conch.app's Settings" caption="The library in Conch.app." />
 
@@ -159,4 +179,4 @@ conch agent library apply
 conch agent library undo
 ```
 
-Values must refer to variables (`${TOKEN}`); Conch.app can keep a token in the Keychain; a plain one briefly shows on Claude's command line to others on the machine.
+Values refer to variables (`${TOKEN}`); Conch.app can keep a token in the Keychain.
