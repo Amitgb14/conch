@@ -37,6 +37,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"GET /api/push/key view",
 		"GET /api/resources view",
 		"POST /api/answer reply",
+		"POST /api/attach full",
 		"POST /api/close full",
 		"POST /api/panes full",
 		"POST /api/push/subscribe view",
@@ -910,12 +911,13 @@ func TestServerUnavailable(t *testing.T) {
 	}
 }
 
-// A request body is a reply or a prompt, not a file.
+// A request body is a reply or a prompt, not a file: too large is 413 with
+// the bad_request code, saying the limit.
 func TestOversizedBody(t *testing.T) {
 	f := newFixture(t)
 	p := f.pair(PermReply)
 	status, e := p.post("/api/reply", ReplyRequest{Pane: "p1", Text: strings.Repeat("x", maxBody)}, nil)
-	if status != 400 || e.Code != CodeBadRequest {
+	if status != 413 || e.Code != CodeBadRequest || !strings.Contains(e.Message, "64 KB") {
 		t.Fatalf("%d %+v", status, e)
 	}
 	if status, b := p.do("POST", "/api/reply", nil); status != 400 {

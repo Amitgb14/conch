@@ -253,6 +253,14 @@ func (g *Gateway) server() (*client.Client, *APIError) {
 	return c, nil
 }
 
+// byteSize is a limit in words: 64 KB, 25 MB.
+func byteSize(n int64) string {
+	if n >= 1<<20 {
+		return strconv.FormatInt(n>>20, 10) + " MB"
+	}
+	return strconv.FormatInt(n>>10, 10) + " KB"
+}
+
 func apiErr(code, message string) *APIError { return &APIError{Code: code, Message: message} }
 
 // fromServer turns a failed call into the error the phone gets. The
@@ -334,12 +342,14 @@ var routes = []route{
 	{"POST", "/api/panes", PermFull, (*Gateway).newPane},
 	{"POST", "/api/close", PermFull, (*Gateway).closePane},
 	{"POST", "/api/rename", PermFull, (*Gateway).renamePane},
+	{"POST", "/api/attach", PermFull, (*Gateway).attach},
 }
 
 // SocketPath is where the WebSocket is opened.
 const SocketPath = "/api/socket"
 
-// maxBody bounds a request: a reply or a task's prompt, not a file.
+// maxBody bounds a request: a reply or a task's prompt, not a file. A
+// route that takes a file says how much in bodyLimits.
 const maxBody = 64 << 10
 
 // Handler is the gateway's HTTP handler.
@@ -514,9 +524,24 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, rts []route
 			g.fail(w, r, apiErr(CodeForbidden, "the "+CSRFHeader+" header is missing or wrong; take it from /api/hello"))
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+		limit := int64(maxBody)
+		if l, ok := bodyLimits[rt.path]; ok {
+			limit = l
+		}
+		// Said before any of it is read when the request says its size.
+		tooLarge := apiErr(CodeBadRequest, "the request is larger than "+byteSize(limit)+", the most "+rt.path+" takes")
+		if r.ContentLength > limit {
+			g.failStatus(w, r, http.StatusRequestEntityTooLarge, tooLarge)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			g.failStatus(w, r, http.StatusRequestEntityTooLarge, tooLarge)
+			return
+		}
 		if err != nil {
-			g.fail(w, r, apiErr(CodeBadRequest, "the request is too large"))
+			g.fail(w, r, apiErr(CodeBadRequest, "the request couldn't be read"))
 			return
 		}
 		rq.body = body

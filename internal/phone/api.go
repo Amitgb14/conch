@@ -273,6 +273,19 @@ type RenameRequest struct {
 	Name string `json:"name"`
 }
 
+// AttachResponse is POST /api/attach?pane=…&name=…, whose body is the
+// file itself. Path is where it was saved on the pane's machine; Rel is
+// the same from the pane's folder (".conch/attachments/settings.png"),
+// left out with Note when the pane had no folder to save it in and it went
+// to conch's uploads folder there instead. Size is in bytes.
+type AttachResponse struct {
+	Pane string `json:"pane"`
+	Path string `json:"path"`
+	Rel  string `json:"rel,omitempty"`
+	Size int64  `json:"size"`
+	Note string `json:"note,omitempty"`
+}
+
 // Frame is a pane's screen as the server renders it: a snapshot, drawn
 // whole each time.
 type Frame struct {
