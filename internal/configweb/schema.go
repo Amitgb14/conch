@@ -203,6 +203,10 @@ func Schema(c Choices) []Section {
 				{Key: "intake", Label: "Take issues with this label", Kind: KindMap, KeyLabel: "Project ID", Placeholder: "ready",
 					Help: "Every few minutes, each open GitHub issue with the label becomes a queued task, once, and says so on the issue. Nothing is taken until you name a label."},
 				{Key: "intake_wip", Label: "Busy agents before the next issue waits", Kind: KindInt, Min: intp(0), Max: intp(20), Help: "0: the queue's default, 3."},
+				{Key: "triage", Label: "Triage issues with this label", Kind: KindMap, KeyLabel: "Project ID", Placeholder: "new",
+					Help: "An agent reads each one and the code, changing nothing, comments what done means, its size and the files it touches, and labels it ready (the intake label), needs-info or too-big. One agent run per issue."},
+				{Key: "triage_agent", Label: "Triage agent", Kind: KindSelect, Options: reviewers, Help: "Who reads the issues; claude when empty."},
+				{Key: "triage_comment_only", Label: "Triage only comments", Kind: KindBool, Help: "Leave the labels to you."},
 			}},
 		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, and what a finished branch goes through on its way to the base.",
 			Fields: []Field{

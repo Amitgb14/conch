@@ -16,7 +16,7 @@ import (
 // nothing and said so; a config that does not read sends nothing.
 func TestAutopilotPush(t *testing.T) {
 	dir := a4Env(t)
-	toml := "[verify]\nauto_fix = 2\nauto_merge = true\nintake_wip = 2\n[verify.commands]\nr1 = \"go test ./...\"\nr2 = \"  \"\n[verify.intake]\nr1 = \"ready\"\nr2 = \" \"\n"
+	toml := "[verify]\nauto_fix = 2\nauto_merge = true\nintake_wip = 2\n[verify.commands]\nr1 = \"go test ./...\"\nr2 = \"  \"\n[verify.intake]\nr1 = \"ready\"\nr2 = \" \"\n[verify.triage]\nr1 = \"new\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(toml), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +46,9 @@ func TestAutopilotPush(t *testing.T) {
 	if len(sent[0].Intake) != 1 || sent[0].Intake["r1"] != "ready" || sent[0].IntakeWIP != 2 {
 		t.Fatalf("intake sent %+v", sent[0])
 	}
+	if sent[0].Triage["r1"] != "new" || !strings.Contains(out, "triage: issues labelled for 1 project") {
+		t.Fatalf("triage: %+v %q", sent[0], out)
+	}
 	if !strings.Contains(out, "intake: issues labelled for 1 project") {
 		t.Fatalf("intake not said: %q", out)
 	}
@@ -58,7 +61,7 @@ func TestAutopilotPush(t *testing.T) {
 		return h
 	}
 	out, _ = a4Capture(t, "", func() { _ = runAutopilot([]string{"push"}) })
-	if !strings.Contains(out, "older than autopilot.intake.v1") {
+	if !strings.Contains(out, "older than autopilot.intake.v1") || !strings.Contains(out, "older than autopilot.triage.v1") {
 		t.Fatalf("server without intake: %q", out)
 	}
 

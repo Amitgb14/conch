@@ -360,6 +360,15 @@ type VerifyCfg struct {
 	// queue's default). No label, no intake: off unless named.
 	Intake    map[string]string `toml:"intake,omitempty"`
 	IntakeWIP int               `toml:"intake_wip,omitempty"`
+	// Triage maps a project ID to the label that asks for an issue to be
+	// triaged: an agent reads it and the code, changing nothing, comments
+	// what done means, its size and the files it touches, and labels it
+	// ready (the intake label), needs-info or too-big. TriageAgent is who
+	// reads (claude when empty); TriageCommentOnly leaves the labels alone.
+	// Off unless named: every triage is an agent run.
+	Triage            map[string]string `toml:"triage,omitempty"`
+	TriageAgent       string            `toml:"triage_agent,omitempty"`
+	TriageCommentOnly bool              `toml:"triage_comment_only,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.
