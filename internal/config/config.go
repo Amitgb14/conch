@@ -140,6 +140,13 @@ type AppCfg struct {
 	// Stop too slow to rely on. Off, the agent's own terminal takes its
 	// place. The app reads it; conch only keeps it.
 	Chat bool `toml:"chat,omitempty"`
+	// CheckUpdates makes Conch.app ask GitHub once a day whether a newer
+	// release of itself is out ([update] is the command line's). On
+	// unless false; a development build never asks.
+	CheckUpdates *bool `toml:"check_updates,omitempty"`
+	// AutoUpdate installs that release as soon as the check finds one,
+	// leaving the relaunch to the person. Off by default.
+	AutoUpdate bool `toml:"auto_update,omitempty"`
 }
 
 // The range the app keeps the window's text size and the terminal's font
@@ -151,6 +158,9 @@ const (
 
 // ShowsPorts reports whether the app puts listening ports in pane headers.
 func (a AppCfg) ShowsPorts() bool { return a.Ports == nil || *a.Ports }
+
+// ChecksUpdates reports whether Conch.app looks for newer releases.
+func (a AppCfg) ChecksUpdates() bool { return a.CheckUpdates == nil || *a.CheckUpdates }
 
 // TakesPrefix reports whether the app's panes take conch's prefix keys.
 func (a AppCfg) TakesPrefix() bool { return a.PrefixKeys == nil || *a.PrefixKeys }
