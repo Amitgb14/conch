@@ -55,6 +55,12 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
+	// procSeen is when each process ps could not date was first seen,
+	// for counting an agent's background jobs (background.go).
+	// lastPorts is what the last look found listening, by pid.
+	bgMu      sync.Mutex
+	procSeen  map[int]time.Time
+	lastPorts map[int][]int
 	groups    *groupBook
 	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
 	secrets secretCache
@@ -438,7 +444,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
@@ -1488,6 +1494,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.agentChat(rp)
+
+	case proto.MethodAgentBackgroundStop:
+		bp, perr := decode[proto.AgentBackgroundStopParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.stopJob(bp)
 
 	case proto.MethodBranchCILog:
 		lp, perr := decode[proto.BranchCILogParams](msg)

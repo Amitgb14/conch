@@ -106,6 +106,8 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
 	proto.MethodAgentPrompt: scopePane,
+	// Ending what an agent left running is changing that pane.
+	proto.MethodAgentBackgroundStop: scopePane,
 	// An agent's hook asks for its own pane, and only its own.
 	proto.MethodAgentPermission: scopePane,
 	proto.MethodAgentBroadcast:  scopePanes,
@@ -412,7 +414,7 @@ var verbs = map[string]string{
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
-	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt",
+	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentBackgroundStop: "stop a background job of",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",

@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -237,6 +237,11 @@ const CapProjectGitInit = "project.git_init.v1"
 // CapAgentChat is agent.chat: a pane's agent's conversation with the tools
 // it used, from its saved transcript, for a chat drawn beside its terminal.
 const CapAgentChat = "agent.chat.v1"
+
+// CapAgentBackground is AgentStatus.Background and Jobs: what an agent
+// that is not working left running below it — a dev server, a watcher,
+// a background shell — and agent.background.stop to end one of them.
+const CapAgentBackground = "agent.background.v1"
 
 // CapSchedule is schedule.add, schedule.list and schedule.remove: a
 // message for a running agent, or a task, kept by the server for a time
@@ -509,6 +514,9 @@ const (
 	// MethodAgentChat is a pane's agent's conversation, tools and all,
 	// read from its saved transcript (CapAgentChat).
 	MethodAgentChat = "agent.chat"
+	// MethodAgentBackgroundStop ends one of the jobs an agent left running
+	// (AgentStatus.Jobs), and only one of those (agent.background.v1).
+	MethodAgentBackgroundStop = "agent.background.stop"
 
 	MethodProjectIssues = "project.issues"
 
@@ -2282,6 +2290,28 @@ type AgentStatus struct {
 	// process — Claude Code's Agent tool — which have no pane of their
 	// own. Servers from before them send none.
 	Subagents []Subagent `json:"subagents,omitempty"`
+	// Background counts what the agent left running below it while it is
+	// not working — a dev server, a test watcher, a background shell — and
+	// Jobs says what each is (agent.background.v1). Both are empty while it
+	// works, since then its children are the work, and from older servers.
+	Background int             `json:"background,omitempty"`
+	Jobs       []BackgroundJob `json:"jobs,omitempty"`
+}
+
+// BackgroundJob is one program an agent left running: the process below
+// the agent that started it, with the ports it and its children listen on.
+type BackgroundJob struct {
+	PID     int       `json:"pid"`
+	Command string    `json:"command"`
+	Since   time.Time `json:"since"`
+	Ports   []int     `json:"ports,omitempty"`
+}
+
+// AgentBackgroundStopParams names a job to end: a pane and one of the
+// pids in its agent's Jobs.
+type AgentBackgroundStopParams struct {
+	ID  string `json:"id"`
+	PID int    `json:"pid"`
 }
 
 // Subagent is an agent running inside another agent's process, known from

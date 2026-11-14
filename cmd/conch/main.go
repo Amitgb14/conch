@@ -71,7 +71,8 @@ Usage:
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
   conch status [-wide] [-json] show server and pane status, with the host a terminal is on with ssh;
-                                fitted to the terminal (-wide: every column, as piped)
+                                fitted to the terminal (-wide: every column, as piped); BACKGROUND
+                                is what an idle agent left running (-json: agent.background, agent.jobs)
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names); from an agent's

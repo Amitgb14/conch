@@ -44,9 +44,11 @@ function notice(m) {
   // `machine:pane` for an agent on another machine, as every other part
   // of the app addresses it; a notification about one opened the list.
   const pane = typeof m.pane === "string" && /^(?:[a-z0-9-]+:)?p[0-9]+$/.test(m.pane) ? m.pane : ""
+  // How many things it left running, a count and nothing else.
+  const running = Number.isInteger(m.running) && m.running > 0 ? `${m.running} still running` : ""
   return {
     title: m.type === "done" ? `${who} is done` : `${who} is waiting for you`,
-    body: typeof m.project === "string" && m.project ? `in ${m.project}` : "",
+    body: [typeof m.project === "string" && m.project ? `in ${m.project}` : "", running].filter(Boolean).join(" · "),
     tag: pane ? `conch-${pane}` : "conch",
     url: pane && m.url === `/agent/${pane}` ? m.url : "/",
   }

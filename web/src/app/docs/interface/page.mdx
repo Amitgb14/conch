@@ -2,13 +2,13 @@ export const metadata = { title: "The interface", description: "The tree, splits
 
 # The interface
 
-The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits; this page covers each part.
+The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits.
 
 <TuiShot id="working" title="conch" caption="The tree on the left, an agent's pane on the right." />
 
 ## The sidebar
 
-Each machine holds `Workspace` (projects) and `CLI` (agents and terminals outside projects). Badges: `⠋1` working, `⚑1` waiting, `✓1` done.
+Each machine holds `Workspace` (projects) and `CLI` (agents and terminals outside projects). Badges: `⠋1` working, `⚑1` waiting, `✓1` done; `⟳2` on an agent is what it [left running](/docs/agents#left-running-in-the-background).
 
 **How:** `a` adds a project, `c` starts an agent, `n` a terminal. `!` goes to the next waiting agent.
 
@@ -36,7 +36,7 @@ Group saved hosts with their sessions — `eng`, `staging`, `prod`.
 
 ## Grouped by tab
 
-The tree lists a project's panes under the tab each is open in, as the tab bar does.
+The tree lists a project's panes under the tab each is in.
 
 **How:** Settings → Tree grouping → By tab lists panes under their tab.
 

@@ -41,7 +41,7 @@ conch's settings, including **Skills & MCP Servers**.
 
 ## Plan limits
 
-The status bar shows each agent's plan use; a click lists every window and when it resets.
+The status bar shows each agent's plan use.
 
 <Shot name="desktop-limits" alt="Conch.app's plan windows" caption="Plan windows and tokens used." />
 
@@ -53,13 +53,13 @@ Each pane runs [`conch attach`](/docs/cli#attach), drawn by Ghostty. A pane size
 
 ## The scratch layer
 
-A shell floating over the splits, in the project on screen.
+A shell floating over the splits.
 
 **How:** ⌥Space shows or hides it, ⌥⌘↩ docks it as a split, ⌥⌘T makes it a tab.
 
 ## A branch's changes
 
-A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks, then **Commit**; **✦ Write** drafts a message. Hover a line, press **+** to note it for the agent or a pull request.
+A branch opens in a tab: **Overview · Changes · Graph**. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** on a line leaves a note.
 
 **How:** ⋯ holds **Push**, **Merge into main…**, **Open Pull Request** and **Delete Branch…**.
 
@@ -71,15 +71,21 @@ A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick fi
 
 ## Agent setup
 
-What each agent loads in a checkout: instructions, skills and MCP servers.
+What each agent loads in a checkout.
 
 **How:** **Agent setup** on a project's menu.
 
+## Left running
+
+An agent that left a dev server or watcher running shows *idle · 2 running* on its row, pane and workbench, ⟳2 on its tab.
+
+**How:** hover the pill for each command and its ports; click it to stop one.
+
 ## Answering an agent without opening it
 
-Every waiting agent is a card under **Needs you**, with its question and its choices as buttons.
+Each waiting agent is a card under **Needs you**, its choices as buttons.
 
-**How:** click a button to answer, or the card to open the agent.
+**How:** click a choice to answer, or the card to open it.
 
 ## Files and sessions
 
@@ -147,7 +153,7 @@ A plain folder is offered **Initialize Git** first.
 | `⌘0` | the sidebar takes the keyboard |
 | `⌘/` | every keyboard shortcut |
 
-The TUI's prefix keys work too: `ctrl+b`, then a key from the [prefix table](/docs/configuration#rebinding-the-keys).
+The TUI's `ctrl+b` [prefix keys](/docs/configuration#rebinding-the-keys) work too.
 
 ## Installing the beta
 

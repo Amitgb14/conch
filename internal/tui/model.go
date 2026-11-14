@@ -1227,15 +1227,24 @@ func (m Model) isViewing(mid, paneID string) bool {
 
 // attentionBody says why an agent needs the user.
 func attentionBody(info proto.PaneInfo) string {
+	// What it left running, which "finished" alone would hide.
+	bg := backgroundSummary(info.Agent)
+	sep := ", "
+	var body string
 	switch {
 	case info.Agent.State == proto.AgentBlocked && info.Agent.Message != "":
-		return info.Agent.Message
+		body, sep = info.Agent.Message, " · " // the agent's own sentence
 	case info.Agent.State == proto.AgentBlocked:
-		return info.DisplayName() + " is waiting for you"
+		body = info.DisplayName() + " is waiting for you"
 	case info.Agent.Failed:
-		return info.DisplayName() + " stopped: " + info.Agent.Message
+		body = info.DisplayName() + " stopped: " + info.Agent.Message
+	default:
+		body = info.DisplayName() + " finished"
 	}
-	return info.DisplayName() + " finished"
+	if bg != "" {
+		body += sep + bg
+	}
+	return body
 }
 
 func (m Model) notifyAttention(mach *machine, old, info proto.PaneInfo) tea.Cmd {

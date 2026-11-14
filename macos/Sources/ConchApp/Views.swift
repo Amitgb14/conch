@@ -1191,6 +1191,7 @@ struct NodeView: View {
                     } else if let pill = Pill.state(p.agent?.state) {
                         pill.fixedSize().layoutPriority(1)
                     }
+                    if paneEndBadge(p) == nil { BackgroundPill(store: store, pane: id).layoutPriority(1) }
                 }
             }
         case .machine(let m):
@@ -2042,6 +2043,7 @@ struct PaneCard: View {
                 } else {
                     Pill.state(p?.agent?.state)
                 }
+                BackgroundPill(store: store, pane: pane)
             }
             .padding(.horizontal, store.appLook.compact ? 8 : 10).frame(height: store.appLook.compact ? 22 : 30)
             .font(.ui(size: store.appLook.compact ? 11 : 12))

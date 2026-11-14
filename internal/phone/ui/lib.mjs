@@ -196,6 +196,18 @@ export function reviewCount(a) {
   return n === 0 ? "" : n === 1 ? "1 review comment" : `${n} review comments`
 }
 
+// backgroundLine says what an agent left running — a dev server, a
+// watcher — or "" for nothing: "1 still running: npm run dev (:5173)".
+export function backgroundLine(a) {
+  const jobs = Array.isArray(a?.background) ? a.background : []
+  if (jobs.length === 0) return ""
+  const cut = (s) => (s.length > 40 ? `${s.slice(0, 39)}…` : s)
+  const named = jobs.filter((j) => j?.command).slice(0, 2).map((j) =>
+    cut(j.command) + (jobs.length === 1 && j.ports?.length ? ` (${j.ports.map((p) => `:${p}`).join(" ")})` : ""))
+  if (named.length && jobs.length > 2) named.push("…")
+  return `${jobs.length} still running` + (named.length ? `: ${named.join(", ")}` : "")
+}
+
 // reviewByline is who wrote a comment and what else to know about it:
 // "alice on GitHub · outdated · 2 replies", or "" for the laptop's own.
 export function reviewByline(r) {

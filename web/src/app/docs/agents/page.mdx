@@ -64,6 +64,12 @@ conch never edits an agent's own configuration or answers its trust prompts for 
 
 **How:** `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
 
+### Left running in the background
+
+An idle agent can leave something running — a `run_in_background` shell, a dev server, a watcher. Its row says **⟳2** and lists each under it; the notification, the phone, the Mac app and `conch status` say so too. Its helpers (MCP servers, `caffeinate`, a manifest's `helpers`) don't count.
+
+**How:** `m` on a job → **Stop it**.
+
 ### How the state is decided
 
 Most reliable first:
@@ -87,15 +93,15 @@ An agent can start and prompt another. See [Agents working together](/docs/agent
 
 ## Broadcast
 
-`B` types one message into several panes and submits it: a prompt to every agent in a project, or `git pull` in every terminal. The list follows the tree's selection; agents waiting for an answer, and terminals in a mixed list, start unticked.
+`B` sends one message to several panes: a prompt to every agent in a project, or `git pull` in every terminal.
 
-**How:** type the message, `tab` to the list, then `space` ticks, `a` ticks all, `t` all terminals, `e` every machine. `enter` asks to confirm; `n` goes back.
+**How:** type it, `tab` to the list, `space` ticks, `enter` sends.
 
 ## Token usage
 
 Agent panes show usage in their title: `ctx 45k/200k · out 12k · $0.42`.
 
-**ctx** is the context window used now, **out** the output tokens this session, **$** the cost when the agent reports one.
+Context used, output tokens, and cost where the agent reports one.
 
 ## Plan limits
 
