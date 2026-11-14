@@ -2355,7 +2355,7 @@ struct StatusBar: View {
             }
             .buttonStyle(.plain).help("Memory and CPU conch uses on this computer")
             .onHover { monitorHover = $0 }
-            .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store) }
+            .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store, close: { showMonitor = false }) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
@@ -2514,10 +2514,31 @@ struct MonitorIcon: View {
 /// server, the panes with each one's tree under them, the total.
 struct MonitorPopover: View {
     @ObservedObject var store: Store
+    var close: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("monitor").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).padding(.bottom, 4)
+            HStack(spacing: 8) {
+                Text("monitor").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+                Spacer()
+                // The whole machine, every process and the history: the
+                // System Monitor window.
+                Button {
+                    close()
+                    store.openSystemMonitor()
+                } label: {
+                    LucideIcon("maximize-2", color: Theme.text2, size: 12)
+                        .frame(width: 24, height: 24)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
+                }
+                .buttonStyle(.plain)
+                .help("Open System Monitor (⌥⌘M)")
+                .accessibilityLabel("Open System Monitor")
+            }
+            .padding(.bottom, 4)
+            if let s = store.systemStats["local"], s.cpu != nil || s.memory != nil {
+                systemStrip(s).padding(.bottom, 6)
+            }
             if let r = store.resources {
                 line(name: "", mem: "memory", cpu: Text("    cpu").foregroundStyle(Theme.muted), bold: false, header: true)
                 ForEach(Array(r.rows.enumerated()), id: \.offset) { _, row in
@@ -2535,6 +2556,36 @@ struct MonitorPopover: View {
         .padding(12)
         .background(Theme.chrome)
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.accent.opacity(0.6)))
+    }
+
+    /// The whole computer, above what conch uses of it.
+    func systemStrip(_ s: SystemStats) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let c = s.cpu {
+                HStack(spacing: 8) {
+                    Text("system cpu").foregroundStyle(Theme.muted).frame(width: 116, alignment: .leading)
+                    stripBar(c.total / 100, Color(red: 0.30, green: 0.55, blue: 1.0))
+                    Text(String(format: "%5.1f%%", c.total)).foregroundStyle(Theme.text)
+                }
+            }
+            if let m = s.memory, m.total > 0 {
+                HStack(spacing: 8) {
+                    Text("system memory").foregroundStyle(Theme.muted).frame(width: 116, alignment: .leading)
+                    stripBar(m.usedFraction, Color(red: 0.95, green: 0.64, blue: 0.23))
+                    Text("\(formatBytes(m.used)) / \(formatBytes(m.total, whole: true))").foregroundStyle(Theme.text)
+                }
+            }
+        }
+    }
+
+    /// A share as a bar in the System Monitor's colours: a machine busy is
+    /// not a fault, so not the green-to-red of a plan's use.
+    func stripBar(_ f: Double, _ color: Color) -> some View {
+        ZStack(alignment: .leading) {
+            Capsule().fill(Theme.line2)
+            Capsule().fill(color).frame(width: 160 * min(max(f, 0), 1))
+        }
+        .frame(width: 160, height: 6)
     }
 
     func line(name: String, mem: String, cpu: Text, bold: Bool, muted: Bool = false, header: Bool = false) -> some View {

@@ -724,6 +724,17 @@ final class Store: ObservableObject {
         }
     }
 
+    /// The System Monitor (SystemMonitor.swift, Store+System.swift): each
+    /// machine's newest system.stats, the history held for it, the machine
+    /// shown, and why a machine has none to show.
+    @Published var systemStats: [String: SystemStats] = [:]
+    @Published var systemHistory: [String: SystemHistory] = [:]
+    @Published var systemMachine = "local"
+    @Published var systemWhy: [String: String] = [:]
+    @Published var systemPaused = false
+    var systemPoll: Task<Void, Never>?
+    var onOpenSystemMonitor: (() -> Void)?
+
     /// What the resource monitor shows, while it is open.
     @Published private(set) var resources: (rows: [ResourceRow], total: ResourceRow)?
     private var monitor: Task<Void, Never>?
@@ -741,6 +752,9 @@ final class Store: ObservableObject {
                 self.resources = resourceRows(prev: prev, cur: cur, app: ("This window (Conch.app)", Int(ProcessInfo.processInfo.processIdentifier)),
                                               server: self.conns["local"]?.hello?.pid,
                                               panes: (self.snapshots["local"]?.panes ?? []).compactMap { p in p.pid.map { (p.displayName, $0) } })
+                // The whole machine for the strip at its top, unless the
+                // System Monitor is asking already.
+                if self.systemPoll == nil { await self.readSystem("local", summary: true) }
                 prev = cur
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
@@ -2436,6 +2450,7 @@ final class Store: ObservableObject {
         switch id {
         case "focusSidebar": focusSidebar()
         case "settings": openSettings()
+        case "systemMonitor": openSystemMonitor()
         case "addProject": addProject()
         case "sshToHost": sshToHost()
         case "addMachine": addMachine()

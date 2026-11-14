@@ -98,6 +98,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyAppLook(store.appLook)
         let settings = SettingsWindow(store: store)
         settingsWindow = settings
+        let system = SystemMonitorWindow(store: store)
+        systemWindow = system
         if UserDefaults.standard.bool(forKey: "background") {
             // -background YES: opened behind whatever is in front and not
             // made active, for a scripted run beside somebody at work —
@@ -134,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         s.onAppLook = { [weak self] look in self?.applyAppLook(look) }
         s.onThemeList = { [weak self] in self?.fillThemeMenu() }
         s.onOpenSettings = { [weak self] in self?.settingsWindow?.show(section: $0) }
+        s.onOpenSystemMonitor = { [weak self] in self?.systemWindow?.show() }
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         s.onConfigChange = { [weak self] in self?.updateThemeMenu() }
     }
@@ -430,6 +433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windowMenu.addItem(item("Cycle Back Through Windows", "~", [.command, .shift], "cycleWindowsBack"))
         windowMenu.addItem(NSMenuItem(title: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: ""))
         windowMenu.addItem(.separator())
+        windowMenu.addItem(item("System Monitor", "m", [.command, .option], "systemMonitor"))
         let wtop = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         wtop.submenu = windowMenu
         main.addItem(wtop)
@@ -472,6 +476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     var settingsWindow: SettingsWindow?
+    var systemWindow: SystemMonitorWindow?
 
     @objc func chooseTheme(_ sender: NSMenuItem) {
         for s in AppWindows.shared.stores { s.chooseTheme(sender.representedObject as? String ?? "") }
