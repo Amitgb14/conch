@@ -7,6 +7,10 @@
 //   - Gemini CLI: ~/.gemini/tmp/<project>/chats/session-*.json
 //   - OpenCode: ~/.local/share/opencode/opencode.db (sqlite), or the older
 //     storage/session/*/*.json files
+//   - Copilot CLI: ~/.copilot/session-state/<session id>/events.jsonl
+//   - Cline: ~/.cline/data/sessions/<id>/<id>.json and <id>.messages.json
+//   - Qwen Code: ~/.qwen/projects/<encoded dir>/chats/<session id>.jsonl
+//   - Goose: ~/.local/share/goose/sessions/sessions.db (sqlite)
 package sessions
 
 import (
@@ -44,6 +48,10 @@ type Session struct {
 	// Account is the agent's account whose folder holds it, "" for the
 	// agent's own.
 	Account string
+
+	// messages is where a Cline session's conversation is, when its
+	// manifest names a place for it.
+	messages string
 }
 
 // Env is where agents keep their data.
@@ -127,6 +135,10 @@ func gatherStatus(e Env, dirs []string, limit int, background bool) ([]Session, 
 		{"gemini", gemini, false},
 		{"opencode", opencode, true},
 		{"devin", devin, true},
+		{"copilot", copilot, false},
+		{"cline", cline, false},
+		{"qwen", qwen, false},
+		{"goose", goose, true},
 	}
 	var out []Session
 	ok := true
@@ -267,8 +279,16 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 		}
 		return nil
 	}
+	if s.Agent == "cline" {
+		// Cline also indexes a session in a database and keeps its
+		// checkpoints as git refs; its own command removes all of it.
+		return clineDelete(ctx, e, s)
+	}
 	if s.Path == "" {
 		return fmt.Errorf("no file for this %s session", s.Agent)
+	}
+	if s.Agent == "goose" {
+		return gooseDelete(ctx, s.Path, s.ID)
 	}
 	if s.Agent == "opencode" && strings.HasSuffix(s.Path, ".db") {
 		bin, err := exec.LookPath("opencode")
@@ -283,6 +303,11 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 		return nil
 	}
 	paths := []string{s.Path}
+	if s.Agent == "copilot" {
+		// A Copilot session is its folder: the events, the plan,
+		// checkpoints and a database of its own.
+		paths = []string{filepath.Dir(s.Path)}
+	}
 	if s.Agent == "claude" {
 		// Claude keeps a session's subagent transcripts and tool output in a
 		// directory named like the session.
