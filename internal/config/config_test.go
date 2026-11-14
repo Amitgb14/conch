@@ -189,12 +189,12 @@ func TestAppSettings(t *testing.T) {
 	// A file from before [app]: the standard window, ports shown.
 	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[ui]\ntheme = \"nord\"\n"), 0o644)
 	got, err := Load()
-	if err != nil || got.App != (AppCfg{}) || !got.App.ShowsPorts() || !got.App.TakesPrefix() {
+	if err != nil || got.App != (AppCfg{}) || !got.App.ShowsPorts() || !got.App.TakesPrefix() || !got.App.ShowsChat() {
 		t.Fatalf("old file: %+v %v", got.App, err)
 	}
 	off := false
 	cfg := Default()
-	cfg.App = AppCfg{Tabs: "left", Density: "compact", Sidebar: "glass", Ports: &off, ScratchKey: true, PrefixKeys: &off}
+	cfg.App = AppCfg{Tabs: "left", Density: "compact", Sidebar: "glass", Ports: &off, ScratchKey: true, PrefixKeys: &off, Chat: &off}
 	if err := Save(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -203,15 +203,26 @@ func TestAppSettings(t *testing.T) {
 		t.Fatalf("saved without [app]:\n%s", b)
 	}
 	got, err = Load()
-	if err != nil || got.App.Tabs != "left" || got.App.Density != "compact" || got.App.Sidebar != "glass" || got.App.ShowsPorts() || !got.App.ScratchKey || got.App.TakesPrefix() {
+	if err != nil || got.App.Tabs != "left" || got.App.Density != "compact" || got.App.Sidebar != "glass" || got.App.ShowsPorts() || !got.App.ScratchKey || got.App.TakesPrefix() || got.App.ShowsChat() {
 		t.Fatalf("round trip: %+v %v", got.App, err)
+	}
+	if !strings.Contains(string(b), "chat = false") {
+		t.Fatalf("chat turned off is not written down:\n%s", b)
+	}
+	// 0.2.0's way of turning it on still reads, and still means on.
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[app]\nchat = true\n"), 0o644)
+	if got, err := Load(); err != nil || !got.App.ShowsChat() {
+		t.Fatalf("chat = true: %+v %v", got.App, err)
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
 	}
 	// Left alone, the defaults write nothing of [app]'s keys.
 	if err := Save(Default()); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
-	for _, k := range []string{"tabs =", "density =", "sidebar =", "ports =", "scratch_key =", "prefix_keys ="} {
+	for _, k := range []string{"tabs =", "density =", "sidebar =", "ports =", "scratch_key =", "prefix_keys =", "chat ="} {
 		if strings.Contains(string(b), k) {
 			t.Fatalf("default config wrote %q:\n%s", k, b)
 		}

@@ -4,6 +4,8 @@ agent = "opencode"
 process_names = ["opencode"]
 screen_lines = 40
 hook_working_stale = "8s"
+# The first escape asks "esc again to interrupt"; the second stops it.
+interrupt = ["escape", "escape"]
 
 [[rules]]
 name = "permission"
