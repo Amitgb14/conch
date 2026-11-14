@@ -301,3 +301,22 @@ func TestTheLaterSupportedAgents(t *testing.T) {
 		}
 	}
 }
+
+// A version is the number, not the sentence it ends: Copilot prints
+// "GitHub Copilot CLI 1.0.112." and the full stop is not part of it.
+func TestVersionOfLeavesTheSentenceOut(t *testing.T) {
+	for line, want := range map[string]string{
+		"GitHub Copilot CLI 1.0.112.":   "1.0.112",
+		"2.1.325 (Claude Code)":         "2.1.325",
+		"codex-cli 0.158.0":             "0.158.0",
+		"1.3.0-prerelease.202611131511": "1.3.0-prerelease.202611131511",
+		"v2026.10.22-27dcf5f":           "2026.10.22-27dcf5f",
+		"version 1.2-":                  "1.2",
+		"no version here":               "",
+		"":                              "",
+	} {
+		if got := versionOf(line); got != want {
+			t.Errorf("versionOf(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
