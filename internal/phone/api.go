@@ -296,6 +296,76 @@ type Project struct {
 	Base string `json:"base,omitempty"`
 }
 
+// ProjectDetail is GET /api/project: a project's worktrees, its pull
+// requests and their checks, and what its agents have spent — the TUI's
+// project page. Worktrees and PRs are empty, never absent: a plain folder
+// has neither, and a server without pull requests (project.pr.v1) has no
+// PRs. Usage is absent while none of its agents has reported any.
+type ProjectDetail struct {
+	Project   Project       `json:"project"`
+	Worktrees []Worktree    `json:"worktrees"`
+	PRs       []PullRequest `json:"prs"`
+	Usage     *ProjectUsage `json:"usage,omitempty"`
+}
+
+// Worktree is a checkout of the project. Ahead and Behind are its
+// branch's commits against the project's base branch, so the main
+// checkout's are 0; Added and Removed are the uncommitted lines. Panes are
+// the agents working on its branch, as machine:pane.
+type Worktree struct {
+	Branch  string   `json:"branch"`
+	Path    string   `json:"path"`
+	Base    bool     `json:"base,omitempty"`
+	Panes   []string `json:"panes,omitempty"`
+	Ahead   int      `json:"ahead,omitempty"`
+	Behind  int      `json:"behind,omitempty"`
+	Added   int      `json:"added,omitempty"`
+	Removed int      `json:"removed,omitempty"`
+	Dirty   bool     `json:"dirty,omitempty"`
+	PR      int      `json:"pr,omitempty"`
+}
+
+// Pull request states.
+const (
+	PROpen   = "open"
+	PRDraft  = "draft"
+	PRMerged = "merged"
+	PRClosed = "closed"
+)
+
+// PullRequest is a branch's pull request: the server keeps one a branch,
+// an open one before any other. Checks are its checks one by one, empty
+// when it has none or the server is too old to say them singly.
+type PullRequest struct {
+	Number int       `json:"number"`
+	Title  string    `json:"title"`
+	Branch string    `json:"branch"`
+	URL    string    `json:"url,omitempty"`
+	State  string    `json:"state"`
+	Checks []PRCheck `json:"checks"`
+	// Review is GitHub's decision in words: "approved", "changes
+	// requested" or "review required".
+	Review string `json:"review,omitempty"`
+}
+
+// PRCheck is one check: State is pass, fail or pending.
+type PRCheck struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// ProjectUsage is what the project's agents conch sees have used so far,
+// as the TUI's project page sums it: only Claude Code and OpenCode report
+// a cost, so CostAgents says how many of Agents CostUSD stands for.
+// Input counts cache reads and writes.
+type ProjectUsage struct {
+	Agents       int     `json:"agents"`
+	CostUSD      float64 `json:"cost_usd,omitempty"`
+	CostAgents   int     `json:"cost_agents,omitempty"`
+	InputTokens  int     `json:"input_tokens,omitempty"`
+	OutputTokens int     `json:"output_tokens,omitempty"`
+}
+
 // PairRequest is POST /pair.
 type PairRequest struct {
 	Code       string `json:"code"`

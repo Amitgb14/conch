@@ -32,6 +32,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"GET /api/hello view",
 		"GET /api/machines view",
 		"GET /api/panes view",
+		"GET /api/project view",
 		"GET /api/projects view",
 		"GET /api/push/key view",
 		"POST /api/answer reply",

@@ -317,6 +317,7 @@ var routes = []route{
 	{"GET", "/api/agents", PermView, (*Gateway).listAgents},
 	{"GET", "/api/machines", PermView, (*Gateway).listMachines},
 	{"GET", "/api/projects", PermView, (*Gateway).listProjects},
+	{"GET", "/api/project", PermView, (*Gateway).projectDetail},
 	{"POST", "/api/reply", PermReply, (*Gateway).reply},
 	{"POST", "/api/answer", PermReply, (*Gateway).answer},
 	{"POST", "/api/review/send", PermReply, (*Gateway).reviewSend},
