@@ -175,10 +175,13 @@ func TestJobsKey(t *testing.T) {
 
 // bgPane is a pane conch takes for a Claude Code in a done state, with a
 // process table of the test's own in which its program is that agent.
+// The program is sleep itself, not `sh -c sleep`: a shell that does not
+// exec its last command (Ubuntu's dash) stays in front, and conch never
+// takes a shell in front for an agent.
 func bgPane(t *testing.T, s *Server) (proto.PaneInfo, *entry) {
 	t.Helper()
 	res, perr := s.dispatch(&client{subs: map[string]*subscription{}}, proto.Message{Method: proto.MethodPaneCreate,
-		Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"/bin/sh", "-c", "sleep 30"}, Cols: 40, Rows: 5})})
+		Params: proto.Marshal(proto.PaneCreateParams{Command: []string{"sleep", "30"}, Cols: 40, Rows: 5})})
 	if perr != nil {
 		t.Fatal(perr)
 	}
