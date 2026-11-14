@@ -82,8 +82,10 @@ struct TrackerStatus: View {
 /// Each [[trackers.projects]] entry and how many are open there.
 struct TrackerProjectsCard: View {
     @ObservedObject var model: SettingsModel
+    @Environment(\.conchTheme) private var theme
 
     var body: some View {
+        let _ = theme
         if let ps = model.trackers?.projects, !ps.isEmpty {
             SettingsCard(title: "Open tickets by project") {
                 ForEach(Array(ps.enumerated()), id: \.offset) { i, p in
