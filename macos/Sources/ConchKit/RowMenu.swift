@@ -96,6 +96,8 @@ public enum RowAction: Equatable, Sendable {
     case saveHost(pane: String)
     /// What the agents load in a checkout (the TUI's i), in a tab.
     case agentSetup(project: String, dir: String)
+    /// The project's app on a phone simulator beside its agents, in a tab.
+    case mobilePreview(project: String)
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
@@ -291,6 +293,8 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
             if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
+            // Simulators and emulators are this Mac's own.
+            if machine == "local" { out.append(RowMenuItem("Mobile Preview", .mobilePreview(project: pk))) }
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Open in New Window", .openWindow(project: pk))]
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]

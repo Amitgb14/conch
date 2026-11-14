@@ -376,7 +376,7 @@ extension Layout {
 /// Whether a layout key is a pane's ("machine|id"), rather than a view of
 /// a branch's changes, a project's commits or its sessions.
 public func isPaneKey(_ k: String) -> Bool {
-    parseChatKey(k) == nil && parseBenchShellKey(k) == nil && parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil
+    parseChatKey(k) == nil && parseBenchShellKey(k) == nil && parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil && parseMobileKey(k) == nil
 }
 
 /// How long to wait before trying this computer's server again, the nth

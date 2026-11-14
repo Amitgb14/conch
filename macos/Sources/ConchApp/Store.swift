@@ -433,7 +433,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) ?? parseMobileKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -1312,7 +1312,7 @@ final class Store: ObservableObject {
             if primary, let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) ?? parseMobileKey(o) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else if let t = parseTaskKey(o) {
                     if t.machine == machine { openTask(t.machine, t.group, t.branch) } // a task's page
@@ -2173,6 +2173,24 @@ final class Store: ObservableObject {
         return m
     }
 
+    private var mobileViews: [String: MobilePreviewModel] = [:]
+    func mobilePreview(for k: String) -> MobilePreviewModel {
+        if let m = mobileViews[k] { return m }
+        let m = MobilePreviewModel(key: k, store: self)
+        mobileViews[k] = m
+        return m
+    }
+
+    /// A project's app on a simulator, in a tab beside its agents; a tab
+    /// opened again lists the devices again.
+    func openMobilePreview(project pk: String) {
+        let (m, pid) = unkey(pk)
+        let k = mobileKey(m, pid)
+        mobileViews[k]?.reload()
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     private(set) var browserViews: [String: BrowserModel] = [:]
     private var blankBrowsers = 0
 
@@ -2652,6 +2670,7 @@ final class Store: ObservableObject {
         case .connectHost(let h): connectSaved(h)
         case .sandbox(let m, let verb): sandbox(m, verb)
         case .cloud(let m, let verb): cloudVerb(m, verb)
+        case .mobilePreview(let pk): openMobilePreview(project: pk)
         case .agentSetup(let pk, let dir):
             let (m, pid) = unkey(pk)
             let k = setupKey(m, pid, dir: dir)

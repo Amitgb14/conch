@@ -1,0 +1,23 @@
+export const metadata = { title: "Mobile preview", description: "Your app on a real iOS simulator in Conch.app, beside the agent writing it." }
+
+# Mobile preview
+
+Your app on a real iOS simulator, beside the agent writing it — the iPhone's own screen, corners and Dynamic Island included. Conch.app, on this Mac.
+
+## Open it
+
+**How:** right-click a project → **Mobile Preview**, or a workbench's **Mobile** layout (⌥⌘5): files and the editor, the chat, and the phone in a column beside them. The phone button in a workbench's bar shows it in any layout.
+
+Pick the simulator from the tab's menu; **Start** boots one that is shut down.
+
+## Use it
+
+Click the screen to tap it, type in the field below it, ○ for Home.
+
+**▶ Run** puts the app on the phone: `npx expo start --ios`, `react-native run-ios` or `flutter run`. In a workbench it runs in the workbench's terminal, so the phone shows that branch.
+
+**To agent** puts a screenshot in an agent's prompt. An agent can take one itself with [`conch preview shot`](/docs/cli#preview).
+
+## What it needs
+
+Xcode, for the simulators — found in Applications even when `xcode-select` points at the Command Line Tools. Tapping and typing need [AXe](https://github.com/cameroncooke/AXe) (or idb). **Settings → Mobile preview** says where Xcode is when it is elsewhere ([`[preview]`](/docs/configuration#preview)).

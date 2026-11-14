@@ -172,7 +172,7 @@ extension SettingsNav {
     public static let groups: [(String, [String])] = [
         ("General", ["ui", "app", "keys", "notify", "update"]),
         ("Agents", ["agents", skills, "permissions", "brain"]),
-        ("Workspace", ["git", "verify", "shell", "actions"]),
+        ("Workspace", ["git", "verify", "shell", "preview", "actions"]),
         ("Machines", ["remote", "sandbox", "web"]),
     ]
 

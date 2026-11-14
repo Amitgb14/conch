@@ -1729,6 +1729,7 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let p = parseMobileKey(tab.focused) { return "Preview · " + project(p.machine, p.project) }
         if let t = parseTaskKey(tab.focused) { return "\(t.branch) · \(t.group)" }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
@@ -1762,6 +1763,8 @@ struct TabButton: View {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
                     LucideIcon(browserIcon, color: Theme.accent, size: 12)
+                } else if parseMobileKey(tab.focused) != nil {
+                    LucideIcon("smartphone", color: Theme.accent, size: 12)
                 } else if parseTaskKey(tab.focused) != nil {
                     LucideIcon("layout-grid", color: Theme.accent, size: 12)
                 } else if changes == nil {
@@ -1897,6 +1900,8 @@ struct SplitArea: View {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
                 BrowserView(model: store.browser(for: id)).id(id)
+            } else if parseMobileKey(id) != nil {
+                MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
             } else if parseTaskKey(id) != nil {
                 TaskPageView(store: store, key: id).id(id)
             } else if parseChatKey(id) != nil {

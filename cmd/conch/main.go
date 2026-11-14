@@ -379,6 +379,16 @@ Usage:
   conch ask -suggest [-pane ID] [EARLIER REQUEST...]
                                 what is worth asking now, as JSON, with what each costs; asks no
                                 model (Conch.app's ✦ Ask draws it)
+  conch preview devices [-json]
+                                the iOS simulators and Android emulators and phones on this computer
+  conch preview boot DEVICE     start one (by name or ID), in the background
+  conch preview shot [-device D] [-o FILE]
+                                a PNG of the running device's screen; prints its path, for an
+                                agent to look at its own work
+  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back
+                                touch, type or press a button on it; X Y are pixels of the shot
+                                (an iOS simulator needs AXe or idb for these)
+  conch preview detect [DIR]    what kind of mobile app a folder is and how its dev server starts
   conch commit-message [-context TEXT]
                                 write a commit message for the diff on stdin with the brain; prints it
   conch update [VERSION | latest | list | rollback]
@@ -444,6 +454,8 @@ func main() {
 		err = runAttach(args)
 	case "commit-message":
 		err = runCommitMessage(args)
+	case "preview":
+		err = runPreview(args)
 	case "rename":
 		err = runRename(args)
 	case "close":

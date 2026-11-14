@@ -3,8 +3,9 @@ import ConchKit
 import SwiftUI
 
 // A workbench: an agent's branch in one tab — its files, a terminal in its
-// checkout, the agent as a chat, and its own terminal — arranged by one of
-// four layouts (BenchLayout). The parts are the tab's ordinary splits, so
+// checkout, the agent as a chat, its own terminal and, for this Mac's
+// projects, the app on a phone — arranged by one of five layouts
+// (BenchLayout). The parts are the tab's ordinary splits, so
 // they resize, focus and close as any split does; the layout only decides
 // where each starts and which wait hidden.
 
@@ -53,7 +54,7 @@ extension Store {
         if fileViews[fk] == nil || fm.dirs.isEmpty { fm.load() }
         let chosen = l ?? benchLayout
         let placeholder = benchShellKey(agent)
-        layout.openBench(chosen, BenchParts(files: fk, shell: placeholder, chat: chatKey(agent), agent: agent), chat: offersChat)
+        layout.openBench(chosen, BenchParts(files: fk, shell: placeholder, chat: chatKey(agent), agent: agent, phone: benchPhone(m, pid)), chat: offersChat)
         terminalHasKeyboard = false
         startBenchShell(for: agent, cwd: p.cwd)
     }
@@ -81,9 +82,23 @@ extension Store {
         }
     }
 
+    /// A workbench's phone: this Mac's projects have one, since the
+    /// simulators are this Mac's.
+    func benchPhone(_ machine: String, _ project: String) -> String? {
+        machine == "local" ? mobileKey(machine, project) : nil
+    }
+
     /// The workbench on screen in another layout; remembered for the next.
+    /// One opened before workbenches had a phone is given its phone here.
     func setBench(_ l: BenchLayout) {
         benchLayout = l
+        if let parts = layout.benchParts(layout.active), parts.phone == nil, let pid = pane(parts.agent)?.projectID,
+           let phone = benchPhone(unkey(parts.agent).machine, pid) {
+            var p = parts
+            p.phone = phone
+            layout.openBench(l, p, chat: offersChat)
+            return
+        }
         layout.setBench(l, chat: offersChat)
     }
 
@@ -159,6 +174,7 @@ struct BenchBar: View {
                 toggle("Terminal", icon: "terminal", leaf: parts.shell)
                 if store.offersChat { toggle("Chat", icon: "bubble.left.and.bubble.right", leaf: parts.chat) }
                 toggle("Agent", icon: "apple.terminal", leaf: parts.agent)
+                if let phone = parts.phone { toggle("Phone", icon: "iphone", leaf: phone) }
                 Rectangle().fill(Theme.line).frame(width: 1, height: 16)
             }
             LayoutPicker(store: store, current: tab.bench ?? .ide)
@@ -227,6 +243,7 @@ struct ToolStripe: View {
                 } else {
                     if store.offersChat { icon("bubble.left.and.bubble.right", "Agent Chat", leaf: parts.chat, badge: store.questions[parts.agent] != nil) }
                     icon("apple.terminal", "Agent Terminal", leaf: parts.agent)
+                    if let phone = parts.phone { icon("iphone", "Mobile Preview", leaf: phone) }
                     Spacer()
                     Menu {
                         ForEach(BenchLayout.offered(chat: store.offersChat), id: \.self) { l in

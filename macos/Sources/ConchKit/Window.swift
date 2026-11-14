@@ -109,6 +109,7 @@ public func machine(ofKey k: String) -> String {
     if let f = parseFilesKey(k) { return f.machine }
     if let s = parseSetupKey(k) { return s.machine }
     if parseBrowserKey(k) != nil { return "local" } // a page is shown on this computer
+    if let p = parseMobileKey(k) { return p.machine }
     if let t = parseTaskKey(k) { return t.machine }
     return unkey(k).machine
 }
@@ -314,5 +315,6 @@ public func treeRow(forTab k: String) -> String? {
     if let s = parseSessionsKey(k) { return "s:\(key(s.machine, s.project)):sessions" }
     if let c = parseCommitsKey(k) { return "p:\(key(c.machine, c.project))" }
     if let s = parseSetupKey(k) { return "p:\(key(s.machine, s.project))" }
+    if let p = parseMobileKey(k) { return "p:\(key(p.machine, p.project))" }
     return "pane:" + k
 }
