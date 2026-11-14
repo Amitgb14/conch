@@ -74,13 +74,20 @@ func TestOutboxWriteDeadline(t *testing.T) {
 // A reply far bigger than one deadline's worth over a slow link — a whole
 // file over an ssh bridge — still arrives while the client keeps reading:
 // the deadline is for a write making no progress, not for the message.
+//
+// A chunk (writeChunk) is read whole and then the reader rests 20ms, so
+// each chunk is taken in a twelfth of the deadline, and the whole reply
+// — 64 chunks — takes several deadlines. It once read a chunk as four
+// small reads with a rest after each, which a loaded machine stretched
+// past a 200ms deadline: the test cut off the client it was showing
+// would not be cut off.
 func TestOutboxSlowReaderGetsABigReply(t *testing.T) {
-	shortLimits(t, 32<<20, 200*time.Millisecond)
+	shortLimits(t, 32<<20, 250*time.Millisecond)
 	c, other := pipeClient(t)
-	body := strings.Repeat("x", 1<<20)
+	body := strings.Repeat("x", 4<<20)
 	go c.send(proto.Message{ID: "1", Result: json.RawMessage(`"` + body + `"`)})
 	got := make([]byte, 0, len(body)+64)
-	buf := make([]byte, 16<<10)
+	buf := make([]byte, writeChunk)
 	start := time.Now()
 	for !strings.HasSuffix(string(got), "\n") {
 		other.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -89,9 +96,9 @@ func TestOutboxSlowReaderGetsABigReply(t *testing.T) {
 			t.Fatalf("after %d bytes in %s: %v", len(got), time.Since(start), err)
 		}
 		got = append(got, buf[:n]...)
-		time.Sleep(20 * time.Millisecond) // a slow link: 16 KB every 20ms
+		time.Sleep(20 * time.Millisecond) // a slow link: a chunk every 20ms
 	}
-	if time.Since(start) < 4*200*time.Millisecond {
+	if time.Since(start) < 4*250*time.Millisecond {
 		t.Fatalf("read in %s: not slower than one deadline, so nothing was shown", time.Since(start))
 	}
 	var m proto.Message
