@@ -316,6 +316,11 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 	if at < 0 {
 		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrNotFound, "no group called %s", tp.Group)
 	}
+	// At start the projects are still being read: wait for them, or a
+	// group would look as if it had no repos.
+	if !s.projects.waitLoaded() {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "conch is still loading its projects: try again in a moment")
+	}
 	// Its projects, in the group's order: those asked for, or all.
 	var projects []*project
 	for _, root := range sg.Projects {
