@@ -47,6 +47,8 @@ type Model struct {
 	// agents, keyed by machine: read when its page is opened, since it asks
 	// that machine's server.
 	skill map[string]*skillPlan
+	// accounts is each machine's agent accounts, for Settings (accounts.go).
+	accounts map[string]*accountsState
 	// prompts are messages sent to an agent from the tree and not yet
 	// answered, keyed by machine and pane: what watchPrompt reports on.
 	prompts map[string]*promptWatch
@@ -709,6 +711,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.receivePromptSent(msg)
 	case skillMsg:
 		return m, m.receiveSkill(msg)
+	case accountsMsg:
+		return m, m.receiveAccounts(msg)
 	case libraryMsg:
 		return m, m.receiveLibrary(msg)
 

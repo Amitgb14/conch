@@ -90,9 +90,21 @@ Usage:
   conch wait ID [-state done] [-timeout 30m]
                                 block until a pane's agent is done (or waiting, working, idle);
                                 exits 124 if the time runs out
-  conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]
+  conch new -agent claude [-account NAME] [-cwd DIR] [-- CLAUDE ARGS...]
                                 start Claude Code with state tracking. From an agent's pane, only
-                                -- --model NAME, and no CMD ([agents] unrestricted_launch lifts it)
+                                -- --model NAME, and no CMD ([agents] unrestricted_launch lifts it);
+                                -account starts it on another of its accounts (default: the
+                                folder's pin, else its own; "default" is its own)
+  conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME
+                                an agent's other accounts (Claude Code, Codex): a work and a
+                                personal subscription, each a folder of its own to sign in to
+                                once; list shows each one's plan usage and agents
+  conch account pin [PATH] NAME | unpin [PATH]
+                                agents started in a project, worktree or task folder use that
+                                account (the longest pin wins; NAME is any agent's of that name)
+  conch account failover PERCENT|off
+                                a new agent whose account is past PERCENT of a plan window
+                                starts on the agent's next account; running agents never move
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID
@@ -155,11 +167,11 @@ Usage:
                                 terminal of its own in each new worktree (npm install…),
                                 and every pane there gets its own ports from $CONCH_PORT
   conch group [ls [-json]] | add NAME PROJECT... | rm NAME [PROJECT...] | rename OLD NEW | notes NAME [TEXT]
-                | task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT... | tasks NAME | task-rm NAME BRANCH
+                | task [-branch B] [-agent A] [-account NAME] [-each] [-only P,P] NAME PROMPT... | tasks NAME | task-rm NAME BRANCH
                 | merge [-order P,P] [-remove] [-stop] NAME BRANCH
                                 projects kept together because they change together (an API, its
                                 web app, their specs), each still a project of its own
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-sandbox PROVIDER] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-account NAME] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);
@@ -170,6 +182,7 @@ Usage:
                                 -after REF waits for that branch, pane or scheduled task to finish
                                 and starts from its branch (stacked work; -base to start elsewhere);
                                 -issue N works on that GitHub issue (PROMPT is then optional);
+                                -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
   conch branch commit [-file PATH]... -m MESSAGE
@@ -720,8 +733,12 @@ func runNew(args []string) error {
 	cwd := fs.String("cwd", "", "working directory (default: current)")
 	name := fs.String("name", "", "pane name")
 	agent := fs.String("agent", "", "launch a known agent (claude); remaining args are passed to it")
+	account := fs.String("account", "", "the agent's account to start on (conch account list); default: the folder's pin, else its own")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *account != "" && *agent == "" {
+		return errors.New("-account is an agent's: give -agent too")
 	}
 	command := fs.Args()
 	agentArgs := ""
@@ -733,7 +750,7 @@ func runNew(args []string) error {
 	}
 	// No command is the server's login shell, which is also the only
 	// command an agent's pane may ask for (internal/server/launchrule.go).
-	params := proto.PaneCreateParams{Name: *name, Agent: *agent, AgentArgs: agentArgs, Command: command, Cwd: *cwd, Cols: 120, Rows: 40}
+	params := proto.PaneCreateParams{Name: *name, Agent: *agent, Account: *account, AgentArgs: agentArgs, Command: command, Cwd: *cwd, Cols: 120, Rows: 40}
 	switch {
 	case onRemoteMachine() && *cwd == "":
 		// The server starts it in that machine's home, as a machine-level
@@ -758,6 +775,11 @@ func runNew(args []string) error {
 		return err
 	}
 	defer c.Close()
+	if *account != "" {
+		if err := needAccounts(c); err != nil {
+			return err
+		}
+	}
 	var info proto.PaneInfo
 	if err := call(c, proto.MethodPaneCreate, params, &info); err != nil {
 		return err

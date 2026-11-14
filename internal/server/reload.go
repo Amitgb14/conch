@@ -58,6 +58,9 @@ type reloadPane struct {
 	// from older state files.
 	Subagents       []proto.Subagent `json:"subagents,omitempty"`
 	SubagentSession string           `json:"subagent_session,omitempty"`
+	// Account the agent was started on (accounts.go); absent from older
+	// state files, whose agents were all on their own.
+	Account string `json:"account,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -145,6 +148,7 @@ func (s *Server) reload(bin string) {
 		rp.Monitor, rp.Alert = e.monitor.info()
 		rp.MonitorArmed = e.monitor.armed
 		rp.CreatedBy = e.lineage
+		rp.Account = e.account
 		rp.Subagents, rp.SubagentSession = e.subagents.list, e.subagents.session
 		e.mu.Unlock()
 		if e.transcript != nil {
@@ -218,6 +222,7 @@ func (s *Server) adopt(st *reloadState) {
 		// Silence counts from the reload: when the last output was is lost.
 		e.monitor.alert, e.monitor.armed, e.monitor.lastOut = rp.Alert, rp.MonitorArmed, time.Now()
 		e.lineage = rp.CreatedBy
+		e.account = rp.Account
 		e.subagents = subagents{list: rp.Subagents, session: rp.SubagentSession}
 		if rp.Transcript != "" {
 			e.transcript = usage.NewTranscript(rp.Transcript)

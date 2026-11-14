@@ -12,9 +12,14 @@ import SwiftUI
 
 @MainActor
 final class AppUpdater: ObservableObject {
+    /// The app's one: every window's status bar shows it.
+    static let shared = AppUpdater()
+
     /// A newer release the status bar offers.
     @Published var offer: AppUpdateCheck?
-    @Published var sheetOpen = false
+    /// The window (Store.windowID) its sheet is open in: the one that
+    /// asked, so a sheet does not open in every window at once.
+    @Published var sheetFor: String?
     /// The version being installed, while it is.
     @Published var installing: String?
     /// Installed unasked ([app] auto_update): it runs from the next launch.
@@ -23,6 +28,7 @@ final class AppUpdater: ObservableObject {
     /// this app's conch, so its panes and agents carry on on the new one.
     @Published var reloadOffer: String?
 
+    /// The first window's store, which says what the daily check finds.
     weak var store: Store?
     private var timer: Timer?
     private var checking = false
@@ -73,10 +79,13 @@ final class AppUpdater: ObservableObject {
 
     /// Asks the bundle's conch. The daily check stays quiet when it cannot
     /// reach GitHub and asks again in an hour; by hand it says why.
-    func check(manual: Bool) {
+    /// from is the window Check for Updates… was chosen in: its sheet and
+    /// its status bar say what was found.
+    func check(manual: Bool, from: Store? = nil) {
         guard !checking else { return }
+        let teller = from ?? store
         guard let bin = conch else {
-            if manual { store?.say("No conch to ask for updates", .err) }
+            if manual { teller?.say("No conch to ask for updates", .err) }
             return
         }
         checking = true
@@ -86,21 +95,21 @@ final class AppUpdater: ObservableObject {
                 let data = try await runConch(bin, ["app", "update", "check", "-json", "-version", version])
                 let c = try JSONDecoder().decode(AppUpdateCheck.self, from: data)
                 defaults.set(Date(), forKey: Key.lastCheck)
-                act(appUpdateStep(c, prefs: prefs, skipped: defaults.string(forKey: Key.skipped), manual: manual), manual: manual)
+                act(appUpdateStep(c, prefs: prefs, skipped: defaults.string(forKey: Key.skipped), manual: manual), manual: manual, teller: teller)
             } catch {
-                if manual { store?.say("Couldn't check for updates: \(error)", .err) }
+                if manual { teller?.say("Couldn't check for updates: \(error)", .err) }
             }
         }
     }
 
-    private func act(_ step: AppUpdateStep, manual: Bool) {
+    private func act(_ step: AppUpdateStep, manual: Bool, teller: Store?) {
         switch step {
         case .none:
             break
         case .offer(let c):
             offer = c
             if manual {
-                sheetOpen = true
+                sheetFor = teller?.windowID
             } else if defaults.string(forKey: Key.notified) != c.latest {
                 // Once a version: the daily check finding it again is not news.
                 defaults.set(c.latest, forKey: Key.notified)
@@ -110,9 +119,9 @@ final class AppUpdater: ObservableObject {
         case .install(let v):
             install(v, relaunch: false)
         case .upToDate(let v):
-            store?.say("Conch \(v) is up to date")
+            teller?.say("Conch \(v) is up to date")
         case .fromSource(let v):
-            store?.say("This Conch\(v.isEmpty ? "" : " (\(v))") is built from source: it updates from source, not from releases")
+            teller?.say("This Conch\(v.isEmpty ? "" : " (\(v))") is built from source: it updates from source, not from releases")
         }
     }
 
@@ -121,7 +130,7 @@ final class AppUpdater: ObservableObject {
     func install(_ v: String, relaunch: Bool) {
         guard installing == nil, let bin = conch else { return }
         installing = v
-        sheetOpen = false
+        sheetFor = nil
         Task {
             defer { installing = nil }
             do {
@@ -142,7 +151,7 @@ final class AppUpdater: ObservableObject {
 
     func later() {
         offer = nil
-        sheetOpen = false
+        sheetFor = nil
     }
 
     func skip() {
@@ -202,7 +211,7 @@ struct AppUpdateBarItem: View {
                 pill("Conch \(v) installed · Relaunch", icon: "arrow.clockwise.circle.fill",
                      help: "Conch \(v) is installed and runs from the next launch; panes and agents keep running") { updater.relaunch() }
             } else if let c = updater.offer {
-                pill(c.banner, icon: "arrow.down.circle.fill", help: "Click to install it, read what's new, or skip it") { updater.sheetOpen = true }
+                pill(c.banner, icon: "arrow.down.circle.fill", help: "Click to install it, read what's new, or skip it") { updater.sheetFor = store.windowID }
             } else if let v = updater.reloadOffer, !store.serverVersion.isEmpty, store.serverVersion != v {
                 pill("Updated to \(v) · Reload Server", icon: "arrow.triangle.2.circlepath",
                      help: "The server still runs conch \(store.serverVersion): reload it onto this app's \(v), keeping panes and agents") {
@@ -210,7 +219,10 @@ struct AppUpdateBarItem: View {
                 }
             }
         }
-        .sheet(isPresented: $updater.sheetOpen) { AppUpdateSheet(updater: updater) }
+        .sheet(isPresented: Binding(get: { updater.sheetFor == store.windowID },
+                                    set: { if !$0, updater.sheetFor == store.windowID { updater.sheetFor = nil } })) {
+            AppUpdateSheet(updater: updater)
+        }
     }
 
     private func pill(_ text: String, icon: String, help: String, _ action: @escaping () -> Void) -> some View {
