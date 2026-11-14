@@ -41,7 +41,11 @@ func TestDoingFor(t *testing.T) {
 		"merged":             {[]proto.BranchInfo{br("conch/issue-12-fix-it", merged)}, nil, nil, proto.TicketDoing{State: proto.DoingMerged, Branch: "conch/issue-12-fix-it", PR: merged}},
 		"an attempt":         {[]proto.BranchInfo{br("conch/issue-12-fix-it/codex", nil)}, nil, []proto.PaneInfo{agent("p4", "conch/issue-12-fix-it/codex", proto.AgentIdle)}, proto.TicketDoing{State: proto.DoingIdle, Pane: "p4", Branch: "conch/issue-12-fix-it/codex"}},
 		"a reviewer is not its agent": {[]proto.BranchInfo{br("conch/issue-12-fix-it", nil)}, nil,
-			[]proto.PaneInfo{func() proto.PaneInfo { p := agent("p5", "conch/issue-12-fix-it", proto.AgentWorking); p.Name = proto.ReviewerPrefix + "x"; return p }()},
+			[]proto.PaneInfo{func() proto.PaneInfo {
+				p := agent("p5", "conch/issue-12-fix-it", proto.AgentWorking)
+				p.Name = proto.ReviewerPrefix + "x"
+				return p
+			}()},
 			proto.TicketDoing{Branch: "conch/issue-12-fix-it"}},
 	}
 	for name, c := range cases {
