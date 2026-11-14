@@ -22,6 +22,9 @@ public struct AgentStatusList: Decodable { public var agents: [AgentAvailability
 
 /// What a choice on a tree row's menu does. Panes and projects are named
 /// as the tree names them, key(machine, id).
+/// What follows checking a branch out in a worktree of its own.
+public enum CheckOutThen: Equatable, Sendable { case nothing, agent, terminal }
+
 public enum RowAction: Equatable, Sendable {
     case open
     case rename(pane: String)
@@ -35,6 +38,9 @@ public enum RowAction: Equatable, Sendable {
     case startAgent(machine: String, cwd: String?, inProject: Bool)
     case newTerminal(machine: String, cwd: String?, inProject: Bool)
     case changes(project: String, branch: String)
+    /// A branch checked out nowhere given a worktree of its own, and then
+    /// an agent or a terminal started in it (or nothing more).
+    case checkOut(project: String, branch: String, then: CheckOutThen)
     /// The project's commit graph, at a branch's newest commit when one
     /// is named.
     case commits(project: String, branch: String?)
@@ -173,7 +179,12 @@ public struct RowMenuItem: Equatable, Sendable {
     static let divider = RowMenuItem("", .divider)
 
     /// Whether choosing it asks which agent, as a submenu of them.
-    public var picksAgent: Bool { if case .startAgent = action { return true }; return false }
+    public var picksAgent: Bool {
+        switch action {
+        case .startAgent, .checkOut(_, _, .agent): return true
+        default: return false
+        }
+    }
 }
 
 /// How conch's commands name a pane: its ID on this computer, and
@@ -260,10 +271,13 @@ extension Snapshot {
             out = [RowMenuItem("View Changes", .changes(project: pk, branch: name))]
             let pr = project(unkey(pk).id)
             // Starting on a branch needs its checkout; one not checked out
-            // is a task's to make (a worktree of its own).
+            // anywhere is given a worktree of its own first.
             if machineOnline, let path = pr?.worktrees?.first(where: { $0.branch == name })?.path {
                 out += [RowMenuItem("Start an Agent on This Branch", .startAgent(machine: machine, cwd: path, inProject: true)),
                         RowMenuItem("Open Terminal on This Branch", .newTerminal(machine: machine, cwd: path, inProject: true))]
+            } else if machineOnline, pr?.git != false {
+                out += [RowMenuItem("Check Out and Start an Agent", .checkOut(project: pk, branch: name, then: .agent)),
+                        RowMenuItem("Check Out and Open Terminal", .checkOut(project: pk, branch: name, then: .terminal))]
             }
             if machineOnline { out.append(RowMenuItem("New Task in Project…", .newTask(project: pk))) }
             out.append(RowMenuItem("Show in Commit Graph", .commits(project: pk, branch: name)))

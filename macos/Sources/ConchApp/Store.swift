@@ -2421,8 +2421,13 @@ final class Store: ObservableObject {
             open(key(m, p))
             return
         }
-        guard let c = conns[m], let pr = snap.project(pid),
-              let wt = pr.worktrees?.first(where: { $0.branch == name }), !starting.contains(key(m, wt.path)) else { return }
+        guard let pr = snap.project(pid) else { return }
+        guard let wt = pr.worktrees?.first(where: { $0.branch == name }) else {
+            // Checked out nowhere: a worktree for it, then the terminal.
+            checkOut(project: pk, branch: name, then: .terminal)
+            return
+        }
+        guard let c = conns[m], !starting.contains(key(m, wt.path)) else { return }
         struct Create: Encodable { var cwd: String }
         starting.insert(key(m, wt.path))
         Task {
@@ -2430,6 +2435,39 @@ final class Store: ObservableObject {
             if let p = try? await c.call("pane.create", Create(cwd: wt.path), as: PaneInfo.self) {
                 snapshots[m, default: Snapshot()].upsert(p)
                 open(key(m, p.id))
+            }
+        }
+    }
+
+    /// Branches being checked out, so a second click does not make a
+    /// second worktree while the first is on its way.
+    private var checkingOut: Set<String> = []
+
+    /// Gives a branch checked out nowhere a worktree of its own — the
+    /// branch as it is, nothing reset — then starts an agent or a terminal
+    /// in it, or hands its path to done. Without a worktree an old branch
+    /// could be looked at in its git tab and nowhere else: Files could not
+    /// show it and nothing could be started on it.
+    func checkOut(project pk: String, branch: String, then: CheckOutThen, agent: String? = nil, done: ((String) -> Void)? = nil) {
+        let (m, pid) = unkey(pk)
+        guard let c = conns[m], !checkingOut.contains(key(pk, branch)) else { return }
+        checkingOut.insert(key(pk, branch))
+        struct W: Encodable { var project_id: String; var branch: String }
+        struct R: Decodable { var path: String }
+        Task {
+            defer { checkingOut.remove(key(pk, branch)) }
+            do {
+                let wt = try await c.call("worktree.add", W(project_id: pid, branch: branch), as: R.self)
+                say("Checked out \(branch) in a worktree of its own")
+                refreshProject(machine: m, project: pid)
+                switch then {
+                case .agent: newPane(machine: m, cwd: wt.path, inProject: true, agent: agent ?? startable(on: m).first?.name)
+                case .terminal: newPane(machine: m, cwd: wt.path, inProject: true, agent: nil)
+                case .nothing: break
+                }
+                done?(wt.path)
+            } catch {
+                self.error = "Could not check out \(branch): \(error)"
             }
         }
     }
@@ -2627,6 +2665,8 @@ final class Store: ObservableObject {
             newPane(machine: m, cwd: cwd, inProject: inProject, agent: agent ?? startable(on: m).first?.name)
         case .newTerminal(let m, let cwd, let inProject): newPane(machine: m, cwd: cwd, inProject: inProject, agent: nil)
         case .changes(let pr, let b): openChanges(project: pr, branch: b)
+        case .checkOut(let pr, let b, let then):
+            checkOut(project: pr, branch: b, then: then, agent: then == .agent ? (agent ?? startable(on: unkey(pr).machine).first?.name) : nil)
         case .commits(let pr, let b): openCommits(project: pr, branch: b)
         case .newTask(let pr): newTask(project: pr)
         case .gitInit(let pr): gitInitProject(pr)

@@ -659,7 +659,7 @@ final class FakeServer: @unchecked Sendable {
     let gm = s.menu(for: TreeNode(id: "pane:box|p4", kind: .agent("box|p4"), title: "codex"), machine: "box")
     #expect(!titles(gm).contains("Prompt…") && gm.last?.title == "Close")
 
-    // A branch checked out: start there; one that is not: a task's to make.
+    // A branch checked out: start there; one that is not: checked out first.
     // In a worktree of its own: removed (the worktree) or deleted (the branch).
     let feat = api.children![1].children![1]
     let fm = s.menu(for: feat, machine: "box")
@@ -669,9 +669,15 @@ final class FakeServer: @unchecked Sendable {
     #expect(fm[4].action == .commits(project: "box|r1", branch: "feat"))
     #expect(fm[1].action == .startAgent(machine: "box", cwd: "/src/api-feat", inProject: true))
     #expect(fm[9].action == .removeWorktree(project: "box|r1", path: "/src/api-feat") && fm[10].action == .deleteBranch(project: "box|r1", branch: "feat"))
-    // Not checked out: deleted only.
+    // Not checked out: checked out in a worktree, then an agent (which
+    // one is asked) or a terminal; no worktree to remove.
     let old = TreeNode(id: "b:box|r1:old", kind: .branch(project: "box|r1", name: "old", checkedOut: false), title: "old")
-    #expect(titles(s.menu(for: old, machine: "box")) == ["View Changes", "New Task in Project…", "Show in Commit Graph", "", "Copy Branch Name", "", "Delete Branch…"])
+    let om = s.menu(for: old, machine: "box")
+    #expect(titles(om) == ["View Changes", "Check Out and Start an Agent", "Check Out and Open Terminal", "New Task in Project…", "Show in Commit Graph", "", "Copy Branch Name", "", "Delete Branch…"])
+    #expect(om[1].action == .checkOut(project: "box|r1", branch: "old", then: .agent) && om[1].picksAgent)
+    #expect(om[2].action == .checkOut(project: "box|r1", branch: "old", then: .terminal) && !om[2].picksAgent)
+    // Offline, nothing is checked out.
+    #expect(!titles(s.menu(for: old, machine: "box", machineOnline: false)).contains { $0.hasPrefix("Check Out") })
     // The main checkout's branch, and the base, are never taken away; offline, nothing is.
     let mainRow = api.children![1].children![0]
     #expect(!titles(s.menu(for: mainRow, machine: "box")).contains("Delete Branch…"))

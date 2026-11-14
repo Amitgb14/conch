@@ -61,7 +61,7 @@ A shell floating over the splits.
 
 A branch opens in a tab: **Overview · Changes · Graph**. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** on a line leaves a note.
 
-**How:** ⋯ holds **Push**, **Merge into main…**, **Open Pull Request** and **Delete Branch…**.
+**How:** ⋯ holds **Push**, **Merge…**, **Open Pull Request** and **Delete Branch…**; a branch's menu has **Check Out…** for one with no worktree.
 
 <Shot
   name="desktop-git"
@@ -171,9 +171,8 @@ Download `Conch_<version>_macos_arm64.zip` from the [releases](https://github.co
 
 ## Building it
 
-Needs Xcode's Command Line Tools and Go; Ghostty, Xcode 26 and Zig.
-
 ```sh
+# needs Xcode's Command Line Tools and Go; Ghostty also Xcode 26 and Zig
 macos/ghostty.sh                 # Ghostty's library → macos/vendor
 macos/bundle.sh                  # → macos/build/Conch.app
 ```
