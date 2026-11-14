@@ -6,12 +6,25 @@ public struct AgentAvailability: Decodable, Equatable, Sendable {
     public var label: String?
     public var installed: Bool
     public var tier: String?
+    /// What its --version said; none when it is missing or did not say.
+    public var version: String?
+    /// conch has no installer for it (a manifest that names none); none
+    /// from a server too old to say, which installs every agent it lists.
+    public var noInstaller: Bool?
 
-    public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case name, label, installed, tier, version
+        case noInstaller = "no_installer"
+    }
+
+    public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil,
+                version: String? = nil, noInstaller: Bool? = nil) {
         self.name = name
         self.label = label
         self.installed = installed
         self.tier = tier
+        self.version = version
+        self.noInstaller = noInstaller
     }
 
     /// What a menu calls it: its label (Claude Code), else its name.

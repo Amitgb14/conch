@@ -601,6 +601,7 @@ struct SectionForm: View {
                 }
             case "agents":
                 card(nil, fields)
+                InstalledAgentsCard(store: model.store)
                 Button { model.section = SettingsNav.skills } label: {
                     HStack(spacing: 12) {
                         LucideIcon(SettingsNav.skillsIcon, color: Theme.accent, size: 16)
@@ -754,7 +755,11 @@ struct FieldRow: View {
         case .segments:
             Segments(options: options, value: choice)
         case .menu(let agents):
-            RichMenu(options: options, value: choice, agents: agents)
+            if agents {
+                AgentMenu(store: model.store, options: options, value: choice)
+            } else {
+                RichMenu(options: options, value: choice)
+            }
         case .stepper(let step):
             StepperField(value: num, step: step, field: field, fallback: Double(field.placeholder ?? "") ?? 0)
         case .slider(let lo, let hi, let step, let unit):
