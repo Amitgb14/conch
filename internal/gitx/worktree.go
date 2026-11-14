@@ -191,3 +191,22 @@ func UntrackedFiles(ctx context.Context, dir string, patterns []string, ignored 
 	}
 	return splitNUL(out), nil
 }
+
+// CheckoutDetached puts a worktree of root at path on ref, detached — no
+// branch, so nothing finished there looks like work to ship — making it
+// the first time and moving it after. Anything changed in it is thrown
+// away: it is a place to read the code at ref, nothing more.
+func CheckoutDetached(ctx context.Context, root, path, ref string) error {
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		_, err := run(ctx, path, "checkout", "--detach", "--force", ref)
+		if err == nil {
+			_, err = run(ctx, path, "clean", "-fdq")
+		}
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("gitx: create worktree parent: %w", err)
+	}
+	_, err := run(ctx, root, "worktree", "add", "--detach", "--force", path, ref)
+	return err
+}

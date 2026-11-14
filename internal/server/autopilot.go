@@ -203,6 +203,17 @@ func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 		p.Intake = intake
 	}
 	p.IntakeWIP = max(0, min(p.IntakeWIP, maxWIP))
+	triage := map[string]string{}
+	for id, label := range p.Triage {
+		if label = strings.TrimSpace(label); id != "" && label != "" {
+			triage[id] = label
+		}
+	}
+	p.Triage = nil
+	if len(triage) > 0 {
+		p.Triage = triage
+	}
+	p.TriageAgent = strings.TrimSpace(p.TriageAgent)
 	return p
 }
 

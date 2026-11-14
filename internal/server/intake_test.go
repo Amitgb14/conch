@@ -245,6 +245,16 @@ func TestIntakeFileLoads(t *testing.T) {
 	}
 }
 
+func TestCleanPolicyTriage(t *testing.T) {
+	p := cleanPolicy(proto.AutopilotPolicy{Triage: map[string]string{"a": " new ", "b": ""}, TriageAgent: " codex "})
+	if len(p.Triage) != 1 || p.Triage["a"] != "new" || p.TriageAgent != "codex" {
+		t.Fatalf("%+v", p)
+	}
+	if p := cleanPolicy(proto.AutopilotPolicy{Triage: map[string]string{"b": " "}}); p.Triage != nil {
+		t.Fatalf("%+v", p)
+	}
+}
+
 func TestCleanPolicyIntake(t *testing.T) {
 	p := cleanPolicy(proto.AutopilotPolicy{Intake: map[string]string{"a": " ready ", "b": "", "": "x"}, IntakeWIP: 99})
 	if len(p.Intake) != 1 || p.Intake["a"] != "ready" || p.IntakeWIP != maxWIP {
