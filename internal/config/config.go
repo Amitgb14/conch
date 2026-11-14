@@ -349,6 +349,13 @@ type VerifyCfg struct {
 	// Claude's work, say. Empty (the default) asks nobody, since every
 	// review spends plan usage.
 	Reviewer string `toml:"reviewer,omitempty"`
+	// Intake maps a project ID to a GitHub label: the server takes each
+	// open issue with it as a queued task by itself, once, so the backlog
+	// is worked through with nobody handing it in. IntakeWIP is how many
+	// agents may be busy in the project before the next waits (0: the
+	// queue's default). No label, no intake: off unless named.
+	Intake    map[string]string `toml:"intake,omitempty"`
+	IntakeWIP int               `toml:"intake_wip,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.

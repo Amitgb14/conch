@@ -69,9 +69,16 @@ The server runs scheduled tasks with conch closed.
 ```sh
 conch task -at 02:00 "Upgrade the test framework and fix what breaks"
 conch task -every daily -at 07:00 "Bump the dependencies and run the tests"
-conch task -queue "Add rate limiting to the login endpoint"    # starts when fewer than 3 agents run
+conch task -queue "Add rate limiting to the login endpoint"    # starts when fewer than 3 agents are busy
 conch task -after api/model "Add a REST endpoint for invoices" # starts from that branch once it is done
 conch schedule            # list; conch schedule rm ID removes one
+```
+
+```toml
+# The backlog, taken by itself: every open issue labelled "ready" is queued
+# as a task, once, with a comment on the issue (configuration: [verify] intake).
+[verify.intake]
+r1a2b3c = "ready"
 ```
 
 In the task dialog, the **When** field takes `queue`, `after api/model` or a time. For an agent stopped at its plan limit, `C` in the [review queue](/docs/interface) resumes it after the reset.

@@ -200,6 +200,9 @@ func Schema(c Choices) []Section {
 				{Key: "require_tests", Label: "Draft a PR that changes code and no test", Kind: KindBool},
 				{Key: "max_diff", Label: "Draft past this many changed lines", Kind: KindInt, Min: intp(0), Help: "0: no limit."},
 				{Key: "reviewer", Label: "Reviewer agent", Kind: KindSelect, Options: reviewers, Help: "Asked to read a branch's diff and report. Every review spends plan usage."},
+				{Key: "intake", Label: "Take issues with this label", Kind: KindMap, KeyLabel: "Project ID", Placeholder: "ready",
+					Help: "Every few minutes, each open GitHub issue with the label becomes a queued task, once, and says so on the issue. Nothing is taken until you name a label."},
+				{Key: "intake_wip", Label: "Busy agents before the next issue waits", Kind: KindInt, Min: intp(0), Max: intp(20), Help: "0: the queue's default, 3."},
 			}},
 		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, and what a finished branch goes through on its way to the base.",
 			Fields: []Field{

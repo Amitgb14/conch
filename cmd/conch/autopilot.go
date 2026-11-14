@@ -38,5 +38,12 @@ func runAutopilot(args []string) error {
 		return err
 	}
 	fmt.Printf("autopilot: auto_fix %d, auto_merge %v, auto_pr %v, %d check(s)\n", pol.AutoFix, pol.AutoMerge, pol.AutoPR, len(pol.Checks))
+	if len(pol.Intake) > 0 {
+		if len(c.MissingCapabilities([]string{proto.CapAutopilotIntake})) > 0 {
+			fmt.Println("intake: this server is older than autopilot.intake.v1 and takes no issues; reload it")
+		} else {
+			fmt.Printf("intake: issues labelled for %d project(s) are taken as queued tasks\n", len(pol.Intake))
+		}
+	}
 	return nil
 }
