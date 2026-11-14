@@ -29,6 +29,7 @@ import (
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sysstat"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -40,6 +41,8 @@ type Server struct {
 	// usage is what the agents here saved, read as it is asked for
 	// (usage.history.v1) and kept, so asking again reads only what is new.
 	usage *usage.History
+	// system reads the whole machine for system.stats (system.go).
+	system *sysstat.Sampler
 	// sizes says whose size a pane shown by several clients takes (size.go).
 	sizes paneSizes
 	// agentsSeen is which agents this machine was last found to have,
@@ -138,6 +141,7 @@ func New(sockPath, configDir string) *Server {
 	now := time.Now()
 	s := &Server{
 		usage:     usage.NewHistory(),
+		system:    sysstat.New(systemSource()),
 		sockPath:  sockPath,
 		configDir: configDir,
 		started:   now,
@@ -338,6 +342,7 @@ func (s *Server) unlinkSocket() {
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
 	s.watcher.stop()
+	s.system.Stop()
 }
 
 // StopAndWait stops the server and waits until Run has returned — every
@@ -449,7 +454,8 @@ var slowMethods = map[string]bool{
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
-	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
+	proto.MethodSystemStats: true, // ps, vm_stat
+	proto.MethodFSSearch:    true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
 
@@ -1202,6 +1208,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
 		}
 		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
+
+	case proto.MethodSystemStats:
+		sp, perr := decode[proto.SystemStatsParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.systemStats(sp), nil
 
 	case proto.MethodSessionList:
 		lp, perr := decode[proto.SessionListParams](msg)

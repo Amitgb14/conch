@@ -2,7 +2,7 @@ export const metadata = { title: "Mac app", description: "conch in a native macO
 
 # Mac app
 
-Conch.app shows the same agents and terminals as the TUI in a native macOS window; closing it stops nothing.
+Conch.app shows the TUI's agents and terminals in a native macOS window; closing it stops nothing.
 
 <Shot
   name="desktop-agents"
@@ -49,7 +49,7 @@ The status bar shows each agent's plan use.
 
 Each pane runs [`conch attach`](/docs/cli#attach), drawn by Ghostty. A pane sized by another window is letterboxed.
 
-**How:** click **Take it**, or type in the pane, to size it to this window.
+**How:** **Take it**, or type, to size it here.
 
 ## The scratch layer
 
@@ -77,9 +77,9 @@ What each agent loads in a checkout.
 
 ## Left running
 
-An agent that left a dev server or watcher running shows *idle · 2 running* on its row, pane and workbench, ⟳2 on its tab.
+An agent that left a dev server running shows *idle · 2 running*.
 
-**How:** hover the pill for each command and its ports; click it to stop one.
+**How:** hover it for each command; click it to stop one.
 
 ## Answering an agent without opening it
 
@@ -109,7 +109,7 @@ Each waiting agent is a card under **Needs you**, its choices as buttons.
 
 An agent's files, a terminal and its chat in one tab.
 
-**How:** ⌥⌘B, or right-click an agent → **Open Workbench**. ⌥⌘1–⌥⌘4 pick the IDE, Chat First, Agent or JetBrains layout.
+**How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘4 pick a layout.
 
 **The chat is a preview, off in 0.2.0:** turn it on with `[app] chat = true`.
 
@@ -129,7 +129,7 @@ A web page in a tab beside the agents.
 
 The project's history as a graph.
 
-**How:** **Commit Graph** on a project's menu, or **Show in Commit Graph** on a branch's.
+**How:** **Commit Graph** on a project's or branch's menu.
 
 ## Starting agents and tasks
 
@@ -139,6 +139,12 @@ A task gives an agent a prompt on a branch of its own.
 
 A plain folder is offered **Initialize Git** first.
 
+## System Monitor
+
+The whole machine — CPU, memory, disk and its heaviest processes — on any machine conch reaches. It only shows.
+
+**How:** `⌥⌘M`, or the expand icon on the `▁▃▆` monitor.
+
 ## Keys
 
 | Keys | |
@@ -147,6 +153,7 @@ A plain folder is offered **Initialize Git** first.
 | `⌘T` / `⌘D` | new terminal tab / split |
 | `⇧⌘↩` | zoom the focused split |
 | `⌘F` | find in the pane |
+| `⌥⌘M` | the [System Monitor](#system-monitor) |
 | `⌥⌘N` / ``⌘` `` | new window / next window |
 | `⌘W` | close the split (the pane runs on) |
 | `⌘1`–`⌘9` | go to a tab |

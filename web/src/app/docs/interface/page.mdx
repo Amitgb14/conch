@@ -44,7 +44,7 @@ The tree lists a project's panes under the tab each is in.
 
 Type git commands that run in a branch's worktree.
 
-**How:** `b` or `$` on a branch; `tab` lists everyday actions. With an agent on the branch, `ctrl+t` sends what you type to it instead.
+**How:** `b` or `$` on a branch; `tab` lists everyday actions; `ctrl+t` sends what you type to its agent.
 
 ## Changes view
 
@@ -98,13 +98,13 @@ Every project has a **Files** row: a checkout with each file's git status and a 
 
 ### A machine's own files
 
-A remote machine, and a terminal running `ssh host`, get a **Files** row of their own, which also copies files between there and here.
+A remote machine and an `ssh` terminal get a **Files** row too, which copies files both ways.
 
 **How:** `f` on a remote machine or ssh terminal; `U` uploads, `D` downloads.
 
 ## Splits and tabs
 
-Tabs work like tmux windows: every agent and terminal gets its own tab, and each tab can be split.
+Tabs work like tmux windows, and each can be split.
 
 | Keys | |
 | --- | --- |
@@ -127,6 +127,10 @@ Every pane keeps 10,000 lines of history, an agent's pane included.
 Alerts for a pane that is not an agent — a build, a test run, a log.
 
 **How:** `ctrl+b M` alerts when a pane goes quiet, `ctrl+b A` when it prints.
+
+## Resource monitor
+
+`▁▃▆` in the status bar shows what conch uses here; the Mac app's [System Monitor](/docs/mac-app#system-monitor) shows the whole machine.
 
 ## Links an agent printed
 

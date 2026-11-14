@@ -48,6 +48,10 @@ public enum LucideIcons {
         "check": ["M20 6 9 17l-5-5"],
         // A pane's find bar.
         "search": [svgCircle(11, 11, 8), "m21 21-4.3-4.3"],
+        // The System Monitor's: opening it from the resource monitor, and
+        // copying a process's command.
+        "maximize-2": ["M15 3h6v6", "M9 21H3v-6", svgLine(21, 3, 14, 10), svgLine(3, 21, 10, 14)],
+        "copy": [svgRect(8, 8, 14, 14, 2), "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"],
         "chevron-up": ["m18 15-6-6-6 6"],
         "chevron-down": ["m6 9 6 6 6-6"],
         "x": ["M18 6 6 18", "m6 6 12 12"],
