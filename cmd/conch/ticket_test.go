@@ -172,3 +172,61 @@ func TestA4TicketCommand(t *testing.T) {
 		t.Fatalf("old server: %v", err)
 	}
 }
+
+// conch ticket check: a line a tracker, connected, off or what is wrong,
+// then the projects; an older server is told to reload.
+func TestA4TicketCheck(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "proj1", Root: "/src/api", Git: true}, nil
+		case proto.MethodTicketCheck:
+			return proto.TicketCheckResult{
+				Trackers: []proto.TrackerState{
+					{Tracker: "github", State: proto.TrackerConnected, Who: "amit", KeyFrom: "gh", Area: "api", Open: 3, Mine: 1},
+					{Tracker: "linear", State: proto.TrackerConnected, Who: "Amit", Workspace: "Acme", KeyFrom: "Keychain (LINEAR_API_KEY)", Area: "ENG", Open: 100, More: true, Mine: 5},
+					{Tracker: "jira", State: proto.TrackerError, Error: "Jira refused the key (401 Unauthorized)"},
+				},
+				Projects: []proto.TrackerProjectState{{Project: "api", Tracker: "linear", Area: "ENG", Open: 23}, {Project: "web", Tracker: "jira", Area: "W", Error: "Jira refused the key"}},
+			}, nil
+		}
+		return nil, nil
+	})
+	t.Chdir(t.TempDir())
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTicket([]string{"check"}) })
+	for _, want := range []string{
+		"GitHub  connected  amit (gh) · 3 open, 1 yours in api\n",
+		"Linear  connected  Amit · Acme (Keychain (LINEAR_API_KEY)) · 100+ open, 5 yours in ENG\n",
+		"Jira    error      Jira refused the key (401 Unauthorized)\n",
+		"projects:\n", "api  linear  ENG  23 open", "web  jira    W    Jira refused the key",
+	} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("check lacks %q:\n%s%v", want, out, err)
+		}
+	}
+	var cp proto.TicketCheckParams
+	srv.params(t, proto.MethodTicketCheck, &cp)
+	if cp.ProjectID != "proj1" {
+		t.Fatalf("params %+v", cp)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"check", "-json"}) })
+	if err != nil || !strings.Contains(out, `"state": "connected"`) || !strings.Contains(out, `"key_from": "gh"`) {
+		t.Fatalf("-json: %q %v", out, err)
+	}
+	// Nothing set up reads as off, with where to set it up.
+	if s := trackerLines(proto.TicketCheckResult{Trackers: []proto.TrackerState{{Tracker: "linear", State: proto.TrackerOff}}}); s != "Linear  off  not set up ([trackers] in config.toml)\n" {
+		t.Fatalf("off: %q", s)
+	}
+
+	srv.Hello = func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Capabilities = []string{proto.CapTickets}
+		return h
+	}
+	if _, _ = a4Capture(t, "", func() { err = runTicket([]string{"check"}) }); err == nil || !strings.Contains(err.Error(), "reload") {
+		t.Fatalf("older server: %v", err)
+	}
+}

@@ -31,6 +31,9 @@ const ticketUsage = `Usage:
                                          move it to a status, as the tracker names it (In Review)
   conch ticket link    [-cwd DIR] [-title T] TICKET URL
                                          attach a link: a branch, a pull request
+  conch ticket check   [-cwd DIR] [-json]
+                                         whether GitHub, Linear and Jira can be reached with
+                                         what the server has: whose key, open tickets, what is wrong
 
 TICKET is its key (ENG-123), its key after the tracker (linear:ENG-123,
 jira:PROJ-42) or its address. Which tracker, and the key it is reached
@@ -52,6 +55,8 @@ func runTicket(args []string) error {
 		return ticketChange("status", args)
 	case "link":
 		return ticketChange("link", args)
+	case "check":
+		return ticketCheck(args)
 	case "help", "-h", "--help":
 		fmt.Println(ticketUsage)
 		return nil
@@ -244,4 +249,90 @@ func nonEmpty(s ...string) []string {
 		}
 	}
 	return out
+}
+
+// ticketCheck says how each tracker stands, as Settings → Trackers does:
+// connected and whose, off, or what went wrong — never the key.
+func ticketCheck(args []string) error {
+	fs := flag.NewFlagSet("ticket check", flag.ContinueOnError)
+	cwd := fs.String("cwd", "", "a directory in the project, for its counts (default: current)")
+	asJSON := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	c, project, err := openTickets(*cwd)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapTicketCheck})) > 0 {
+		return errors.New("the conch server there predates checking trackers; reload it with `conch server reload`")
+	}
+	var res proto.TicketCheckResult
+	if err := callFor(c, proto.MethodTicketCheck, proto.TicketCheckParams{ProjectID: project}, &res, harvestWait); err != nil {
+		return err
+	}
+	if *asJSON {
+		return printJSON(res)
+	}
+	fmt.Print(trackerLines(res))
+	return nil
+}
+
+// trackerLines is a check as text: a line for each tracker, then each
+// project's entry.
+func trackerLines(res proto.TicketCheckResult) string {
+	var b strings.Builder
+	tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+	for _, t := range res.Trackers {
+		name := "GitHub"
+		if t.Tracker != "github" {
+			name = tracker.Title(t.Tracker)
+		}
+		var what []string
+		switch t.State {
+		case proto.TrackerConnected:
+			who := strings.Join(nonEmpty(t.Who, t.Workspace), " · ")
+			if t.KeyFrom != "" {
+				who += " (" + t.KeyFrom + ")"
+			}
+			what = append(what, who)
+			if t.Open > 0 || t.Area != "" {
+				n := fmt.Sprint(t.Open)
+				if t.More {
+					n += "+"
+				}
+				in := ""
+				if t.Area != "" {
+					in = " in " + t.Area
+				}
+				what = append(what, fmt.Sprintf("%s open, %d yours%s", n, t.Mine, in))
+			}
+			if t.Error != "" {
+				what = append(what, t.Error)
+			}
+		case proto.TrackerOff:
+			what = append(what, nonEmpty(t.Error, "not set up ([trackers] in config.toml)")[0])
+		default:
+			what = append(what, t.Error)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", name, t.State, strings.Join(what, " · "))
+	}
+	tw.Flush()
+	if len(res.Projects) > 0 {
+		b.WriteString("\nprojects:\n")
+		tw = tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
+		for _, p := range res.Projects {
+			state := fmt.Sprintf("%d open", p.Open)
+			if p.More {
+				state = fmt.Sprintf("%d+ open", p.Open)
+			}
+			if p.Error != "" {
+				state = p.Error
+			}
+			fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\n", p.Project, p.Tracker, p.Area, state)
+		}
+		tw.Flush()
+	}
+	return b.String()
 }
