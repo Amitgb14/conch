@@ -699,6 +699,8 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		return s.libraryItems(m)
 	case "skill":
 		return s.skillItems(m)
+	case "accounts":
+		return s.accountItems(m)
 	}
 	if id, ok := cutPrefix(s.page, "agents:"); ok {
 		return s.machineAgentItems(m, id)
@@ -729,6 +731,18 @@ func (s *settings) agentItems(m *Model) []settingItem {
 			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  a green pull request merging itself is on the Git tab, with how a merge lands")})
+	// Whose subscription an agent spends: a page, since each machine keeps
+	// its own accounts and their usage is read from its server.
+	items = append(items, settingItem{}, settingItem{header: true, label: "Accounts", detail: "a work and a personal subscription"},
+		settingItem{label: "Agent accounts…", detail: styleMuted.Render("each one's plan usage, pins and failover"), page: true,
+			run: func(m *Model) tea.Cmd {
+				s.openPage("accounts")
+				var cmds []tea.Cmd
+				for _, mach := range m.machines {
+					cmds = append(cmds, m.loadAccounts(mach.id))
+				}
+				return tea.Batch(cmds...)
+			}})
 	// What an agent loads in a checkout is that checkout's business, and
 	// `i` is where it lives; what it loads from your home is machine-wide,
 	// so that half belongs here — behind one row, not one per agent: this

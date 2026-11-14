@@ -77,7 +77,10 @@ type Server struct {
 	lineIdx  lineIndexes // where the lines of big files being read start
 
 	limitsMu sync.Mutex
-	limits   map[string]proto.PlanLimits // by agent
+	limits   map[string]proto.PlanLimits // by agent and account (limitKey)
+
+	// accountsMu holds accounts.json still while it is changed (accounts.go).
+	accountsMu sync.Mutex
 
 	mu      sync.Mutex
 	ln      net.Listener
@@ -1151,8 +1154,43 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodAgentLimits:
 		return s.allLimits(), nil
 
+	case proto.MethodAccountList:
+		return s.listAccounts(), nil
+
+	case proto.MethodAccountAdd:
+		ap, perr := decode[proto.AccountAddParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.addAccount(ap)
+
+	case proto.MethodAccountRemove:
+		ar, perr := decode[proto.AccountRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.removeAccount(ar)
+
+	case proto.MethodAccountPin:
+		pp, perr := decode[proto.AccountPinParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.pinAccount(pp)
+
+	case proto.MethodAccountFailover:
+		fp, perr := decode[proto.AccountFailoverParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.setFailover(fp)
+
 	case proto.MethodUsageHistory:
-		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now()), nil
+		var others []usage.Root
+		for _, a := range s.accountBook().Accounts {
+			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
+		}
+		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
 
 	case proto.MethodSessionList:
 		lp, perr := decode[proto.SessionListParams](msg)
@@ -1581,6 +1619,14 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	if err != nil {
 		dir = cp.Cwd
 	}
+	// The account is chosen by the resolved folder, as pins are kept, and
+	// before anything starts, so an account that cannot be had leaves
+	// nothing behind.
+	acct, perr := s.chooseAccount(cp.Agent, cp.Account, dir)
+	if perr != nil {
+		return proto.PaneInfo{}, perr
+	}
+	cp.Env = append(acct.Env(cp.Agent), cp.Env...)
 	var proj *project
 	if !cp.NoProject {
 		proj = s.projects.ensure(dir)
@@ -1617,6 +1663,7 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	}
 	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
 	e.launched = cp.Agent
+	e.account = acct.Account
 
 	s.mu.Lock()
 	s.panes[id] = e
@@ -1668,17 +1715,21 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 			return proto.PaneInfo{}, "", perr
 		}
 	}
+	if _, perr := s.chooseAccount(tp.Agent, tp.Account, ""); perr != nil {
+		return proto.PaneInfo{}, "", perr
+	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {
 		return proto.PaneInfo{}, "", perr
 	}
 	s.startSetup(p, path, tp.Branch)
 	info, perr := s.create(proto.PaneCreateParams{
-		Agent:  tp.Agent,
-		Prompt: tp.Prompt + s.shipNote(p.id),
-		Cwd:    path,
-		Cols:   tp.Cols,
-		Rows:   tp.Rows,
+		Agent:   tp.Agent,
+		Account: tp.Account,
+		Prompt:  tp.Prompt + s.shipNote(p.id),
+		Cwd:     path,
+		Cols:    tp.Cols,
+		Rows:    tp.Rows,
 	})
 	if perr != nil || tp.Name == "" {
 		return info, tp.Branch, perr

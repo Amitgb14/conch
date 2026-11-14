@@ -213,7 +213,7 @@ func TestGroupTask(t *testing.T) {
 		Tasks: []proto.GroupTask{{Branch: "add-search", Folder: "/h/tasks/clinic/add-search", Projects: []string{"r1", "r2"}, Panes: []string{"p7"}}}})
 	var err error
 	out, _ := a4Capture(t, "", func() {
-		err = runGroup([]string{"task", "-branch", "add-search", "-agent", "codex", "-each", "-only", "spring,/src/angular-clinic", "clinic", "Add", "patient", "search"})
+		err = runGroup([]string{"task", "-branch", "add-search", "-agent", "codex", "-account", "work", "-each", "-only", "spring,/src/angular-clinic", "clinic", "Add", "patient", "search"})
 	})
 	if err != nil || !strings.Contains(out, "add-search across spring, angular-clinic: /h/tasks/clinic/add-search") || !strings.Contains(out, "p7") {
 		t.Fatalf("%v %q", err, out)
@@ -221,7 +221,7 @@ func TestGroupTask(t *testing.T) {
 	f.mu.Lock()
 	got := f.tasks[len(f.tasks)-1]
 	f.mu.Unlock()
-	if got.Group != "clinic" || got.Prompt != "Add patient search" || got.Branch != "add-search" || got.Agent != "codex" || !got.Each || !slices.Equal(got.Projects, []string{"r1", "r2"}) {
+	if got.Group != "clinic" || got.Prompt != "Add patient search" || got.Branch != "add-search" || got.Agent != "codex" || got.Account != "work" || !got.Each || !slices.Equal(got.Projects, []string{"r1", "r2"}) {
 		t.Fatalf("%+v", got)
 	}
 	// Flags after the name are flags, not the prompt; after "--" the

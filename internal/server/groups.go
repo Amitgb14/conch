@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -368,6 +369,9 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s already has %s checked out at %s", p.snapshot().Name, tp.Branch, wt.Path)
 		}
 	}
+	if _, perr := s.chooseAccount(tp.Agent, tp.Account, ""); perr != nil {
+		return proto.GroupTaskResult{}, perr
+	}
 	folder := filepath.Join(filepath.Dir(g.file), "tasks", safeSegment(tp.Group), safeSegment(tp.Branch))
 	if _, err := os.Stat(folder); err == nil {
 		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is there already", folder)
@@ -407,7 +411,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 		for i, p := range projects {
 			prompt := tp.Prompt + fmt.Sprintf("\n\nThis is one part of a task across %d repos of %s, all on the branch %s; the others are worked on by other agents at the same time. What each repo is for and where its worktree is: %s.",
 				len(projects), tp.Group, tp.Branch, filepath.Join(folder, "CONCH-TASK.md")) + s.shipNote(p.id)
-			info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Prompt: prompt, Cwd: paths[i], Cols: tp.Cols, Rows: tp.Rows})
+			info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Account: tp.Account, Prompt: prompt, Cwd: paths[i], Cols: tp.Cols, Rows: tp.Rows})
 			if perr != nil {
 				return proto.GroupTaskResult{}, perr
 			}
@@ -420,7 +424,22 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 		}
 		prompt := tp.Prompt + fmt.Sprintf("\n\nThis task spans %s of %s, each checked out on the branch %s in a folder of its own here (%s). Read CONCH-TASK.md first. Commit and push in each repo on its own: they are separate repositories.",
 			repos, tp.Group, tp.Branch, strings.Join(names, ", "))
-		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, AgentArgs: adapter.TaskDirArgs(tp.Agent, paths, codexSandbox()), Prompt: prompt,
+		// The account is chosen here rather than by create, since Codex's
+		// sandbox is read from that account's folder; create is then
+		// told the very one, so a pin or a failover can't pick another.
+		dir, err := filepath.EvalSymlinks(folder)
+		if err != nil {
+			dir = folder
+		}
+		acct, perr := s.chooseAccount(tp.Agent, tp.Account, dir)
+		if perr != nil {
+			return proto.GroupTaskResult{}, perr
+		}
+		account := acct.Account
+		if account == "" && accounts.Supports(tp.Agent) {
+			account = accounts.Default
+		}
+		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Account: account, AgentArgs: adapter.TaskDirArgs(tp.Agent, paths, codexSandbox(acct.Env(tp.Agent))), Prompt: prompt,
 			Cwd: folder, NoProject: true, Cols: tp.Cols, Rows: tp.Rows})
 		if perr != nil {
 			return proto.GroupTaskResult{}, perr
@@ -518,8 +537,16 @@ func taskBrief(tp proto.GroupTaskParams, notes string, projects []*project, name
 }
 
 // codexSandbox is the sandbox a task's Codex starts in, from the
-// server's own home and CODEX_HOME, which its panes inherit.
-func codexSandbox() string {
+// server's own home and CODEX_HOME, which its panes inherit — or from the
+// account's, when env (an account's, as Choice.Env gives it) moves it.
+func codexSandbox(env []string) string {
 	home, _ := os.UserHomeDir()
-	return adapter.CodexTaskSandbox(home, os.Getenv)
+	return adapter.CodexTaskSandbox(home, func(k string) string {
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, k+"="); ok {
+				return v
+			}
+		}
+		return os.Getenv(k)
+	})
 }

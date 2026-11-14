@@ -217,13 +217,14 @@ func runTask(args []string) error {
 	issue := fs.Int("issue", 0, "work on this GitHub issue: its title and body are the prompt (any PROMPT is added to it)")
 	queue := fs.Bool("queue", false, "add it to the project's queue: it starts when fewer than -wip agents are running there")
 	wip := fs.Int("wip", 0, "with -queue, how many agents the project runs before it waits (default 3)")
+	account := fs.String("account", "", "the agents' account (conch account list); default: the folder's pin, else each agent's own")
 	after := fs.String("after", "", "start it once this has finished, on top of its branch: a branch, a pane, or a task on the schedule (its ID or -branch)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	if prompt == "" && *issue <= 0 {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-sandbox PROVIDER] PROMPT")
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N] [-account NAME] [-sandbox PROVIDER] PROMPT")
 	}
 	if *issue < 0 {
 		return errors.New("-issue takes an issue's number")
@@ -234,6 +235,9 @@ func runTask(args []string) error {
 	}
 	if *after != "" && *every != "" {
 		return errors.New("-after waits for one piece of work, so the task runs once; it doesn't go with -every")
+	}
+	if *inSandbox != "" && *account != "" {
+		return errors.New("-account is an account on this machine; a sandbox is a machine of its own, so leave out one or the other")
 	}
 	if *inSandbox != "" && onRemoteMachine() {
 		return errors.New("-sandbox makes a machine of its own; leave out -m")
@@ -284,7 +288,7 @@ func runTask(args []string) error {
 	case onRemoteMachine() && dir == "":
 		// Nothing here says where on that machine: the agent starts in its
 		// home, as a machine-level pane, like conch -m M new -agent.
-		return runPlainTask(nil, "", agents, *n, *branch, *base, *name, prompt)
+		return runPlainTask(nil, "", agents, *n, *branch, *base, *name, *account, prompt)
 	case onRemoteMachine():
 		if err := remoteDir(dir); err != nil {
 			return err
@@ -297,6 +301,11 @@ func runTask(args []string) error {
 		return err
 	}
 	defer c.Close()
+	if *account != "" {
+		if err := needAccounts(c); err != nil {
+			return err
+		}
+	}
 	var proj proto.ProjectInfo
 	if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: dir}, &proj); err != nil {
 		return err
@@ -312,7 +321,7 @@ func runTask(args []string) error {
 			return errors.New("-at, -every, -queue and -after start a task on a branch of its own, so they need a git repository")
 		}
 		// No repository to branch: the agent works in the folder itself.
-		return runPlainTask(c, dir, agents, *n, *branch, *base, *name, prompt)
+		return runPlainTask(c, dir, agents, *n, *branch, *base, *name, *account, prompt)
 	}
 	branchFrom := prompt
 	if *issue > 0 && *branch == "" {
@@ -340,7 +349,7 @@ func runTask(args []string) error {
 			return errors.New("the conch server there predates -after, and would start the task at once; reload it with `conch server reload`")
 		}
 		task := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: *branch, Base: *base,
-			Agent: attempts[0].agent, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+			Agent: attempts[0].agent, Account: *account, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
 		var it proto.ScheduledItem
 		if err := call(c, proto.MethodScheduleAdd, proto.ScheduledItem{At: start, EveryMinutes: everyMin, Task: &task, Queue: *queue, WIP: *wip, After: *after}, &it); err != nil {
 			return err
@@ -369,7 +378,7 @@ func runTask(args []string) error {
 	for _, at := range attempts {
 		var info proto.PaneInfo
 		params := proto.TaskCreateParams{ProjectID: proj.ID, Prompt: prompt, Branch: at.branch,
-			Base: *base, Agent: at.agent, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
+			Base: *base, Agent: at.agent, Account: *account, Name: *name, Cols: 120, Rows: 40, Issue: *issue}
 		if renameAfter {
 			params.Name = ""
 		}
@@ -400,7 +409,7 @@ func runTask(args []string) error {
 // worktree: dir is not a git repository, or is "" for the machine's home.
 // c is nil when nothing has connected yet; name, when given, names the
 // one pane it starts.
-func runPlainTask(c *client.Client, dir string, agents []string, n int, branch, base, name, prompt string) error {
+func runPlainTask(c *client.Client, dir string, agents []string, n int, branch, base, name, account, prompt string) error {
 	where := dir
 	if where == "" {
 		where = "the home directory of " + machineFlag
@@ -425,6 +434,11 @@ func runPlainTask(c *client.Client, dir string, agents []string, n int, branch, 
 		}
 		defer c.Close()
 	}
+	if account != "" {
+		if err := needAccounts(c); err != nil {
+			return err
+		}
+	}
 	if name != "" {
 		// pane.create doesn't refuse a taken name as task.create does, and
 		// a name is only worth having if it picks out this pane.
@@ -443,7 +457,7 @@ func runPlainTask(c *client.Client, dir string, agents []string, n int, branch, 
 		// The server would start a shell for no agent, where a task's
 		// server picks its first: claude.
 		agent := firstNonEmptyStr(agents[i%len(agents)], "claude")
-		params := proto.PaneCreateParams{Name: name, Agent: agent, Prompt: prompt, Cwd: dir, NoProject: dir == "", Cols: 120, Rows: 40}
+		params := proto.PaneCreateParams{Name: name, Agent: agent, Account: account, Prompt: prompt, Cwd: dir, NoProject: dir == "", Cols: 120, Rows: 40}
 		var info proto.PaneInfo
 		if err := call(c, proto.MethodPaneCreate, params, &info); err != nil {
 			if n == 1 {

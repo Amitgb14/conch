@@ -23,15 +23,17 @@ Conch.app shows the same agents and terminals as the TUI in a native macOS windo
 
 ## The window
 
-The sidebar is conch's tree: each machine, its projects, agents, branches and terminals. Tabs and splits are as in the TUI.
+The sidebar is conch's tree; tabs and splits work as in the TUI.
 
-**How:** click a row to open it, right-click for its menu. ⌘K searches, ⌘. goes to the next waiting agent, ⌃⌘S hides the sidebar.
+**Windows:** `⌥⌘N`, or **Open in New Window** on a workspace or project.
+
+**How:** click a row to open it, right-click for its menu. ⌘. finds the next waiting agent, ⌃⌘S hides the sidebar.
 
 ## Settings
 
 conch's settings, including **Skills & MCP Servers**.
 
-**How:** ⚙ in the status bar, or **conch → Settings…** (⌘,). **View → Theme** and **View → Style** change the look.
+**How:** ⚙ in the status bar, or ⌘,. **View → Theme** and **View → Style** change the look.
 
 <Shot name="desktop-settings" alt="Conch.app's Settings panel with its sections down the left" caption="Settings, in the app." />
 
@@ -57,7 +59,7 @@ A shell floating over the splits, in the project on screen.
 
 ## A branch's changes
 
-A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks, then **Commit**; **✦ Write** drafts a message. Hover a line and press **+** for a note to the agent or a pull request comment.
+A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks, then **Commit**; **✦ Write** drafts a message. Hover a line, press **+** to note it for the agent or a pull request.
 
 **How:** ⋯ holds **Push**, **Merge into main…**, **Open Pull Request** and **Delete Branch…**.
 
@@ -81,7 +83,7 @@ Every waiting agent is a card under **Needs you**, with its question and its cho
 
 ## Files and sessions
 
-The **Files** row opens the checkout in an editor; the **Sessions** row lists saved conversations to search and resume.
+**Files** opens the checkout in an editor; **Sessions** lists saved conversations to search and resume.
 
 | Keys | |
 | --- | --- |
@@ -139,7 +141,8 @@ A plain folder is offered **Initialize Git** first.
 | `⌘T` / `⌘D` | new terminal tab / split |
 | `⇧⌘↩` | zoom the focused split |
 | `⌘F` | find in the pane |
-| `⌘W` | close the split; the pane keeps running |
+| `⌥⌘N` / ``⌘` `` | new window / next window |
+| `⌘W` | close the split (the pane runs on) |
 | `⌘1`–`⌘9` | go to a tab |
 | `⌘0` | the sidebar takes the keyboard |
 | `⌘/` | every keyboard shortcut |
@@ -150,11 +153,11 @@ The TUI's prefix keys work too: `ctrl+b`, then a key from the [prefix table](/do
 
 Download `Conch_<version>_macos_arm64.zip` from the [releases](https://github.com/Amitgb14/conch/releases); it needs Apple Silicon and macOS 14+.
 
-**How:** unzip it, drag **Conch.app** into **Applications** and open it. To update, replace the app.
+**How:** unzip it and drag **Conch.app** into **Applications**; replace it to update.
 
 ## Building it
 
-Needs the Xcode Command Line Tools and Go; Ghostty needs Xcode 26 and Zig.
+Needs Xcode's Command Line Tools and Go; Ghostty, Xcode 26 and Zig.
 
 ```sh
 macos/ghostty.sh                 # Ghostty's library → macos/vendor

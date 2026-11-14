@@ -275,3 +275,53 @@ func TestGroupTaskCodexSandbox(t *testing.T) {
 		})
 	}
 }
+
+// A group task's agents start on the account asked for — every one of
+// them, with Each — and an account that cannot be had makes no worktree.
+func TestGroupTaskOnAnAccount(t *testing.T) {
+	c, dir, _, _ := groupTaskFixture(t)
+	ctx := a5Ctx(t)
+	if err := c.Call(ctx, proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "work"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	badRequest(t, c.Call(ctx, proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "x", Branch: "nope", Agent: "claude", Account: "nope"}, nil), "unknown account")
+	if _, err := os.Stat(filepath.Join(dir, "spring.worktrees", "nope")); err == nil {
+		t.Error("a refused account left a worktree")
+	}
+	var res proto.GroupTaskResult
+	if err := c.Call(ctx, proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "Add search", Branch: "add-search", Agent: "claude", Account: "work", Each: true, Cols: 80, Rows: 20}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Panes) != 2 || res.Panes[0].Account != "work" || res.Panes[1].Account != "work" {
+		t.Fatalf("panes %+v", res.Panes)
+	}
+}
+
+// An account moves Codex's whole configuration folder (CODEX_HOME), so a
+// task's Codex on one takes its sandbox from that account's config.toml,
+// not from ~/.codex: the person's own full access is not the account's.
+func TestGroupTaskCodexSandboxOnAnAccount(t *testing.T) {
+	c, dir, log, _ := groupTaskFixture(t)
+	ctx := a5Ctx(t)
+	own := filepath.Join(os.Getenv("HOME"), ".codex")
+	os.MkdirAll(own, 0o755)
+	if err := os.WriteFile(filepath.Join(own, "config.toml"), []byte(`sandbox_mode = "danger-full-access"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(dir, "codex-work")
+	os.MkdirAll(work, 0o755)
+	if err := c.Call(ctx, proto.MethodAccountAdd, proto.AccountAddParams{Agent: "codex", Name: "work", Dir: work}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var res proto.GroupTaskResult
+	if err := c.Call(ctx, proto.MethodGroupTask, proto.GroupTaskParams{Group: "clinic", Prompt: "Add search", Branch: "add-search", Agent: "codex", Account: "work", Cols: 80, Rows: 20}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Panes) != 1 || res.Panes[0].Account != "work" {
+		t.Fatalf("panes %+v", res.Panes)
+	}
+	ran := waitRan(t, log, "--add-dir", filepath.Join(dir, "web.worktrees", "add-search"))
+	if !strings.Contains(ran, "--sandbox workspace-write --add-dir") {
+		t.Fatalf("codex on the work account ran as:\n%s", ran)
+	}
+}
