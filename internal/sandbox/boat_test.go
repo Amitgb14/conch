@@ -776,3 +776,37 @@ func TestBoatRefusalsSayWhatToDo(t *testing.T) {
 		t.Fatalf("a life of 60 days became %v", got)
 	}
 }
+
+// A wait whose context has already ended says what it was waiting for,
+// every time — even when the pause between polls is ready at once, which
+// is when the old select picked between it and the context at random and a
+// poll then failed with the bare "context canceled". Seen on CI as
+// TestBoatGoesWrong's cancelled wait on a loaded macOS runner.
+func TestWaitCancelledSaysWhatItWaitedFor(t *testing.T) {
+	old, oldTick := pollEvery, tick
+	pollEvery = 0
+	// A timer that has already fired, as one can by the time a select on a
+	// loaded machine looks at it: as ready as the ended context.
+	tick = func(time.Duration) <-chan time.Time {
+		c := make(chan time.Time, 1)
+		c <- time.Now()
+		return c
+	}
+	t.Cleanup(func() { pollEvery, tick = old, oldTick })
+	if err := pause(t.Context()); err != nil {
+		t.Fatalf("a live context: %v", err)
+	}
+	done, stop := context.WithCancel(context.Background())
+	stop()
+	f, b := newFakeBoat(t)
+	f.add("bx_23456782", "provisioning")
+	for i := range 200 {
+		if err := pause(done); !errors.Is(err, context.Canceled) {
+			t.Fatalf("round %d: pause on a cancelled context: %v", i, err)
+		}
+		_, err := b.wait(done, Sandbox{ID: "bx_23456782", State: StateStarting}, StateStarted)
+		if err == nil || !strings.Contains(err.Error(), "is still starting") || !errors.Is(err, context.Canceled) {
+			t.Fatalf("round %d: a wait that was cancelled: %v", i, err)
+		}
+	}
+}

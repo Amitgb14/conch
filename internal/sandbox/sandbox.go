@@ -370,3 +370,24 @@ func (e *FailedError) Error() string {
 	}
 	return msg
 }
+
+// pause waits pollEvery between a wait's polls, or until ctx ends. A context
+// already ended is said at once: in a select that also holds a timer, a
+// timer that fired as the select was being set up is as ready as the
+// context, Go picks between them at random, and the poll that followed a
+// cancelled wait failed with the request's bare "context canceled" instead
+// of what the wait was waiting for (TestBoatGoesWrong, on a loaded runner).
+func pause(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-tick(pollEvery):
+		return nil
+	}
+}
+
+// tick is the pause's timer; tests hand one that has already fired.
+var tick = time.After

@@ -349,10 +349,8 @@ func (t *Tensorlake) wait(ctx context.Context, s Sandbox, want State) (Sandbox, 
 		case s.State.failed():
 			return s, &FailedError{ID: s.ID, State: s.State, Reason: s.Reason}
 		}
-		select {
-		case <-ctx.Done():
-			return s, fmt.Errorf("sandbox %s is still %s: %w", s.ID, s.State, ctx.Err())
-		case <-time.After(pollEvery):
+		if err := pause(ctx); err != nil {
+			return s, fmt.Errorf("sandbox %s is still %s: %w", s.ID, s.State, err)
 		}
 		got, err := t.Get(ctx, s.ID)
 		if err != nil {
