@@ -84,6 +84,7 @@ func TestOverrideManifest(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "claude.toml"), []byte(`
 agent = "claude"
 process_names = ["claude", "claude-wrapper"]
+helpers = ["my-lsp"]
 [[rules]]
 name = "custom"
 state = "blocked"
@@ -99,6 +100,9 @@ pattern = "z"`), 0o600)
 	}
 	if !m["claude"].MatchProcess(Process{Name: "claude-wrapper"}) {
 		t.Fatal("override not applied")
+	}
+	if got := m["claude"].Helpers; len(got) != 1 || got[0] != "my-lsp" {
+		t.Fatalf("helpers %v", got)
 	}
 	if r := m["claude"].MatchScreen([]string{"HALT"}); r == nil || r.Name != "custom" {
 		t.Fatalf("override rule not used: %v", r)
@@ -369,5 +373,102 @@ func TestClaudeSpinnerKeepsWorking(t *testing.T) {
 	tr.Observe(obs(t0.Add(45*time.Second), claudeProc, false, "✻ Crunched for 16s · done 10:28 PM", "❯ "))
 	if s := tr.Status(); s.State != StateDone || s.Reason != "hook_working_stale" {
 		t.Fatalf("after the spinner: %+v", s)
+	}
+}
+
+// The agents conch only runs: what their manifests read off a screen, and
+// which process each is found by. The strings are the ones their sources
+// show (each manifest says where); none of these has been watched live.
+func TestLaterAgentRules(t *testing.T) {
+	ms := manifests(t)
+	for _, tc := range []struct {
+		agent  string
+		screen []string
+		rule   string
+	}{
+		{"crush", screen("  Permission Required", "  Allow   Allow for Session   Deny"), "permission"},
+		{"crush", screen("> "), ""},
+		{"continue", screen("Would you like to continue?", "> Continue", "  Continue + don't ask again"), "permission"},
+		{"continue", screen("⠋ Thinking… (3s • esc to interrupt)"), "interruptible"},
+		{"auggie", screen("Working... (esc to interrupt)"), "interruptible"},
+		{"auggie", screen("› "), ""},
+	} {
+		got := ""
+		if r := ms[tc.agent].Match(tc.screen, ""); r != nil {
+			got = r.Name
+		}
+		if got != tc.rule {
+			t.Errorf("%s screen %q: matched %q, want %q", tc.agent, tc.screen, got, tc.rule)
+		}
+	}
+	for _, tc := range []struct {
+		p    Process
+		want string
+	}{
+		{Process{Name: "kiro-cli", Args: []string{"kiro-cli", "chat"}}, "kiro"},
+		{Process{Name: "droid", Args: []string{"droid"}}, "droid"},
+		{Process{Name: "kimi-code", Args: []string{"kimi"}}, "kimi"},
+		{Process{Name: "crush", Args: []string{"crush"}}, "crush"},
+		{Process{Name: "agy", Args: []string{"agy"}}, "antigravity"},
+		// The node ones are found by their script's name.
+		{Process{Name: "node", Args: []string{"node", "/usr/local/bin/auggie"}}, "auggie"},
+		{Process{Name: "node", Args: []string{"node", "/usr/local/bin/cn"}}, "continue"},
+		// Vibe's launcher execs the Rust interface.
+		{Process{Name: "vibe-rs", Args: []string{"vibe-rs"}}, "vibe"},
+	} {
+		if m := MatchAny(ms, tc.p); m != ms[tc.want] {
+			t.Errorf("%+v is not found as %s", tc.p, tc.want)
+		}
+	}
+}
+
+// The four agents supported after the first five. Copilot, Qwen and Goose
+// report their own state over OSC 7501; these are the screens for a build
+// that does not, and Cline's, which never does.
+func TestLaterSupportedAgentRules(t *testing.T) {
+	ms := manifests(t)
+	for _, tc := range []struct {
+		agent, title string
+		screen       []string
+		rule         string
+	}{
+		{"copilot", "", screen("Do you want to run this command?", "❯ 1. Yes"), "approval"},
+		{"copilot", "", screen("Do you want to modify src/main.go?"), "approval"},
+		{"copilot", "", screen("∙ Thinking… (Esc to stop)"), "stoppable"},
+		{"copilot", "Fix tests - api - GitHub Copilot", screen("> "), ""},
+		{"cline", "Cline", screen("Approve tool call?", "read_files", "[y] approve  [n] deny"), "approval"},
+		{"cline", "", screen(`Approve tool "run_commands" with input ls? [y/N]`), "approval"},
+		{"cline", "> fix it", screen("⠋ Thinking... (esc to cancel)"), "cancellable"},
+		{"cline", "Cline", screen("> "), ""},
+		{"qwen", "✳︎ Qwen - api", screen("> "), "waiting_title"},
+		{"qwen", "", screen(" │ Allow execution of: 'rm -rf build'? │", " │ ● 1. Yes, allow once │"), "confirmation"},
+		{"qwen", "◐︎ Qwen - api", screen("> "), "working_title"},
+		{"qwen", "", screen("⠋ Reticulating splines (3s · esc to cancel)"), "cancellable"},
+		{"qwen", "Qwen - api", screen("> "), ""},
+		{"goose", "🪿 api", screen("◇  Goose would like to call the above tool, do you allow?", "│  ● Allow"), "approval"},
+		{"goose", "🪿 api", screen("◒  Consulting the flock...  (Ctrl+C to interrupt)"), "interruptible"},
+		{"goose", "🪿 api", screen("( O)> "), ""},
+	} {
+		got := ""
+		if r := ms[tc.agent].Match(tc.screen, tc.title); r != nil {
+			got = r.Name
+		}
+		if got != tc.rule {
+			t.Errorf("%s title %q screen %q: matched %q, want %q", tc.agent, tc.title, tc.screen, got, tc.rule)
+		}
+	}
+	for _, tc := range []struct {
+		p    Process
+		want string
+	}{
+		{Process{Name: "copilot", Args: []string{"copilot", "-i", "hi"}}, "copilot"},
+		{Process{Name: "node", Args: []string{"node", "/usr/local/lib/node_modules/cline/bin/cline"}}, "cline"},
+		{Process{Name: ".cline", Args: []string{"/usr/local/lib/node_modules/cline/bin/.cline"}}, "cline"},
+		{Process{Name: "node", Args: []string{"node", "/home/me/.local/bin/qwen"}}, "qwen"},
+		{Process{Name: "goose", Args: []string{"goose", "session"}}, "goose"},
+	} {
+		if m := MatchAny(ms, tc.p); m != ms[tc.want] {
+			t.Errorf("%+v is not found as %s", tc.p, tc.want)
+		}
 	}
 }

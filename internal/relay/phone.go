@@ -124,6 +124,7 @@ func DialTicket(ctx context.Context, relay, room, ticket string, gwPub []byte) (
 }
 
 func (s *Session) read(in *opener) {
+	defer in.close(errSessionOver)
 	for {
 		f, err := in.next()
 		if err != nil {

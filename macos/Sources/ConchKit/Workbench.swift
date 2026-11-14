@@ -42,6 +42,28 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
 
     /// Whether the tab is framed by IntelliJ's strips of tool-window icons.
     public var stripes: Bool { self == .jetbrains }
+
+    /// The layouts offered: without the chat (chatEnabled), Chat First has
+    /// nothing to put first.
+    public static func offered(chat: Bool) -> [BenchLayout] { chat ? allCases : allCases.filter { $0 != .chat } }
+
+    /// The layout used for a choice: Chat First is IDE while the chat is off.
+    public func shown(chat: Bool) -> BenchLayout { !chat && self == .chat ? .ide : self }
+}
+
+/// The variable that turns the workbench's chat on or off over config.toml.
+public let chatEnv = "CONCH_CHAT"
+
+/// Whether the workbench offers its chat: CONCH_CHAT when set (0, false,
+/// no or off is off, anything else on), else [app] chat in config.toml
+/// (false is off), else on. It was hidden in 0.2.0, while its Stop could
+/// take seconds to take and it had no attachments; the switch stays for
+/// anybody who would rather have the agent's own terminal there.
+public func chatEnabled(toml: String?, env: [String: String]) -> Bool {
+    if let v = env[chatEnv]?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
+        return !["0", "false", "no", "off"].contains(v.lowercased())
+    }
+    return tomlSetting("app", "chat", in: toml) != "false"
 }
 
 /// The four parts of a workbench, by their layout keys.
@@ -65,7 +87,13 @@ public struct BenchParts: Equatable, Sendable {
 /// shares by its path, and what starts hidden. The chat and the agent's
 /// terminal are the same conversation, so where only one has room the other
 /// waits hidden beside it, a click away (Chat ⇄ Terminal).
-public func benchArrangement(_ l: BenchLayout, _ p: BenchParts) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
+public func benchArrangement(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
+    // Without the chat its place is the agent's own terminal's, which the
+    // layouts keep beside it for that: the chat waits hidden instead.
+    guard chat else {
+        let (root, weights, _) = benchArrangement(l.shown(chat: false), p)
+        return (root, weights, [p.chat])
+    }
     switch l {
     case .ide, .jetbrains:
         let root = SplitNode.split(.horizontal, [.split(.vertical, [.leaf(p.files), .leaf(p.shell)]), .leaf(p.chat), .leaf(p.agent)])
@@ -146,9 +174,9 @@ extension Layout {
     /// An agent's workbench in a tab of its own, arranged by l: the parts
     /// are taken out of any other tab first, since a pane is shown in one
     /// place. One already open is rearranged and shown.
-    public mutating func openBench(_ l: BenchLayout, _ p: BenchParts) {
+    public mutating func openBench(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) {
         if let i = benchTab(of: p.agent) {
-            arrange(i, l, p)
+            arrange(i, l, p, chat: chat)
             active = i
             return
         }
@@ -156,14 +184,30 @@ extension Layout {
         var t = Tab(pane: p.chat)
         t.benchAgent = p.agent
         tabs.append(t)
-        arrange(tabs.count - 1, l, p)
+        arrange(tabs.count - 1, l, p, chat: chat)
         active = tabs.count - 1
     }
 
     /// The current workbench tab in another layout, its parts as they are.
-    public mutating func setBench(_ l: BenchLayout) {
+    public mutating func setBench(_ l: BenchLayout, chat: Bool = true) {
         guard tabs.indices.contains(active), let parts = benchParts(active) else { return }
-        arrange(active, l, parts)
+        arrange(active, l, parts, chat: chat)
+    }
+
+    /// Whether any workbench tab shows its chat.
+    public var showsChat: Bool {
+        tabs.contains { t in t.benchAgent.map { t.shows(chatKey($0)) } ?? false }
+    }
+
+    /// Every workbench tab without its chat: arranged again with the
+    /// agent's own terminal in the chat's place. A tab that came back from
+    /// before the chat was turned off — restored, another workspace's, an
+    /// agent's workbench opened again — showed the chat still.
+    public mutating func hideChat() {
+        for i in tabs.indices {
+            guard let a = tabs[i].benchAgent, tabs[i].shows(chatKey(a)), let p = benchParts(i) else { continue }
+            arrange(i, tabs[i].bench ?? .ide, p, chat: false)
+        }
     }
 
     /// A workbench tab's parts, read off its leaves.
@@ -176,13 +220,13 @@ extension Layout {
         return BenchParts(files: files, shell: shell, chat: chatKey(agent), agent: agent)
     }
 
-    private mutating func arrange(_ i: Int, _ l: BenchLayout, _ p: BenchParts) {
-        let (root, weights, hidden) = benchArrangement(l, p)
+    private mutating func arrange(_ i: Int, _ l: BenchLayout, _ p: BenchParts, chat: Bool) {
+        let (root, weights, hidden) = benchArrangement(l, p, chat: chat)
         tabs[i].root = root
         tabs[i].weights = weights
         tabs[i].hidden = hidden
-        tabs[i].bench = l
-        if !tabs[i].shows(tabs[i].focused) { tabs[i].focused = p.chat }
+        tabs[i].bench = l.shown(chat: chat)
+        if !tabs[i].shows(tabs[i].focused) { tabs[i].focused = chat ? p.chat : p.agent }
     }
 
     /// A leaf of the current tab shown or hidden: a tool window opened or
@@ -312,8 +356,17 @@ public struct ChatLog: Equatable, Sendable {
     public var turns: [ChatTurn] = []
     /// Whether an answer has come at all.
     public var loaded = false
+    /// Turns dropped off the front to keep the log to chatLogMax, since it
+    /// was last replaced whole: what makes a place in it counted when it
+    /// was sent still the same place.
+    public private(set) var trimmed = 0
 
     public init() {}
+
+    /// Where the conversation is now, to tell what comes after it.
+    public var mark: ChatMark {
+        ChatMark(seq: turns.compactMap(\.seq).max(), count: trimmed + turns.count)
+    }
 
     /// An answer taken in: a reset — or one from a server that keeps no
     /// versions — is the whole conversation; otherwise each turn replaces
@@ -324,11 +377,12 @@ public struct ChatLog: Equatable, Sendable {
         let before = self
         agent = c.agent
         note = c.note
-        if c.session != session { session = c.session; turns = [] }
+        if c.session != session { session = c.session; turns = []; trimmed = 0 }
         let incoming = c.turns ?? []
         // The server leaves reset out when false, so absent is not a reset.
         if c.reset == true || c.epoch == nil || c.epoch != epoch {
             turns = incoming
+            trimmed = 0
         } else {
             for t in incoming {
                 if let s = t.seq, let i = turns.lastIndex(where: { $0.seq == s }) {
@@ -339,7 +393,10 @@ public struct ChatLog: Equatable, Sendable {
                     turns.append(t)
                 }
             }
-            if turns.count > 1500 { turns.removeFirst(turns.count - 1500) }
+            if turns.count > chatLogMax {
+                trimmed += turns.count - chatLogMax
+                turns.removeFirst(turns.count - chatLogMax)
+            }
         }
         epoch = c.epoch
         ver = c.ver ?? 0
@@ -348,10 +405,48 @@ public struct ChatLog: Equatable, Sendable {
     }
 
     /// Whether the person's message has reached the conversation: the last
-    /// thing they said, after the turn count it was sent at.
-    public func has(sent text: String, after count: Int) -> Bool {
-        let want = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return turns.dropFirst(min(count, turns.count)).contains { $0.role == "user" && ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == want }
+    /// thing they said, after where the conversation was when it was sent.
+    /// That place is a turn's seq where the server numbers them, and
+    /// otherwise a count of turns that knows about those trimmed off the
+    /// front — a plain index into the turns kept stopped matching anything
+    /// once the log was full, and the message stayed "sending" for ever.
+    ///
+    /// A message with attachments is matched by its words alone: an agent
+    /// may keep the lines naming the files differently (Claude turns an
+    /// image's path into a picture), and the words are what was said.
+    public func has(sent text: String, after m: ChatMark) -> Bool {
+        let want = splitAttached(text).text
+        return turns(after: m).contains { $0.role == "user" && splitAttached($0.text ?? "").text == want }
+    }
+
+    /// Whether the conversation says the agent was interrupted after a
+    /// place in it: Claude's transcript writes "[Request interrupted by
+    /// user]", which agent.chat turns into an "Interrupted" note.
+    public func interrupted(after m: ChatMark) -> Bool {
+        turns(after: m).contains { $0.role == "note" && ($0.text ?? "").hasPrefix("Interrupted") }
+    }
+
+    /// The turns after a place in the conversation.
+    func turns(after m: ChatMark) -> ArraySlice<ChatTurn> {
+        if let s = m.seq {
+            return ArraySlice(turns.filter { ($0.seq ?? Int.min) > s })
+        }
+        return turns.dropFirst(min(max(m.count - trimmed, 0), turns.count))
+    }
+}
+
+/// The most turns a chat keeps.
+public let chatLogMax = 1500
+
+/// A place in a conversation: the newest turn's seq, where turns have one,
+/// and how many turns there have been in all.
+public struct ChatMark: Equatable, Sendable {
+    public var seq: Int?
+    public var count: Int
+
+    public init(seq: Int? = nil, count: Int) {
+        self.seq = seq
+        self.count = count
     }
 }
 

@@ -29,6 +29,7 @@ func home(t *testing.T) string {
 	d := t.TempDir()
 	t.Setenv("CONCH_HOME", d)
 	t.Setenv("HOME", d)
+	t.Setenv("CONCH_CLOUD", "") // Conch Cloud hidden, as released
 	return d
 }
 
@@ -513,7 +514,7 @@ func TestTOMLValues(t *testing.T) {
 // to config.Config and not here would be one the page silently drops —
 // it isn't shown, so it can't be changed, though Save keeps its value.
 func TestSchemaCoversConfig(t *testing.T) {
-	schema := Schema(Choices{})
+	schema := Schema(Choices{Cloud: true}) // every key, Conch Cloud's too
 	have := map[string]bool{}
 	for _, s := range schema {
 		for _, f := range s.Fields {
@@ -538,8 +539,17 @@ func TestSchemaCoversConfig(t *testing.T) {
 		switch {
 		case ft.Kind() == reflect.Struct:
 			for j := 0; j < ft.NumField(); j++ {
-				if k := table + "." + tomlName(ft.Field(j)); !have[k] {
+				k := table + "." + tomlName(ft.Field(j))
+				if !have[k] {
 					missing = append(missing, k)
+				}
+				// A table within the table ([trackers.linear]): its keys too.
+				if sub := ft.Field(j).Type; sub.Kind() == reflect.Struct {
+					for n := 0; n < sub.NumField(); n++ {
+						if sk := k + "[]." + tomlName(sub.Field(n)); !have[sk] {
+							missing = append(missing, sk)
+						}
+					}
 				}
 			}
 		case ft.Kind() == reflect.Slice || ft.Kind() == reflect.Map:
@@ -847,5 +857,64 @@ func TestSchemaKeysBindSuggestsActions(t *testing.T) {
 		if bind.Suggest[i] != string(a) {
 			t.Errorf("suggestion %d is %q, want %q", i, bind.Suggest[i], a)
 		}
+	}
+}
+
+// cloudFields are the keys the page offers under [cloud].
+func cloudFields(p Payload) []string {
+	for _, s := range p.Schema {
+		if s.Key == "cloud" {
+			var keys []string
+			for _, f := range s.Fields {
+				keys = append(keys, f.Key)
+			}
+			return keys
+		}
+	}
+	return nil
+}
+
+// TestCloudSettingsHiddenUntilEnabled: while Conch Cloud is hidden the
+// page offers only the switch that turns it on; turning it on and saving
+// brings its server back in the answer, and a server set in the file
+// survives a save made while it was hidden.
+func TestCloudSettingsHiddenUntilEnabled(t *testing.T) {
+	home(t)
+	s, ts := newServer(t)
+	if err := os.WriteFile(config.File(), []byte("[cloud]\napi = \"https://cloud.example\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := get(t, s, ts)
+	if got := strings.Join(cloudFields(p), ","); got != "enabled" {
+		t.Fatalf("hidden: [cloud] offers %q", got)
+	}
+	cfg := p.Config
+	cfg["ui"].(map[string]any)["theme"] = "nord"
+	res, data := do(t, ts, http.MethodPut, s.Token(), map[string]any{"version": p.Version, "config": cfg})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("PUT: %d %s", res.StatusCode, data)
+	}
+	if loaded, _ := config.Load(); loaded.Cloud.API != "https://cloud.example" || loaded.Cloud.Enabled {
+		t.Fatalf("a save while hidden: %+v", loaded.Cloud)
+	}
+	var after Payload
+	json.Unmarshal(data, &after)
+	cfg = after.Config
+	cfg["cloud"].(map[string]any)["enabled"] = true
+	res, data = do(t, ts, http.MethodPut, s.Token(), map[string]any{"version": after.Version, "config": cfg})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("PUT: %d %s", res.StatusCode, data)
+	}
+	json.Unmarshal(data, &after)
+	if got := strings.Join(cloudFields(after), ","); got != "enabled,api" {
+		t.Fatalf("enabled: [cloud] offers %q", got)
+	}
+	if loaded, _ := config.Load(); !loaded.Cloud.Enabled || loaded.Cloud.API != "https://cloud.example" {
+		t.Fatalf("after turning it on: %+v", loaded.Cloud)
+	}
+	// The variable decides over the file, here as everywhere.
+	t.Setenv("CONCH_CLOUD", "0")
+	if got := strings.Join(cloudFields(get(t, s, ts)), ","); got != "enabled" {
+		t.Fatalf("CONCH_CLOUD=0: [cloud] offers %q", got)
 	}
 }

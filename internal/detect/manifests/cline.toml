@@ -1,0 +1,21 @@
+# Cline's CLI. Copy to ~/.config/conch/agents/cline.toml to override.
+#
+# Cline does not report its state over OSC 7501, so it is read from the
+# screen. Strings from its source (apps/cli/src/tui, cline 3.0.74), not
+# read off a live screen: the tool approval dialog and the line while it
+# thinks. Its window title is "Cline", or "> " and the last thing asked.
+#
+# `cline` is a node launcher for a compiled binary it keeps beside itself
+# as .cline, so both names are looked for.
+agent = "cline"
+process_names = ["cline", ".cline"]
+
+[[rules]]
+name = "approval"
+state = "blocked"
+pattern = 'Approve tool call\?|Approve tool ".*" with input'
+
+[[rules]]
+name = "cancellable"
+state = "working"
+pattern = 'esc to cancel'

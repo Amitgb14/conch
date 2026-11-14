@@ -78,9 +78,9 @@ final class MoveProjectModel: ObservableObject {
     var info: ProjectInfo? { store.snapshots[machine]?.project(projectID) }
 
     /// The machines it could go to: every other one, online first. Cloud
-    /// machines are Conch Cloud's group.
+    /// machines are Conch Cloud's group — or, with Cloud hidden, the rest's.
     var machines: [MachineLink] {
-        let others = store.machines.filter { $0.id != machine && !$0.cloud }
+        let others = store.machines.filter { $0.id != machine && listedWithMachines(cloud: $0.cloud, offerCloud: store.offersCloud) }
         return others.filter { $0.state.isEmpty } + others.filter { !$0.state.isEmpty }
     }
 
@@ -409,7 +409,7 @@ struct MoveProjectSheet: View {
                     ForEach(model.machines, id: \.id) { m in machineCard(m) }
                 }
             }
-            cloudGroup
+            if store.offersCloud { cloudGroup }
             HStack(spacing: 8) {
                 Text("Into").font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
                 TextField("", text: $model.into, prompt: Text(intoPrompt))

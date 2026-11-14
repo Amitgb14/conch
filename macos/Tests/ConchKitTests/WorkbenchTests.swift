@@ -43,7 +43,10 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     #expect(shownKids(kids, hidden: ["b"]) == [0, 1, 2]) // c still shows
     #expect(shownKids(kids, hidden: ["b", "c", "d"]) == [0])
     #expect(shownKids([], hidden: []).isEmpty)
-    #expect(shownShares([0.5, 0.25, 0.25], shown: [0, 2]) == [2.0 / 3, 1.0 / 3])
+    // Typed apart: inside #expect, Xcode 26's compiler gave up on the
+    // literal arithmetic ("unable to type-check … in reasonable time").
+    let thirds: [Double] = [2.0 / 3, 1.0 / 3]
+    #expect(shownShares([0.5, 0.25, 0.25], shown: [0, 2]) == thirds)
     #expect(shownShares([0, 0], shown: [0, 1]) == [0.5, 0.5])
     #expect(shownShares([0.5], shown: [0, 3]) == [1, 0]) // an index past the end has no share
     #expect(shownShares([], shown: []).isEmpty)
@@ -295,10 +298,40 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
 @Test func chatLogKnowsWhatWasSent() {
     var log = ChatLog()
     log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: 0, role: "user", text: "fix it")], epoch: "e", ver: 1, reset: true))
-    #expect(!log.has(sent: "fix it", after: 1), "the same words said before do not count")
+    let at = log.mark
+    #expect(at == ChatMark(seq: 0, count: 1))
+    #expect(!log.has(sent: "fix it", after: at), "the same words said before do not count")
     log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: 1, role: "user", text: "fix it\n")], epoch: "e", ver: 2))
-    #expect(log.has(sent: " fix it", after: 1))
-    #expect(!log.has(sent: "other", after: 0) && !log.has(sent: "fix it", after: 9))
+    #expect(log.has(sent: " fix it", after: at))
+    #expect(!log.has(sent: "other", after: ChatMark(count: 0)) && !log.has(sent: "fix it", after: ChatMark(count: 9)))
+    #expect(!log.has(sent: "fix it", after: ChatMark(seq: 5, count: 0)))
+}
+
+// A message sent with the log full (1500 turns kept): the turn that
+// answers it pushes the oldest out, and it must still be seen to have
+// arrived — or "Sent" never clears, Stop shows for ever, and the chat is
+// asked for every second.
+@Test func chatLogKnowsWhatWasSentAtTheCap() {
+    var log = ChatLog()
+    let full = (0..<chatLogMax).map { ChatTurn(seq: $0, role: "assistant", text: "t\($0)") }
+    log.apply(AgentChat(agent: "claude", session: "s", turns: full, epoch: "e", ver: 1, reset: true))
+    let at = log.mark
+    log.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(seq: chatLogMax, role: "user", text: "go on")], epoch: "e", ver: 2))
+    #expect(log.turns.count == chatLogMax && log.trimmed == 1)
+    #expect(log.has(sent: "go on", after: at))
+    #expect(!chatBusy(state: .idle, pending: 0, turns: log.turns + [ChatTurn(seq: chatLogMax + 1, role: "assistant", text: "ok")]))
+
+    // A server that numbers no turns: counted, trimmed turns included.
+    var old = ChatLog()
+    old.apply(AgentChat(agent: "claude", session: "s", turns: (0..<chatLogMax).map { _ in ChatTurn(role: "assistant", text: "x") }, epoch: "e", ver: 1, reset: true))
+    let oldAt = old.mark
+    #expect(oldAt == ChatMark(seq: nil, count: chatLogMax))
+    old.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(role: "assistant", text: "y"), ChatTurn(role: "user", text: "go on")], epoch: "e", ver: 2))
+    #expect(old.trimmed == 2 && old.has(sent: "go on", after: oldAt))
+    #expect(!old.has(sent: "y", after: old.mark))
+    // Replaced whole: nothing counted as trimmed any more.
+    old.apply(AgentChat(agent: "claude", session: "s", turns: [ChatTurn(role: "user", text: "a")], epoch: "e2", ver: 1, reset: true))
+    #expect(old.trimmed == 0 && old.mark.count == 1)
 }
 
 @Test func chatBlocksNotesAndSeqs() {
@@ -391,4 +424,71 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     #expect(!chatBusy(state: .idle, pending: 0, turns: [asked, stopped]))
     // Waiting on a question is answered, not stopped.
     #expect(!chatBusy(state: .blocked, pending: 0, turns: [asked, said]))
+}
+
+// The chat is on unless CONCH_CHAT or [app] chat says off (it was off in
+// 0.2.0, the other way round); the variable wins over the file either way.
+@Test func chatSwitch() {
+    #expect(chatEnabled(toml: nil, env: [:]))
+    #expect(chatEnabled(toml: "", env: [:]))
+    #expect(chatEnabled(toml: "[app]\ntabs = \"left\"\n", env: [:]))
+    #expect(chatEnabled(toml: "[app]\nchat = true\n", env: [:]))
+    #expect(!chatEnabled(toml: "[app]\nchat = false\n", env: [:]))
+    #expect(chatEnabled(toml: "[cloud]\nchat = false\n", env: [:]), "another section's key")
+    for on in ["1", "true", "YES", " on ", "2"] { #expect(chatEnabled(toml: "[app]\nchat = false\n", env: [chatEnv: on]), "\(on)") }
+    for off in ["0", "false", "OFF", " no "] { #expect(!chatEnabled(toml: "[app]\nchat = true\n", env: [chatEnv: off]), "\(off)") }
+    #expect(!chatEnabled(toml: "[app]\nchat = false\n", env: [chatEnv: ""]), "blank is unset")
+}
+
+// Without the chat every layout shows the agent's own terminal where the
+// chat was, Chat First is not offered, and a saved Chat First is IDE.
+@Test func benchWithoutChat() {
+    let p = BenchParts(files: "files|local|r1", shell: "local|p2", chat: chatKey("local|p1"), agent: "local|p1")
+    for l in BenchLayout.allCases {
+        let (root, _, hidden) = benchArrangement(l, p, chat: false)
+        #expect(hidden == [p.chat], "\(l)")
+        #expect(Set(root.panes) == Set(p.all), "\(l): every part still in the tree")
+    }
+    #expect(BenchLayout.offered(chat: false) == [.ide, .agent, .jetbrains])
+    #expect(BenchLayout.offered(chat: true) == BenchLayout.allCases)
+    #expect(BenchLayout.chat.shown(chat: false) == .ide && BenchLayout.chat.shown(chat: true) == .chat)
+
+    var layout = Layout()
+    layout.openBench(.chat, p, chat: false)
+    let t = layout.tabs[layout.active]
+    #expect(t.bench == .ide && !t.shows(p.chat) && t.shows(p.agent) && t.focused == p.agent)
+    layout.setBench(.agent, chat: true)
+    #expect(layout.tabs[layout.active].shows(p.chat), "turned back on")
+
+    #expect(!paletteCommandItems(chat: false).contains { $0.title.contains("Chat") }, "no chat named in ⌘K")
+    #expect(paletteCommandItems(chat: true).contains { $0.title.contains("Chat First") })
+}
+
+// A workbench tab that came back showing its chat — restored, another
+// workspace's, opened before the chat was turned off — loses it: the
+// agent's own terminal takes its place, keyboard and all. Seen in 0.2.0's
+// hands-on run: the chat still on screen with the switch off.
+@Test func hideChatInTabsThatShowIt() {
+    let p = BenchParts(files: "files|local|r1", shell: "local|p2", chat: chatKey("local|p1"), agent: "local|p1")
+    let q = BenchParts(files: "files|local|r2", shell: "local|p4", chat: chatKey("local|p3"), agent: "local|p3")
+    var layout = Layout()
+    layout.openBench(.chat, p, chat: true)   // as an older build left it
+    layout.tabs[layout.active].focused = p.chat
+    layout.openBench(.ide, q, chat: true)
+    layout.open("local|p9")                  // a plain tab beside them
+    #expect(layout.showsChat)
+
+    layout.hideChat()
+    #expect(!layout.showsChat)
+    for (i, parts) in [(0, p), (1, q)] {
+        let t = layout.tabs[i]
+        #expect(!t.shows(parts.chat) && t.shows(parts.agent), "tab \(i)")
+        #expect(t.bench != .chat, "tab \(i): Chat First is IDE")
+    }
+    #expect(layout.tabs[0].focused == p.agent, "the keyboard goes to the agent")
+    #expect(layout.tabs[2].root.panes == ["local|p9"], "other tabs untouched")
+
+    let before = layout
+    layout.hideChat()
+    #expect(layout == before, "nothing to do the second time")
 }

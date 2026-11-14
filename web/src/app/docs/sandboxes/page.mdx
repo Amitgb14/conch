@@ -46,7 +46,7 @@ export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 
 Devin Cloud also needs the devin CLI installed (`conch agent install devin`) and signed in (`devin auth login`).
 
-**How:** a different variable, or the key itself, goes in Settings (`,` → **Sandboxes** → the provider) or [`[sandbox.<provider>]`](/docs/configuration#sandbox), with the snapshot, region and auto-stop.
+**How:** another variable or the key itself goes in Settings → **Sandboxes** or [`[sandbox.<provider>]`](/docs/configuration#sandbox).
 
 ## In the TUI
 
@@ -96,7 +96,7 @@ conch sandbox stats                            # every provider at once
 conch sandbox -provider daytona ssh fix-login  # a shell in it
 conch sandbox -provider daytona stop fix-login
 conch sandbox -provider daytona start fix-login
-conch sandbox -provider daytona rm fix-login
+conch sandbox -provider daytona rm fix-login     # ls says deleting until the provider is done
 conch sandbox -provider P add ID               # make one ls lists a machine
 ```
 
@@ -108,7 +108,7 @@ Flags are on [Command line](/docs/cli#sandbox).
 
 ## The provider registry
 
-Providers others have adapted, such as Hetzner Cloud and DigitalOcean, from [the registry](https://github.com/Amitgb14/conch-sandbox-providers). Install says where your key is sent and asks first.
+Providers others have adapted, such as Hetzner Cloud and DigitalOcean, from [the registry](https://github.com/Amitgb14/conch-sandbox-providers). Install says where your key is sent and from which variable, and asks first; an update that changes either asks again.
 
 **How:** `M` → **New sandbox…** → **\* Install a provider from the registry…**, Settings → Sandboxes → **Add provider…** in Conch.app, or:
 

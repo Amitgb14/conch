@@ -84,6 +84,11 @@ public struct AgentStatus: Decodable, Equatable, Sendable {
     /// Agent tool), which have no pane of their own; none from an older
     /// server.
     public var subagents: [Subagent]?
+    /// What it left running while it is not working — a dev server, a
+    /// watcher — counted, and each said (agent.background.v1); none from
+    /// an older server.
+    public var background: Int?
+    public var jobs: [BackgroundJob]?
 
     public init(name: String, state: AgentState, message: String? = nil, failed: Bool? = nil, since: Date? = nil,
                 tokens: Tokens? = nil) {
@@ -97,6 +102,7 @@ public struct AgentStatus: Decodable, Equatable, Sendable {
 
     public static func == (a: AgentStatus, b: AgentStatus) -> Bool {
         a.name == b.name && a.state == b.state && a.message == b.message && a.failed == b.failed && a.tokens == b.tokens
+            && a.background == b.background && a.jobs == b.jobs
     }
 }
 

@@ -144,7 +144,7 @@ func (m *Model) resumeSession(mid, pid string, s proto.SessionInfo) tea.Cmd {
 		return func() tea.Msg { return askInstallMsg{machine: mid, agent: s.Agent} }
 	}
 	cols, rows := m.paneArea()
-	ref := proto.SessionRef{Agent: s.Agent, ID: s.ID, Dir: s.Dir, Cols: cols, Rows: rows}
+	ref := proto.SessionRef{Agent: s.Agent, Account: s.Account, ID: s.ID, Dir: s.Dir, Cols: cols, Rows: rows}
 	var info proto.PaneInfo
 	key := sessionsKey(mid, pid)
 	return m.callOn(mid, proto.MethodSessionResume, ref, &info, func() tea.Msg {
@@ -192,9 +192,18 @@ type (
 
 func sessionKey(s proto.SessionInfo) string { return s.Agent + "|" + s.ID }
 
+// sessionAgent names a session's agent, and its account when it is not
+// the agent's own: the conversation lives there and resumes nowhere else.
+func sessionAgent(s proto.SessionInfo) string {
+	if s.Account == "" {
+		return agentLabel(s.Agent)
+	}
+	return agentLabel(s.Agent) + " · " + s.Account
+}
+
 // matches reports whether a session's details contain every word.
 func (sv *sessionsView) matches(s proto.SessionInfo, words []string) bool {
-	text := strings.ToLower(strings.Join([]string{s.Title, s.Agent, agentLabel(s.Agent), s.Branch, s.ID}, " "))
+	text := strings.ToLower(strings.Join([]string{s.Title, s.Agent, agentLabel(s.Agent), s.Account, s.Branch, s.ID}, " "))
 	for _, w := range words {
 		if !strings.Contains(text, w) {
 			return false
@@ -826,7 +835,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	}
 	agentW := 0
 	for _, s := range list {
-		agentW = max(agentW, ansi.StringWidth(agentLabel(s.Agent)))
+		agentW = max(agentW, ansi.StringWidth(sessionAgent(s)))
 	}
 	for i := sv.scroll; i < len(list) && i < sv.scroll+listH; i++ {
 		s := list[i]
@@ -872,10 +881,10 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 			if m.focus == focusMain {
 				style = styleSel
 			}
-			lines = append(lines, style.Render(spread(fmt.Sprintf("▸%s%s %s  %s%s", star, mark, padRight(agentLabel(s.Agent), agentW), title, snip), rightText, w)))
+			lines = append(lines, style.Render(spread(fmt.Sprintf("▸%s%s %s  %s%s", star, mark, padRight(sessionAgent(s), agentW), title, snip), rightText, w)))
 			continue
 		}
-		left := fmt.Sprintf(" %s%s %s  %s%s", styleWarn.Render(star), markStyle.Render(mark), styleAccent.Render(padRight(agentLabel(s.Agent), agentW)), title, styleMuted.Render(snip))
+		left := fmt.Sprintf(" %s%s %s  %s%s", styleWarn.Render(star), markStyle.Render(mark), styleAccent.Render(padRight(sessionAgent(s), agentW)), title, styleMuted.Render(snip))
 		rs := styleMuted.Render(rightText)
 		if s.Interrupted && s.PaneID == "" {
 			rs = styleWarn.Render(rightText)

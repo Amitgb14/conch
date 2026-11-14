@@ -58,14 +58,70 @@ func TestA6InitRepoWithoutIdentity(t *testing.T) {
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "user.useConfigOnly")
 	t.Setenv("GIT_CONFIG_VALUE_0", "true")
-	if err := InitRepo(ctx, dir); err != nil {
-		t.Fatalf("no identity should not be an error: %v", err)
+	// A repository with no commit is one no worktree can branch from, so
+	// no identity is an error that says how to set one, and the folder is
+	// left plain for the next try.
+	err := InitRepo(ctx, dir)
+	if err == nil || !strings.Contains(err.Error(), "git config --global user.email") {
+		t.Fatalf("no identity: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+	if _, err := os.Lstat(filepath.Join(dir, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf(".git left behind: %v", err)
+	}
+	// A repository that was already there is not taken away.
+	t.Setenv("GIT_CONFIG_COUNT", "0")
+	a6Identity(t)
+	git(t, dir, "init", "-q", "-b", "main")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(v, "")
+	}
+	if err := InitRepo(ctx, dir); err == nil {
+		t.Fatal("no identity in an unborn repository: no error")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("existing .git removed: %v", err)
+	}
+}
+
+// InitRepo commits nothing but an empty tree: files already in the folder
+// stay untracked, and something staged in a repository that existed stays
+// staged rather than being swept into a commit nobody wrote.
+func TestInitRepoLeavesFilesUntracked(t *testing.T) {
+	a6Identity(t)
+	dir := resolve(t.TempDir())
+	write(t, dir, "notes.txt", "mine\n")
+	if err := InitRepo(ctx, dir); err != nil {
 		t.Fatal(err)
 	}
-	if resolves(ctx, dir, "HEAD") {
-		t.Fatal("commit made without an identity")
+	if files := git(t, dir, "ls-tree", "-r", "--name-only", "HEAD"); files != "" {
+		t.Fatalf("first commit holds %q", files)
+	}
+	if st := git(t, dir, "status", "--porcelain"); st != "?? notes.txt" {
+		t.Fatalf("status %q", st)
+	}
+
+	// An unborn repository with something staged: the staging survives.
+	other := resolve(t.TempDir())
+	git(t, other, "init", "-q", "-b", "trunk")
+	write(t, other, "a.txt", "a\n")
+	git(t, other, "add", "a.txt")
+	if err := InitRepo(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if b := git(t, other, "branch", "--show-current"); b != "trunk" {
+		t.Fatalf("branch %q", b)
+	}
+	if st := git(t, other, "status", "--porcelain"); st != "A  a.txt" {
+		t.Fatalf("status %q", st)
+	}
+
+	// A repository with commits gets no second one.
+	if err := InitRepo(ctx, dir); err != nil {
+		t.Fatal(err)
+	}
+	if n := git(t, dir, "rev-list", "--count", "HEAD"); n != "1" {
+		t.Fatalf("%s commits after a second init", n)
 	}
 }
 

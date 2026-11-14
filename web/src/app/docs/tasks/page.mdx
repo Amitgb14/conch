@@ -15,6 +15,7 @@ A task is an agent on its own branch and git worktree (`<repo>.worktrees/<branch
 ```sh
 conch task -cwd ~/src/api "Add a health check endpoint"
 conch task -issue 12                       # from a GitHub issue, via gh
+conch task -ticket ENG-123                 # from a Linear or Jira ticket
 conch task -sandbox daytona "…"            # in a sandbox of its own
 ```
 
@@ -68,9 +69,20 @@ The server runs scheduled tasks with conch closed.
 ```sh
 conch task -at 02:00 "Upgrade the test framework and fix what breaks"
 conch task -every daily -at 07:00 "Bump the dependencies and run the tests"
-conch task -queue "Add rate limiting to the login endpoint"    # starts when fewer than 3 agents run
+conch task -queue "Add rate limiting to the login endpoint"    # starts when fewer than 3 agents are busy
 conch task -after api/model "Add a REST endpoint for invoices" # starts from that branch once it is done
 conch schedule            # list; conch schedule rm ID removes one
+```
+
+```toml
+# The backlog, taken by itself: every open issue labelled "ready" is queued
+# as a task, once, with a comment on the issue (configuration: [verify] intake).
+[verify.intake]
+r1a2b3c = "ready"
+# And read first: an agent triages each issue labelled "new", comments what
+# done means, and labels it ready, needs-info or too-big ([verify] triage).
+[verify.triage]
+r1a2b3c = "new"
 ```
 
 In the task dialog, the **When** field takes `queue`, `after api/model` or a time. For an agent stopped at its plan limit, `C` in the [review queue](/docs/interface) resumes it after the reset.
@@ -147,4 +159,4 @@ conch agent library apply
 conch agent library undo
 ```
 
-Values must refer to variables (`${TOKEN}`); in Conch.app a token can be kept in the macOS Keychain.
+Values must refer to variables (`${TOKEN}`); Conch.app can keep a token in the Keychain; a plain one briefly shows on Claude's command line to others on the machine.

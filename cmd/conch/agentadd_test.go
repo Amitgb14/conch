@@ -83,6 +83,7 @@ func TestAgentAddRefusals(t *testing.T) {
 		{"no command", []string{"robo"}, "usage"},
 		{"a name that could not be one", []string{"Robo!", "-command", "x"}, "not an agent name"},
 		{"a supported agent", []string{"claude", "-command", "my-claude"}, "supported agent"},
+		{"a later supported agent", []string{"goose", "-command", "my-goose"}, "supported agent"},
 	} {
 		if _, err := runAgentAdd(t, c.args...); err == nil || !strings.Contains(err.Error(), c.says) {
 			t.Errorf("%s: %v", c.what, err)
@@ -147,5 +148,20 @@ func TestAgentAddSaysWhatItWillNotDo(t *testing.T) {
 	}
 	if !strings.Contains(out, "read for saved conversations") {
 		t.Errorf("it stopped saying the one thing that is always true: %q", out)
+	}
+}
+
+// The agents add refuses are exactly the ones with an adapter: a list here
+// that fell behind the registry would let a manifest take a supported
+// agent's name, and the registry would then refuse to load it.
+func TestSupportedAgentMatchesTheRegistry(t *testing.T) {
+	reg, err := adapter.New("/usr/local/bin/conch", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range reg {
+		if got, want := supportedAgent(a.Name()), a.Tier() == adapter.TierSupported; got != want {
+			t.Errorf("%s: supportedAgent says %v, the registry's tier is %q", a.Name(), got, a.Tier())
+		}
 	}
 }

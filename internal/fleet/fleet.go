@@ -103,6 +103,18 @@ type conn struct {
 	busy      bool      // an attempt is running
 }
 
+// connectMachine reaches m over ssh — with the options the catalog keeps
+// for it (a jump host, a port, an old key exchange), as every reader of
+// machines.json must, or a machine that needs them is unreachable from
+// here alone.
+func connectMachine(ctx context.Context, m remote.Machine) (*client.Client, error) {
+	tr, err := remote.TransportFor(ctx, m.Label, m.Target, false, m.Opts...)
+	if err != nil {
+		return nil, err
+	}
+	return remote.Connect(ctx, tr, remote.Options{})
+}
+
 // New makes a pool. Close it when done.
 func New(o Options) *Pool {
 	if o.Local == nil {
@@ -115,13 +127,7 @@ func New(o Options) *Pool {
 		o.LocalLabel = "this computer"
 	}
 	if o.Connect == nil {
-		o.Connect = func(ctx context.Context, m remote.Machine) (*client.Client, error) {
-			tr, err := remote.TransportFor(ctx, m.Label, m.Target, false)
-			if err != nil {
-				return nil, err
-			}
-			return remote.Connect(ctx, tr, remote.Options{})
-		}
+		o.Connect = connectMachine
 	}
 	if o.Catalog == nil {
 		o.Catalog = remote.Machines

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/cloud"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/relocate"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -20,7 +21,27 @@ import (
 
 // connectMoveTarget reaches the machine a project moves to; tests point it
 // at a server of their own.
-var connectMoveTarget = connectMachine
+var connectMoveTarget = connectMoveMachine
+
+// connectMoveMachine is connectMachine, except that "local" — this
+// computer, as -m names it — is this computer's own server. Through
+// connectMachine it was an ssh host called "local", so moving a project
+// from another machine back here never worked (Conch.app runs exactly
+// that: conch -m gpu project move r1 -to local).
+func connectMoveMachine(ref string) (*client.Client, error) {
+	if ref != remote.LocalID {
+		return connectMachine(ref)
+	}
+	sock := config.SocketPath()
+	if err := client.EnsureServer(sock, config.ServerLogPath()); err != nil {
+		return nil, err
+	}
+	c, err := client.Dial(sock, "conch-cli")
+	if err != nil {
+		return nil, serverDial(err)
+	}
+	return c, nil
+}
 
 // wakeMoveTarget readies the machine a project moves to: a Conch Cloud
 // machine asleep is woken and waited for. A connection nobody asked for
@@ -101,6 +122,9 @@ func projectMove(c *client.Client, args []string) error {
 	}
 	defer dst.Close()
 	toLabel := remote.FindMachine(*to).Label
+	if *to == remote.LocalID {
+		toLabel = "local"
+	}
 	if toLabel == "" {
 		toLabel = *to
 	}

@@ -7,20 +7,22 @@ import Foundation
 // of a form draws a setting wherever it lives.
 
 /// Where a field's value is: the section's own table, a row of an array of
-/// tables (table is that field's key), or an entry of tables keyed by name
+/// tables (table is that field's key), an entry of tables keyed by name
 /// (table is that field's key, "" when the section's table is the keyed one,
-/// as [sandbox] is).
+/// as [sandbox] is), or one table of fixed fields inside the section's
+/// ([trackers.linear]: table is "linear").
 public enum SettingsPlace: Hashable, Sendable {
     case top
     case row(table: String, index: Int)
     case entry(table: String, name: String)
+    case nested(table: String)
 }
 
 extension SettingsField {
     /// Whether the window draws it: the simple kinds, tables and keyed
     /// tables as lists, and a map (a project's check, a key rebound) as
     /// pairs.
-    public var drawn: Bool { simple || kind == "tables" || kind == "keyed" || kind == "map" }
+    public var drawn: Bool { simple || kind == "tables" || kind == "keyed" || kind == "map" || kind == "table" }
 }
 
 extension SettingsForm {
@@ -144,6 +146,9 @@ extension SettingsForm {
         case .entry(let table, let name):
             guard let p = parent(s, table, kind: "keyed") else { return nil }
             return keyedTable(s, p)[name]?.object?[f.key] ?? f.default
+        case .nested(let table):
+            guard let p = parent(s, table, kind: "table") else { return nil }
+            return value(s, p)?.object?[f.key] ?? f.default
         }
     }
 
@@ -165,6 +170,13 @@ extension SettingsForm {
             e[f.key] = v
             t[name] = .object(e)
             setKeyedTable(s, p, t)
+        case .nested(let table):
+            // A table emptied is taken out of the file rather than written
+            // as [trackers.linear] with nothing under it.
+            guard let p = parent(s, table, kind: "table") else { return }
+            var o = value(s, p)?.object ?? [:]
+            o[f.key] = v
+            set(s, p, o.isEmpty ? nil : .object(o))
         }
     }
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
@@ -184,11 +185,11 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 	if limit <= 0 {
 		limit = 100
 	}
-	found, complete := sessions.ListStatus(sessions.CurrentEnv(), dirs, limit)
+	found, complete := sessions.ListStatus(s.sessionEnv(), dirs, limit)
 
 	out := make([]proto.SessionInfo, 0, len(found))
 	for _, f := range found {
-		info := proto.SessionInfo{Agent: f.Agent, ID: f.ID, Dir: f.Dir, Branch: f.Branch, Title: f.Title,
+		info := proto.SessionInfo{Agent: f.Agent, Account: f.Account, ID: f.ID, Dir: f.Dir, Branch: f.Branch, Title: f.Title,
 			Started: f.Started, Updated: f.Updated, CostUSD: f.Cost, Output: f.Output}
 		out = append(out, info)
 	}
@@ -209,7 +210,7 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 		}
 		best := -1
 		for i, si := range out {
-			if claimed[i] || si.Agent != pi.Agent.Name {
+			if claimed[i] || si.Agent != pi.Agent.Name || si.Account != pi.Account {
 				continue
 			}
 			if pi.Agent.SessionID != "" {
@@ -318,6 +319,16 @@ func withinAny(path string, dirs []string) bool {
 	return false
 }
 
+// sessionAccount is the account whose folder holds agent's session id.
+func (s *Server) sessionAccount(agent, id, dir string) string {
+	for _, f := range sessions.List(s.sessionEnv(), []string{dir}, 0) {
+		if f.Agent == agent && f.ID == id {
+			return f.Account
+		}
+	}
+	return ""
+}
+
 // deleteSession removes a saved session the user chose, unless it is open
 // in a pane.
 func (s *Server) deleteSession(r proto.SessionRef) *proto.Error {
@@ -333,13 +344,13 @@ func (s *Server) deleteSession(r proto.SessionRef) *proto.Error {
 			return proto.Errorf(proto.ErrBadRequest, "the session is open in pane %s; close it first", si.PaneID)
 		}
 	}
-	for _, found := range sessions.List(sessions.CurrentEnv(), []string{r.Dir}, 0) {
+	for _, found := range sessions.List(s.sessionEnv(), []string{r.Dir}, 0) {
 		if found.Agent != r.Agent || found.ID != r.ID {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := sessions.Delete(ctx, sessions.CurrentEnv(), found, trashDir(s.configDir)); err != nil {
+		if err := sessions.Delete(ctx, s.sessionEnv(), found, trashDir(s.configDir)); err != nil {
 			return proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
 		s.runs.resolve(r.Agent, r.ID, r.Dir)
@@ -372,7 +383,15 @@ func (s *Server) resumeSession(r proto.SessionRef) (proto.PaneInfo, *proto.Error
 	if !adapter.SessionIDOK(r.ID) {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "%q is not a session id", r.ID)
 	}
-	info, perr := s.create(proto.PaneCreateParams{Agent: r.Agent, AgentArgs: ad.ResumeArgs(r.ID), Cwd: r.Dir, Cols: r.Cols, Rows: r.Rows})
+	// A conversation lives in its account's folder and resumes nowhere
+	// else, whatever the folder is pinned to now or how full that account
+	// is: found here when the client did not say, as an older one won't.
+	// With no id, the latest conversation here is the pinned account's.
+	account := r.Account
+	if account == "" && r.ID != "" {
+		account = accounts.Label(s.sessionAccount(r.Agent, r.ID, r.Dir))
+	}
+	info, perr := s.create(proto.PaneCreateParams{Agent: r.Agent, Account: account, AgentArgs: ad.ResumeArgs(r.ID), Cwd: r.Dir, Cols: r.Cols, Rows: r.Rows})
 	if perr != nil {
 		return info, perr
 	}

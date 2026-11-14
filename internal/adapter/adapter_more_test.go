@@ -376,7 +376,7 @@ func TestDirArgs(t *testing.T) {
 	dirs := []string{"/w/spring", "/w/my web"}
 	for agent, want := range map[string]string{
 		"claude":   "--add-dir /w/spring --add-dir '/w/my web'",
-		"codex":    "--add-dir /w/spring --add-dir '/w/my web'",
+		"codex":    "--sandbox workspace-write --add-dir /w/spring --add-dir '/w/my web'",
 		"gemini":   "--include-directories '/w/spring,/w/my web'",
 		"opencode": "",
 		"grok":     "",
@@ -385,7 +385,63 @@ func TestDirArgs(t *testing.T) {
 			t.Errorf("%s: %q, want %q", agent, got, want)
 		}
 	}
-	if DirArgs("claude", nil) != "" {
+	if DirArgs("claude", nil) != "" || DirArgs("codex", nil) != "" {
 		t.Error("no folders gave words")
+	}
+}
+
+// Codex ignores --add-dir, and exits, unless its sandbox lets it write
+// (#190): a task asks for workspace-write, unless the person's own
+// config.toml already gives it more, which a task must not take away.
+func TestCodexTaskSandbox(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	os.MkdirAll(codexHome, 0o755)
+	env := func(k string) string { return "" }
+	write := func(dir, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := CodexTaskSandbox(home, env); got != "workspace-write" {
+		t.Errorf("no config: %q", got)
+	}
+	if got := CodexTaskSandbox("", env); got != "workspace-write" {
+		t.Errorf("no home: %q", got)
+	}
+	for body, want := range map[string]string{
+		`sandbox_mode = "danger-full-access"`:                                 "danger-full-access",
+		`sandbox_mode = "workspace-write"`:                                    "workspace-write",
+		`sandbox_mode = "read-only"`:                                          "workspace-write",
+		"model = \"o3\"\n[profiles.x]\nsandbox_mode = \"danger-full-access\"": "workspace-write",
+		`sandbox_mode = `:                                                     "workspace-write",
+		`sandbox_mode = 3`:                                                    "workspace-write",
+		"":                                                                    "workspace-write",
+	} {
+		write(codexHome, body)
+		if got := CodexTaskSandbox(home, env); got != want {
+			t.Errorf("%q: %q, want %q", body, got, want)
+		}
+	}
+	// CODEX_HOME is where Codex looks when it is set.
+	other := t.TempDir()
+	write(other, `sandbox_mode = "danger-full-access"`)
+	write(codexHome, `sandbox_mode = "read-only"`)
+	env = func(k string) string {
+		if k == "CODEX_HOME" {
+			return other
+		}
+		return ""
+	}
+	if got := CodexTaskSandbox(home, env); got != "danger-full-access" {
+		t.Errorf("CODEX_HOME: %q", got)
+	}
+	// The words a task gives Codex follow it.
+	if got := TaskDirArgs("codex", []string{"/w/a"}, "danger-full-access"); got != "--sandbox danger-full-access --add-dir /w/a" {
+		t.Errorf("full access: %q", got)
+	}
+	if got := TaskDirArgs("claude", []string{"/w/a"}, "danger-full-access"); got != "--add-dir /w/a" {
+		t.Errorf("claude: %q", got)
 	}
 }

@@ -124,6 +124,8 @@ h2 { display: flex; align-items: center; gap: 8px; font: 600 0.72rem var(--sans)
 .review-list p { margin: 2px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .review-list .reply { margin-left: .8em; padding-left: 8px; border-left: 2px solid var(--line); font-size: .9rem; }
 .review-list .open { font-size: .8rem; color: var(--accent); }
+.background-tag { margin-left: 6px; font-size: 0.75rem; font-weight: 600; color: var(--working); white-space: nowrap; }
+.background { color: var(--working); }
 .review-tag { margin-left: 6px; font-size: 0.75rem; font-weight: 600; color: var(--accent); white-space: nowrap; }
 .choice { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 10px 12px; text-align: left; font: 500 0.95rem var(--sans);
   color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-m); }
@@ -267,6 +269,7 @@ input.code { font: 600 1.6rem var(--mono); letter-spacing: 0.15em; text-align: c
   font: 800 13px/1 var(--sans); color: #1f1e1d; background: var(--idle); }
 .agm.claude { background: #d97757; } .agm.codex { background: #9aa4b2; } .agm.gemini { background: #7b9cf0; }
 .agm.opencode { background: #c8c8c8; } .agm.devin { background: #6cc5b0; }
+.agm.copilot { background: #a371f7; } .agm.cline { background: #e5534b; } .agm.qwen { background: #5b7cff; } .agm.goose { background: #c8a27a; }
 .agm.shell { background: transparent; color: var(--quiet); border: 1.5px solid var(--quiet); border-radius: 7px; width: 24px; height: 24px; font-size: 11px; }
 .agm .ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid transparent; }
 .agm .ring.waiting { border-color: var(--waiting); }

@@ -1,0 +1,273 @@
+package main
+
+import (
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
+)
+
+func TestA4TaskFromATicket(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	git := true
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectAdd:
+			return proto.ProjectInfo{ID: "proj1", Name: "api", Git: git}, nil
+		case proto.MethodTaskCreate:
+			return proto.PaneInfo{ID: "p5", Cwd: "/src/wt", Branch: "api/eng-7-export"}, nil
+		case proto.MethodScheduleAdd:
+			return proto.ScheduledItem{ID: "s1"}, nil
+		}
+		return nil, nil
+	})
+	t.Chdir(t.TempDir())
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTask([]string{"-ticket", "ENG-7"}) })
+	if err != nil || out != "p5  /src/wt  api/eng-7-export\n" {
+		t.Fatalf("task -ticket: %q %v", out, err)
+	}
+	var tp proto.TaskCreateParams
+	srv.params(t, proto.MethodTaskCreate, &tp)
+	if tp.Ticket != "ENG-7" || tp.Prompt != "" || tp.Branch != "" || tp.Issue != 0 {
+		t.Fatalf("params %+v", tp)
+	}
+	// Words after it are added; several attempts number from its key.
+	a4Capture(t, "", func() { err = runTask([]string{"-ticket", "linear:eng-7", "-n", "2", "keep", "it", "small"}) })
+	srv.params(t, proto.MethodTaskCreate, &tp)
+	if err != nil || tp.Prompt != "keep it small" || !strings.Contains(tp.Branch, "eng-7") || tp.Ticket != "linear:eng-7" {
+		t.Fatalf("with words: %+v %v", tp, err)
+	}
+	// Queued: the ticket goes with the task the server keeps.
+	a4Capture(t, "", func() { err = runTask([]string{"-queue", "-ticket", "ENG-8"}) })
+	var it proto.ScheduledItem
+	srv.params(t, proto.MethodScheduleAdd, &it)
+	if err != nil || it.Task == nil || it.Task.Ticket != "ENG-8" {
+		t.Fatalf("queued: %+v %v", it, err)
+	}
+	// Refused before anything is asked of the server.
+	for _, args := range [][]string{{"-ticket", "seven"}, {"-ticket", "ENG-7", "-issue", "3"}, {"-ticket", "ENG-7", "-sandbox", "daytona"}} {
+		if a4Capture(t, "", func() { err = runTask(args) }); err == nil {
+			t.Fatalf("%v was taken", args)
+		}
+	}
+	git = false
+	if a4Capture(t, "", func() { err = runTask([]string{"-ticket", "ENG-7"}) }); err == nil || !strings.Contains(err.Error(), "git repository") {
+		t.Fatalf("no git: %v", err)
+	}
+	git = true
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapTickets })
+		return h
+	})
+	if a4Capture(t, "", func() { err = runTask([]string{"-ticket", "ENG-7"}) }); err == nil || !strings.Contains(err.Error(), "predates tasks from tickets") {
+		t.Fatalf("old server: %v", err)
+	}
+}
+
+func TestA4TicketCommand(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	inProject := true
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			if !inProject {
+				return nil, proto.Errorf(proto.ErrNotFound, "no project holds it")
+			}
+			return proto.ProjectPlace{ProjectID: "proj1", Root: "/src/api", Git: true}, nil
+		case proto.MethodProjectTickets:
+			return proto.TicketList{Tracker: "linear", Tickets: []proto.TicketInfo{
+				{Tracker: "linear", Key: "ENG-7", Title: "Export as CSV", Status: "Todo", URL: "https://linear.app/a/issue/ENG-7"},
+				{Tracker: "linear", Key: "ENG-12", Title: "Dark mode", Status: "In Progress"},
+			}}, nil
+		case proto.MethodTicketGet:
+			return proto.TicketInfo{Tracker: "linear", Key: "ENG-7", Title: "Export as CSV", Status: "Todo", URL: "https://linear.app/a/issue/ENG-7",
+				Body: "Users ask.", Comments: []proto.TicketComment{{Author: "Ana", Body: "Also XLSX?"}}, Links: []proto.TicketLink{{Title: "PR #3", URL: "https://gh/3"}}}, nil
+		case proto.MethodTicketUpdate:
+			return proto.TicketInfo{Tracker: "linear", Key: "ENG-7", Title: "Export as CSV", Status: "In Review"}, nil
+		}
+		return nil, nil
+	})
+	t.Chdir(t.TempDir())
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTicket([]string{"ls", "-mine", "-n", "5"}) })
+	if err != nil || !strings.Contains(out, "ENG-7   Todo         Export as CSV\n") || !strings.Contains(out, "ENG-12  In Progress  Dark mode\n") {
+		t.Fatalf("ls: %q %v", out, err)
+	}
+	var lp proto.TicketsParams
+	srv.params(t, proto.MethodProjectTickets, &lp)
+	if lp.ProjectID != "proj1" || !lp.Assigned || lp.Limit != 5 {
+		t.Fatalf("ls params %+v", lp)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"ls", "-json"}) })
+	if err != nil || !strings.Contains(out, `"key": "ENG-7"`) {
+		t.Fatalf("ls -json: %q %v", out, err)
+	}
+
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"show", "ENG-7"}) })
+	for _, want := range []string{"ENG-7  Export as CSV\n", "Todo · https://linear.app/a/issue/ENG-7", "Users ask.", "Ana: Also XLSX?", "PR #3  https://gh/3"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("show lacks %q: %q %v", want, out, err)
+		}
+	}
+
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"comment", "ENG-7", "PR", "opened:", "https://gh/3"}) })
+	var up proto.TicketUpdateParams
+	srv.params(t, proto.MethodTicketUpdate, &up)
+	if err != nil || up.Comment != "PR opened: https://gh/3" || up.Ticket != "ENG-7" || up.ProjectID != "proj1" || !strings.Contains(out, "commented on ENG-7") {
+		t.Fatalf("comment: %+v %q %v", up, out, err)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"status", "ENG-7", "In", "Review"}) })
+	up = proto.TicketUpdateParams{}
+	srv.params(t, proto.MethodTicketUpdate, &up)
+	if err != nil || up.Status != "In Review" || up.Comment != "" || !strings.Contains(out, "ENG-7 is In Review") {
+		t.Fatalf("status: %+v %q %v", up, out, err)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"link", "-title", "PR #3", "ENG-7", "https://gh/3"}) })
+	up = proto.TicketUpdateParams{}
+	srv.params(t, proto.MethodTicketUpdate, &up)
+	if err != nil || up.LinkURL != "https://gh/3" || up.LinkTitle != "PR #3" || !strings.Contains(out, "linked https://gh/3 to ENG-7") {
+		t.Fatalf("link: %+v %q %v", up, out, err)
+	}
+
+	// Outside any project: the ticket is still reached, with no project.
+	inProject = false
+	if a4Capture(t, "", func() { err = runTicket([]string{"show", "linear:ENG-7"}) }); err != nil {
+		t.Fatal(err)
+	}
+	var gp proto.TicketGetParams
+	srv.params(t, proto.MethodTicketGet, &gp)
+	if gp.ProjectID != "" || gp.Ticket != "linear:ENG-7" {
+		t.Fatalf("no project: %+v", gp)
+	}
+
+	// Usage mistakes, before anything is sent.
+	for _, args := range [][]string{nil, {"what"}, {"show"}, {"show", "seven"}, {"comment", "ENG-7"}, {"status", "ENG-7"}, {"link", "ENG-7"}, {"link", "ENG-7", "not-an-address"}, {"ls", "-tracker", "github"}} {
+		if a4Capture(t, "", func() { err = runTicket(args) }); err == nil {
+			t.Errorf("%v was taken", args)
+		}
+	}
+	// The server's refusal is said.
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodProjectResolve {
+			return proto.ProjectPlace{ProjectID: "proj1", Git: true}, nil
+		}
+		return nil, proto.Errorf(proto.ErrBadRequest, "Linear refused the key")
+	})
+	if a4Capture(t, "", func() { err = runTicket([]string{"show", "ENG-7"}) }); err == nil || !strings.Contains(err.Error(), "refused the key") {
+		t.Fatalf("refusal: %v", err)
+	}
+	// An older server.
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapTickets })
+		return h
+	})
+	if a4Capture(t, "", func() { err = runTicket([]string{"ls"}) }); err == nil || !strings.Contains(err.Error(), "predates tickets") {
+		t.Fatalf("old server: %v", err)
+	}
+}
+
+// conch ticket check: a line a tracker, connected, off or what is wrong,
+// then the projects; an older server is told to reload.
+func TestA4TicketCheck(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "proj1", Root: "/src/api", Git: true}, nil
+		case proto.MethodTicketCheck:
+			return proto.TicketCheckResult{
+				Trackers: []proto.TrackerState{
+					{Tracker: "github", State: proto.TrackerConnected, Who: "amit", KeyFrom: "gh", Area: "api", Open: 3, Mine: 1},
+					{Tracker: "linear", State: proto.TrackerConnected, Who: "Amit", Workspace: "Acme", KeyFrom: "Keychain (LINEAR_API_KEY)", Area: "ENG", Open: 100, More: true, Mine: 5},
+					{Tracker: "jira", State: proto.TrackerError, Error: "Jira refused the key (401 Unauthorized)"},
+				},
+				Projects: []proto.TrackerProjectState{{Project: "api", Tracker: "linear", Area: "ENG", Open: 23}, {Project: "web", Tracker: "jira", Area: "W", Error: "Jira refused the key"}},
+			}, nil
+		}
+		return nil, nil
+	})
+	t.Chdir(t.TempDir())
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTicket([]string{"check"}) })
+	for _, want := range []string{
+		"GitHub  connected  amit (gh) · 3 open, 1 yours in api\n",
+		"Linear  connected  Amit · Acme (Keychain (LINEAR_API_KEY)) · 100+ open, 5 yours in ENG\n",
+		"Jira    error      Jira refused the key (401 Unauthorized)\n",
+		"projects:\n", "api  linear  ENG  23 open", "web  jira    W    Jira refused the key",
+	} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("check lacks %q:\n%s%v", want, out, err)
+		}
+	}
+	var cp proto.TicketCheckParams
+	srv.params(t, proto.MethodTicketCheck, &cp)
+	if cp.ProjectID != "proj1" {
+		t.Fatalf("params %+v", cp)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"check", "-json"}) })
+	if err != nil || !strings.Contains(out, `"state": "connected"`) || !strings.Contains(out, `"key_from": "gh"`) {
+		t.Fatalf("-json: %q %v", out, err)
+	}
+	// Nothing set up reads as off, with where to set it up.
+	if s := trackerLines(proto.TicketCheckResult{Trackers: []proto.TrackerState{{Tracker: "linear", State: proto.TrackerOff}}}); s != "Linear  off  not set up ([trackers] in config.toml)\n" {
+		t.Fatalf("off: %q", s)
+	}
+
+	srv.Hello = func(n int) proto.HelloResult {
+		h := currentHello(n)
+		h.Capabilities = []string{proto.CapTickets}
+		return h
+	}
+	if _, _ = a4Capture(t, "", func() { err = runTicket([]string{"check"}) }); err == nil || !strings.Contains(err.Error(), "reload") {
+		t.Fatalf("older server: %v", err)
+	}
+}
+
+// conch ticket all: each project's tickets with what conch is doing.
+func TestA4TicketAll(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodTicketOverview {
+			return proto.TicketOverview{Projects: []proto.TicketProject{
+				{ProjectID: "r1", Name: "conch", Sources: []string{"github", "linear · ENG"}, Tickets: []proto.TicketRow{
+					{Source: "github", Key: "221", Number: 221, Title: "Tickets view", Mine: true, Doing: proto.TicketDoing{State: proto.DoingWorking, Pane: "p9"}},
+					{Source: "github", Key: "219", Number: 219, Title: "Intake", Doing: proto.TicketDoing{State: proto.DoingPR, PR: &proto.PRInfo{Number: 219, Checks: "pass"}}},
+					{Source: "linear", Key: "ENG-142", Title: "Retry uploads", Doing: proto.TicketDoing{State: proto.DoingQueued}},
+				}},
+				{ProjectID: "r2", Name: "cloud", Sources: []string{"jira · C"}, Errors: []string{"Jira refused the key"}},
+				{ProjectID: "r3", Name: "quiet", Sources: []string{"github"}},
+			}}, nil
+		}
+		return nil, nil
+	})
+	var err error
+	out, _ := a4Capture(t, "", func() { err = runTicket([]string{"all"}) })
+	for _, want := range []string{"conch  (github, linear · ENG)\n", "* #221     Tickets view   agent working (p9)", "#219     Intake         PR #219 · CI pass", "ENG-142  Retry uploads  queued", "cloud  (jira · C)\n  ! Jira refused the key\n"} {
+		if err != nil || !strings.Contains(out, want) {
+			t.Fatalf("all lacks %q:\n%s%v", want, out, err)
+		}
+	}
+	if strings.Contains(out, "quiet") {
+		t.Fatalf("a project with nothing to say:\n%s", out)
+	}
+	out, _ = a4Capture(t, "", func() { err = runTicket([]string{"all", "-mine"}) })
+	if err != nil || !strings.Contains(out, "#221") || strings.Contains(out, "#219") {
+		t.Fatalf("-mine:\n%s", out)
+	}
+	if s := overviewLines(proto.TicketOverview{}); s != "no open tickets\n" {
+		t.Fatalf("empty: %q", s)
+	}
+	srv.Hello = func(n int) proto.HelloResult { h := currentHello(n); h.Capabilities = nil; return h }
+	if _, _ = a4Capture(t, "", func() { err = runTicket([]string{"all"}) }); err == nil || !strings.Contains(err.Error(), "reload") {
+		t.Fatalf("older server: %v", err)
+	}
+}

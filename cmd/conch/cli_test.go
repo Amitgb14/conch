@@ -37,7 +37,7 @@ func TestA4MainHelpAndVersion(t *testing.T) {
 		}
 		// Every command, with all.
 		os.Args = []string{"conch", arg, "all"}
-		if out, _ := a4Capture(t, "", main); out != usage {
+		if out, _ := a4Capture(t, "", main); out != fullUsage() {
 			t.Fatalf("%s all printed %q", arg, out)
 		}
 	}

@@ -47,11 +47,14 @@ const more: { src: StaticImageData; alt: string; caption: string }[] = [
   },
 ]
 
-// Where the beta's zip is: on the release the site was built from, else
+// Where the app is: the page of the release the site was built from, else
 // the releases page (a site built before any tag, or from a dev version).
+// The page, not its zip: the site goes live when a version is tagged, and
+// the notarized app is uploaded after that, once Apple has accepted it, so
+// a link to the zip itself was a 404 until then (seen at v0.2.0).
 export function downloadURL(): string {
   const v = conchVersion()
-  return /^\d+\.\d+\.\d+$/.test(v) ? `${site.releases}/download/v${v}/Conch_${v}_macos_arm64.zip` : site.releases
+  return /^\d+\.\d+\.\d+$/.test(v) ? `${site.releases}/tag/v${v}` : site.releases
 }
 
 function Shot({ src, alt, priority }: { src: StaticImageData; alt: string; priority?: boolean }) {

@@ -2,7 +2,7 @@ export const metadata = { title: "Mac app", description: "conch in a native macO
 
 # Mac app
 
-Conch.app shows the same agents and terminals as the TUI in a native macOS window; closing it stops nothing.
+Conch.app shows the TUI's agents and terminals in a native macOS window; closing it stops nothing.
 
 <Shot
   name="desktop-agents"
@@ -23,15 +23,17 @@ Conch.app shows the same agents and terminals as the TUI in a native macOS windo
 
 ## The window
 
-The sidebar is conch's tree: each machine, its projects, agents, branches and terminals. Tabs and splits are as in the TUI.
+The sidebar is conch's tree; tabs and splits work as in the TUI.
 
-**How:** click a row to open it, right-click for its menu. ⌘K searches, ⌘. goes to the next waiting agent, ⌃⌘S hides the sidebar.
+**Windows:** `⌥⌘N`, or **Open in New Window** on a workspace or project.
+
+**How:** click a row to open it, right-click for its menu. ⌘. finds the next waiting agent, ⌃⌘S hides the sidebar.
 
 ## Settings
 
 conch's settings, including **Skills & MCP Servers**.
 
-**How:** ⚙ in the status bar, or **conch → Settings…** (⌘,). **View → Theme** and **View → Style** change the look.
+**How:** ⚙ in the status bar, or ⌘,. **View → Theme** and **View → Style** change the look.
 
 <Shot name="desktop-settings" alt="Conch.app's Settings panel with its sections down the left" caption="Settings, in the app." />
 
@@ -39,7 +41,7 @@ conch's settings, including **Skills & MCP Servers**.
 
 ## Plan limits
 
-The status bar shows each agent's plan use; a click lists every window and when it resets.
+The status bar shows each agent's plan use.
 
 <Shot name="desktop-limits" alt="Conch.app's plan windows" caption="Plan windows and tokens used." />
 
@@ -47,19 +49,19 @@ The status bar shows each agent's plan use; a click lists every window and when 
 
 Each pane runs [`conch attach`](/docs/cli#attach), drawn by Ghostty. A pane sized by another window is letterboxed.
 
-**How:** click **Take it**, or type in the pane, to size it to this window.
+**How:** **Take it**, or type, to size it here.
 
 ## The scratch layer
 
-A shell floating over the splits, in the project on screen.
+A shell floating over the splits.
 
 **How:** ⌥Space shows or hides it, ⌥⌘↩ docks it as a split, ⌥⌘T makes it a tab.
 
 ## A branch's changes
 
-A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick files or hunks and **Commit**; **✦ Write** drafts the message. Hover a line and press **+** to leave a note for the agent or a pull request comment.
+A branch opens in a tab: **Overview · Changes · Graph**. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** on a line leaves a note.
 
-**How:** ⋯ holds **Push**, **Merge into main…**, **Open Pull Request** and **Delete Branch…**.
+**How:** ⋯ holds **Push**, **Merge…**, **Open Pull Request** and **Delete Branch…**; a branch's menu has **Check Out…** for one with no worktree.
 
 <Shot
   name="desktop-git"
@@ -69,19 +71,25 @@ A click on a branch opens it in a tab: **Overview · Changes · Graph**. Tick fi
 
 ## Agent setup
 
-What each agent loads in a checkout: instructions, skills and MCP servers.
+What each agent loads in a checkout.
 
 **How:** **Agent setup** on a project's menu.
 
+## Left running
+
+An agent that left a dev server running shows *idle · 2 running*.
+
+**How:** hover it for each command; click it to stop one.
+
 ## Answering an agent without opening it
 
-Every waiting agent is a card under **Needs you**, with its question and its choices as buttons.
+Each waiting agent is a card under **Needs you**, its choices as buttons.
 
-**How:** click a button to answer, or the card to open the agent.
+**How:** click a choice to answer, or the card to open it.
 
 ## Files and sessions
 
-The **Files** row opens the checkout in an editor; the **Sessions** row lists saved conversations to search and resume.
+**Files** opens the checkout in an editor; **Sessions** lists saved conversations to search and resume.
 
 | Keys | |
 | --- | --- |
@@ -101,7 +109,9 @@ The **Files** row opens the checkout in an editor; the **Sessions** row lists sa
 
 An agent's files, a terminal and its chat in one tab.
 
-**How:** ⌥⌘B, or right-click an agent → **Open Workbench**. ⌥⌘1–⌥⌘4 pick the IDE, Chat First, Agent or JetBrains layout.
+**How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘4 pick a layout.
+
+**The chat:** attach files with ⇧⌘A. Off: `[app] chat = false`.
 
 ## Browser tabs
 
@@ -119,13 +129,21 @@ A web page in a tab beside the agents.
 
 The project's history as a graph.
 
-**How:** **Commit Graph** on a project's menu, or **Show in Commit Graph** on a branch's.
+**How:** **Commit Graph** on a project's or branch's menu.
 
 ## Starting agents and tasks
 
 A task gives an agent a prompt on a branch of its own.
 
-**How:** **File → New Task…** (⌘N); **File → Start Agent** (⇧⌘N) starts one where the focused pane is; **Add Project…** (⌘O).
+**How:** **File → New Task…** (⌘N), **File → Start Agent** (⇧⌘N), **Add Project…** (⌘O).
+
+A plain folder is offered **Initialize Git** first.
+
+## System Monitor
+
+The whole machine — CPU, memory, disk and its heaviest processes — on any machine conch reaches. It only shows.
+
+**How:** `⌥⌘M`, or the expand icon on the `▁▃▆` monitor.
 
 ## Keys
 
@@ -135,24 +153,26 @@ A task gives an agent a prompt on a branch of its own.
 | `⌘T` / `⌘D` | new terminal tab / split |
 | `⇧⌘↩` | zoom the focused split |
 | `⌘F` | find in the pane |
-| `⌘W` | close the split; the pane keeps running |
+| `⌥⌘M` | the [System Monitor](#system-monitor) |
+| `⇧⌘I` | Tickets |
+| `⌥⌘N` / ``⌘` `` | new window / next window |
+| `⌘W` | close the split (the pane runs on) |
 | `⌘1`–`⌘9` | go to a tab |
 | `⌘0` | the sidebar takes the keyboard |
 | `⌘/` | every keyboard shortcut |
 
-The TUI's prefix keys work too: `ctrl+b`, then a key from the [prefix table](/docs/configuration#rebinding-the-keys).
+The TUI's `ctrl+b` [prefix keys](/docs/configuration#rebinding-the-keys) work too.
 
 ## Installing the beta
 
-Download `Conch_<version>_macos_arm64.zip` from the [GitHub release page](https://github.com/Amitgb14/conch/releases). It needs Apple Silicon and macOS 14 or later.
+Download `Conch_<version>_macos_arm64.zip` from the [releases](https://github.com/Amitgb14/conch/releases); it needs Apple Silicon and macOS 14+.
 
-**How:** unzip it, drag **Conch.app** into **Applications** and open it. To update, replace the app.
+**How:** unzip it into **Applications**; **Conch → Check for Updates…** updates it.
 
 ## Building it
 
-Needs the Xcode Command Line Tools and Go; Ghostty needs Xcode 26 and Zig.
-
 ```sh
+# needs Xcode's Command Line Tools and Go; Ghostty also Xcode 26 and Zig
 macos/ghostty.sh                 # Ghostty's library → macos/vendor
 macos/bundle.sh                  # → macos/build/Conch.app
 ```

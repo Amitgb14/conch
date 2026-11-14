@@ -38,10 +38,15 @@ func TestAutopilotPolicyIsHandedOver(t *testing.T) {
 	m, mach, peer := fixModel(t, proto.CapAutopilot)
 	m.cfg.Verify.AutoFix, m.cfg.Verify.AutoMerge, m.cfg.Verify.AutoPR, m.cfg.Verify.AutoResolve = 2, true, true, 1
 	m.cfg.Verify.Commands["r2"] = "  " // no command is no check
+	m.cfg.Verify.Intake = map[string]string{"r1": " ready ", "r2": ""}
+	m.cfg.Verify.IntakeWIP = 2
+	m.cfg.Verify.Triage = map[string]string{"r1": "new", "r3": " "}
+	m.cfg.Verify.TriageAgent, m.cfg.Verify.TriageCommentOnly = " codex ", true
 	runBatch(m.pushAutopilot(mach.id))
 	var pol proto.AutopilotPolicy
 	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
-	if !reflect.DeepEqual(pol, proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true, AutoPR: true, AutoResolve: 1, Checks: map[string]string{"r1": "go test ./..."}}) {
+	if !reflect.DeepEqual(pol, proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true, AutoPR: true, AutoResolve: 1, Checks: map[string]string{"r1": "go test ./..."},
+		Intake: map[string]string{"r1": "ready"}, IntakeWIP: 2, Triage: map[string]string{"r1": "new"}, TriageAgent: "codex", TriageCommentOnly: true}) {
 		t.Fatalf("policy %+v", pol)
 	}
 

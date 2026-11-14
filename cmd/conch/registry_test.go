@@ -174,6 +174,18 @@ func TestProviderSearchAndInstall(t *testing.T) {
 	if _, err := os.Stat(sandbox.ProviderFilePath("acme")); !os.IsNotExist(err) {
 		t.Fatal("kept with the wrong hosts")
 	}
+	// And about the variable the key is read from: the file's is what is
+	// sent, so one that differs from the index's is never kept.
+	reg.publish("acme", strings.Replace(file, `key_env = "ACME_API_KEY"`, `key_env = "GITHUB_TOKEN"`, 1), nil)
+	if err := sandboxProviderCmd([]string{"install", "-y", "acme"}); err == nil || !strings.Contains(err.Error(), "reads your key from $GITHUB_TOKEN, not the $ACME_API_KEY") {
+		t.Fatalf("key_env: %v", err)
+	}
+	if _, err := os.Stat(sandbox.ProviderFilePath("acme")); !os.IsNotExist(err) {
+		t.Fatal("kept with another key_env")
+	}
+	if m, _ := sandbox.ReadInstalled(); len(m) != 0 {
+		t.Fatalf("recorded: %v", m)
+	}
 	// A registry that cannot be reached is said.
 	t.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1")
 	if err := sandboxProviderCmd([]string{"search"}); err == nil || !strings.Contains(err.Error(), "provider registry") {
@@ -226,6 +238,45 @@ func TestProviderUpdate(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(sandbox.ProviderFilePath("acme")); string(b) != v2 {
 		t.Fatal("new hosts taken without a yes")
+	}
+	// The same hosts, but another of the person's variables sent as the
+	// key: asked like new hosts, and never taken with -y.
+	if m, _ := sandbox.ReadInstalled(); m["acme"].KeyEnv != "ACME_API_KEY" {
+		t.Fatalf("key_env not recorded: %+v", m["acme"])
+	}
+	v4 := strings.Replace(v2, `key_env = "ACME_API_KEY"`, `key_env = "GITHUB_TOKEN"`, 1)
+	reg.publish("acme", v4, func(e *sandbox.RegistryEntry) { e.KeyEnv = "GITHUB_TOKEN" })
+	for _, args := range [][]string{{"-y"}, {}} {
+		out, err := update(args...)
+		if err != nil || !strings.Contains(out, "now sends $GITHUB_TOKEN as your API key") || !strings.Contains(out, "was $ACME_API_KEY") ||
+			!strings.Contains(out, "the key it sends changed: left as it is") {
+			t.Fatalf("key_env %v: %v %s", args, err, out)
+		}
+	}
+	if b, _ := os.ReadFile(sandbox.ProviderFilePath("acme")); string(b) != v2 {
+		t.Fatal("a new key_env taken without a yes")
+	}
+	// So is the header it goes in.
+	v5 := strings.Replace(v2, `key_env = "ACME_API_KEY"`, "key_env = \"ACME_API_KEY\"\nauth_header = \"X-Api-Key\"\nauth_value = \"{key}\"", 1)
+	reg.publish("acme", v5, nil)
+	if out, _ := update("-y"); !strings.Contains(out, "as X-Api-Key: {key} (was $ACME_API_KEY, as Authorization: Bearer {key})") ||
+		!strings.Contains(out, "the key it sends changed: left as it is") {
+		t.Fatalf("auth header: %s", out)
+	}
+	// A record from a conch that kept no key_env: asked once, since what
+	// it sent before is not known.
+	m, _ := sandbox.ReadInstalled()
+	old := m["acme"]
+	old.KeyEnv, old.AuthHeader, old.AuthValue = "", "", ""
+	raw, _ := json.Marshal(map[string]any{"acme": map[string]string{"sha256": old.SHA256, "api_host": old.APIHost, "ssh_host": old.SSHHost, "installed": old.Installed}})
+	os.WriteFile(filepath.Join(sandbox.ProvidersDir(), "registry.json"), raw, 0o600)
+	v6 := strings.Replace(v2, `label = "Acme Cloud"`, `label = "Acme Cloud 2"`, 1)
+	reg.publish("acme", v6, nil)
+	if out, _ := update("-y"); !strings.Contains(out, "was not recorded") || !strings.Contains(out, "the key it sends changed: left as it is") {
+		t.Fatalf("old record: %s", out)
+	}
+	if b, _ := os.ReadFile(sandbox.ProviderFilePath("acme")); string(b) != v2 {
+		t.Fatal("taken over an old record without a yes")
 	}
 	// Edited here: left alone.
 	os.WriteFile(sandbox.ProviderFilePath("acme"), []byte(v2+"\n# mine\n"), 0o600)

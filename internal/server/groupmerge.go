@@ -60,26 +60,81 @@ func (g *groupBook) findTask(group, branch string) (*savedTask, *proto.Error) {
 // isTaskFolder says whether path (or real, the same with its links
 // resolved) is a task's folder.
 func (g *groupBook) isTaskFolder(path, real string) bool {
+	_, ok := g.taskAt(path, real)
+	return ok
+}
+
+// taskAt is the task whose folder path (or real) is, a copy.
+func (g *groupBook) taskAt(path, real string) (savedTask, bool) {
 	g.mu.Lock()
-	var folders []string
+	var tasks []savedTask
 	for _, sg := range g.groups {
 		for _, t := range sg.Tasks {
 			if t.Folder != "" {
-				folders = append(folders, t.Folder)
+				t.Projects, t.Panes = slices.Clone(t.Projects), slices.Clone(t.Panes)
+				tasks = append(tasks, t)
 			}
 		}
 	}
 	g.mu.Unlock()
-	for _, f := range folders {
+	for _, t := range tasks {
+		f := t.Folder
 		r, err := filepath.EvalSymlinks(f)
 		if err != nil {
 			r = f
 		}
 		if f == path || f == real || r == path || r == real {
-			return true
+			return t, true
 		}
 	}
-	return false
+	return savedTask{}, false
+}
+
+// taskFolderInScope: a task's folder — its brief and the links to its
+// worktrees — is an agent's to change when it works on that task: it is
+// one of the agents the task started, or was started by one, or started
+// one itself, or works in one of the task's repos, whose worktrees on
+// the task's branch it may change already. It is in no project, so the
+// project rule waved every agent through, and any could rewrite another
+// group's brief or delete its links.
+func (s *Server) taskFolderInScope(caller scopeCaller, method, root string) *proto.Error {
+	real, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		real = root
+	}
+	t, ok := s.groups.taskAt(root, real)
+	if !ok {
+		return nil
+	}
+	if caller.project != "" && slices.Contains(t.Projects, projectRoot(s, caller.project)) {
+		return nil
+	}
+	var mine []string // the caller's pane and the panes that started it
+	if !caller.remote {
+		mine = append(mine, caller.id)
+		if e, perr := s.get(caller.id); perr == nil {
+			mine = append(mine, e.creators()...)
+		}
+	}
+	for _, id := range t.Panes {
+		if slices.Contains(mine, id) {
+			return nil
+		}
+		if e, perr := s.get(id); perr == nil && startedBy(e, caller) {
+			return nil
+		}
+	}
+	// The method's verb is not used: fs.mkdir's names the ssh case.
+	return outOfScope(caller, "change files in the task folder %s (%s): it is not working on that task", t.Folder, method)
+}
+
+// projectRoot is the folder of the project id, "" for none.
+func projectRoot(s *Server, id string) string {
+	p, perr := s.projects.get(id)
+	if perr != nil {
+		return ""
+	}
+	return p.root
 }
 
 func mergeKey(group, branch string) string { return group + "\x00" + branch }
@@ -203,7 +258,13 @@ func (g *groupBook) mergeStep(group, branch string, order, merged []string) {
 		case pr.Checks != "pass":
 			hold = fmt.Sprintf("%s #%d is waiting on its checks", info.Name, pr.Number)
 		default:
-			if h := g.s.mergeHold(info, branch, pr, false); h != "" {
+			// The same holds as the autopilot's, and the same check that
+			// what GitHub would merge is this branch's own work.
+			h := g.s.mergeHold(info, branch, pr, false)
+			if h == "" {
+				h = mergeOwnHead(p, branch, pr)
+			}
+			if h != "" {
 				hold = info.Name + ": " + h
 			}
 		}

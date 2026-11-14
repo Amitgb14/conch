@@ -117,10 +117,15 @@ type Tracker struct {
 	}
 	sessionID     string
 	screenWorking time.Time // last time a working rule matched
-	base          string    // state before the done/seen overlay
-	seen          bool
-	status        Status
-	last          Explanation
+	// interrupted is when somebody stopped the agent through conch
+	// (agent.interrupt). An interrupt fires no hook, so the hook's
+	// "working" would otherwise stand until hook_working_stale; until the
+	// next turn begins, the screen no longer showing work is enough.
+	interrupted time.Time
+	base        string // state before the done/seen overlay
+	seen        bool
+	status      Status
+	last        Explanation
 }
 
 // NewTracker creates a tracker. hint names the agent the pane was launched
@@ -184,6 +189,9 @@ func (t *Tracker) Hook(ev HookEvent, now time.Time) {
 	if !ok {
 		return
 	}
+	if turnStarts[ev.Event] {
+		t.interrupted = time.Time{}
+	}
 	t.hook.state, t.hook.reason, t.hook.message, t.hook.at = state, "hook:"+ev.Event, ev.Message, now
 	t.hook.failed = ev.Event == "StopFailure" || ev.Event == "session.error"
 	if t.hook.failed && t.hook.message == "" {
@@ -193,6 +201,18 @@ func (t *Tracker) Hook(ev HookEvent, now time.Time) {
 		t.hook.reason += ":" + ev.NotificationType
 	}
 }
+
+// turnStarts are the hook events that begin a new piece of work, after
+// which an earlier interrupt says nothing.
+var turnStarts = map[string]bool{"UserPromptSubmit": true, "BeforeAgent": true, "session.busy": true, "SessionStart": true}
+
+// interruptHold is how long an interrupt is believed without a new turn:
+// past it, an agent still at work (one that went on by itself) is read as
+// hooks and staleness say, as before.
+const interruptHold = 30 * time.Second
+
+// Interrupted notes that the agent was just sent its interrupt key.
+func (t *Tracker) Interrupted(now time.Time) { t.interrupted = now }
 
 // UserInput notes that someone typed into the pane, which also means they
 // have seen it. A hook-reported blocked state is dropped: whatever was asked
@@ -296,8 +316,12 @@ func (t *Tracker) Observe(o Observation) bool {
 			if t.screenWorking.After(lastEvidence) {
 				lastEvidence = t.screenWorking
 			}
-			if next.State == StateWorking && stale > 0 && (rule == nil || rule.State != StateWorking) &&
-				o.Now.Sub(lastEvidence) > stale {
+			quiet := (rule == nil || rule.State != StateWorking) && (prog == nil || prog.State != programWorking)
+			stopped := !t.interrupted.IsZero() && o.Now.Sub(t.interrupted) < interruptHold
+			switch {
+			case next.State == StateWorking && quiet && stopped:
+				next.State, next.Source, next.Reason, next.Message, next.Failed = StateIdle, "screen", "interrupted", "", false
+			case next.State == StateWorking && stale > 0 && quiet && o.Now.Sub(lastEvidence) > stale:
 				next.State, next.Source, next.Reason, next.Message, next.Failed = StateIdle, "screen", "hook_working_stale", "", false
 			}
 		case prog != nil:
@@ -336,7 +360,8 @@ func (t *Tracker) Observe(o Observation) bool {
 		// working first — which conch would otherwise require, and would
 		// miss for a program that finishes between two looks.
 		t.seen = false
-	case base == StateIdle && t.base == StateWorking && !o.Watched:
+	case base == StateIdle && t.base == StateWorking && !o.Watched && next.Reason != "interrupted":
+		// Stopped by somebody is not finished for nobody: they are there.
 		t.seen = false
 	case base != StateIdle:
 		t.seen = true
@@ -389,13 +414,15 @@ type TrackerState struct {
 	// a program that said "done" once and has not spoken since does not
 	// have that answered for it again after a reload.
 	ProgramAt time.Time `json:"program_at,omitempty"`
+	// Interrupted is when conch last sent the agent its interrupt key.
+	Interrupted time.Time `json:"interrupted,omitempty"`
 }
 
 // Export returns the tracker's state.
 func (t *Tracker) Export() TrackerState {
 	return TrackerState{Hint: t.hint, HookState: t.hook.state, HookReason: t.hook.reason, HookMessage: t.hook.message,
 		HookAt: t.hook.at, HookFailed: t.hook.failed, SessionID: t.sessionID, ScreenWorking: t.screenWorking, Base: t.base, Seen: t.seen,
-		Status: t.status, ProgramAt: t.programAt}
+		Status: t.status, ProgramAt: t.programAt, Interrupted: t.interrupted}
 }
 
 // RestoreTracker rebuilds a tracker from exported state.
@@ -404,6 +431,7 @@ func RestoreTracker(manifests map[string]*Manifest, st TrackerState) *Tracker {
 	t.hook.state, t.hook.reason, t.hook.message, t.hook.at, t.hook.failed = st.HookState, st.HookReason, st.HookMessage, st.HookAt, st.HookFailed
 	t.sessionID, t.screenWorking, t.base, t.seen, t.status = st.SessionID, st.ScreenWorking, st.Base, st.Seen, st.Status
 	t.programAt = st.ProgramAt
+	t.interrupted = st.Interrupted
 	if st.Status.Agent != "" {
 		t.agent = manifests[st.Status.Agent]
 	}

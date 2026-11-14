@@ -184,12 +184,31 @@ func FetchProviderFile(ctx context.Context, e RegistryEntry) ([]byte, error) {
 }
 
 // Installed is what was installed from the registry: the file's hash as
-// it came, and the hosts it named then.
+// it came, the hosts it named then, and which of the person's variables
+// it read the key from and how it sent it. A record from before KeyEnv
+// was kept has it empty, which says nothing — not that the file named
+// none (a file must) — so an update asks about it once.
 type Installed struct {
-	SHA256    string `json:"sha256"`
-	APIHost   string `json:"api_host"`
-	SSHHost   string `json:"ssh_host"`
-	Installed string `json:"installed"`
+	SHA256     string `json:"sha256"`
+	APIHost    string `json:"api_host"`
+	SSHHost    string `json:"ssh_host"`
+	KeyEnv     string `json:"key_env,omitempty"`
+	AuthHeader string `json:"auth_header,omitempty"`
+	AuthValue  string `json:"auth_value,omitempty"`
+	Installed  string `json:"installed"`
+}
+
+// FileKey is how a provider file sends a key: the variable it is read
+// from, and the header and value it goes in (empty for the defaults).
+func FileKey(f *ProviderFile) (keyEnv, authHeader, authValue string) {
+	return f.KeyEnv, f.AuthHeader, f.AuthValue
+}
+
+// SameKey says whether f sends the key as in was recorded sending it;
+// false for a record that never said.
+func (in Installed) SameKey(f *ProviderFile) bool {
+	env, h, v := FileKey(f)
+	return in.KeyEnv != "" && in.KeyEnv == env && in.AuthHeader == h && in.AuthValue == v
 }
 
 func installedPath() string { return filepath.Join(ProvidersDir(), "registry.json") }
@@ -293,7 +312,9 @@ func InstallProviderFile(name string, data []byte) (*ProviderFile, error) {
 	}
 	sum := sha256.Sum256(data)
 	api, ssh := FileHosts(f)
-	m[name] = Installed{SHA256: hex.EncodeToString(sum[:]), APIHost: api, SSHHost: ssh, Installed: time.Now().UTC().Format("2006-01-02")}
+	env, h, v := FileKey(f)
+	m[name] = Installed{SHA256: hex.EncodeToString(sum[:]), APIHost: api, SSHHost: ssh, KeyEnv: env, AuthHeader: h, AuthValue: v,
+		Installed: time.Now().UTC().Format("2006-01-02")}
 	return f, writeInstalled(m)
 }
 

@@ -714,11 +714,11 @@ func planLibServer(e Env, t agentFiles, s mcpServer, replace bool) SyncChange {
 			if len(out) > 0 {
 				out = append(out, '\n', '\n')
 			}
-			return writeFile(t.mcp, SyncMCP, append(out, tomlServer(t.mcpKey, s)...))(u)
+			return writeFileAs(t.mcp, SyncMCP, append(out, tomlServer(t.mcpKey, s)...), literalIn(s) != "")(u)
 		}
 		return c
 	}
-	c.write = editJSONServers(t, func(servers map[string]any) { servers[s.Name] = jsonServer(t.name, s) })
+	c.write = editJSONServers(t, literalIn(s) != "", func(servers map[string]any) { servers[s.Name] = jsonServer(t.name, s) })
 	return c
 }
 
@@ -758,7 +758,7 @@ func planServerRemove(e Env, t agentFiles, name string) SyncChange {
 		}
 		return c
 	}
-	c.write = editJSONServers(t, func(servers map[string]any) { delete(servers, name) })
+	c.write = editJSONServers(t, false, func(servers map[string]any) { delete(servers, name) })
 	return c
 }
 
@@ -777,7 +777,7 @@ func plainJSON(path string) bool {
 // editJSONServers changes the servers in an agent's JSON file, keeping
 // everything else in it; the file is read when the change is applied, so
 // two changes to one file do not write over each other.
-func editJSONServers(t agentFiles, edit func(map[string]any)) func(*undoLog) error {
+func editJSONServers(t agentFiles, secret bool, edit func(map[string]any)) func(*undoLog) error {
 	return func(u *undoLog) error {
 		doc := map[string]any{}
 		b, err := os.ReadFile(t.mcp)
@@ -800,7 +800,7 @@ func editJSONServers(t agentFiles, edit func(map[string]any)) func(*undoLog) err
 		if err != nil {
 			return err
 		}
-		return writeFile(t.mcp, SyncMCP, append(out, '\n'))(u)
+		return writeFileAs(t.mcp, SyncMCP, append(out, '\n'), secret)(u)
 	}
 }
 
@@ -877,6 +877,9 @@ func planClaudeServer(e Env, t agentFiles, s mcpServer, replace bool) SyncChange
 		c.Action, c.Detail = ActionSkip, "Claude Code is not installed here, and conch adds its servers with its own command"
 		return c
 	}
+	// A plain server's token goes on claude's command line, the only way
+	// in (add-json reads no stdin or file), so it is in the process list
+	// for that moment: where it is chosen, the person is told so.
 	body, _ := json.Marshal(claudeJSON(s))
 	c.Action, c.Detail = ActionCreate, "with claude mcp add-json · "+describe(s)
 	if replace {

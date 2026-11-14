@@ -12,12 +12,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/adapter"
@@ -27,6 +29,7 @@ import (
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sysstat"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -38,6 +41,8 @@ type Server struct {
 	// usage is what the agents here saved, read as it is asked for
 	// (usage.history.v1) and kept, so asking again reads only what is new.
 	usage *usage.History
+	// system reads the whole machine for system.stats (system.go).
+	system *sysstat.Sampler
 	// sizes says whose size a pane shown by several clients takes (size.go).
 	sizes paneSizes
 	// agentsSeen is which agents this machine was last found to have,
@@ -53,6 +58,12 @@ type Server struct {
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
+	// procSeen is when each process ps could not date was first seen,
+	// for counting an agent's background jobs (background.go).
+	// lastPorts is what the last look found listening, by pid.
+	bgMu      sync.Mutex
+	procSeen  map[int]time.Time
+	lastPorts map[int][]int
 	groups    *groupBook
 	// secrets are MCP servers' tokens read from the Keychain (secrets.go).
 	secrets secretCache
@@ -63,6 +74,8 @@ type Server struct {
 	schedules *scheduleBook
 	reviews   *reviewBook
 	autopilot *autopilot
+	intake    *intakeBook
+	triage    *triageBook
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -75,7 +88,10 @@ type Server struct {
 	lineIdx  lineIndexes // where the lines of big files being read start
 
 	limitsMu sync.Mutex
-	limits   map[string]proto.PlanLimits // by agent
+	limits   map[string]proto.PlanLimits // by agent and account (limitKey)
+
+	// accountsMu holds accounts.json still while it is changed (accounts.go).
+	accountsMu sync.Mutex
 
 	mu      sync.Mutex
 	ln      net.Listener
@@ -127,6 +143,7 @@ func New(sockPath, configDir string) *Server {
 	now := time.Now()
 	s := &Server{
 		usage:     usage.NewHistory(),
+		system:    sysstat.New(systemSource()),
 		sockPath:  sockPath,
 		configDir: configDir,
 		started:   now,
@@ -142,6 +159,8 @@ func New(sockPath, configDir string) *Server {
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
 	s.schedules = loadSchedule(configDir)
+	s.intake = loadIntake(configDir)
+	s.triage = loadTriage(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
 	if os.Getenv(reloadStateEnv) == "" {
@@ -168,6 +187,7 @@ var ErrAlreadyRunning = errors.New("conch server is already running")
 // Run listens and serves until Stop is called or the process is signalled.
 func (s *Server) Run() error {
 	s.running.Store(true)
+	dropMallocStackLogging()
 	defer s.ranOnce.Do(func() { close(s.ran) })
 	// sockaddr_un.sun_path is 104 bytes on macOS (108 on Linux), NUL included.
 	if len(s.sockPath) > 103 {
@@ -206,16 +226,21 @@ func (s *Server) Run() error {
 	}
 
 	// Loading runs git per project; don't make clients wait for it.
-	s.projects.background(func() {
+	loaded := s.projects.startLoading()
+	if !s.projects.background(func() {
 		s.projects.load()
+		loaded()
 		s.projects.run()
-	})
+	}) {
+		loaded()
+	}
 	go s.uploads.run(s.quit)
 	go s.packs.run(s.quit)
 	go s.sshFiles.run(s.quit)
 	go s.watcher.run(s.quit)
 	go s.runSchedule(s.quit)
 	go s.runAutopilot(s.quit)
+	go s.runIntake(s.quit)
 	go s.runListening(s.quit)
 	go s.runShellTheme(s.quit)
 
@@ -322,6 +347,7 @@ func (s *Server) unlinkSocket() {
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
 	s.watcher.stop()
+	s.system.Stop()
 }
 
 // StopAndWait stops the server and waits until Run has returned — every
@@ -409,7 +435,7 @@ func (s *Server) serve(nc net.Conn) {
 		// Requests that run git or start processes can take a while; run
 		// them aside so keystrokes on this connection are never held up.
 		if slowMethods[msg.Method] && msg.ID != "" {
-			go s.handle(c, msg)
+			go s.handleAside(c, msg)
 			continue
 		}
 		if !s.handle(c, msg) {
@@ -428,13 +454,44 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true,
-	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true,
+	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
+	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
-	proto.MethodFSSearch: true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
+	proto.MethodSystemStats: true, // ps, vm_stat
+	proto.MethodFSSearch:    true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
+}
+
+// repanic makes handleAside's recover panic again, so a test meets the
+// bug rather than an error reply that hides it.
+var repanic = testing.Testing()
+
+// handleAside is handle for a request run on a goroutine of its own. A
+// panic there would end the whole server — every pane with it — for one
+// bad request, so it becomes an error reply and a log line with the stack
+// instead. Only these: what they hold is a file or a git process, while a
+// request handled in line may hold the server's locks, and carrying on
+// past a panic there would trade a crash for a hang.
+func (s *Server) handleAside(c *client, msg proto.Message) {
+	recovering(c, msg, func() { s.handle(c, msg) })
+}
+
+func recovering(c *client, msg proto.Message, handle func()) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		log.Printf("%s: panic: %v\n%s", msg.Method, r, debug.Stack())
+		if repanic {
+			panic(r)
+		}
+		c.send(proto.Message{ID: msg.ID, Error: proto.Errorf(proto.ErrInternal, "%s failed inside the server: %v", msg.Method, r)})
+	}()
+	handle()
 }
 
 // handle dispatches one request and writes the reply. It reports false
@@ -937,6 +994,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		s.reviewDropped(ref.ID, "")
 		return nil, nil
 
+	case proto.MethodProjectGitInit:
+		ref, perr := decode[proto.ProjectRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.gitInit(ref.ID)
+
 	case proto.MethodProjectRefresh:
 		ref, perr := decode[proto.ProjectRef](msg)
 		if perr != nil {
@@ -1113,8 +1177,50 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodAgentLimits:
 		return s.allLimits(), nil
 
+	case proto.MethodAccountList:
+		return s.listAccounts(), nil
+
+	case proto.MethodAccountAdd:
+		ap, perr := decode[proto.AccountAddParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.addAccount(ap)
+
+	case proto.MethodAccountRemove:
+		ar, perr := decode[proto.AccountRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.removeAccount(ar)
+
+	case proto.MethodAccountPin:
+		pp, perr := decode[proto.AccountPinParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.pinAccount(pp)
+
+	case proto.MethodAccountFailover:
+		fp, perr := decode[proto.AccountFailoverParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.setFailover(fp)
+
 	case proto.MethodUsageHistory:
-		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now()), nil
+		var others []usage.Root
+		for _, a := range s.accountBook().Accounts {
+			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
+		}
+		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
+
+	case proto.MethodSystemStats:
+		sp, perr := decode[proto.SystemStatsParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.systemStats(sp), nil
 
 	case proto.MethodSessionList:
 		lp, perr := decode[proto.SessionListParams](msg)
@@ -1323,6 +1429,36 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.decidePermission(ask)
 
+	case proto.MethodProjectTickets:
+		tp, perr := decode[proto.TicketsParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.tickets(tp)
+	case proto.MethodTicketOverview:
+		op, perr := decode[proto.TicketOverviewParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.ticketOverview(op)
+	case proto.MethodTicketCheck:
+		cp, perr := decode[proto.TicketCheckParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.ticketCheck(cp)
+	case proto.MethodTicketGet:
+		gp, perr := decode[proto.TicketGetParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.ticketGet(gp)
+	case proto.MethodTicketUpdate:
+		up, perr := decode[proto.TicketUpdateParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.ticketUpdate(up)
 	case proto.MethodProjectIssues:
 		ip, perr := decode[proto.IssuesParams](msg)
 		if perr != nil {
@@ -1371,6 +1507,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.autopilot.set(pol)
 		s.autopilotMerges()
+		if len(pol.Intake) > 0 || len(pol.Triage) > 0 {
+			go s.backlogOnce() // a label just named is looked at now, not in five minutes
+		}
 		return s.autopilotState(), nil
 
 	case proto.MethodAutopilotCheck:
@@ -1401,12 +1540,34 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.agentReply(rp)
 
+	case proto.MethodAgentInterrupt:
+		ip, e, perr := withPane(s, msg, func(p proto.AgentInterruptParams) string { return p.ID })
+		if perr != nil {
+			return nil, perr
+		}
+		s.typedBy(c, e)
+		return s.interruptAgent(ip)
+
+	case proto.MethodAgentAttach:
+		ap, perr := decode[proto.AgentAttachParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.attachFolder(ap)
+
 	case proto.MethodAgentChat:
 		rp, perr := decode[proto.AgentChatParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
 		return s.agentChat(rp)
+
+	case proto.MethodAgentBackgroundStop:
+		bp, perr := decode[proto.AgentBackgroundStopParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.stopJob(bp)
 
 	case proto.MethodBranchCILog:
 		lp, perr := decode[proto.BranchCILogParams](msg)
@@ -1543,6 +1704,14 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	if err != nil {
 		dir = cp.Cwd
 	}
+	// The account is chosen by the resolved folder, as pins are kept, and
+	// before anything starts, so an account that cannot be had leaves
+	// nothing behind.
+	acct, perr := s.chooseAccount(cp.Agent, cp.Account, dir)
+	if perr != nil {
+		return proto.PaneInfo{}, perr
+	}
+	cp.Env = append(acct.Env(cp.Agent), cp.Env...)
 	var proj *project
 	if !cp.NoProject {
 		proj = s.projects.ensure(dir)
@@ -1579,6 +1748,7 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	}
 	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
 	e.launched = cp.Agent
+	e.account = acct.Account
 
 	s.mu.Lock()
 	s.panes[id] = e
@@ -1601,8 +1771,12 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 // startTask is createTask saying the branch the task is on, which it may
 // have named itself: a task waiting for this one starts from it.
 func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
-	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 {
+	tp.Ticket = strings.TrimSpace(tp.Ticket)
+	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 && tp.Ticket == "" {
 		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
+	}
+	if tp.Issue > 0 && tp.Ticket != "" {
+		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task works on a GitHub issue or a ticket, not both")
 	}
 	p, perr := s.projects.get(tp.ProjectID)
 	if perr != nil {
@@ -1610,6 +1784,11 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 	}
 	if tp.Issue > 0 {
 		if perr := s.issueTask(p, &tp); perr != nil {
+			return proto.PaneInfo{}, "", perr
+		}
+	}
+	if tp.Ticket != "" {
+		if perr := s.ticketTask(p, &tp); perr != nil {
 			return proto.PaneInfo{}, "", perr
 		}
 	}
@@ -1630,17 +1809,21 @@ func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *
 			return proto.PaneInfo{}, "", perr
 		}
 	}
+	if _, perr := s.chooseAccount(tp.Agent, tp.Account, ""); perr != nil {
+		return proto.PaneInfo{}, "", perr
+	}
 	path, _, perr := s.projects.addWorktree(p, tp.Branch, tp.Base)
 	if perr != nil {
 		return proto.PaneInfo{}, "", perr
 	}
 	s.startSetup(p, path, tp.Branch)
 	info, perr := s.create(proto.PaneCreateParams{
-		Agent:  tp.Agent,
-		Prompt: tp.Prompt + s.shipNote(p.id),
-		Cwd:    path,
-		Cols:   tp.Cols,
-		Rows:   tp.Rows,
+		Agent:   tp.Agent,
+		Account: tp.Account,
+		Prompt:  tp.Prompt + s.shipNote(p.id),
+		Cwd:     path,
+		Cols:    tp.Cols,
+		Rows:    tp.Rows,
 	})
 	if perr != nil || tp.Name == "" {
 		return info, tp.Branch, perr

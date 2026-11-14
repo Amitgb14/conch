@@ -21,6 +21,10 @@ import (
 // machine or project, where the folder, both for people.
 func newPlainTaskDialog(m Model, mid, title, where, dir string, loose bool) *dialog {
 	intro := "Starts the agent in " + where + " with the prompt. It is not a git repository, so there is no branch or worktree."
+	if !loose {
+		// A project's folder can become one: the row's menu says how.
+		intro += " For branches, make it one first: the row's menu, Make it a git repository."
+	}
 	d := newDialog(m, " New task · "+title+" ", []string{intro}, []string{"Prompt", "Agent", "Attempts"}, nil)
 	d.fields[1].in.Placeholder = m.defaultAgent() + " (default · " + strings.Join(knownAgents(&m), ", ") + ", or several: claude,codex)"
 	d.fields[2].in.Placeholder = "1 (every attempt works in the same folder)"

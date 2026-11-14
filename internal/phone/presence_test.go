@@ -13,8 +13,9 @@ func TestPresenceFromSockets(t *testing.T) {
 	isolate(t)
 	f := newFixture(t)
 	p := f.pair(PermFull)
-	if _, ok := f.store.Presence()[p.id]; ok {
-		t.Fatal("a phone that never opened the app has a presence")
+	// Its calls (pairing's hello) are seen; only a socket makes it on.
+	if got := f.store.Presence()[p.id]; got.Connected || got.LastSeen.IsZero() {
+		t.Fatalf("a phone that only made calls: %+v", got)
 	}
 	s := p.socket()
 	waitFor(t, "the phone on", func() bool { return f.store.Presence()[p.id].Connected })

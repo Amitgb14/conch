@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Amitgb14/conch/internal/cloud"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
@@ -45,9 +46,12 @@ func cloudTick() tea.Cmd {
 }
 
 // askCloud asks the control plane for the account's machines — when
-// there is an account.
-func askCloud() tea.Cmd {
-	if !cloud.SignedIn() {
+// there is an account, and Conch Cloud is enabled or a cloud machine is
+// already in the tree. Hidden (config.CloudEnabled) is not broken: a
+// machine somebody has keeps its state and its Wake, but a conch with
+// none asks Conch Cloud nothing while it is switched off.
+func (m Model) askCloud() tea.Cmd {
+	if !cloud.SignedIn() || !(config.CloudEnabled(m.cfg) || m.hasCloudMachine()) {
 		return nil
 	}
 	return func() tea.Msg {
@@ -97,6 +101,16 @@ func (m *Model) cloudMachines(msg cloudMachinesMsg) tea.Cmd {
 		}
 	}
 	return tea.Batch(append(cmds, m.syncCatalog(), m.rebuild())...)
+}
+
+// hasCloudMachine reports whether a Conch Cloud machine is in the tree.
+func (m Model) hasCloudMachine() bool {
+	for _, mach := range m.machines {
+		if _, ok := mach.cloudID(); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // cloudID is the machine's Conch Cloud id, for a cloud machine.
@@ -183,10 +197,10 @@ func (m *Model) cloudOpDone(msg cloudOpDoneMsg) tea.Cmd {
 		// Connecting waits while it wakes (conch cloud exec does).
 		mach.sandboxState = ""
 		m.setFlash("waking "+mach.label+"; it connects once it is up", false)
-		return tea.Batch(m.reconnect(mach.id, false), askCloud())
+		return tea.Batch(m.reconnect(mach.id, false), m.askCloud())
 	}
 	mach.close()
 	mach.state, mach.err, mach.sandboxState = stateAttention, mach.label+" is asleep", sandbox.State(cloud.StateAsleep)
 	m.setFlash(mach.label+" is going to sleep · its disk is kept", false)
-	return tea.Batch(m.rebuild(), askCloud())
+	return tea.Batch(m.rebuild(), m.askCloud())
 }

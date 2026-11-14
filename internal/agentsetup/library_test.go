@@ -18,7 +18,8 @@ func libHome(t *testing.T) (string, Env) {
 	os.MkdirAll(home, 0o755)
 	t.Setenv("HOME", home)
 	t.Setenv("CONCH_HOME", conchHome)
-	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(v, "")
 	}
 	bin := filepath.Join(base, "bin")
@@ -182,7 +183,7 @@ func TestLibraryServers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=pending gemini=differs opencode=off devin=pending" {
+	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=pending gemini=differs opencode=off devin=pending copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("cells: %s", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "opencode")); !os.IsNotExist(err) {
@@ -206,7 +207,7 @@ func TestLibraryServers(t *testing.T) {
 		t.Fatalf("devin %v", devin)
 	}
 	_, cs, _ = LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=on gemini=differs opencode=off devin=on" {
+	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=on gemini=differs opencode=off devin=on copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("after apply: %s", got)
 	}
 	// A second apply has nothing to do.
@@ -310,7 +311,7 @@ func TestLibraryPlainServer(t *testing.T) {
 	}
 	_, cs, _ := LibraryStatus(e)
 	// Devin reads OpenCode's servers, so it has this one already.
-	if got := cells(cs, SyncMCP, "wiki"); got != "claude=off codex=on gemini=on opencode=on devin=theirs" {
+	if got := cells(cs, SyncMCP, "wiki"); got != "claude=off codex=on gemini=on opencode=on devin=theirs copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("after apply: %s", got)
 	}
 	if res, _ := ApplyLibrary(e, false); res.Writes() != 0 {
@@ -341,7 +342,7 @@ func TestLibraryClaudeAndDevin(t *testing.T) {
 	mustSave(t, Library{Servers: []LibServer{{Name: "docs", URL: "https://docs.example/mcp",
 		Headers: map[string]string{"Authorization": "Bearer ${DOCS_TOKEN}"}, Agents: []string{"claude", "devin"}}}})
 	_, cs, _ := LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "docs"); got != "claude=pending codex=off gemini=off opencode=off devin=on" {
+	if got := cells(cs, SyncMCP, "docs"); got != "claude=pending codex=off gemini=off opencode=off devin=on copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("cells: %s", got)
 	}
 	res := mustApply(t, e)
@@ -369,7 +370,7 @@ func TestLibraryClaudeAndDevin(t *testing.T) {
 	// With Claude not there to give it to, Devin gets its own.
 	os.Remove(filepath.Join(e.get("PATH"), "claude"))
 	_, cs, _ = LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "docs"); got != "claude=cannot codex=off gemini=off opencode=off devin=pending" {
+	if got := cells(cs, SyncMCP, "docs"); got != "claude=cannot codex=off gemini=off opencode=off devin=pending copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("without claude: %s", got)
 	}
 	mustApply(t, e)
@@ -424,8 +425,9 @@ func TestLibrarySkills(t *testing.T) {
 		}
 	}
 	_, cs, _ := LibraryStatus(e)
-	// OpenCode reads ~/.agents/skills too, so it has it whether asked or not.
-	if got := cells(cs, SyncSkill, "tide"); got != "claude=on codex=on gemini=on opencode=on devin=on" {
+	// OpenCode, Copilot, Cline, Qwen and Goose read ~/.agents/skills too, so
+	// they have it whether asked or not.
+	if got := cells(cs, SyncSkill, "tide"); got != "claude=on codex=on gemini=on opencode=on devin=on copilot=on cline=on qwen=on goose=on" {
 		t.Fatalf("cells: %s", got)
 	}
 
@@ -469,7 +471,7 @@ func TestLibrarySkills(t *testing.T) {
 	write(t, filepath.Join(home, "skills", "mine", "SKILL.md"), "the library's")
 	mustSave(t, Library{Skills: []LibSkill{{Name: "mine", Path: "~/skills/mine", Agents: []string{"claude"}}}})
 	_, cs, _ = LibraryStatus(e)
-	if got := cells(cs, SyncSkill, "mine"); got != "claude=differs codex=off gemini=off opencode=off devin=off" {
+	if got := cells(cs, SyncSkill, "mine"); got != "claude=differs codex=off gemini=off opencode=off devin=off copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("occupied: %s", got)
 	}
 }
@@ -521,7 +523,7 @@ func TestLibraryImport(t *testing.T) {
 		t.Fatal("import wrote to an agent")
 	}
 	_, cs, _ := LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "gh"); got != "claude=on codex=on gemini=off opencode=off devin=on" {
+	if got := cells(cs, SyncMCP, "gh"); got != "claude=on codex=on gemini=off opencode=off devin=on copilot=off cline=off qwen=off goose=off" {
 		t.Fatalf("cells %s", got)
 	}
 	// Again: nothing new, the same entries.
@@ -734,5 +736,47 @@ func TestWithConchIsIdempotent(t *testing.T) {
 	lib = WithConch(lib, []string{"claude"})
 	if len(lib.Servers) != 1 || lib.Servers[0].Command != "conch" {
 		t.Errorf("a hand-written entry: %+v", lib.Servers)
+	}
+}
+
+// A plain server's token reaches Claude as before, through claude mcp
+// add-json (its only way in), while the agents whose files conch writes
+// get it in a file only their owner can read — a new one 0600, one
+// already there narrowed to that. A server holding only ${VAR}s leaves a
+// file's mode alone.
+func TestLibraryPlainTokenFilesOwnerOnly(t *testing.T) {
+	home, e := libHome(t)
+	log := fakeClaude(t, e)
+	const tok = "plain-sekrit-123"
+	gemini := filepath.Join(home, ".gemini", "settings.json")
+	write(t, gemini, "{}\n")
+	os.Chmod(gemini, 0o644)
+	codex := filepath.Join(home, ".codex", "config.toml")
+	write(t, codex, "model = \"o3\"\n")
+	os.Chmod(codex, 0o644)
+	wiki := LibServer{Name: "wiki", URL: "https://wiki.example/mcp", Plain: true, Headers: map[string]string{"Authorization": "Bearer " + tok},
+		Agents: []string{"claude", "gemini", "opencode"}}
+	docs := LibServer{Name: "docs", URL: "https://docs.example/mcp", Headers: map[string]string{"Authorization": "Bearer ${DOCS_TOKEN}"},
+		Agents: []string{"codex"}}
+	mustSave(t, Library{Servers: []LibServer{wiki, docs}})
+	res := mustApply(t, e)
+	if c := find(t, res, "claude", SyncMCP, "wiki"); c.Action != ActionCreate || !c.Done {
+		t.Fatalf("claude: %+v", c)
+	}
+	if got := read(t, log); !strings.Contains(got, "mcp add-json wiki ") || !strings.Contains(got, tok) {
+		t.Fatalf("claude was asked:\n%s", got)
+	}
+	opencode := filepath.Join(home, ".config", "opencode", "opencode.json")
+	for _, f := range []string{gemini, opencode} {
+		st, err := os.Stat(f)
+		if err != nil || !strings.Contains(read(t, f), tok) {
+			t.Fatalf("%s: %v\n%s", f, err, read(t, f))
+		}
+		if st.Mode().Perm() != 0o600 {
+			t.Errorf("%s holds the token at %v", f, st.Mode().Perm())
+		}
+	}
+	if st, _ := os.Stat(codex); st.Mode().Perm() != 0o644 || !strings.Contains(read(t, codex), "docs") {
+		t.Errorf("codex, given only a ${VAR}: %v\n%s", st.Mode().Perm(), read(t, codex))
 	}
 }

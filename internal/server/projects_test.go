@@ -472,6 +472,14 @@ func TestMergeSeenAcrossAGHError(t *testing.T) {
 }
 
 func TestBrowseAndCreateProjects(t *testing.T) {
+	// project.create with git makes a first commit, which needs an author:
+	// CI has none configured, and a developer's own must not be relied on.
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		t.Setenv(v, "t")
+	}
+	for _, v := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(v, "t@example.com")
+	}
 	c, dir := startServer(t)
 	os.MkdirAll(filepath.Join(dir, "src", "api", ".git"), 0o755)
 	os.MkdirAll(filepath.Join(dir, "src", "Notes"), 0o755)

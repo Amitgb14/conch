@@ -38,10 +38,21 @@ gh issue view 123
 
 Several waiting, for a backlog: `gh issue list --label ready --json number,title`.
 
-A ticket from another tracker (Jira, Linear…): read it with the tools you
-have for that tracker, and put its title, description and acceptance
-criteria in the builder's prompt yourself. If you have no way to read it,
-ask the person to paste it.
+A Linear or Jira ticket by its key, once the person has set the tracker up
+(`[trackers]` in config.toml; `conch ticket ls` fails saying what is
+missing if not):
+
+```sh
+conch ticket show ENG-123
+```
+
+Several waiting: `conch ticket ls` (`-mine` for those assigned to them).
+When both trackers are set up, name it: `linear:ENG-123`, `jira:PROJ-42`.
+
+A ticket from another tracker: read it with the tools you have for it,
+and put its title, description and acceptance criteria in the builder's
+prompt yourself. If you have no way to read it, ask the person to paste
+it.
 
 ## 2. Agree what done means
 
@@ -71,9 +82,11 @@ every agent below. Then build.
 conch task -issue 123 -name build-123 "Build what /abs/path/SPEC.md says, and nothing it puts out of scope. Work test-first, a slice at a time: a test that fails without the change, then the change that makes it pass, then the next — use your test-driven development skill if you have one. When something breaks, reproduce it before you fix it. Commit in small commits whose messages say what and why, and leave nothing uncommitted."
 ```
 
-`-issue` puts the issue's title and body in the prompt. For another
-tracker, leave `-issue` out and put the ticket's text in the prompt. It
-prints `PANE  WORKTREE  BRANCH`: keep all three. Then:
+`-issue` puts the issue's title and body in the prompt; for a Linear or
+Jira ticket use `-ticket ENG-123` in its place, which also names the
+branch from the key. For another tracker, leave both out and put the
+ticket's text in the prompt. It prints `PANE  WORKTREE  BRANCH`: keep all
+three. Then:
 
 ```sh
 conch wait -state done,waiting -timeout 60m build-123
@@ -134,6 +147,17 @@ conch branch pr -branch BRANCH -title "Fix #123: what it does"
 gh pr checks BRANCH --watch
 ```
 
+For a Linear or Jira ticket, put its key in the pull request's title
+(`-title "ENG-123: what it does"`) so the tracker links the two. Update
+the ticket itself only where the person asked you to — a team's board is
+theirs:
+
+```sh
+conch ticket link ENG-123 PR_URL
+conch ticket comment ENG-123 "PR opened: PR_URL"
+conch ticket status ENG-123 "In Review"
+```
+
 A failed check goes back to the builder with its log:
 `conch branch fix-ci -branch BRANCH`, then watch again — three failed
 rounds and you stop and tell the person. Once green, and only if the
@@ -142,6 +166,9 @@ person asked for a merge:
 ```sh
 gh pr merge BRANCH --squash --delete-branch
 ```
+
+Then, if the person asked for the ticket to follow, `conch ticket status
+ENG-123 Done` (the status as their tracker names it).
 
 ## 8. Report and tidy up
 
@@ -182,6 +209,7 @@ builders at a time:
 ```sh
 conch task -queue -wip 2 -issue 123 -name build-123 "Work test-first and commit."
 conch task -queue -wip 2 -issue 124 -name build-124 "Work test-first and commit."
+conch task -queue -wip 2 -ticket ENG-125 -name build-125 "Work test-first and commit."
 ```
 
 Review, test and ship each as its builder finishes. Every agent spends the

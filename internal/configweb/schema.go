@@ -24,6 +24,7 @@ const (
 	KindMap    = "map"    // string keys to string values
 	KindTables = "tables" // an array of tables, each with Fields
 	KindKeyed  = "keyed"  // tables keyed by name, each with Fields
+	KindTable  = "table"  // one nested table, [trackers.linear], with Fields
 )
 
 // Field is one setting.
@@ -66,6 +67,10 @@ type Section struct {
 // Choices are what the select fields offer that only the caller knows:
 // the TUI's themes, the agents this build has.
 type Choices struct {
+	// Cloud is whether Conch Cloud is enabled (config.CloudEnabled), which
+	// the server works out from the file it reads: while it is not, its
+	// section offers only the switch.
+	Cloud  bool
 	Themes []Option
 	// LightThemes are the ones drawn on a light background, which is all
 	// light_theme offers: it is the theme for macOS's light appearance,
@@ -182,7 +187,7 @@ func Schema(c Choices) []Section {
 				{Key: "permission_mode", Label: "Permission rules", Kind: KindSelect,
 					Options: []Option{{"", "On: answer by them"}, {config.PermissionsDryRun, "Dry run: only record"}, {config.PermissionsOff, "Off"}}},
 				{Key: "unrestricted_launch", Label: "Let agents start agents however they like", Kind: KindBool,
-					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else. On: any command, environment and flags, a helper that asks nobody before it acts among them."},
+					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else, and types only into agents, never a shell. On: any command, environment and flags, a helper that asks nobody before it acts among them, and typing into shells."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
@@ -195,6 +200,13 @@ func Schema(c Choices) []Section {
 				{Key: "require_tests", Label: "Draft a PR that changes code and no test", Kind: KindBool},
 				{Key: "max_diff", Label: "Draft past this many changed lines", Kind: KindInt, Min: intp(0), Help: "0: no limit."},
 				{Key: "reviewer", Label: "Reviewer agent", Kind: KindSelect, Options: reviewers, Help: "Asked to read a branch's diff and report. Every review spends plan usage."},
+				{Key: "intake", Label: "Take issues with this label", Kind: KindMap, KeyLabel: "Project ID", Placeholder: "ready",
+					Help: "Every few minutes, each open GitHub issue with the label becomes a queued task, once, and says so on the issue. Nothing is taken until you name a label."},
+				{Key: "intake_wip", Label: "Busy agents before the next issue waits", Kind: KindInt, Min: intp(0), Max: intp(20), Help: "0: the queue's default, 3."},
+				{Key: "triage", Label: "Triage issues with this label", Kind: KindMap, KeyLabel: "Project ID", Placeholder: "new",
+					Help: "An agent reads each one and the code, changing nothing, comments what done means, its size and the files it touches, and labels it ready (the intake label), needs-info or too-big. One agent run per issue."},
+				{Key: "triage_agent", Label: "Triage agent", Kind: KindSelect, Options: reviewers, Help: "Who reads the issues; claude when empty."},
+				{Key: "triage_comment_only", Label: "Triage only comments", Kind: KindBool, Help: "Leave the labels to you."},
 			}},
 		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, and what a finished branch goes through on its way to the base.",
 			Fields: []Field{
@@ -234,11 +246,7 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
-		{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
-			Fields: []Field{
-				{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
-					Help: "The Conch Cloud server conch login signs in to. Empty is Conch Cloud itself; CONCH_CLOUD_URL overrides it. Takes effect at the next sign-in."},
-			}},
+		cloudSection(c.Cloud),
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{
 				{Key: "tabs", Label: "Tabs", Kind: KindSelect, Options: []Option{{"", "Above the panes"}, {"left", "Left, grouped by machine"}, {"right", "Right"}},
@@ -249,6 +257,8 @@ func Schema(c Choices) []Section {
 					Help: "Glass lets the desktop through the sidebar, as Finder's does. Panes stay solid."},
 				{Key: "ports", Label: "Ports in pane headers", Kind: KindBool, Default: true,
 					Help: "The ports a pane's programs listen on, a click opening one in the browser."},
+				{Key: "chat", Label: "Workbench chat", Kind: KindBool, Default: true,
+					Help: "An agent's conversation as messages in the workbench, beside its terminal, with attachments and a Stop. Off (or CONCH_CHAT=0), the agent's own terminal is used."},
 				{Key: "scratch_key", Label: "Option-space anywhere", Kind: KindBool,
 					Help: "Show the scratch layer with Conch.app in the background, as Ghostty's quick terminal does. Off, option-space works in the window only."},
 				{Key: "prefix_keys", Label: "Prefix keys in panes", Kind: KindBool, Default: true,
@@ -261,10 +271,35 @@ func Schema(c Choices) []Section {
 					Help: "Plain follows the text colour; Tinted gives each section a colour; Tiles puts it on a coloured square, as System Settings does."},
 				{Key: "font_size", Label: "Terminal font size", Kind: KindFloat, Placeholder: "14",
 					Help: "Points, for the text in every pane, 9 to 28; empty is 14. Command-plus and minus change it too."},
+				{Key: "check_updates", Label: "Automatically check for updates", Kind: KindBool, Default: true,
+					Help: "Once a day Conch.app asks GitHub whether a newer release of itself is out, and says so in the status bar. Conch → Check for Updates… asks now. A build from source never asks."},
+				{Key: "auto_update", Label: "Install updates automatically", Kind: KindBool,
+					Help: "Download, verify and install a newer release as soon as the check finds one; it runs from the next launch. Off, the app asks first."},
 			}},
 		{ID: "sandbox", Key: "sandbox", Title: "Sandboxes", Icon: "box", Description: "Hosted sandbox providers, one table each.",
 			Fields: []Field{
 				{Key: "", Label: "Providers", Kind: KindKeyed, KeyLabel: "Provider", Fields: provider, Suggest: c.Providers},
+			}},
+		{ID: "trackers", Key: "trackers", Title: "Trackers", Icon: "ticket", Description: "Tickets from Linear and Jira for conch task -ticket, besides GitHub issues.",
+			Fields: []Field{
+				{Key: "linear", Label: "Linear", Kind: KindTable, Help: "A personal API key, from Linear's Settings → Security & access.", Fields: []Field{
+					{Key: "api_key", Label: "API key", Kind: KindSecret, Help: "Kept in this file as it is. Leave it empty to read the variable below, or the Keychain's conch-mcp item of that name."},
+					{Key: "api_key_env", Label: "Key's variable", Kind: KindString, Placeholder: "LINEAR_API_KEY"},
+					{Key: "team", Label: "Team", Kind: KindString, Placeholder: "ENG", Help: "The team whose tickets are listed; empty is every team."},
+					{Key: "api_url", Label: "API address", Kind: KindString, Placeholder: "https://api.linear.app/graphql"},
+				}},
+				{Key: "jira", Label: "Jira Cloud", Kind: KindTable, Help: "Your Atlassian account's email and an API token, from id.atlassian.com → Security → API tokens.", Fields: []Field{
+					{Key: "url", Label: "Site", Kind: KindString, Placeholder: "https://acme.atlassian.net"},
+					{Key: "email", Label: "Email", Kind: KindString, Placeholder: "you@example.com"},
+					{Key: "api_token", Label: "API token", Kind: KindSecret, Help: "Kept in this file as it is. Leave it empty to read the variable below, or the Keychain's conch-mcp item of that name."},
+					{Key: "api_token_env", Label: "Token's variable", Kind: KindString, Placeholder: "JIRA_API_TOKEN"},
+					{Key: "project", Label: "Project", Kind: KindString, Placeholder: "PROJ", Help: "The project whose tickets are listed; empty is every project."},
+				}},
+				{Key: "projects", Label: "Projects", Kind: KindTables, Help: "Which tracker a conch project's tickets come from, when more than one is set up.", Fields: []Field{
+					{Key: "project", Label: "Project", Kind: KindString, Placeholder: "conch", Help: "By name or path."},
+					{Key: "tracker", Label: "Tracker", Kind: KindSelect, Options: opts("linear", "jira")},
+					{Key: "key", Label: "Team or project key", Kind: KindString, Placeholder: "ENG"},
+				}},
 			}},
 		{ID: "actions", Key: "", Title: "Actions", Icon: "zap", Description: "Commands of your own on the row menus (m, or right-click).",
 			Fields: []Field{
@@ -286,4 +321,23 @@ func Schema(c Choices) []Section {
 				}},
 			}},
 	}
+}
+
+// cloudSection is [cloud]. Conch Cloud is hidden in this release, so
+// while it is off the section is only the switch that turns it on; its
+// server is shown once it is on. A hidden key is still in the page's
+// copy of the file, so saving keeps it.
+func cloudSection(on bool) Section {
+	enabled := Field{Key: "enabled", Label: "Enabled", Kind: KindBool,
+		Help: "Offers Conch Cloud: conch login, cloud machines, and moving a project to one. Not enabled in this release; CONCH_CLOUD=1 or 0 in the environment overrides this."}
+	if !on {
+		return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server",
+			Description: "Not enabled in this release. Turn it on to try it.", Fields: []Field{enabled}}
+	}
+	return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
+		Fields: []Field{
+			enabled,
+			{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
+				Help: "The Conch Cloud server conch login signs in to. Empty is Conch Cloud itself; CONCH_CLOUD_URL overrides it. Takes effect at the next sign-in."},
+		}}
 }

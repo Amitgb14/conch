@@ -67,6 +67,11 @@ type Pane struct {
 	// held while acquiring emuMu.
 	emuMu sync.RWMutex
 	emu   *vt.Emulator
+	// typing orders what is typed into the pane (SendText, SendKeys,
+	// SendKeysApart), taken before emuMu: a key that has to arrive alone
+	// holds it through the pause after it, so nothing typed meanwhile
+	// follows it close enough to be read as one sequence with it.
+	typing sync.Mutex
 	// hist keeps what has scrolled off the main screen, as rendered text
 	// rather than the emulator's cells (see history.go). Guarded by emuMu.
 	hist []string
@@ -529,6 +534,8 @@ func (p *Pane) SendText(text string, paste bool) error {
 	if !p.running() {
 		return errExited
 	}
+	p.typing.Lock()
+	defer p.typing.Unlock()
 	p.emuMu.Lock()
 	defer p.emuMu.Unlock()
 	if paste {
@@ -553,14 +560,54 @@ func (p *Pane) SendKeys(keys []string) error {
 		}
 		events[i] = k
 	}
+	p.typing.Lock()
+	defer p.typing.Unlock()
 	p.emuMu.Lock()
 	defer p.emuMu.Unlock()
 	for _, k := range events {
-		if seq := modifiedSequence(k); seq != "" {
-			_, _ = io.WriteString(p.emu.InputPipe(), seq)
-			continue
+		p.sendKey(k)
+	}
+	return nil
+}
+
+// sendKey encodes one key into the emulator's input. emuMu is held.
+func (p *Pane) sendKey(k uv.KeyPressEvent) {
+	if seq := modifiedSequence(k); seq != "" {
+		_, _ = io.WriteString(p.emu.InputPipe(), seq)
+		return
+	}
+	p.emu.SendKey(k)
+}
+
+// SendKeysApart sends keys one at a time with gap after each, and nothing
+// else typed into the pane in between: a lone escape is held by a
+// terminal program for a moment to tell it from the start of an escape
+// sequence, and one followed closely by another key is read with it —
+// escape then x is alt+x, and two escapes are one alt+escape. This is
+// how an agent's interrupt key is sent.
+func (p *Pane) SendKeysApart(keys []string, gap time.Duration) error {
+	if !p.running() {
+		return errExited
+	}
+	events := make([]uv.KeyPressEvent, len(keys))
+	for i, name := range keys {
+		k, err := ParseKey(name)
+		if err != nil {
+			return err
 		}
-		p.emu.SendKey(k)
+		events[i] = k
+	}
+	p.typing.Lock()
+	defer p.typing.Unlock()
+	for _, k := range events {
+		p.emuMu.Lock()
+		p.sendKey(k)
+		p.emuMu.Unlock()
+		select {
+		case <-time.After(gap):
+		case <-p.Done():
+			return errExited
+		}
 	}
 	return nil
 }

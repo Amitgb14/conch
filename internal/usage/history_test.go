@@ -203,3 +203,25 @@ func TestUsageTokensAddAndTotal(t *testing.T) {
 		t.Fatalf("%+v total %d", u, u.Total())
 	}
 }
+
+// An agent's other accounts keep their conversations in folders of their
+// own, and what the agent used here counts them too.
+func TestHistoryCountsEveryAccount(t *testing.T) {
+	home := t.TempDir()
+	work := t.TempDir()
+	codexWork := t.TempDir()
+	at := histNow.Add(-time.Hour)
+	writeAt(t, filepath.Join(home, ".claude", "projects", "-src", "a.jsonl"), claudeLine("m1", "claude-opus-5-5", at, 1, 0, 0, 10), at)
+	writeAt(t, filepath.Join(work, "projects", "-src", "b.jsonl"), claudeLine("m2", "claude-opus-5-5", at, 2, 0, 0, 20), at)
+	writeAt(t, filepath.Join(codexWork, "sessions", "2026", "11", "04", "r.jsonl"), codexModel("gpt-5")+codexTotal(at, 100, 0, 7), at)
+	h := NewHistory()
+	got := h.Summary(home, func(string) string { return "" }, histNow,
+		Root{Agent: "claude", Dir: work}, Root{Agent: "codex", Dir: codexWork},
+		Root{Agent: "claude", Dir: filepath.Join(home, ".claude")}) // the agent's own again: not twice
+	if day := period(t, agentOf(t, got, "claude"), 24); day.Output != 30 || day.Messages != 2 {
+		t.Errorf("claude across accounts: %+v", day)
+	}
+	if day := period(t, agentOf(t, got, "codex"), 24); day.Output != 7 {
+		t.Errorf("codex on an account: %+v", day)
+	}
+}

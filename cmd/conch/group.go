@@ -20,7 +20,7 @@ const groupUsage = `usage: conch group [ls [-json]]
        conch group rm NAME [PROJECT...]       take projects out of a group, or the group away
        conch group rename OLD NEW
        conch group notes NAME [TEXT]          notes for the agents working across it ("" clears)
-       conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...
+       conch group task [-branch B] [-agent A] [-account NAME] [-each] [-only P,P] NAME PROMPT...
                                               one task across its repos: the branch in a worktree
                                               of each, one agent given them all (-each: one per repo)
        conch group tasks NAME                 its tasks, their repos, folder and agents
@@ -269,18 +269,29 @@ func runGroupTask(c *client.Client, args []string, projects []proto.ProjectInfo)
 	fs := flag.NewFlagSet("group task", flag.ContinueOnError)
 	branch := fs.String("branch", "", "the branch made in each repo (default: named from the prompt)")
 	agent := fs.String("agent", "", "the agent to start (default: the server's first)")
+	account := fs.String("account", "", "the agents' account (conch account list); default: each repo's pin, else the agent's own")
 	each := fs.Bool("each", false, "an agent in each repo's worktree, rather than one across them all")
 	only := fs.String("only", "", "the repos to include, by name, folder or ID, comma-separated (default: all)")
-	if err := fs.Parse(args); err != nil {
+	// Flags may follow the name, as they do in the usage of every other
+	// command: Go's own parsing stopped at NAME, and then "-agent codex
+	// -each" became the start of the prompt, run with the default agent.
+	// "--" still ends them, for a prompt that starts with a dash.
+	words, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() < 2 {
+	if len(words) < 2 {
 		return errors.New(groupUsage)
 	}
 	if len(c.MissingCapabilities([]string{proto.CapGroupTask})) > 0 {
 		return errors.New("this server predates tasks across a group (group.task.v1): reload it with conch server reload")
 	}
-	p := proto.GroupTaskParams{Group: fs.Arg(0), Prompt: strings.Join(fs.Args()[1:], " "), Branch: *branch, Agent: *agent, Each: *each, Cols: 120, Rows: 40}
+	if *account != "" {
+		if err := needAccounts(c); err != nil {
+			return err
+		}
+	}
+	p := proto.GroupTaskParams{Group: words[0], Prompt: strings.Join(words[1:], " "), Branch: *branch, Agent: *agent, Account: *account, Each: *each, Cols: 120, Rows: 40}
 	if *only != "" {
 		for _, w := range strings.Split(*only, ",") {
 			id, err := pickProject(strings.TrimSpace(w), projects)
@@ -307,16 +318,17 @@ func runGroupMerge(c *client.Client, args []string, projects []proto.ProjectInfo
 	order := fs.String("order", "", "the order to merge in, every repo of the task by name, folder or ID, comma-separated (default: the task's)")
 	remove := fs.Bool("remove", false, "once all are merged, remove the task, its worktrees and branches")
 	stop := fs.Bool("stop", false, "stop waiting to merge")
-	if err := fs.Parse(args); err != nil {
+	words, err := parseInterspersed(fs, args)
+	if err != nil {
 		return err
 	}
-	if fs.NArg() != 2 {
+	if len(words) != 2 {
 		return errors.New(groupUsage)
 	}
 	if len(c.MissingCapabilities([]string{proto.CapGroupTaskMerge})) > 0 {
 		return errors.New("this server predates merging a task's pull requests (group.task.merge.v1): reload it with conch server reload")
 	}
-	p := proto.GroupTaskMergeParams{Group: fs.Arg(0), Branch: fs.Arg(1), RemoveTask: *remove, Stop: *stop}
+	p := proto.GroupTaskMergeParams{Group: words[0], Branch: words[1], RemoveTask: *remove, Stop: *stop}
 	if *order != "" {
 		for _, w := range strings.Split(*order, ",") {
 			id, err := pickProject(strings.TrimSpace(w), projects)

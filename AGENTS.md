@@ -6,7 +6,8 @@ changing code; it is the contract for how work here is done.
 ## What conch is
 
 conch is a terminal orchestrator for AI coding agents — Claude Code, Codex,
-Gemini CLI, OpenCode and Devin — written in Go.
+Gemini CLI, OpenCode, Devin, Copilot CLI, Cline, Qwen Code and Goose, and
+more it only runs — written in Go.
 
 - A **server** daemon owns the pseudo-terminals the agents and shells run in,
   so they keep running when the UI closes. It speaks newline-delimited JSON
@@ -28,7 +29,7 @@ Apache-2.0 · Default branch: `master`.
 | Path | What lives there |
 | --- | --- |
 | `cmd/conch` | The `conch` CLI: TUI launch, `server`, `new/send/read/close`, `project`, `task`, `branch`, `worktree`, `machine`, `ask`, `web`, `app` (conch in a terminal of its own, configured by conch rather than by whoever set that terminal up, and in the desktop's applications with its icon — `app.go`, `appinstall.go`), `mcp` (an MCP server over stdio in front of the same socket — `mcp.go` is the transport, `mcptools.go` the tools, and `await.go` the wait both it and the commands share), `update`, hook reports, status line |
-| `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup, worktree watching, and the autopilot (`autopilot.go`: a failed CI run or check sent back to the branch's agent, a green pull request merged — the server's, so it runs with no TUI open; the TUI only hands it the policy from Settings and does both itself against a server without `autopilot.v1`) |
+| `internal/server` | The daemon: panes, projects/worktrees, sessions, agent hooks and usage, hot reload, local files, agent setup, worktree watching, and the autopilot (`autopilot.go`: a failed CI run or check sent back to the branch's agent, a green pull request merged — the server's, so it runs with no TUI open; the TUI only hands it the policy from Settings and does both itself against a server without `autopilot.v1`), and intake (`intake.go`: open GitHub issues with a project's `[verify.intake]` label queued as tasks, each once, kept in `intake.json`) and triage (`triage.go`: an agent in a detached checkout of the base reads each issue with the `[verify.triage]` label and writes a verdict; the server comments and labels it ready, needs-info or too-big, kept in `triage.json`) |
 | `internal/pane` | A program on a PTY with an emulated screen (charmbracelet/x/vt), key/mouse encoding, detach/adopt for reload |
 | `internal/proto` | Wire protocol: messages, methods, events, payload types, capability list, `Version` |
 | `internal/client` | Protocol client (calls, notifications, events, handshake) and starting a local server |
@@ -43,6 +44,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/brain` | Model providers (Claude CLI, Anthropic, OpenAI-compatible), planner, action execution, summaries |
 | `internal/sessions` | Reading and deleting each agent's saved conversations |
 | `internal/usage` | Token usage and plan limits from transcripts and rollouts; `history.go` adds up what each agent saved over the last day, week and month by model (`usage.history.v1`), reading each file once and then only what was appended |
+| `internal/sysstat` | The whole machine for `system.stats.v1` (Conch.app's System Monitor): CPU and each core, memory and where it goes, load, disk, every process with its CPU and memory. Linux is read from `/proc` (ps counts whole seconds there), macOS from sysctl, `vm_stat`, `ps` and — with cgo — the Mach host's per-core ticks; without cgo the CPU is reckoned from the processes. Every parser is platform-neutral so both are tested everywhere. A `Sampler` reads only when asked, and keeps an hour of history while somebody keeps asking; the server names which processes are conch's (`internal/server/system.go`). A process's CPU is measured from the last reading *of processes*, not the last reading — a summary in between once made `yes` 52 cores |
 | `internal/agentsetup` | What an agent loads in a checkout: instructions, skills, MCP servers, trust — and, the other way, writing one agent's instructions, skills and servers where the others look for them (`sync.go`), with a record to undo it; the library of servers and skills the agents follow (`library.go`); each agent's way of naming a variable (`vars.go`); conch's skills for agents driving agents (`skills/*/SKILL.md`: conch, conch-team, conch-review, conch-ship, conch-factory and conch-autopilot, installed together by `skill.go`) — their commands are checked against the CLI's usage by a test |
 | `internal/gitx` / `internal/ghx` | git status, branches, worktrees, untracked files / pull requests via the `gh` CLI |
 | `internal/update` | Version comparison, same-build checks, release installs, reloading servers |
@@ -55,7 +57,7 @@ Apache-2.0 · Default branch: `master`.
 | `internal/tools` | Programs for driving conch under test: `clicker` clicks and drags a pane through the protocol, `standin` is a pane conch detects as an agent (by the name it is built under) that starts panes as an agent does |
 | `internal/nodetest` | Finds node for the tests that run conch's JavaScript (the phone's app, the settings page): skipped without it on a developer's machine, failed without it under CI, where a skip would pass code nobody ran |
 | `internal/sshtest` | A stand-in for ssh in tests: the test binary run under the name `ssh` logs in by waiting as a shell would, and asked for sftp serves a folder as the host's home (hosts `denied`, `nosftp`, `hang` fail as ssh does). A test package calls `sshtest.Main()` from `TestMain` and `sshtest.Install(t)` to put it on `CONCH_SSH`. It is how the files of a terminal's ssh host (`fs.ssh.v1`, `internal/server/sshfiles.go`) are tested without a network |
-| `macos/` | Conch.app, a native macOS window on the same server: Swift, built with the Command Line Tools (`swift build`, `swift test`; `macos/bundle.sh` makes the bundle and puts a Go-built `conch` inside it). `go build ./...` never sees it. `ConchKit` is what can be tested — the socket client, the protocol types (optional wherever the server's are `omitempty`), the tree, the counts, search and the tab/split layout — and `ConchApp` the AppKit toolbar and menus around SwiftUI. Each pane is a terminal running `conch attach` (`cmd/conch/attach.go`), behind one seam (`TerminalHost.swift`): Ghostty's (`GhosttyHost.swift`, libghostty from a pinned upstream release built by `macos/ghostty.sh` into the ignored `macos/vendor`, which needs Xcode 26 and Zig) when that library is there, SwiftTerm's when it is not — `Package.swift` decides by whether the xcframework exists, so the Command Line Tools alone still build it. Ghostty's panes run `conch attach -raw` where the pane's server has `pane.raw.v1`: Ghostty is given the program's own output (`internal/pane/raw.go`, `cmd/conch/attachraw.go`) and draws the pane at the server's size, letterboxed while another client holds it (`ConchKit/Window.swift`), the window telling attach how much room it has by a control paste; the scratch layer (`Scratch.swift`), tabs down a side (`SideTabs.swift`), ⌘K's live preview (`Preview.swift`, `attach -raw -view`) and `[app]` in config.toml are the same app's; a waiting agent's answer buttons run `conch agent question` / `answer`, the phone's own menu reading, rather than a second copy of it. Every machine in machines.json is shown too, each spoken to through `conch machine bridge ID` (the protocol on a process's stdin and stdout, `remote.BridgeCommand`), so panes, projects and branches are named `machine|id` throughout the app (`ConchKit.key`) — a pane id alone is not unique once two servers are in one window. A branch's git tab (`GitTab.swift` the views, `ChangesView.swift` its model, the testable part in `ConchKit/GitView.swift`) commits hunks through `branch.hunks.v1`, opens commits through `project.commit.v1` and submits pull request reviews through `pr.review.v1` (`ghx.Review`); its message is drafted by `conch commit-message`. Not in CI, which is Go on Linux and macOS: run `swift test` in `macos/` when you change it |
+| `macos/` | Conch.app, a native macOS window on the same server: Swift, built with the Command Line Tools (`swift build`, `swift test`; `macos/bundle.sh` makes the bundle and puts a Go-built `conch` inside it). `go build ./...` never sees it. `ConchKit` is what can be tested — the socket client, the protocol types (optional wherever the server's are `omitempty`), the tree, the counts, search and the tab/split layout — and `ConchApp` the AppKit toolbar and menus around SwiftUI. Each pane is a terminal running `conch attach` (`cmd/conch/attach.go`), behind one seam (`TerminalHost.swift`): Ghostty's (`GhosttyHost.swift`, libghostty from a pinned upstream release built by `macos/ghostty.sh` into the ignored `macos/vendor`, which needs Xcode 26 and Zig) when that library is there, SwiftTerm's when it is not — `Package.swift` decides by whether the xcframework exists, so the Command Line Tools alone still build it. Ghostty's panes run `conch attach -raw` where the pane's server has `pane.raw.v1`: Ghostty is given the program's own output (`internal/pane/raw.go`, `cmd/conch/attachraw.go`) and draws the pane at the server's size, letterboxed while another client holds it (`ConchKit/Window.swift`), the window telling attach how much room it has by a control paste; the scratch layer (`Scratch.swift`), tabs down a side (`SideTabs.swift`), ⌘K's live preview (`Preview.swift`, `attach -raw -view`) and `[app]` in config.toml are the same app's; a waiting agent's answer buttons run `conch agent question` / `answer`, the phone's own menu reading, rather than a second copy of it. Every machine in machines.json is shown too, each spoken to through `conch machine bridge ID` (the protocol on a process's stdin and stdout, `remote.BridgeCommand`), so panes, projects and branches are named `machine|id` throughout the app (`ConchKit.key`) — a pane id alone is not unique once two servers are in one window. The app has several windows (#194), each a `Store` of its own and a client of each server like any other (`AppWindow.swift`, `Windows+Store.swift`; what is decided without AppKit — a project window's scope, the windows saved in the app's preferences rather than ui.json, which window holds a pane — in `ConchKit/Windows.swift`); what is said once for all of them, a notification or the Dock's badge, is the first window's store's (`primary`), and a pane is shown in one window at a time. A branch's git tab (`GitTab.swift` the views, `ChangesView.swift` its model, the testable part in `ConchKit/GitView.swift`) commits hunks through `branch.hunks.v1`, opens commits through `project.commit.v1` and submits pull request reviews through `pr.review.v1` (`ghx.Review`); its message is drafted by `conch commit-message`. CI runs `swift test` on macOS (without Ghostty, so the SwiftTerm side); run it in `macos/` before pushing a change to it, and build with Ghostty when you touch `GhosttyHost.swift` |
 | `web/` | The documentation website (Next.js, MDX under `web/src/app/docs`). Its pictures are made, not taken: `scripts/tui-capture` stages a demo project in a scratch conch and saves the TUI's screens as styled text (`tui-frames.json`, drawn by `tui-screen.tsx`, and as PNGs for the README through `topng.py`), `scripts/phone-capture` reuses that demo, puts `conch web` in front of it on loopback and photographs the phone app in headless Chrome. Both run by hand on a Mac and never in CI, which is why `TestCaptureScriptsParse` checks that they parse and that the phone one still unsets the developer's own `CONCH_SOCKET` and binds to 127.0.0.1 |
 | `docs/plans` | Design plans for deferred work. The roadmap and the gap plan are kept out of the repository (see `.gitignore`); ask for them rather than looking for them here |
 | `docs/testing` | The [end-to-end plan](docs/testing/end-to-end.md): paths the automated tests only cover with fakes |
@@ -72,12 +74,13 @@ go test -race -count=1 -timeout 20m ./...   # what to run before every commit
 make gate                      # lint, then the same suite in ~3 minutes: internal/server split across processes (scripts/test.sh)
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 make settings-ui-check         # rebuild internal/configweb/dist and fail if it moved (needs pnpm)
-make app-release VERSION=0.1.10 NOTARY=conch-notary # Conch.app's zip for a release, Developer ID-signed and notarized (Apple Silicon, Ghostty built): dist/
+make app-release VERSION=0.2.0 NOTARY=conch-notary # Conch.app's zip for a release, Developer ID-signed and notarized (Apple Silicon, Ghostty built): dist/
 ```
 
 CI (`.github/workflows/ci.yml`) runs `make lint` and `go test -race` on
-**Linux and macOS**, with node installed, and rebuilds the settings page to
-check the committed `dist/` against `app/`. Code and tests must work on both.
+**Linux and macOS**, with node installed, `swift test` for Conch.app on
+macOS, and rebuilds the settings page to check the committed `dist/`
+against `app/`. Code and tests must work on both.
 Under CI (`CI=true`) the JavaScript tests fail rather than skip without node
 (`internal/nodetest`); locally they still skip. `pages.yml` builds the
 website on any pull request that touches `web/`, and deploys only from
@@ -134,8 +137,11 @@ network. The person running the tests may be *inside* a live conch session.
 
 - **Config and home:** use `t.TempDir()` and
   `t.Setenv("HOME", …)`, `t.Setenv("CONCH_HOME", …)`. Never read or write
-  `~/.config/conch`, `~/.claude`, `~/.codex`, `~/.gemini` or
-  `~/.local/share/opencode`. TUI models in tests keep `statePath` empty so
+  `~/.config/conch`, `~/.claude`, `~/.codex`, `~/.gemini`,
+  `~/.local/share/opencode`, `~/.copilot`, `~/.cline`, `~/.qwen` or
+  `~/.config/goose` and `~/.local/share/goose` — and clear the variables
+  that move them (`COPILOT_HOME`, `CLINE_DIR`, `QWEN_HOME`,
+  `GOOSE_PATH_ROOT` and the rest) where a test reads the real environment. TUI models in tests keep `statePath` empty so
   `ui.json` is never written.
 - **Inherited session variables:** `t.Setenv("CONCH_SOCKET", "")` and
   `t.Setenv("CONCH_PANE_ID", "")` in anything that could connect. When running
@@ -584,7 +590,7 @@ helpers in `cmd/conch` and `internal/remote`.
 ## Adding an agent
 
 **There are two tiers, and this section is about the first one.** *Supported*
-is the contract below: five agents meet it. *Runs here* is a manifest —
+is the contract below: nine agents meet it. *Runs here* is a manifest —
 `$CONCH_HOME/agents/<name>.toml`, or one conch ships in
 `internal/detect/manifests` — naming the binary, how a first message is
 passed and how a session is resumed, **or saying neither**. conch starts and
@@ -638,7 +644,10 @@ means all of these, each with tests (a fake binary on a scratch `PATH` or
   `agentDots`, `agentGlyphs` and `agentColors` (`internal/tui/view.go`),
   and no two agents share one: **circles** for the supported tier,
   **squares** for an agent conch only runs, so the shape says which tier it
-  is. Take the shape from the agent's own mark wherever a character comes
+  is — and once the six coloured squares ran out, anything but a circle
+  (👻 for Kiro, 🔷 for Kimi). The tests read the shipped manifests
+  (`shippedAgentNames`, `internal/tui/shipped_test.go`), so an agent with
+  a manifest and no mark fails them. Take the shape from the agent's own mark wherever a character comes
   close (a cube for Cursor, an ✕ for Grok, six-fold for Codex), and its
   colour from the brand where one is published; the comment beside each
   line says which are the agent's own and which were chosen, because a

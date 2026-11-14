@@ -1,5 +1,6 @@
 export function tokenFrom(hash: string | undefined): string
 export function getValue(cfg: any, table: string, key: string): any
+export function setIn(table: Record<string, unknown> | undefined, key: string, value: unknown): Record<string, unknown> | undefined
 export function setValue<T>(cfg: T, table: string, key: string, value: unknown): T
 export function same(a: unknown, b: unknown): boolean
 export function changedSections(schema: any[] | undefined, saved: any, draft: any): string[]

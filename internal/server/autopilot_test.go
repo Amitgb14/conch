@@ -99,6 +99,66 @@ func TestAutopilotObserveTurns(t *testing.T) {
 	}
 }
 
+// apOne is a project with one branch, "feat", and its open pull request
+// at head with checks as given ("" for none registered yet).
+func apOne(checks, head string) proto.ProjectInfo {
+	return proto.ProjectInfo{ID: "p", Base: "main", Branches: []proto.BranchInfo{
+		{Name: "feat", PR: &proto.PRInfo{Number: 1, State: "OPEN", Checks: checks, Head: head}},
+	}}
+}
+
+// A pull request watched with no checks yet, then green, turned green
+// here: CI started and finished between two reads. So did one green at a
+// commit the server saw replaced by another that is green too. Neither is
+// a pull request merely first seen green, which still does not merge.
+func TestAutopilotGreenFromNoChecksOrANewHead(t *testing.T) {
+	key := branchKey("p", "feat")
+	for _, c := range []struct {
+		name  string
+		reads []proto.ProjectInfo
+		merge bool
+	}{
+		{"none then green", []proto.ProjectInfo{apOne("", "a"), apOne("pass", "a")}, true},
+		{"none, no head, then green", []proto.ProjectInfo{apOne("", ""), apOne("pass", "")}, true},
+		{"green, a new head green", []proto.ProjectInfo{apOne("pass", "a"), apOne("pass", "b")}, true},
+		{"green at the same head", []proto.ProjectInfo{apOne("pass", "a"), apOne("pass", "a")}, false},
+		{"green, head unknown", []proto.ProjectInfo{apOne("pass", ""), apOne("pass", "b")}, false},
+		{"first seen green", []proto.ProjectInfo{{ID: "p", Base: "main", Branches: []proto.BranchInfo{{Name: "feat"}}}, apOne("pass", "a")}, false},
+		{"closed, opened green", []proto.ProjectInfo{
+			{ID: "p", Base: "main", Branches: []proto.BranchInfo{{Name: "feat", PR: &proto.PRInfo{Number: 1, State: "CLOSED", Head: "a"}}}},
+			apOne("pass", "b")}, false},
+	} {
+		a := loadAutopilot(t.TempDir())
+		a.set(proto.AutopilotPolicy{AutoMerge: true})
+		a.observe(proto.ProjectInfo{ID: "p", Base: "main"}) // the first look
+		for _, r := range c.reads {
+			a.observe(r)
+		}
+		if _, waiting := a.saved.Waiting[key]; waiting != c.merge {
+			t.Errorf("%s: waiting to merge %v, want %v", c.name, waiting, c.merge)
+		}
+	}
+
+	// What was seen survives a reload, and a branch gone is forgotten.
+	dir := t.TempDir()
+	a := loadAutopilot(dir)
+	a.set(proto.AutopilotPolicy{AutoMerge: true})
+	a.observe(proto.ProjectInfo{ID: "p", Base: "main"})
+	a.observe(apOne("", "a"))
+	if _, ok := loadAutopilot(dir).saved.Heads[key]; !ok {
+		t.Fatal("the head seen is not kept")
+	}
+	a.observe(proto.ProjectInfo{ID: "p", Base: "main"})
+	if _, ok := a.saved.Heads[key]; ok {
+		t.Fatal("a branch gone keeps its head")
+	}
+	a.observe(apOne("", "a"))
+	a.forget("p")
+	if len(a.saved.Heads) != 0 {
+		t.Fatal("a project forgotten keeps its heads")
+	}
+}
+
 // With auto_merge off nothing waits, and turning it off forgets what
 // did, so turning it on later merges nothing that went green unwatched.
 func TestAutopilotMergeOff(t *testing.T) {

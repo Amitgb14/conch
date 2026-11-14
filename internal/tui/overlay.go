@@ -199,6 +199,16 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			title = "subagent of " + p.DisplayName()
 		}
 		items = []menuItem{{"enter", "Open its agent", enter}}
+	case kindJob: // something its agent left running
+		title = "running in the background"
+		if p := m.pane(r.machine, r.paneID); p != nil {
+			title = "left running by " + p.DisplayName()
+		}
+		mid, pane, pid := r.machine, r.paneID, atoiOr(r.label)
+		items = []menuItem{
+			{"enter", "Open its agent", enter},
+			{"", "Stop it (and what it started)", func(m *Model) tea.Cmd { return m.stopJob(mid, pane, pid) }},
+		}
 	case kindBranch:
 		title = r.branch
 		items = []menuItem{
@@ -265,6 +275,11 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			// Beside the clean-up, before the last two: refresh and remove.
 			at := len(items) - 3
 			items = append(items[:at], append([]menuItem{{"T", "Move the whole project to another machine or a sandbox…", act("T")}}, items[at:]...)...)
+		}
+		if proj := m.project(r.machine, r.projectID); proj != nil && !proj.Git {
+			// After the task, which works in the folder until it has git.
+			gi := menuItem{"", "Make it a git repository (git init)…", func(m *Model) tea.Cmd { return m.gitInitProject(r.machine, r.projectID) }}
+			items = append(items[:1], append([]menuItem{gi}, items[1:]...)...)
 		}
 		if proj := m.project(r.machine, r.projectID); proj != nil && proj.Git {
 			issue := menuItem{"", "New task from a GitHub issue…", func(m *Model) tea.Cmd { return m.openIssues(r.machine, r.projectID) }}
@@ -1432,6 +1447,9 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "tree", what: "an agent started by another is listed under it, folding away with it", more: []string{
 			"elsewhere — another section, another machine — it says ↳ for the pane that started it, and that pane counts them (⑂2, amber with ! when one of them is waiting); Q, ! and notifications name it too",
+		}},
+		{keys: "tree", what: "⟳2 on an agent: two things it left running — a dev server, a watcher — listed under it", more: []string{
+			"command, ports and how long it has run; its menu (m) stops one; notifications say what is still running",
 		}},
 		{keys: "Sessions", what: "what each saved conversation cost, or the tokens it generated"},
 		{what: "a task warns before it starts when that agent's plan window is nearly used; it never refuses"},

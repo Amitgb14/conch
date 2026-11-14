@@ -185,6 +185,43 @@ public struct IssueInfo: Decodable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// One open Linear or Jira ticket of a project (project.tickets).
+public struct TicketInfo: Decodable, Equatable, Sendable, Identifiable {
+    public var tracker: String
+    public var key: String
+    public var title: String
+    public var status: String?
+    public var url: String?
+    /// The ticket as `conch task -ticket` takes it, its tracker named, so a
+    /// project with both trackers set up reads the one it came from.
+    public var ref: String { "\(tracker):\(key)" }
+    public var id: String { ref }
+    /// How the sheet's picker shows it.
+    public var label: String {
+        let s = (status ?? "").trimmingCharacters(in: .whitespaces)
+        return "\(key) \(title)" + (s.isEmpty ? "" : " · \(s)")
+    }
+    public init(tracker: String, key: String, title: String, status: String? = nil, url: String? = nil) {
+        self.tracker = tracker
+        self.key = key
+        self.title = title
+        self.status = status
+        self.url = url
+    }
+}
+
+/// A project's open tickets, from the tracker its machine has set up.
+public struct TicketList: Decodable, Sendable {
+    public var tracker: String
+    public var tickets: [TicketInfo]
+    enum CodingKeys: String, CodingKey { case tracker, tickets }
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        tracker = try c.decodeIfPresent(String.self, forKey: .tracker) ?? ""
+        tickets = try c.decodeIfPresent([TicketInfo].self, forKey: .tickets) ?? []
+    }
+}
+
 /// A task sheet's When, as `conch task` takes it: nothing (now), the
 /// queue, after other work, again and again, or a time the server keeps
 /// (14:05, +30m, tomorrow 9:00 — conch's own words for one, read there).
@@ -199,12 +236,17 @@ public func taskWhenArgs(_ when: String) -> [String] {
 }
 
 /// `conch task`'s arguments for a sheet that needs the command rather than
-/// task.create: an issue, or a time other than now.
-public func taskArgs(dir: String, prompt: String, agent: String, branch: String, issue: Int?, when: String) -> [String] {
+/// task.create: an issue, a ticket, or a time other than now.
+public func taskArgs(dir: String, prompt: String, agent: String, branch: String, issue: Int?, ticket: String = "", when: String) -> [String] {
     var a = ["task", "-cwd", dir, "-agent", agent]
     let b = branch.trimmingCharacters(in: .whitespaces)
     if !b.isEmpty { a += ["-branch", b] }
-    if let n = issue, n > 0 { a += ["-issue", String(n)] }
+    let t = ticket.trimmingCharacters(in: .whitespaces)
+    if !t.isEmpty {
+        a += ["-ticket", t]
+    } else if let n = issue, n > 0 {
+        a += ["-issue", String(n)]
+    }
     a += taskWhenArgs(when)
     let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
     if !p.isEmpty { a.append(p) }

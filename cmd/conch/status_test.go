@@ -188,3 +188,59 @@ func TestStatusJSONWithoutServer(t *testing.T) {
 		t.Fatalf("%v %q", err, out)
 	}
 }
+
+// An agent that finished but left something running says so: a
+// BACKGROUND column, and the summary counts them.
+func TestStatusBackgroundColumn(t *testing.T) {
+	panes := append([]proto.PaneInfo{}, statusPanes...)
+	a := *panes[1].Agent
+	a.State, a.Background = proto.AgentDone, 2
+	a.Jobs = []proto.BackgroundJob{{PID: 7, Command: "npm run dev -- --port 5173 --host 0.0.0.0"}, {PID: 8, Command: "pytest -f"}}
+	panes[1].Agent = &a
+	out := statusFitted(panes, "/Users/you", 200)
+	lines := strings.Split(out, "\n")
+	if lines[0] != "2 agents: 1 working, 1 done · 2 left running" {
+		t.Errorf("summary %q", lines[0])
+	}
+	if f := strings.Fields(lines[1]); strings.Join(f, " ") != "ID NAME AGENT STATE BACKGROUND FOLDER COMMAND" {
+		t.Errorf("header %q", lines[1])
+	}
+	if !strings.Contains(lines[3], "2: npm run dev -- --port 5…") {
+		t.Errorf("row %q", lines[3])
+	}
+	for _, width := range []int{1, 20, 40, 80} {
+		for _, l := range strings.Split(strings.TrimSuffix(statusFitted(panes, "/Users/you", width), "\n"), "\n") {
+			if n := utf8.RuneCountInString(l); n > width {
+				t.Errorf("width %d: a line of %d: %q", width, n, l)
+			}
+		}
+	}
+	// A count with no list, from a server that sent none.
+	a.Jobs = nil
+	if out := statusFitted(panes, "", 200); !strings.Contains(out, " 2 ") {
+		t.Errorf("count alone:\n%s", out)
+	}
+	// None anywhere: no column, as with SSH.
+	if out := statusFitted(statusPanes, "", 200); strings.Contains(out, "BACKGROUND") || strings.Contains(out, "left running") {
+		t.Errorf("no jobs:\n%s", out)
+	}
+	// An exited agent leaves nothing running that conch can see.
+	panes[1].State = proto.PaneExited
+	if out := statusFitted(panes, "", 200); strings.Contains(out, "BACKGROUND") {
+		t.Errorf("exited:\n%s", out)
+	}
+}
+
+// The JSON carries the count and what each job is.
+func TestStatusJSONBackground(t *testing.T) {
+	b, err := json.Marshal(proto.PaneInfo{ID: "p1", Agent: &proto.AgentStatus{Name: "claude", Background: 1,
+		Jobs: []proto.BackgroundJob{{PID: 7, Command: "npm run dev", Ports: []int{5173}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"background":1`, `"jobs":[{"pid":7,"command":"npm run dev","since":`, `"ports":[5173]`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("no %s in %s", want, b)
+		}
+	}
+}

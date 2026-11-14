@@ -61,6 +61,15 @@ test("a done push, and pushes with little in them", async () => {
   ])
 })
 
+test("a done push says how many things are still running", async () => {
+  const sw = load()
+  await sw.fire("push", push({ type: "done", pane: "p4", name: "w", project: "api", running: 2, url: "/agent/p4" }))
+  await sw.fire("push", push({ type: "done", pane: "p4", name: "w", running: 1, url: "/agent/p4" }))
+  await sw.fire("push", push({ type: "done", pane: "p4", name: "w", running: "9; rm", url: "/agent/p4" }))
+  await sw.fire("push", push({ type: "done", pane: "p4", name: "w", running: -3, url: "/agent/p4" }))
+  assert.deepEqual(sw.shown.map((n) => n.body), ["in api · 2 still running", "1 still running", "", ""])
+})
+
 test("a notice about an agent on another machine opens that agent", async () => {
   const sw = load()
   await sw.fire("push", push({ type: "waiting", pane: "busybox:p1", name: "reviewer", project: "api", url: "/agent/busybox:p1" }))

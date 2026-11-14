@@ -652,7 +652,8 @@ func TestA5RunAdoptsReloadState(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "agent-runs.json"), runs, 0o600)
 	st, _ := json.Marshal(reloadState{FromBuild: "old", ListenerFD: lfd, NextID: 2,
 		Panes: []reloadPane{{Snapshot: pane.Snapshot{ID: "p2", Command: []string{"sleep"}, Cwd: dir, PID: pid, Cols: 40, Rows: 6}, FD: pfd, Dir: dir, Loose: true,
-			Subagents: []proto.Subagent{{ID: "a1", Type: "Explore"}}, SubagentSession: "s1"}}})
+			Subagents: []proto.Subagent{{ID: "a1", Type: "Explore"}}, SubagentSession: "s1", Account: "work"}},
+		Limits: []proto.PlanLimits{{Agent: "claude", FiveHour: &proto.LimitWindow{UsedPct: 5}}, {Agent: "claude", Account: "work", FiveHour: &proto.LimitWindow{UsedPct: 50}}}})
 	statePath := filepath.Join(dir, "reload-state.json")
 	os.WriteFile(statePath, st, 0o600)
 	t.Setenv(reloadStateEnv, statePath)
@@ -682,6 +683,16 @@ func TestA5RunAdoptsReloadState(t *testing.T) {
 		if m.ID == "1" {
 			if json.Unmarshal(m.Result, &list) != nil || len(list.Panes) != 1 || list.Panes[0].ID != "p2" {
 				t.Fatalf("adopted panes: %s", m.Result)
+			}
+			// The account its agent started on, and each account's limits.
+			if list.Panes[0].Account != "work" {
+				t.Fatalf("adopted pane on account %q", list.Panes[0].Account)
+			}
+			if l, ok := s.limitsOf("claude", "work"); !ok || l.FiveHour.UsedPct != 50 {
+				t.Fatalf("work's limits after a reload: %+v", l)
+			}
+			if l, ok := s.limitsOf("claude", ""); !ok || l.FiveHour.UsedPct != 5 {
+				t.Fatalf("the own account's limits after a reload: %+v", l)
 			}
 			e := a5Entry(t, s, "p2")
 			e.mu.Lock()

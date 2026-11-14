@@ -52,8 +52,7 @@ func TestEveryAgentHasAMark(t *testing.T) {
 	pane := func(agent string) proto.PaneInfo {
 		return proto.PaneInfo{ID: "p9", Agent: &proto.AgentStatus{Name: agent}}
 	}
-	for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin",
-		"aider", "amp", "cursor", "grok", "kilo", "pi", "somebodys-own", "", "robo2"} {
+	for _, agent := range append(shippedAgentNames(t), "somebodys-own", "", "robo2") {
 		for _, icons := range []string{"text", "nerd"} {
 			m.cfg.UI.Icons = icons
 			mark, _ := m.agentMark(pane(agent))
@@ -62,12 +61,12 @@ func TestEveryAgentHasAMark(t *testing.T) {
 			}
 		}
 	}
-	// Each of the ten conch knows is its own mark, so two agents never
-	// read alike.
+	// Each agent conch knows is its own mark, so two agents never read
+	// alike.
 	for _, icons := range []string{"text", "nerd"} {
 		m.cfg.UI.Icons = icons
 		seen := map[string]string{}
-		for _, agent := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"} {
+		for _, agent := range shippedAgentNames(t) {
 			mark, _ := m.agentMark(pane(agent))
 			if was, dup := seen[mark]; dup {
 				t.Errorf("%s and %s share a mark with icons = %s", was, agent, icons)
@@ -231,7 +230,7 @@ func TestAskInstallSaysWhenThereIsNoInstaller(t *testing.T) {
 // colour, for exactly one agent — which is the kind of thing nobody
 // notices until they use that agent.
 func TestEveryShippedAgentIsInEveryMarkMap(t *testing.T) {
-	shipped := []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"}
+	shipped := shippedAgentNames(t)
 	for _, name := range shipped {
 		if agentDots[name] == "" {
 			t.Errorf("%s has no dot", name)
@@ -435,7 +434,7 @@ func TestMachinePageFitsItsAgents(t *testing.T) {
 	defer applyTheme("conch", "")
 	m, _ := a5Agents(t, false)
 	var list []proto.AgentAvailability
-	for _, n := range []string{"claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"} {
+	for _, n := range shippedAgentNames(t) {
 		list = append(list, proto.AgentAvailability{Name: n, Label: agentLabel(n), Installed: true, Version: "1.2.345"})
 	}
 	mach := m.machines[0]

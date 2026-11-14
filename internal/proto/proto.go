@@ -19,7 +19,7 @@ import (
 
 // Version is the conch release version, set at release time with
 // -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=0.2.0".
-var Version = "0.1.10-dev"
+var Version = "0.2.1-dev"
 
 // IsRelease reports whether Version names a published release rather than a
 // development build.
@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -229,9 +229,43 @@ const CapBranchCILog = "branch.ci_log.v1"
 // saved conversation rather than off its screen.
 const CapAgentReply = "agent.reply.v1"
 
+// CapProjectGitInit is project.git_init: a project that is a plain
+// folder made a git repository — git init and an empty first commit — so
+// a task or a branch can be made in it.
+const CapProjectGitInit = "project.git_init.v1"
+
 // CapAgentChat is agent.chat: a pane's agent's conversation with the tools
 // it used, from its saved transcript, for a chat drawn beside its terminal.
 const CapAgentChat = "agent.chat.v1"
+
+// CapAgentInterrupt is agent.interrupt: what a chat's Stop sends — the
+// agent's own interrupt key, each on its own so the agent cannot read it
+// as the start of an escape sequence, or ctrl+c when Hard — after which
+// the server looks at the agent at once and again every moment until it
+// stops working, rather than at its next tick. An older server has only
+// pane.send_keys, and a client falls back to that.
+const CapAgentInterrupt = "agent.interrupt.v1"
+
+// CapAgentAttach is agent.attach: a new folder for a message's
+// attachments in the agent's checkout, .conch/attachments/ID, kept out
+// of git through its info/exclude, with folders there older than
+// AttachKeep removed. The files are then copied in with fs.upload (Dir),
+// which carries them in chunks, so a file can be bigger than one message.
+const CapAgentAttach = "agent.attach.v1"
+
+// CapAutopilotTriage is AutopilotPolicy.Triage: each issue with a
+// project's triage label read by an agent and labelled ready, needs-info
+// or too-big, with a comment saying why.
+const CapAutopilotTriage = "autopilot.triage.v1"
+
+// CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
+// project's label taken as queued tasks by the server, each once.
+const CapAutopilotIntake = "autopilot.intake.v1"
+
+// CapAgentBackground is AgentStatus.Background and Jobs: what an agent
+// that is not working left running below it — a dev server, a watcher,
+// a background shell — and agent.background.stop to end one of them.
+const CapAgentBackground = "agent.background.v1"
 
 // CapSchedule is schedule.add, schedule.list and schedule.remove: a
 // message for a running agent, or a task, kept by the server for a time
@@ -242,6 +276,24 @@ const CapSchedule = "schedule.v1"
 // CapIssues is project.issues and task.create's Issue: work started from a
 // GitHub issue, read through gh on the machine the project is on.
 const CapIssues = "project.issues.v1"
+
+// CapTickets is project.tickets, ticket.get, ticket.update and
+// task.create's Ticket: work started from a Linear or Jira ticket, and the
+// ticket commented on, moved and linked to its branch or pull request —
+// all through the tracker's API with the key on the machine the project
+// is on ([trackers] in its config.toml).
+const CapTickets = "tickets.v1"
+
+// CapTicketOverview is ticket.overview: every project's open tickets —
+// GitHub issues and its Linear or Jira tickets — with what conch is doing
+// about each, for the Tickets view.
+const CapTicketOverview = "ticket.overview.v1"
+
+// CapTicketCheck is ticket.check: whether each tracker — GitHub through
+// gh, Linear, Jira — can be reached with what this server has, whose the
+// key is, what it can see and how many tickets are open, for Settings to
+// say a key works before anything is asked of it.
+const CapTicketCheck = "ticket.check.v1"
 
 // CapPermissionRules is agent.permission: the server answering an agent's
 // permission request by the person's rules, before it is asked on screen.
@@ -444,6 +496,9 @@ const (
 	MethodTaskCreate     = "task.create"
 	MethodProjectCreate  = "project.create"
 	MethodProjectResolve = "project.resolve"
+	// MethodProjectGitInit makes a plain-folder project a git repository
+	// (ProjectRef; answers its ProjectInfo; project.git_init.v1).
+	MethodProjectGitInit = "project.git_init"
 	MethodFSList         = "fs.list"
 	MethodFSMkdir        = "fs.mkdir"
 	MethodFSUpload       = "fs.upload"
@@ -501,8 +556,25 @@ const (
 	// MethodAgentChat is a pane's agent's conversation, tools and all,
 	// read from its saved transcript (CapAgentChat).
 	MethodAgentChat = "agent.chat"
+	// MethodAgentBackgroundStop ends one of the jobs an agent left running
+	// (AgentStatus.Jobs), and only one of those (agent.background.v1).
+	MethodAgentBackgroundStop = "agent.background.stop"
+
+	MethodAgentInterrupt = "agent.interrupt"
+	MethodAgentAttach    = "agent.attach"
 
 	MethodProjectIssues = "project.issues"
+
+	// MethodProjectTickets lists a project's open tickets in its tracker,
+	// MethodTicketGet reads one, and MethodTicketUpdate comments on it,
+	// moves it or links something to it (CapTickets).
+	MethodProjectTickets = "project.tickets"
+	MethodTicketGet      = "ticket.get"
+	MethodTicketUpdate   = "ticket.update"
+	// MethodTicketCheck says how each tracker stands (CapTicketCheck).
+	MethodTicketCheck = "ticket.check"
+	// MethodTicketOverview lists every project's tickets (CapTicketOverview).
+	MethodTicketOverview = "ticket.overview"
 
 	MethodAgentPermission = "agent.permission"
 
@@ -714,6 +786,9 @@ type PaneInfo struct {
 	Created  time.Time `json:"created"`
 	// Agent is set while an agent is detected in the pane.
 	Agent *AgentStatus `json:"agent,omitempty"`
+	// Account is the account its agent was started on, "" for the agent's
+	// own (CapAccounts).
+	Account string `json:"account,omitempty"`
 	// Title is the terminal title with decoration (spinners, the agent's
 	// default title) stripped; agents set it to a summary of their task.
 	Title string `json:"title,omitempty"`
@@ -1003,6 +1078,7 @@ type GroupTaskParams struct {
 	Prompt   string   `json:"prompt"`
 	Branch   string   `json:"branch,omitempty"`
 	Agent    string   `json:"agent,omitempty"`
+	Account  string   `json:"account,omitempty"` // as PaneCreateParams has it
 	Projects []string `json:"projects,omitempty"`
 	Each     bool     `json:"each,omitempty"`
 	Cols     int      `json:"cols,omitempty"`
@@ -1998,6 +2074,8 @@ type TaskCreateParams struct {
 	Branch    string `json:"branch,omitempty"`
 	Base      string `json:"base,omitempty"`
 	Agent     string `json:"agent,omitempty"` // default: the server's first agent (claude)
+	// Account is the agent's account, as PaneCreateParams has it.
+	Account string `json:"account,omitempty"`
 	// Name names the pane, as pane.rename does, so it can be addressed
 	// by it; see IsPaneID.
 	Name string `json:"name,omitempty"`
@@ -2008,6 +2086,11 @@ type TaskCreateParams struct {
 	// prompt — Prompt, when given too, is added as further instructions —
 	// and its number starts the branch's name.
 	Issue int `json:"issue,omitempty"`
+	// Ticket is a Linear or Jira ticket to work on (CapTickets): ENG-123,
+	// linear:ENG-123 or its address. The server reads it, its title, body
+	// and comments become the prompt as an issue's do, and its key starts
+	// the branch's name.
+	Ticket string `json:"ticket,omitempty"`
 }
 
 // PermissionAsk is an agent asking to use a tool, as its hook saw it:
@@ -2062,6 +2145,188 @@ type IssueInfo struct {
 // IssueList is a project's open issues, newest first.
 type IssueList struct {
 	Issues []IssueInfo `json:"issues"`
+}
+
+// TicketOverviewParams asks for the Tickets view (CapTicketOverview):
+// every git project's, or those named; Limit tickets a source (0: 50).
+type TicketOverviewParams struct {
+	ProjectIDs []string `json:"project_ids,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
+}
+
+// What conch is doing about a ticket, most pressing first.
+const (
+	DoingWaiting = "waiting" // its agent waits on the person
+	DoingWorking = "working" // its agent is at work
+	DoingPR      = "pr"      // a pull request is open for it
+	DoingQueued  = "queued"  // a task for it is on the schedule
+	DoingIdle    = "idle"    // its agent has stopped, nothing open
+	DoingMerged  = "merged"  // its pull request merged
+)
+
+// TicketDoing is what conch is doing about a ticket; empty State is
+// nothing. Pane is its agent, Branch the branch named for it, Schedule the
+// queued item, and PR the branch's pull request.
+type TicketDoing struct {
+	State    string  `json:"state,omitempty"`
+	Pane     string  `json:"pane,omitempty"`
+	Branch   string  `json:"branch,omitempty"`
+	Schedule string  `json:"schedule,omitempty"`
+	Note     string  `json:"note,omitempty"`
+	PR       *PRInfo `json:"pr,omitempty"`
+}
+
+// TicketRow is one ticket in the overview. Source is github, linear or
+// jira; Key is the issue number for GitHub (Number too) and the tracker's
+// key otherwise.
+type TicketRow struct {
+	Source string      `json:"source"`
+	Key    string      `json:"key"`
+	Number int         `json:"number,omitempty"`
+	Title  string      `json:"title"`
+	URL    string      `json:"url,omitempty"`
+	Status string      `json:"status,omitempty"`
+	Labels []string    `json:"labels,omitempty"`
+	Mine   bool        `json:"mine,omitempty"`
+	Doing  TicketDoing `json:"doing"`
+}
+
+// TicketProject is one project's tickets, or why some could not be read.
+// A tracker's tickets set up with no project are a group with no ID.
+type TicketProject struct {
+	ProjectID string      `json:"project_id,omitempty"`
+	Name      string      `json:"name"`
+	Sources   []string    `json:"sources,omitempty"` // "github", "linear · ENG"
+	Tickets   []TicketRow `json:"tickets"`
+	Errors    []string    `json:"errors,omitempty"`
+}
+
+type TicketOverview struct {
+	Projects []TicketProject `json:"projects"`
+}
+
+// TicketCheckParams asks how the trackers stand (CapTicketCheck). With a
+// project, GitHub's counts are that project's issues.
+type TicketCheckParams struct {
+	ProjectID string `json:"project_id,omitempty"`
+}
+
+// Tracker states.
+const (
+	TrackerConnected = "connected"
+	TrackerOff       = "off"   // not set up
+	TrackerError     = "error" // set up, and it did not answer as hoped
+)
+
+// TrackerArea is a Linear team or a Jira project the key can see.
+type TrackerArea struct {
+	Key  string `json:"key"`
+	Name string `json:"name,omitempty"`
+}
+
+// TrackerState is how one tracker stands. KeyFrom says where its key is
+// read from (config.toml, $VARIABLE, the Keychain, gh's own login) — never
+// the key. Open and Mine count the open tickets in Area (the team or
+// project tickets are listed from, "" for all), up to TicketCountMax;
+// More says there were that many or more.
+type TrackerState struct {
+	Tracker   string        `json:"tracker"`
+	State     string        `json:"state"`
+	Who       string        `json:"who,omitempty"`
+	Email     string        `json:"email,omitempty"`
+	Workspace string        `json:"workspace,omitempty"`
+	Areas     []TrackerArea `json:"areas,omitempty"`
+	Area      string        `json:"area,omitempty"`
+	Open      int           `json:"open,omitempty"`
+	Mine      int           `json:"mine,omitempty"`
+	More      bool          `json:"more,omitempty"`
+	KeyFrom   string        `json:"key_from,omitempty"`
+	Error     string        `json:"error,omitempty"`
+}
+
+// TrackerProjectState is one [[trackers.projects]] entry: a project, its
+// tracker and team or project, and how many tickets are open there.
+type TrackerProjectState struct {
+	Project string `json:"project"`
+	Tracker string `json:"tracker"`
+	Area    string `json:"area,omitempty"`
+	Open    int    `json:"open,omitempty"`
+	More    bool   `json:"more,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// TicketCheckResult is ticket.check's answer: GitHub, Linear and Jira in
+// that order, then each project's entry.
+type TicketCheckResult struct {
+	Trackers []TrackerState        `json:"trackers"`
+	Projects []TrackerProjectState `json:"projects,omitempty"`
+}
+
+// TicketCountMax is the most tickets a check counts.
+const TicketCountMax = 100
+
+// TicketsParams lists a project's open tickets (CapTickets), from the
+// tracker its [[trackers.projects]] entry names, or the one set up.
+type TicketsParams struct {
+	ProjectID string `json:"project_id"`
+	// Tracker is linear or jira, when both are set up; "" chooses as a
+	// ticket's key would.
+	Tracker string `json:"tracker,omitempty"`
+	// Assigned keeps the tickets assigned to the key's own person.
+	Assigned bool `json:"assigned,omitempty"`
+	Limit    int  `json:"limit,omitempty"`
+}
+
+// TicketComment is one comment on a ticket.
+type TicketComment struct {
+	Author string `json:"author,omitempty"`
+	Body   string `json:"body"`
+}
+
+// TicketLink is a link attached to a ticket.
+type TicketLink struct {
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url"`
+}
+
+// TicketInfo is one ticket. A list leaves out the body, comments and
+// links.
+type TicketInfo struct {
+	Tracker  string          `json:"tracker"`
+	Key      string          `json:"key"`
+	Title    string          `json:"title"`
+	URL      string          `json:"url,omitempty"`
+	Status   string          `json:"status,omitempty"`
+	Body     string          `json:"body,omitempty"`
+	Comments []TicketComment `json:"comments,omitempty"`
+	Links    []TicketLink    `json:"links,omitempty"`
+}
+
+// TicketList is a project's open tickets, most recently changed first.
+type TicketList struct {
+	Tracker string       `json:"tracker"`
+	Tickets []TicketInfo `json:"tickets"`
+}
+
+// TicketGetParams reads one ticket (CapTickets).
+type TicketGetParams struct {
+	ProjectID string `json:"project_id"`
+	// Ticket is its key, linear:KEY or its address.
+	Ticket string `json:"ticket"`
+}
+
+// TicketUpdateParams changes a ticket (CapTickets): each of a comment, a
+// status and a link that is given, in that order. The reply is the
+// ticket as it is after.
+type TicketUpdateParams struct {
+	ProjectID string `json:"project_id"`
+	Ticket    string `json:"ticket"`
+	Comment   string `json:"comment,omitempty"`
+	// Status is the status to move it to (In Review, Done), as the
+	// tracker names it.
+	Status    string `json:"status,omitempty"`
+	LinkURL   string `json:"link_url,omitempty"`
+	LinkTitle string `json:"link_title,omitempty"`
 }
 
 // ScheduledItem is something the server does at a time to come: a
@@ -2236,6 +2501,14 @@ const (
 // writer, and it is closed once its report has gone where it was for.
 const ReviewerPrefix = "review · "
 
+// TriagePrefix starts the name of an agent the server started to triage
+// an issue: it reads and reports, like a reviewer, so it is not counted as
+// work under way.
+const TriagePrefix = "triage · "
+
+// IsTriager says whether p is an agent triaging an issue.
+func IsTriager(p PaneInfo) bool { return strings.HasPrefix(p.Name, TriagePrefix) }
+
 // IsReviewer reports whether p is a reviewer's pane.
 func IsReviewer(p PaneInfo) bool { return strings.HasPrefix(p.Name, ReviewerPrefix) }
 
@@ -2268,6 +2541,28 @@ type AgentStatus struct {
 	// process — Claude Code's Agent tool — which have no pane of their
 	// own. Servers from before them send none.
 	Subagents []Subagent `json:"subagents,omitempty"`
+	// Background counts what the agent left running below it while it is
+	// not working — a dev server, a test watcher, a background shell — and
+	// Jobs says what each is (agent.background.v1). Both are empty while it
+	// works, since then its children are the work, and from older servers.
+	Background int             `json:"background,omitempty"`
+	Jobs       []BackgroundJob `json:"jobs,omitempty"`
+}
+
+// BackgroundJob is one program an agent left running: the process below
+// the agent that started it, with the ports it and its children listen on.
+type BackgroundJob struct {
+	PID     int       `json:"pid"`
+	Command string    `json:"command"`
+	Since   time.Time `json:"since"`
+	Ports   []int     `json:"ports,omitempty"`
+}
+
+// AgentBackgroundStopParams names a job to end: a pane and one of the
+// pids in its agent's Jobs.
+type AgentBackgroundStopParams struct {
+	ID  string `json:"id"`
+	PID int    `json:"pid"`
 }
 
 // Subagent is an agent running inside another agent's process, known from
@@ -2303,7 +2598,10 @@ type LimitWindow struct {
 // agent last reported it: Claude's 5-hour and weekly windows, Codex's
 // primary and secondary windows, or a gateway spend limit.
 type PlanLimits struct {
-	Agent    string       `json:"agent"`
+	Agent string `json:"agent"`
+	// Account is which of the agent's accounts, "" for its own
+	// (CapAccounts): each has a plan of its own.
+	Account  string       `json:"account,omitempty"`
 	FiveHour *LimitWindow `json:"five_hour,omitempty"`
 	Week     *LimitWindow `json:"week,omitempty"`
 	Spend    *LimitWindow `json:"spend,omitempty"`
@@ -2366,7 +2664,10 @@ type SessionListParams struct {
 
 // SessionInfo is a saved agent conversation.
 type SessionInfo struct {
-	Agent   string    `json:"agent"`
+	Agent string `json:"agent"`
+	// Account is the account whose folder holds the conversation, "" for
+	// the agent's own (CapAccounts); resuming it starts on that account.
+	Account string    `json:"account,omitempty"`
 	ID      string    `json:"id,omitempty"` // "" for an interrupted run whose conversation wasn't found
 	Dir     string    `json:"dir"`
 	Branch  string    `json:"branch,omitempty"`
@@ -2526,6 +2827,49 @@ type ChatTurn struct {
 // log's Epoch and Ver it has, and is sent only what is new or changed
 // since; without them (or from another log) it is sent the newest turns
 // with Reset.
+// AgentInterruptParams stops what the agent in pane ID is doing: its own
+// interrupt key (escape, or escape twice for an agent that asks for it),
+// or with Hard ctrl+c.
+type AgentInterruptParams struct {
+	ID   string `json:"id"`
+	Hard bool   `json:"hard,omitempty"`
+}
+
+// AgentInterruptResult says which keys were sent and the agent's state
+// just after: often still working, since an agent takes a moment to stop;
+// pane.updated says when it has.
+type AgentInterruptResult struct {
+	ID    string   `json:"id"`
+	Keys  []string `json:"keys"`
+	State string   `json:"state,omitempty"`
+}
+
+// AgentAttachParams asks for a folder for one message's attachments in
+// the checkout of the agent in pane ID.
+type AgentAttachParams struct {
+	ID string `json:"id"`
+}
+
+// AgentAttachResult is that folder (Dir, absolute), the checkout it is in
+// (Root) and the agent's own folder (Cwd), against which a path in the
+// message is given. MaxSize and MaxFiles are the limits a client keeps to.
+type AgentAttachResult struct {
+	Dir      string `json:"dir"`
+	Root     string `json:"root"`
+	Cwd      string `json:"cwd"`
+	MaxSize  int64  `json:"max_size"`
+	MaxFiles int    `json:"max_files"`
+}
+
+// The limits on a message's attachments, and how long they are kept.
+const (
+	AttachMaxSize  int64 = 20 << 20
+	AttachMaxFiles       = 10
+	AttachKeep           = 7 * 24 * time.Hour
+	// AttachDir is where in a checkout attachments go, with slashes.
+	AttachDir = ".conch/attachments"
+)
+
 type AgentChatParams struct {
 	ID    string `json:"id"`
 	Epoch string `json:"epoch,omitempty"`
@@ -2647,10 +2991,13 @@ type SessionList struct {
 // SessionRef names a session to resume or dismiss.
 type SessionRef struct {
 	Agent string `json:"agent"`
-	ID    string `json:"id,omitempty"`
-	Dir   string `json:"dir"`
-	Cols  int    `json:"cols,omitempty"`
-	Rows  int    `json:"rows,omitempty"`
+	// Account is the session's own (SessionInfo.Account). The server finds
+	// it when it is not given, so an older client resumes on the right one.
+	Account string `json:"account,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Dir     string `json:"dir"`
+	Cols    int    `json:"cols,omitempty"`
+	Rows    int    `json:"rows,omitempty"`
 }
 
 // AgentSetupParams asks what agents load when started in Dir. Agent limits
@@ -2907,6 +3254,9 @@ type PaneCreateParams struct {
 	Name      string `json:"name,omitempty"`
 	Agent     string `json:"agent,omitempty"`
 	AgentArgs string `json:"agent_args,omitempty"` // shell words, e.g. "--model opus"
+	// Account is which of the agent's accounts it starts on (CapAccounts):
+	// "" is the folder's pin, else the agent's own; "default" is its own.
+	Account string `json:"account,omitempty"`
 	// Prompt is a first message for the agent, passed the way it expects.
 	Prompt  string   `json:"prompt,omitempty"`
 	Command []string `json:"command,omitempty"`

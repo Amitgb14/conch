@@ -6,7 +6,7 @@ import Testing
 // Every section icon the schema names (internal/configweb/schema.go), and
 // the Skills & MCP servers page's own.
 let sectionIcons = ["palette", "keyboard", "bell", "bot", "shield-check", "git-merge", "sparkles", "terminal",
-                    "square-terminal", "server", "refresh-cw", "smartphone", "laptop", "box", "zap", "lock", SettingsNav.skillsIcon]
+                    "square-terminal", "server", "refresh-cw", "smartphone", "laptop", "box", "zap", "lock", "ticket", SettingsNav.skillsIcon]
 
 @Test func settingsIconChoice() {
     #expect(settingsIcons(nil) == (.lucide, .plain))

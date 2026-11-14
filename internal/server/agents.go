@@ -37,7 +37,10 @@ type entry struct {
 	// listening is the TCP ports the pane's programs listen on, as the
 	// last look found them (listening.go).
 	listening []int
-	project   *project // nil when the pane is outside any project
+	// jobs is what the pane's agent left running below it, as the last
+	// look found them (background.go).
+	jobs    []proto.BackgroundJob
+	project *project // nil when the pane is outside any project
 
 	screen        []string // cached plain screen
 	screenVersion uint64
@@ -86,6 +89,11 @@ type entry struct {
 	// as one before the agent's process is seen, which a queue starting
 	// work against a limit must not wait for.
 	launched string
+	// account is the account the agent was started on, "" for its own
+	// (accounts.go). Set before the pane is listed and never changed: a
+	// conversation lives in its account's folder, so an agent is never
+	// moved to another.
+	account string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -106,6 +114,7 @@ func (e *entry) info() proto.PaneInfo {
 	st := e.tracker.Status()
 	info.Monitor, info.Alert = e.monitor.info()
 	info.LastActive = e.lastActive
+	info.Account = e.account
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {
@@ -119,6 +128,13 @@ func (e *entry) info() proto.PaneInfo {
 	}
 	if info.State == proto.PaneRunning {
 		info.Listening = slices.Clone(e.listening)
+	}
+	var jobs []proto.BackgroundJob
+	if st.State != detect.StateWorking {
+		for _, j := range e.jobs {
+			j.Ports = slices.Clone(j.Ports)
+			jobs = append(jobs, j)
+		}
 	}
 	e.mu.Unlock()
 	if proj != nil {
@@ -134,7 +150,7 @@ func (e *entry) info() proto.PaneInfo {
 		info.Agent = &proto.AgentStatus{
 			Name: st.Agent, State: st.State, Source: st.Source, Reason: gitx.Printable(st.Reason),
 			Message: gitx.Printable(st.Message), SessionID: st.SessionID, Since: st.Since, Tokens: tokens, Failed: st.Failed,
-			Turn: turns, Subagents: subs,
+			Turn: turns, Subagents: subs, Background: len(jobs), Jobs: jobs,
 		}
 	}
 	return info
@@ -207,6 +223,7 @@ type shown struct {
 	// own (the Mac app's letterbox) hears that another changed it.
 	cols, rows int
 	listening  string
+	jobs       string
 }
 
 func shownOf(info proto.PaneInfo) shown {
@@ -222,6 +239,7 @@ func shownOf(info proto.PaneInfo) shown {
 		}
 		sa := subagents{list: a.Subagents}
 		sh.subagents = sa.key()
+		sh.jobs = jobsKey(a.Jobs)
 	}
 	return sh
 }
@@ -264,10 +282,14 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 		Program:    s.heldBack(e, programReport(e.p), at),
 	})
 	// Going back to work after a question was answered is the same turn.
-	if now := e.tracker.Status().State; now == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {
+	st := e.tracker.Status()
+	if st.State == proto.AgentWorking && prevState != proto.AgentWorking && prevState != proto.AgentBlocked {
 		e.turns++
 	}
 	e.mu.Unlock()
+	if prevState == proto.AgentWorking && st.Agent != "" && st.State != proto.AgentWorking {
+		s.jobsAtTurnEnd(e, st.Agent)
+	}
 
 	info := e.info()
 	if s.alive(e) {

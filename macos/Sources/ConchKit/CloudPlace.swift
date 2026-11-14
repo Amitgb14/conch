@@ -49,12 +49,15 @@ public struct PlaceOption: Identifiable, Equatable, Sendable {
 /// not offered), and Conch Cloud last — which, signed out, says to sign in.
 /// Cloud machines are Conch Cloud's to list. excluding is the machine the
 /// project is on already, for a move.
-public func projectPlaces(machines: [PlaceMachine], signedIn: Bool, cloudMachines: Int, excluding: String? = nil) -> [PlaceOption] {
+public func projectPlaces(machines: [PlaceMachine], signedIn: Bool, cloudMachines: Int, offerCloud: Bool, excluding: String? = nil) -> [PlaceOption] {
     var out: [PlaceOption] = []
-    for m in machines where !m.cloud && m.id != excluding {
+    // With Conch Cloud hidden (cloudEnabled) a cloud machine somebody
+    // already has is a machine like the rest, and Conch Cloud no choice.
+    for m in machines where listedWithMachines(cloud: m.cloud, offerCloud: offerCloud) && m.id != excluding {
         out.append(PlaceOption(place: .machine(m.id), title: m.id == "local" ? "This Mac" : m.label,
                                note: m.online ? "" : "offline", enabled: m.online))
     }
+    guard offerCloud else { return out }
     let note = !signedIn ? "Sign in to use"
         : cloudMachines == 0 ? "a new machine"
         : cloudMachines == 1 ? "1 machine" : "\(cloudMachines) machines"

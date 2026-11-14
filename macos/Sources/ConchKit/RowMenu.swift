@@ -22,6 +22,9 @@ public struct AgentStatusList: Decodable { public var agents: [AgentAvailability
 
 /// What a choice on a tree row's menu does. Panes and projects are named
 /// as the tree names them, key(machine, id).
+/// What follows checking a branch out in a worktree of its own.
+public enum CheckOutThen: Equatable, Sendable { case nothing, agent, terminal }
+
 public enum RowAction: Equatable, Sendable {
     case open
     case rename(pane: String)
@@ -35,10 +38,16 @@ public enum RowAction: Equatable, Sendable {
     case startAgent(machine: String, cwd: String?, inProject: Bool)
     case newTerminal(machine: String, cwd: String?, inProject: Bool)
     case changes(project: String, branch: String)
+    /// A branch checked out nowhere given a worktree of its own, and then
+    /// an agent or a terminal started in it (or nothing more).
+    case checkOut(project: String, branch: String, then: CheckOutThen)
     /// The project's commit graph, at a branch's newest commit when one
     /// is named.
     case commits(project: String, branch: String?)
     case newTask(project: String)
+    /// A project that is a plain folder made a git repository: git init
+    /// and an empty first commit (project.git_init.v1), after asking.
+    case gitInit(project: String)
     case copy(String)
     /// A folder on this Mac shown in the Finder.
     case reveal(String)
@@ -143,6 +152,9 @@ public enum RowAction: Equatable, Sendable {
     case groupTaskPush(machine: String, group: String, branch: String)
     case groupTaskPRs(machine: String, group: String, branch: String)
     case removeGroupTask(machine: String, group: String, branch: String)
+    /// A project in a window of its own: its rows alone in the sidebar,
+    /// with tabs and splits of its own.
+    case openWindow(project: String)
     case divider
 }
 
@@ -167,7 +179,12 @@ public struct RowMenuItem: Equatable, Sendable {
     static let divider = RowMenuItem("", .divider)
 
     /// Whether choosing it asks which agent, as a submenu of them.
-    public var picksAgent: Bool { if case .startAgent = action { return true }; return false }
+    public var picksAgent: Bool {
+        switch action {
+        case .startAgent, .checkOut(_, _, .agent): return true
+        default: return false
+        }
+    }
 }
 
 /// How conch's commands name a pane: its ID on this computer, and
@@ -197,10 +214,11 @@ extension Snapshot {
     /// would start something there.
     /// among is every machine in machines.json, for paneRef.
     /// folders is ui.json's (loadFolders) and savedHosts this computer's,
-    /// for what goes in a folder and where it is now.
+    /// for what goes in a folder and where it is now. offerCloud is
+    /// whether Conch Cloud is enabled (cloudEnabled), for Move to it.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
-                     canGroup: Bool = true, canGroupTask: Bool = true) -> [RowMenuItem] {
+                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -253,10 +271,13 @@ extension Snapshot {
             out = [RowMenuItem("View Changes", .changes(project: pk, branch: name))]
             let pr = project(unkey(pk).id)
             // Starting on a branch needs its checkout; one not checked out
-            // is a task's to make (a worktree of its own).
+            // anywhere is given a worktree of its own first.
             if machineOnline, let path = pr?.worktrees?.first(where: { $0.branch == name })?.path {
                 out += [RowMenuItem("Start an Agent on This Branch", .startAgent(machine: machine, cwd: path, inProject: true)),
                         RowMenuItem("Open Terminal on This Branch", .newTerminal(machine: machine, cwd: path, inProject: true))]
+            } else if machineOnline, pr?.git != false {
+                out += [RowMenuItem("Check Out and Start an Agent", .checkOut(project: pk, branch: name, then: .agent)),
+                        RowMenuItem("Check Out and Open Terminal", .checkOut(project: pk, branch: name, then: .terminal))]
             }
             if machineOnline { out.append(RowMenuItem("New Task in Project…", .newTask(project: pk))) }
             out.append(RowMenuItem("Show in Commit Graph", .commits(project: pk, branch: name)))
@@ -282,8 +303,10 @@ extension Snapshot {
                    RowMenuItem("Start an Agent in Project", .startAgent(machine: machine, cwd: pr.path, inProject: true)),
                    RowMenuItem("Open Terminal in Project", .newTerminal(machine: machine, cwd: pr.path, inProject: true))]
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
+            if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
+            out += [.divider, RowMenuItem("Open in New Window", .openWindow(project: pk))]
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]
             // Only this Mac's folders are the Finder's to show.
             if machine == "local" { out.append(RowMenuItem("Reveal in Finder", .reveal(pr.path))) }
@@ -291,7 +314,8 @@ extension Snapshot {
             if pr.git != false {
                 out += [.divider, RowMenuItem("Move to Another Machine…", .moveProject(project: pk))]
                 // This Mac's project, before the lid closes.
-                if machine == "local" { out.append(RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: pk))) }
+                // Not while Conch Cloud is hidden (cloudEnabled).
+                if machine == "local" && offerCloud { out.append(RowMenuItem("Move to Conch Cloud…", .moveToCloud(project: pk))) }
             }
             out += [.divider, RowMenuItem("Remove Project…", .removeProject(project: pk))]
         case .machine, .cli:

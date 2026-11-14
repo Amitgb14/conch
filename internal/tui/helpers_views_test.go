@@ -22,6 +22,7 @@ func a2Isolate(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_CLOUD", "") // Conch Cloud hidden, as released
 	t.Setenv("TMUX", "")
 	// A real provider key in the developer's environment must never show
 	// up in a settings row or make a dialog think it is configured.

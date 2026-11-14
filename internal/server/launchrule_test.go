@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,4 +133,118 @@ func TestAgentLaunchRule(t *testing.T) {
 	if code, _ := h.do("launch", launchArg(t, p)); code != proto.ErrOutOfScope {
 		t.Fatalf("after turning it off: %s", code)
 	}
+}
+
+// The rule's other half: an agent may start a plain shell, but not type
+// into one — what it types there runs, and `claude
+// --dangerously-skip-permissions` typed into a shell it started is the
+// launch refused above. It may type into agents: a shell that has an
+// agent in front now, and not once that agent has gone back to the shell.
+// The person is never held to it, and [agents] unrestricted_launch lifts
+// it with the rest.
+func TestAgentTypesOnlyIntoAgents(t *testing.T) {
+	c, a, _, _, _, _, _, _ := scopeFixture(t)
+	h := startHelper(t, c, a, "claude")
+	screen := func(id string) string {
+		var r proto.PaneReadResult
+		c.Call(t.Context(), proto.MethodPaneRead, proto.PaneRef{ID: id}, &r)
+		return strings.Join(r.Lines, "\n")
+	}
+
+	// A shell of its own: started, and not typed into.
+	code, sh := h.do(proto.MethodPaneCreate, a)
+	if code != "ok" {
+		t.Fatalf("a plain shell: %s", code)
+	}
+	for _, m := range []string{proto.MethodPaneSendText, proto.MethodPaneSendKeys, proto.MethodPaneSendMouse} {
+		if code, _ := h.do(m, sh); code != proto.ErrOutOfScope {
+			t.Errorf("%s into its own shell: %s", m, code)
+		}
+	}
+
+	// The person's shell in its project: not until an agent is in front.
+	// The agent is this test binary under the name claude, waiting on its
+	// input (TestLaunchRuleWaiter). A link to /bin/cat did this once, until
+	// Linux runners shipped uutils coreutils, one binary that refuses to
+	// run under any name but its own.
+	bin := t.TempDir()
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "claude"), self, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var mine proto.PaneInfo
+	// A shell with job control, said rather than left to $SHELL: without
+	// it (/bin/sh on Linux CI) a command typed at it stays in the shell's
+	// process group, so the terminal's foreground is still the shell and
+	// no agent is ever in front.
+	if err := c.Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Cwd: a, Cols: 80, Rows: 10, Command: []string{"/bin/sh", "-i", "-m"}}, &mine); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := h.do(proto.MethodPaneSendText, mine.ID); code != proto.ErrOutOfScope {
+		t.Fatalf("into the person's shell: %s", code)
+	}
+	// The person may, and starts an agent there (cat, under the name).
+	if err := c.Call(t.Context(), proto.MethodPaneSendText, proto.PaneSendTextParams{ID: mine.ID, Text: "CONCH_LAUNCH_WAITER=1 " + filepath.Join(bin, "claude") + " -test.run=^TestLaunchRuleWaiter$\r"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	agentIs := func(want bool) {
+		t.Helper()
+		for i := 0; ; i++ {
+			var list proto.PaneList
+			c.Call(t.Context(), proto.MethodPaneList, nil, &list)
+			for _, p := range list.Panes {
+				if p.ID == mine.ID && (p.Agent != nil) == want {
+					return
+				}
+			}
+			if i == 500 {
+				var why json.RawMessage
+				c.Call(t.Context(), proto.MethodAgentExplain, proto.PaneRef{ID: mine.ID}, &why)
+				t.Fatalf("an agent in %s never became %v; conch saw: %s\nscreen:\n%s", mine.ID, want, why, screen(mine.ID))
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	agentIs(true)
+	if code, _ := h.do(proto.MethodPaneSendText, mine.ID); code != "ok" {
+		t.Fatalf("into an agent in front of a shell: %s", code)
+	}
+	// The agent leaves; the shell is back, and so is the refusal.
+	if err := c.Call(t.Context(), proto.MethodPaneSendKeys, proto.PaneSendKeysParams{ID: mine.ID, Keys: []string{"ctrl+d"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	agentIs(false)
+	if code, _ := h.do(proto.MethodPaneSendText, mine.ID); code != proto.ErrOutOfScope {
+		t.Fatalf("into the shell the agent left: %s", code)
+	}
+
+	// Nothing refused was typed.
+	if strings.Contains(screen(sh), "from-helper") {
+		t.Fatalf("typed into its own shell:\n%s", screen(sh))
+	}
+
+	// Somebody who wants agents to type into shells says so.
+	cfg := filepath.Join(os.Getenv("CONCH_HOME"), "config.toml")
+	if err := os.WriteFile(cfg, []byte("[agents]\nunrestricted_launch = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := h.do(proto.MethodPaneSendText, sh); code != "ok" {
+		t.Fatalf("with unrestricted_launch: %s", code)
+	}
+	os.WriteFile(cfg, []byte("[agents]\nunrestricted_launch = false\n"), 0o600)
+	if code, _ := h.do(proto.MethodPaneSendText, sh); code != proto.ErrOutOfScope {
+		t.Fatalf("after turning it off: %s", code)
+	}
+}
+
+// TestLaunchRuleWaiter is the agent TestAgentTypesOnlyIntoAgents starts in
+// a shell: it reads its input until it ends (ctrl+d), as cat would.
+func TestLaunchRuleWaiter(t *testing.T) {
+	if os.Getenv("CONCH_LAUNCH_WAITER") != "1" {
+		t.Skip("run by TestAgentTypesOnlyIntoAgents")
+	}
+	io.Copy(io.Discard, os.Stdin)
 }

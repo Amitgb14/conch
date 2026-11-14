@@ -34,6 +34,32 @@ final class SettingsModel: ObservableObject {
     /// How many times this window has saved: what was shown from the
     /// file, such as whether a provider has its key, is read again.
     @Published var saves = 0
+    /// How the trackers stand (ticket.check), for Trackers' cards; nil
+    /// until asked, or from a server that predates the check.
+    @Published var trackers: TicketCheckResult?
+    @Published var trackersChecking = false
+    @Published var trackersFailure = ""
+
+    /// Asks this computer's server how each tracker stands: on opening
+    /// Trackers, after a save, and on Test again.
+    func checkTrackers() {
+        guard !trackersChecking else { return }
+        guard let c = store.connection("local") else { return }
+        guard c.hello?.capabilities?.contains("ticket.check.v1") == true else {
+            trackersFailure = "This conch server predates checking trackers: reload it to see whether each key works."
+            return
+        }
+        trackersChecking = true
+        Task { @MainActor in
+            defer { trackersChecking = false }
+            do {
+                trackers = try await c.call("ticket.check", [String: String](), as: TicketCheckResult.self)
+                trackersFailure = ""
+            } catch {
+                trackersFailure = "\(error)"
+            }
+        }
+    }
     @Published var saving = false
 
     let store: Store
@@ -438,6 +464,9 @@ struct SectionForm: View {
     /// Its maps, drawn as pairs: [keys.bind]. [verify]'s commands are
     /// drawn with the rest of Checks & autopilot.
     var maps: [SettingsField] { section.fields.filter { $0.kind == "map" } }
+    /// Its tables of fixed fields, each a card of its own: [trackers]'
+    /// Linear and Jira.
+    var nestedTables: [SettingsField] { section.fields.filter { $0.kind == "table" } }
 
     /// The section another's page draws: Checks & autopilot on Git's.
     func guest(_ id: String) -> SettingsSection? { model.form?.payload.schema.first { $0.id == id } }
@@ -445,7 +474,7 @@ struct SectionForm: View {
     /// Keys a map offers: the projects on this computer for a check, the
     /// actions conch's keys do for a rebinding.
     func offer(_ s: SettingsSection, _ f: SettingsField) -> [(key: String, label: String)] {
-        if s.key == "verify" && f.key == "commands" {
+        if s.key == "verify" && ["commands", "intake", "triage"].contains(f.key) {
             return (model.store.snapshots["local"]?.projects ?? []).map { (key: $0.id, label: $0.name) }.sorted { $0.label < $1.label }
         }
         return (f.suggest ?? []).map { (key: $0, label: $0) }
@@ -524,6 +553,16 @@ struct SectionForm: View {
                 card(nil, rest(["theme", "light_theme"]))
             case "app":
                 card(nil, rest(SettingsIconKeys))
+            case "trackers":
+                if !model.trackersFailure.isEmpty {
+                    Text(model.trackersFailure).font(.ui(size: 12)).foregroundStyle(Theme.warn)
+                }
+                SettingsCard(title: "GitHub") {
+                    Text("Issues for every project with a GitHub remote, read through gh.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 16).padding(.top, 10)
+                    TrackerStatus(model: model, tracker: "github")
+                }
+                if !fields.isEmpty { card(nil, fields) }
             case "git":
                 // Git's own, then Checks & autopilot: what a finished
                 // branch passes, its pull request and its merge.
@@ -587,10 +626,11 @@ struct SectionForm: View {
                     PhonesList(store: model.store).padding(12)
                 }
             case "cloud":
-                // The server to sign in to, then the account and its
-                // machines (CloudSettings.swift).
+                // The switch and the server to sign in to (conch's schema
+                // leaves only the switch while Cloud is hidden), then the
+                // account and its machines (CloudSettings.swift) once it is on.
                 card(nil, fields)
-                CloudCard(store: model.store)
+                if model.store.offersCloud { CloudCard(store: model.store) }
             case "sandbox":
                 // Which providers there are, built in and adapted, and the
                 // way to add one conch does not know.
@@ -606,6 +646,7 @@ struct SectionForm: View {
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }
+            ForEach(nestedTables, id: \.key) { t in nestedCard(t) }
             if section.key != "verify" {
                 ForEach(maps, id: \.key) { m in
                     MapList(model: model, section: section, field: m, offer: offer(section, m))
@@ -618,8 +659,34 @@ struct SectionForm: View {
                     KeyedList(model: model, section: section, field: t)
                 }
             }
+            if section.key == "trackers" { TrackerProjectsCard(model: model) }
         }
         .frame(maxWidth: 760, alignment: .leading)
+        .task(id: section.key) { if section.key == "trackers" { model.checkTrackers() } }
+        .onChange(of: model.saves) { _ in if section.key == "trackers" { model.checkTrackers() } }
+    }
+
+    /// A table of fixed fields ([trackers.linear]) as a card: what it is,
+    /// then each field, read and written inside that table.
+    func nestedCard(_ t: SettingsField) -> some View {
+        var fs = (t.fields ?? []).filter(\.simple)
+        let trackers = section.key == "trackers"
+        if trackers, let areas = model.trackers?.trackers.first(where: { $0.tracker == t.key })?.areas, !areas.isEmpty {
+            // Team or project: the ones the key can see, to pick from.
+            for i in fs.indices where ["team", "project"].contains(fs[i].key) && fs[i].kind == "string" {
+                fs[i].suggest = areas.map(\.key)
+            }
+        }
+        return SettingsCard(title: t.label) {
+            if trackers { TrackerStatus(model: model, tracker: t.key) }
+            if let help = t.help, !help.isEmpty {
+                Text(help).font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 2)
+            }
+            ForEach(Array(fs.enumerated()), id: \.element.key) { i, f in
+                FieldRow(model: model, section: section, field: f, first: i == 0 && (t.help ?? "").isEmpty, place: .nested(table: t.key))
+            }
+        }
     }
 
     func card(_ title: String?, _ fs: [SettingsField], in s: SettingsSection? = nil) -> some View {

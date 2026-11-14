@@ -2,7 +2,7 @@ export const metadata = { title: "Agents", description: "Supported agents, their
 
 # Agents
 
-conch runs Claude Code, Codex, Gemini CLI, OpenCode and Devin in panes it owns, tracks what each is doing, and shows their usage and plan limits.
+conch runs the agents below in panes it owns, tracks what each is doing, and shows their usage and plan limits.
 
 <TuiShot
   id="waiting"
@@ -19,15 +19,16 @@ conch runs Claude Code, Codex, Gemini CLI, OpenCode and Devin in panes it owns, 
 | **Gemini CLI** | `npm install -g --prefix ~/.local @google/gemini-cli` (Node 20+) |
 | **OpenCode** | `curl -fsSL https://opencode.ai/install \| bash` |
 | **Devin** (preview) | `curl -fsSL https://cli.devin.ai/install.sh \| bash`, then `devin auth login` |
+| **Copilot CLI**, **Cline**, **Qwen Code**, **Goose** | `c` → install |
 
 Devin is Cognition's `devin` CLI. A Devin pane that needs an answer looks idle.
 
 ## Two tiers
 
-- **Supported** — the five above, with their saved conversations in the [Sessions](/docs/sessions) view.
+- **Supported** — the nine above, with their saved conversations in the [Sessions](/docs/sessions) view.
 - **Runs here** — described by a manifest: conch starts and recognises it, but does not read its sessions.
 
-conch ships manifests for **Aider**, **Amp**, **Cursor CLI**, **Grok**, **Kilo Code** and **Pi**, marked with a square rather than a circle.
+conch ships manifests for [fourteen more](/docs/cli#the-agents-conch-knows), marked with anything but a circle.
 
 **How:** add your own, then reload the server.
 
@@ -64,6 +65,12 @@ conch never edits an agent's own configuration or answers its trust prompts for 
 
 **How:** `!` in the tree, or `ctrl+b !` in a pane, jumps to the next agent waiting for you.
 
+### Left running in the background
+
+An idle agent can leave something running — a `run_in_background` shell, a dev server, a watcher. Its row says **⟳2** and lists each under it; the notification, the phone, the Mac app and `conch status` say so too. Its helpers (MCP servers, `caffeinate`, a manifest's `helpers`) don't count.
+
+**How:** `m` on a job → **Stop it**.
+
 ### How the state is decided
 
 Most reliable first:
@@ -87,15 +94,15 @@ An agent can start and prompt another. See [Agents working together](/docs/agent
 
 ## Broadcast
 
-`B` types one message into several panes and submits it: a prompt to every agent in a project, or `git pull` in every terminal. The list follows the tree's selection; agents waiting for an answer, and terminals in a mixed list, start unticked.
+`B` sends one message to several panes: a prompt to every agent in a project, or `git pull` in every terminal.
 
-**How:** type the message, `tab` to the list, then `space` ticks, `a` ticks all, `t` all terminals, `e` every machine. `enter` asks to confirm; `n` goes back.
+**How:** type it, `tab` to the list, `space` ticks, `enter` sends.
 
 ## Token usage
 
 Agent panes show usage in their title: `ctx 45k/200k · out 12k · $0.42`.
 
-**ctx** is the context window used now, **out** the output tokens this session, **$** the cost when the agent reports one.
+Context used, output tokens, and cost where the agent reports one.
 
 ## Plan limits
 
@@ -104,3 +111,17 @@ Agent panes show usage in their title: `ctx 45k/200k · out 12k · $0.42`.
 For Claude subscriptions the status bar shows the current windows, e.g. `Claude 5h 42% · 7d 18%`, amber from 70% and red from 90%. Codex's windows come from its session files; API-key logins have none.
 
 **How:** click it for reset times. conch alerts once at 80% and again at 95% (see [notify](/docs/configuration#notify)).
+
+## Several accounts
+
+Several Claude Code or Codex subscriptions side by side, each project, worktree or task on the one you choose.
+
+```sh
+conch account add claude work                  # a folder of its own to sign in to
+conch new -agent claude -account work          # start it there, and /login once
+conch account pin ~/src/acme work              # agents started in acme use work
+conch task -account home "Fix the flaky test"  # this task's agent uses home
+conch account failover 90                      # new agents leave an account past 90%
+```
+
+Limits are per account (`Claude work 5h 88%`); **Settings → Agents → Agent accounts…** lists them. Sessions resume on their own account. See [Agent accounts](/docs/cli#agent-accounts).

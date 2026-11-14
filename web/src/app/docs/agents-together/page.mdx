@@ -8,7 +8,7 @@ How an agent in conch starts other agents — a reviewer, a tester, a second opi
   <Feature icon="agents" title="conch" href="#asking-an-agent-for-a-second-opinion">Start a helper on its own branch, prompt it, wait, read its answer.</Feature>
   <Feature icon="workbench" title="conch-team" href="#a-team-a-review-loop-a-factory">One task tried by several agents, or split into parts.</Feature>
   <Feature icon="diff" title="conch-review" href="#a-team-a-review-loop-a-factory">Review, fix, review again until clean.</Feature>
-  <Feature icon="git" title="conch-ship" href="#a-team-a-review-loop-a-factory">Tests, push, pull request, CI, merge when asked.</Feature>
+  <Feature icon="git" title="conch-ship" href="#a-team-a-review-loop-a-factory">Tests, push, pull request, CI, merge when asked or auto_merge is on.</Feature>
   <Feature icon="loop" title="conch-autopilot" href="#a-team-a-review-loop-a-factory">Set up a project's automated workflow.</Feature>
   <Feature icon="sparkles" title="conch-factory" href="#a-team-a-review-loop-a-factory">A ticket all the way to a merged pull request.</Feature>
 </FeatureGrid>
@@ -64,7 +64,7 @@ Agents
 
 ### Claude's own subagents
 
-Claude Code's own subagents are listed under it too, with their task and kind, while they run. `enter` opens the agent running them.
+Claude Code's own subagents are listed under it too, with their task and kind, while they run. `enter` opens the agent running them. What an agent [left running](/docs/agents#left-running-in-the-background) is listed under it the same way, marked ⟳.
 
 ## From the tree
 
@@ -111,11 +111,11 @@ read   {"pane":"auth", "tail":20}
 
 An agent may start panes and tasks and read anything, but change only its own work: panes it started, panes in its project, and that project's branches. Anything else is refused with `out_of_scope` and a reason. The TUI and your own terminals are never limited.
 
-Agents may pick which agent to start and its `--model`, nothing more. To allow more:
+Agents may pick which agent to start and its `--model`, nothing more, and type only into panes running an agent, never a shell. To allow more:
 
 ```toml
 [agents]
 unrestricted_launch = true
 ```
 
-`conch -m MACHINE` from an agent's pane keeps the same limits on the other machine.
+`conch -m MACHINE` from an agent's pane keeps the same limits on the other machine, held there by that machine's own `unrestricted_launch`.

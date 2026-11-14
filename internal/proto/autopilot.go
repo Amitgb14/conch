@@ -36,6 +36,22 @@ type AutopilotPolicy struct {
 	// Checks is each project's own check, by project ID: what the server
 	// runs in a branch's worktree when its agent finishes.
 	Checks map[string]string `json:"checks,omitempty"`
+	// Intake is each project's label, by project ID: an open GitHub issue
+	// with it is taken as a queued task by itself (CapAutopilotIntake) —
+	// conch task -queue -issue N, with nobody handing it in — and
+	// IntakeWIP is how many agents may be busy in the project before the
+	// next waits (0: DefaultWIP). An older server ignores both.
+	Intake    map[string]string `json:"intake,omitempty"`
+	IntakeWIP int               `json:"intake_wip,omitempty"`
+	// Triage is each project's label asking for triage, by project ID
+	// (CapAutopilotTriage): an agent reads each open issue with it, without
+	// changing anything, comments what done means, its size and the files
+	// it touches, and labels it ready (Intake's label), needs-info or
+	// too-big. TriageAgent reads (claude when empty); TriageCommentOnly
+	// comments and leaves the labels alone.
+	Triage            map[string]string `json:"triage,omitempty"`
+	TriageAgent       string            `json:"triage_agent,omitempty"`
+	TriageCommentOnly bool              `json:"triage_comment_only,omitempty"`
 }
 
 // AutopilotBranch is one branch the server is minding.

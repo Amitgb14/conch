@@ -129,6 +129,9 @@ func (s *Server) createProject(cp proto.ProjectCreateParams) (proto.ProjectInfo,
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		if err := gitx.InitRepo(ctx, path); err != nil {
+			// The folder was made a moment ago and InitRepo took its .git
+			// back: leave nothing for the person's next try to trip on.
+			_ = os.Remove(path)
 			return proto.ProjectInfo{}, proto.Errorf(proto.ErrBadRequest, "git init: %v", err)
 		}
 	}

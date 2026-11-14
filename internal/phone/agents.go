@@ -43,6 +43,12 @@ func buildAgent(machine string, p proto.PaneInfo, projects map[string]string, sc
 	if p.Agent.Tokens != nil {
 		a.CostUSD = p.Agent.Tokens.CostUSD
 	}
+	for _, j := range p.Agent.Jobs {
+		a.Background = append(a.Background, BackgroundJob{PID: j.PID, Command: j.Command, Since: j.Since.UTC(), Ports: j.Ports})
+	}
+	for len(a.Background) < p.Agent.Background {
+		a.Background = append(a.Background, BackgroundJob{})
+	}
 	return a
 }
 

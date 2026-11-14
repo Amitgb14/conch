@@ -342,6 +342,7 @@ func abandonSandbox(p sandbox.Provider, id string, why error, yes bool) {
 		fmt.Fprintf(os.Stderr, "  couldn't delete it (%v); try: %s\n", err, sandboxCmd(p.Name(), "rm "+id))
 		return
 	}
+	noteDeletedSandbox(p.Name(), id, time.Now())
 	fmt.Fprintf(os.Stderr, "  deleted sandbox %s\n", id)
 }
 
@@ -361,9 +362,14 @@ func sandboxList() error {
 		return err
 	}
 	byID := map[string]sandbox.Sandbox{}
+	listed := map[string]bool{}
 	for _, s := range boxes {
 		byID[s.ID] = s
+		listed[s.ID] = true
 	}
+	now := time.Now()
+	deleting := deletedSandboxes(sandboxProvider, now)
+	forgetDeleted(sandboxProvider, listed, now)
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tLABEL\tSANDBOX\tSTATE\tSIZE")
 	gone := 0
@@ -377,6 +383,9 @@ func sandboxList() error {
 		state := "gone" // deleted outside conch, or on its way out
 		if found {
 			state = string(s.State)
+			if deleting[id] {
+				state = "deleting"
+			}
 		} else {
 			gone++
 		}
@@ -388,8 +397,13 @@ func sandboxList() error {
 	stray := 0
 	for _, s := range boxes {
 		if _, left := byID[s.ID]; left {
-			stray++
-			fmt.Fprintf(tw, "-\t-\t%s\t%s\t%s\n", s.ID, s.State, size(s))
+			state := string(s.State)
+			if deleting[s.ID] {
+				state = "deleting" // conch deleted it; the provider has yet to finish
+			} else {
+				stray++
+			}
+			fmt.Fprintf(tw, "-\t-\t%s\t%s\t%s\n", s.ID, state, size(s))
 		}
 	}
 	if err := tw.Flush(); err != nil {
@@ -770,6 +784,8 @@ func sandboxRemove(args []string) error {
 		fmt.Fprintf(os.Stderr, "  %s was already gone from %s\n", name, sandbox.ProviderLabel(sandboxProvider))
 	case err != nil:
 		return err
+	default:
+		noteDeletedSandbox(sandboxProvider, id, time.Now())
 	}
 	if m != nil {
 		if err := remote.RemoveMachine(m.ID); err != nil {

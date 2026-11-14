@@ -128,7 +128,7 @@ func scheduleOut(it proto.ScheduledItem) {
 	if it.After != "" {
 		also := ""
 		if it.Queue {
-			also = fmt.Sprintf(", and fewer than %d agents are running in the project", it.WIP)
+			also = fmt.Sprintf(", and fewer than %d agents are busy in the project", it.WIP)
 		}
 		from := "its branch"
 		if it.Task.Base != "" {
@@ -138,7 +138,7 @@ func scheduleOut(it proto.ScheduledItem) {
 		return
 	}
 	if it.Queue {
-		fmt.Printf("%s queued: it starts when fewer than %d agents are running in the project (conch schedule rm %s takes it away)\n", it.ID, it.WIP, it.ID)
+		fmt.Printf("%s queued: it starts when fewer than %d agents are busy in the project (conch schedule rm %s takes it away)\n", it.ID, it.WIP, it.ID)
 		return
 	}
 	when := it.At.Local().Format("Mon 2 Jan 15:04")

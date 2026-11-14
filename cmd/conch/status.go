@@ -139,11 +139,15 @@ func statusFitted(panes []proto.PaneInfo, home string, width int) string {
 	if line := statusSummary(panes); line != "" {
 		b.WriteString(fitLine(line, width) + "\n")
 	}
-	anySSH := false
+	anySSH, anyJobs := false, false
 	for _, p := range panes {
 		anySSH = anySSH || p.SSH != ""
+		anyJobs = anyJobs || statusJobs(p) != ""
 	}
 	head := []string{"ID", "NAME", "AGENT", "STATE"}
+	if anyJobs {
+		head = append(head, "BACKGROUND")
+	}
 	if anySSH {
 		head = append(head, "SSH")
 	}
@@ -161,6 +165,9 @@ func statusFitted(panes []proto.PaneInfo, home string, width int) string {
 			agent, state = p.Agent.Name, agentWord(p.Agent.State)
 		}
 		row := []string{p.ID, p.Name, agent, state}
+		if anyJobs {
+			row = append(row, statusJobs(p))
+		}
 		if anySSH {
 			row = append(row, p.SSH)
 		}
@@ -224,13 +231,14 @@ func statusFitted(panes []proto.PaneInfo, home string, width int) string {
 // running status is usually asking.
 func statusSummary(panes []proto.PaneInfo) string {
 	count := map[string]int{}
-	agents := 0
+	agents, jobs := 0, 0
 	for _, p := range panes {
 		if p.Agent == nil || p.State != proto.PaneRunning {
 			continue
 		}
 		agents++
 		count[agentWord(p.Agent.State)]++
+		jobs += max(p.Agent.Background, 0)
 	}
 	if agents == 0 {
 		return ""
@@ -246,7 +254,24 @@ func statusSummary(panes []proto.PaneInfo) string {
 	if n := agents - known; n > 0 { // states a newer server knows
 		parts = append(parts, fmt.Sprintf("%d other", n))
 	}
-	return counted(agents, "agent") + ": " + strings.Join(parts, ", ")
+	line := counted(agents, "agent") + ": " + strings.Join(parts, ", ")
+	if jobs > 0 {
+		line += fmt.Sprintf(" · %d left running", jobs)
+	}
+	return line
+}
+
+// statusJobs is what a running agent left running in the background
+// (agent.background.v1): how many, and the first of them.
+func statusJobs(p proto.PaneInfo) string {
+	if p.Agent == nil || p.State != proto.PaneRunning || p.Agent.Background <= 0 {
+		return ""
+	}
+	cell := fmt.Sprint(p.Agent.Background)
+	if len(p.Agent.Jobs) > 0 {
+		cell += ": " + cutEnd(p.Agent.Jobs[0].Command, 24)
+	}
+	return cell
 }
 
 // agentWord is an agent's state as the TUI says it: blocked is an agent

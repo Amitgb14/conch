@@ -105,7 +105,10 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneClose: scopePane, proto.MethodPaneSendText: scopePane, proto.MethodPaneSendKeys: scopePane,
 	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
-	proto.MethodAgentPrompt: scopePane,
+	proto.MethodAgentPrompt:    scopePane,
+	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
+	// Ending what an agent left running is changing that pane.
+	proto.MethodAgentBackgroundStop: scopePane,
 	// An agent's hook asks for its own pane, and only its own.
 	proto.MethodAgentPermission: scopePane,
 	proto.MethodAgentBroadcast:  scopePanes,
@@ -116,6 +119,7 @@ var scoped = map[string]scopeKind{
 	proto.MethodViewShow: scopePanes,
 
 	proto.MethodProjectRemove:  scopeProjID,
+	proto.MethodProjectGitInit: scopeProjID,
 	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
 	proto.MethodBranchCommit: scopeProject, proto.MethodBranchStage: scopeProject, proto.MethodBranchReview: scopeProject, proto.MethodBranchPush: scopeProject, proto.MethodBranchPR: scopeProject,
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
@@ -144,6 +148,13 @@ var scoped = map[string]scopeKind{
 	// the person's to decide — and a check's verdict lifts or sets a hold
 	// on a merge, so an agent does not get to report its own.
 	proto.MethodAutopilotSet: scopeHome, proto.MethodAutopilotCheck: scopeHome,
+	// Whose subscription pays for what: the person's to arrange. Starting
+	// an agent on an account stays open, as choosing the agent does.
+	proto.MethodAccountAdd: scopeHome, proto.MethodAccountRemove: scopeHome,
+	proto.MethodAccountPin: scopeHome, proto.MethodAccountFailover: scopeHome,
+	// A ticket is changed with the person's key, as their own pull
+	// request is: an agent may for its own project's tracker.
+	proto.MethodTicketUpdate: scopeProject,
 }
 
 // writesHome lists methods that only sometimes change the person's setup:
@@ -166,6 +177,8 @@ type scopeRef struct {
 	ProjectID string   `json:"project_id"`
 	// SSH is the pane whose ssh host an fs method reaches (fs.ssh.v1).
 	SSH string `json:"ssh"`
+	// Shells is agent.broadcast typing into terminals too.
+	Shells bool `json:"shells"`
 	// What says whether a writesHome method writes.
 	Set    json.RawMessage `json:"set"`
 	Import string          `json:"import"`
@@ -220,6 +233,14 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 				return perr
 			}
 		}
+		// Without shells, a broadcast types only into agents itself.
+		if msg.Method == proto.MethodAgentBroadcast && ref.Shells {
+			for _, id := range ref.IDs {
+				if perr := s.typingInScope(caller, msg.Method, id); perr != nil {
+					return perr
+				}
+			}
+		}
 		return nil
 	}
 	id := ref.ID
@@ -229,7 +250,46 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 		}
 		id = ref.PaneID
 	}
-	return s.paneInScope(caller, msg.Method, id)
+	if perr := s.paneInScope(caller, msg.Method, id); perr != nil {
+		return perr
+	}
+	if typesInto[msg.Method] {
+		return s.typingInScope(caller, msg.Method, id)
+	}
+	return nil
+}
+
+// typesInto is the methods that put input into a pane as a person at its
+// keyboard would. agent.prompt, session.share and a broadcast without
+// shells type only into an agent already, whoever asks.
+var typesInto = map[string]bool{
+	proto.MethodPaneSendText: true, proto.MethodPaneSendKeys: true, proto.MethodPaneSendMouse: true,
+}
+
+// typingInScope is the launch rule's other half (launchrule.go): an agent
+// may start a plain shell, and type into agents, but not into a shell —
+// its own or the person's — since what is typed there runs as a command,
+// and `claude --dangerously-skip-permissions` typed into a shell it
+// started is the very launch the rule refuses. What runs in the pane is
+// looked at now rather than taken from the last tick, so a shell an agent
+// has just left is a shell, and one that has just started an agent in
+// front is that agent. [agents] unrestricted_launch lifts this with the
+// rest of the rule.
+func (s *Server) typingInScope(caller scopeCaller, method, id string) *proto.Error {
+	e, perr := s.get(id)
+	if perr != nil {
+		return nil // the method's own not-found
+	}
+	e.evalMu.Lock()
+	if s.alive(e) {
+		s.evaluate(e, func(*detect.Tracker) {})
+	}
+	info := e.info()
+	e.evalMu.Unlock()
+	if info.State != proto.PaneRunning || info.Agent != nil || unrestrictedLaunch() {
+		return nil
+	}
+	return outOfScope(caller, "%s %s: it runs no agent, and what is typed into a shell runs as a command — an agent may start a shell, and type only into agents ([agents] unrestricted_launch in config.toml allows it)", verb(method), id)
 }
 
 // scopeCaller is an agent a connection is scoped to: one in a pane here,
@@ -358,16 +418,18 @@ var verbs = map[string]string{
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
-	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt",
+	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
 	proto.MethodCloudAgentRegister: "register a cloud agent with",
+	proto.MethodProjectGitInit:     "make a git repository of",
 	proto.MethodProjectRemove:      "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
 	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",
+	proto.MethodTicketUpdate: "change a ticket",
 	proto.MethodAgentSkill:   "install or remove the agents' conch skill",
 	proto.MethodProjectFiles: "change which local files a project copies into its worktrees",
 	proto.MethodProjectSetup: "change the command a project runs in its new worktrees",
@@ -378,6 +440,8 @@ var verbs = map[string]string{
 	proto.MethodAgentSync:    "sync one agent's setup to the others",
 	proto.MethodReviewSet:    "comment on a branch", proto.MethodReviewSend: "send review comments", proto.MethodReviewReply: "reply to review comments in",
 	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
+	proto.MethodAccountAdd: "add an agent account", proto.MethodAccountRemove: "remove an agent account",
+	proto.MethodAccountPin: "pin a folder to an agent account", proto.MethodAccountFailover: "change when agents move to another account",
 }
 
 // madeBy records that the connection's pane started pane id: it and the

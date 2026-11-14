@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -39,6 +40,10 @@ type groupBook struct {
 
 	mu     sync.Mutex
 	groups []savedGroup
+	// saveMu makes saves one at a time, each of the state as it is when
+	// its turn comes: two at once shared a temporary file, and the older
+	// state could be renamed in last, or a file half of each.
+	saveMu sync.Mutex
 	// merging is the tasks whose pull request is being merged now
 	// (group\x00branch), so a tick does not start a second merge.
 	merging map[string]bool
@@ -77,7 +82,14 @@ func loadGroups(s *Server, configDir string) *groupBook {
 	}
 	var f groupsFile
 	if err := json.Unmarshal(b, &f); err != nil {
-		log.Printf("groups: %s: %v", g.file, err)
+		// Kept aside rather than overwritten by the next save, which would
+		// make every group the person had into none, silently.
+		aside := g.file + ".broken"
+		if rerr := os.Rename(g.file, aside); rerr != nil {
+			log.Printf("groups: %s cannot be read (%v), and could not be kept aside: %v", g.file, err, rerr)
+		} else {
+			log.Printf("groups: %s cannot be read (%v); kept as %s, starting with no groups", g.file, err, aside)
+		}
 		return g
 	}
 	for _, sg := range f.Groups {
@@ -239,16 +251,46 @@ func (g *groupBook) dropProject(root string) {
 
 // changed writes the file and tells every client.
 func (g *groupBook) changed() {
+	g.write()
+	g.s.broadcast(proto.EventGroups, g.list())
+}
+
+// write writes groups.json whole, through a temporary file of its own
+// renamed into place, so a reader never meets half a file.
+func (g *groupBook) write() {
+	g.saveMu.Lock()
+	defer g.saveMu.Unlock()
 	g.mu.Lock()
-	b, _ := json.MarshalIndent(groupsFile{Groups: append([]savedGroup{}, g.groups...)}, "", "  ")
+	b, err := json.MarshalIndent(groupsFile{Groups: append([]savedGroup{}, g.groups...)}, "", "  ")
 	g.mu.Unlock()
-	tmp := g.file + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	if err != nil {
 		log.Printf("groups: save: %v", err)
-	} else if err := os.Rename(tmp, g.file); err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(g.file), 0o700); err != nil {
+		log.Printf("groups: save: %v", err)
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(g.file), ".groups-*.json")
+	if err != nil {
+		log.Printf("groups: save: %v", err)
+		return
+	}
+	name := tmp.Name()
+	_, werr := tmp.Write(append(b, '\n'))
+	cerr := tmp.Close()
+	switch {
+	case werr != nil:
+		err = werr
+	case cerr != nil:
+		err = cerr
+	default:
+		err = os.Rename(name, g.file)
+	}
+	if err != nil {
+		os.Remove(name)
 		log.Printf("groups: save: %v", err)
 	}
-	g.s.broadcast(proto.EventGroups, g.list())
 }
 
 // A task across a group's repos: the same branch in a worktree of each of
@@ -257,7 +299,8 @@ func (g *groupBook) changed() {
 // task folder ($CONCH_HOME/tasks/GROUP/BRANCH) holding a link to each
 // worktree under the repo's name and CONCH-TASK.md, the prompt and the
 // repos. One agent works from the folder, given every worktree (Claude's
-// and Codex's --add-dir), or each worktree gets an agent of its own told
+// and Codex's --add-dir, Codex in a sandbox that lets it write there),
+// or each worktree gets an agent of its own told
 // about the others. Before anything is made, everything that would refuse
 // is asked: a worktree made and then a failure would leave half a task.
 func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *proto.Error) {
@@ -275,6 +318,11 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 	if at < 0 {
 		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrNotFound, "no group called %s", tp.Group)
 	}
+	// At start the projects are still being read: wait for them, or a
+	// group would look as if it had no repos.
+	if !s.projects.waitLoaded() {
+		return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "conch is still loading its projects: try again in a moment")
+	}
 	// Its projects, in the group's order: those asked for, or all.
 	var projects []*project
 	for _, root := range sg.Projects {
@@ -287,7 +335,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 			continue // not registered now: not part of this task
 		}
 		if !p.snapshot().Git {
-			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each", p.snapshot().Name)
+			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s is not a git repository: a task needs a branch in each (%s)", p.snapshot().Name, notGitHint)
 		}
 		projects = append(projects, p)
 	}
@@ -325,6 +373,9 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 		if wt, ok := p.branchWorktree(tp.Branch); ok {
 			return proto.GroupTaskResult{}, proto.Errorf(proto.ErrBadRequest, "%s already has %s checked out at %s", p.snapshot().Name, tp.Branch, wt.Path)
 		}
+	}
+	if _, perr := s.chooseAccount(tp.Agent, tp.Account, ""); perr != nil {
+		return proto.GroupTaskResult{}, perr
 	}
 	folder := filepath.Join(filepath.Dir(g.file), "tasks", safeSegment(tp.Group), safeSegment(tp.Branch))
 	if _, err := os.Stat(folder); err == nil {
@@ -365,7 +416,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 		for i, p := range projects {
 			prompt := tp.Prompt + fmt.Sprintf("\n\nThis is one part of a task across %d repos of %s, all on the branch %s; the others are worked on by other agents at the same time. What each repo is for and where its worktree is: %s.",
 				len(projects), tp.Group, tp.Branch, filepath.Join(folder, "CONCH-TASK.md")) + s.shipNote(p.id)
-			info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Prompt: prompt, Cwd: paths[i], Cols: tp.Cols, Rows: tp.Rows})
+			info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Account: tp.Account, Prompt: prompt, Cwd: paths[i], Cols: tp.Cols, Rows: tp.Rows})
 			if perr != nil {
 				return proto.GroupTaskResult{}, perr
 			}
@@ -378,7 +429,22 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 		}
 		prompt := tp.Prompt + fmt.Sprintf("\n\nThis task spans %s of %s, each checked out on the branch %s in a folder of its own here (%s). Read CONCH-TASK.md first. Commit and push in each repo on its own: they are separate repositories.",
 			repos, tp.Group, tp.Branch, strings.Join(names, ", "))
-		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, AgentArgs: adapter.DirArgs(tp.Agent, paths), Prompt: prompt,
+		// The account is chosen here rather than by create, since Codex's
+		// sandbox is read from that account's folder; create is then
+		// told the very one, so a pin or a failover can't pick another.
+		dir, err := filepath.EvalSymlinks(folder)
+		if err != nil {
+			dir = folder
+		}
+		acct, perr := s.chooseAccount(tp.Agent, tp.Account, dir)
+		if perr != nil {
+			return proto.GroupTaskResult{}, perr
+		}
+		account := acct.Account
+		if account == "" && accounts.Supports(tp.Agent) {
+			account = accounts.Default
+		}
+		info, perr := s.create(proto.PaneCreateParams{Agent: tp.Agent, Account: account, AgentArgs: adapter.TaskDirArgs(tp.Agent, paths, codexSandbox(acct.Env(tp.Agent))), Prompt: prompt,
 			Cwd: folder, NoProject: true, Cols: tp.Cols, Rows: tp.Rows})
 		if perr != nil {
 			return proto.GroupTaskResult{}, perr
@@ -473,4 +539,19 @@ func taskBrief(tp proto.GroupTaskParams, notes string, projects []*project, name
 	}
 	b.WriteString("\nEach repo is its own git repository: commit, push and open a pull request in each one that changed.\n")
 	return b.String()
+}
+
+// codexSandbox is the sandbox a task's Codex starts in, from the
+// server's own home and CODEX_HOME, which its panes inherit — or from the
+// account's, when env (an account's, as Choice.Env gives it) moves it.
+func codexSandbox(env []string) string {
+	home, _ := os.UserHomeDir()
+	return adapter.CodexTaskSandbox(home, func(k string) string {
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, k+"="); ok {
+				return v
+			}
+		}
+		return os.Getenv(k)
+	})
 }

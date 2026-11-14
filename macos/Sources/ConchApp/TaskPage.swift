@@ -443,17 +443,93 @@ struct TaskRepoFiles: View {
 
 // MARK: brief
 
+/// A task's brief being edited, kept by the Store by task, so the edits
+/// outlive the page's view of it: switching to Overview, or to another
+/// tab of the window, used to throw them away and read the file again.
+@MainActor
+final class TaskBriefModel: ObservableObject {
+    let machine: String
+    let folder: String
+    let branch: String
+    unowned let store: Store
+    @Published var draft = BriefDraft()
+    @Published var error: String?
+
+    init(machine: String, folder: String, branch: String, store: Store) {
+        self.machine = machine
+        self.folder = folder
+        self.branch = branch
+        self.store = store
+    }
+
+    struct Ref: Encodable { var root: String; var path: String }
+
+    /// The brief read from disk; edits not saved are kept, and told apart
+    /// from a file somebody else has written since.
+    func load() async {
+        guard let c = store.connection(machine) else { error = "\(store.label(machine)) is not connected"; return }
+        // Reading a task's folder came with Merge All (group.task.merge.v1).
+        guard c.hello?.capabilities?.contains("group.task.merge.v1") == true else {
+            error = "The server on \(store.label(machine)) predates reading a task's brief here: reload it, or open \(folder)/CONCH-TASK.md yourself"
+            return
+        }
+        do {
+            let r = try await c.call("fs.read", Ref(root: folder, path: "CONCH-TASK.md"), as: FSRead.self)
+            let changed = draft.read(r.data ?? "", hash: r.hash, truncated: r.truncated == true)
+            if changed {
+                error = "The brief changed on disk since you began editing it; saving is refused until you copy your edits and read it again"
+            } else {
+                error = r.truncated == true ? "Only the start of the brief was read; saving is off" : nil
+            }
+        } catch {
+            self.error = "Could not read the brief: \(error)"
+        }
+    }
+
+    /// The edits written; whether they were.
+    @discardableResult
+    func save() async -> Bool {
+        guard let c = store.connection(machine) else {
+            error = "\(store.label(machine)) is not connected"
+            return false
+        }
+        struct W: Encodable { var root: String; var path: String; var data: String; var base: String? }
+        let data = draft.text
+        do {
+            let r = try await c.call("fs.write", W(root: folder, path: "CONCH-TASK.md", data: data, base: draft.hash), as: FSWriteResult.self)
+            draft.saved(data, hash: r.hash)
+            error = nil
+            store.say("Saved the brief")
+            return true
+        } catch {
+            self.error = "Could not save the brief: \(error)"
+            store.say("Could not save the brief of \(branch): \(error)", .err)
+            return false
+        }
+    }
+
+    /// Thrown away for what is on disk.
+    func revert() {
+        draft = BriefDraft()
+        error = nil
+        Task { await load() }
+    }
+}
+
 /// The task's CONCH-TASK.md — the prompt, its repos and the group's notes,
 /// what its agents read first — edited here, and the agents told.
 struct TaskBrief: View {
     @ObservedObject var store: Store
+    @ObservedObject var model: TaskBriefModel
     let machine: String
     let task: GroupTask
-    @State private var text = ""
-    @State private var original = ""
-    @State private var hash: String?
-    @State private var error: String?
-    @State private var loaded = false
+
+    init(store: Store, machine: String, task: GroupTask) {
+        self.store = store
+        self.machine = machine
+        self.task = task
+        model = store.brief(machine: machine, task: task)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -462,59 +538,23 @@ struct TaskBrief: View {
                 Text(task.folder + "/CONCH-TASK.md").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
                     .lineLimit(1).truncationMode(.head).textSelection(.enabled)
                 Spacer()
-                Button("Save") { save() }.controlSize(.small).disabled(text == original || !loaded)
+                if model.draft.dirty {
+                    Button("Revert") { model.revert() }.controlSize(.small).help("Drop your edits and read the brief again")
+                }
+                Button("Save") { Task { await model.save() } }.controlSize(.small).disabled(!model.draft.dirty)
                     .keyboardShortcut("s", modifiers: .command)
                 Button("Tell the Agents") { tell() }.controlSize(.small)
                     .disabled((task.panes ?? []).allSatisfy { store.pane(key(machine, $0))?.agent == nil })
                     .help("Ask every agent of the task to read the brief again")
             }
-            if let e = error { Text(e).font(.ui(size: 11.5)).foregroundStyle(Theme.err).lineLimit(2) }
-            TextEditor(text: $text).font(.ui(size: 12.5, design: .monospaced))
+            if let e = model.error { Text(e).font(.ui(size: 11.5)).foregroundStyle(Theme.err).lineLimit(2) }
+            TextEditor(text: $model.draft.text).font(.ui(size: 12.5, design: .monospaced))
                 .scrollContentBackground(.hidden).padding(8)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raise.opacity(0.55)))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
         }
         .padding(14)
-        .task(id: task.folder) { await load() }
-    }
-
-    struct Ref: Encodable { var root: String; var path: String }
-
-    func load() async {
-        guard let c = store.connection(machine) else { error = "\(store.label(machine)) is not connected"; return }
-        // Reading a task's folder came with Merge All (group.task.merge.v1).
-        guard c.hello?.capabilities?.contains("group.task.merge.v1") == true else {
-            error = "The server on \(store.label(machine)) predates reading a task's brief here: reload it, or open \(task.folder)/CONCH-TASK.md yourself"
-            return
-        }
-        do {
-            let r = try await c.call("fs.read", Ref(root: task.folder, path: "CONCH-TASK.md"), as: FSRead.self)
-            text = r.data ?? ""
-            original = text
-            hash = r.hash
-            loaded = true
-            error = r.truncated == true ? "Only the start of the brief was read; saving is off" : nil
-            if r.truncated == true { loaded = false }
-        } catch {
-            self.error = "Could not read the brief: \(error)"
-        }
-    }
-
-    func save() {
-        guard let c = store.connection(machine) else { return }
-        struct W: Encodable { var root: String; var path: String; var data: String; var base: String? }
-        let data = text
-        Task {
-            do {
-                let r = try await c.call("fs.write", W(root: task.folder, path: "CONCH-TASK.md", data: data, base: hash), as: FSWriteResult.self)
-                original = data
-                hash = r.hash
-                error = nil
-                store.say("Saved the brief")
-            } catch {
-                self.error = "Could not save the brief: \(error)"
-            }
-        }
+        .task(id: task.folder) { await model.load() }
     }
 
     func tell() {

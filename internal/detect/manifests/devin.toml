@@ -21,6 +21,8 @@
 agent = "devin"
 process_names = ["devin"]
 screen_lines = 30
+# "esc twice to interrupt", as its status line says.
+interrupt = ["escape", "escape"]
 
 [[rules]]
 name = "interruptible"

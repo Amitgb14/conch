@@ -1,6 +1,6 @@
 ---
 name: conch-ship
-description: Ship a branch through conch — run its tests, push it, open its pull request, watch CI, send a failure back to the branch's agent, and merge once it is green when the person asked for a merge. Use when you are inside conch (CONCH_PANE_ID is set) and the person asks to open a PR, get CI green, or merge a branch.
+description: Ship a branch through conch — run its tests, push it, open its pull request, watch CI, send a failure back to the branch's agent, and merge once it is green when the person asked for a merge or turned conch's auto_merge on. Use when you are inside conch (CONCH_PANE_ID is set) and the person asks to open a PR, get CI green, or merge a branch.
 metadata:
   installed-by: conch
 ---
@@ -31,6 +31,15 @@ grep -A12 '^\[verify\]' "$(conch config path)"
 `auto_pr = true` means conch opens the pull request; `auto_merge = true`
 means it merges once CI passes. Then your job is only to wait and report:
 `gh pr view BRANCH --json state,statusCheckRollup,url`.
+
+Those two settings are also the person's standing answer for a branch you
+made yourself, which conch's autopilot does not ship (it ships the branches
+of agents it started): with `auto_pr = true`, once the tests are green you
+push and open the pull request without asking; with `auto_merge = true`
+too, you merge it once CI is green. With either off, that step waits for
+the person to ask, as below. Never more than they say: `max_diff` there is
+how many changed lines they take without looking — open a bigger one as a
+draft (`conch branch pr -draft`) and leave it to them.
 
 ## 1. Tests first
 
@@ -76,9 +85,10 @@ conch branch fix-ci -branch BRANCH
 Then watch the checks again. After three failed rounds, stop and tell the
 person what keeps failing.
 
-## 5. Merge — only when asked
+## 5. Merge — only when asked, or auto_merge says so
 
-Merge only when the person's request said to merge. Once every check is
+Merge only when the person's request said to merge, or their
+`[verify] auto_merge = true` says it for them (above). Once every check is
 green:
 
 ```sh

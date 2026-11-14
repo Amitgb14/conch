@@ -3,6 +3,7 @@ package tui
 import (
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,10 @@ const (
 	// is the agent that runs it. Kinds are saved in ui.json by number, so
 	// new ones go last.
 	kindSubagent
+	// kindJob is a program an agent left running in the background — a
+	// dev server, a watcher — listed under it (agent.background.v1). It
+	// has no pane either: on screen it is the agent.
+	kindJob
 )
 
 // foldered splits a section's panes into the folders of that section and
@@ -185,13 +190,17 @@ func sectionID(mid, pid, s string) string    { return "p:" + scoped(mid, pid) + 
 func branchNodeID(mid, pid, b string) string { return "b:" + scoped(mid, pid) + ":" + b }
 func paneNodeID(mid, id string) string       { return "pane:" + scoped(mid, id) }
 func subagentID(mid, pane, id string) string { return paneNodeID(mid, pane) + "/sub/" + id }
-func moreID(mid, pid string) string          { return "more:" + scoped(mid, pid) }
-func looseTerminalsID(mid string) string     { return machineID(mid) + "/terminals" }
-func looseSSHID(mid string) string           { return machineID(mid) + "/ssh" }
-func savedSSHID(target string) string        { return "sshsaved:" + target }
-func cliID(mid string) string                { return machineID(mid) + "/cli" }
-func workspaceID(mid string) string          { return machineID(mid) + "/workspace" }
-func machineFilesID(mid string) string       { return machineID(mid) + "/files" }
+
+func jobID(mid, pane string, pid int) string {
+	return paneNodeID(mid, pane) + "/job/" + strconv.Itoa(pid)
+}
+func moreID(mid, pid string) string      { return "more:" + scoped(mid, pid) }
+func looseTerminalsID(mid string) string { return machineID(mid) + "/terminals" }
+func looseSSHID(mid string) string       { return machineID(mid) + "/ssh" }
+func savedSSHID(target string) string    { return "sshsaved:" + target }
+func cliID(mid string) string            { return machineID(mid) + "/cli" }
+func workspaceID(mid string) string      { return machineID(mid) + "/workspace" }
+func machineFilesID(mid string) string   { return machineID(mid) + "/files" }
 
 // sshFilesRow is the Files row of the host a terminal is logged in to
 // with ssh: a machine's files view, reached through the pane (fs.ssh.v1).
@@ -741,13 +750,17 @@ func subagentRows(mid string, p proto.PaneInfo, depth int) []row {
 		out = append(out, row{id: subagentID(mid, p.ID, a.ID), kind: kindSubagent, depth: depth, machine: mid,
 			projectID: p.ProjectID, branch: p.Branch, paneID: p.ID, label: a.ID, nested: true})
 	}
+	for _, j := range p.Agent.Jobs {
+		out = append(out, row{id: jobID(mid, p.ID, j.PID), kind: kindJob, depth: depth, machine: mid,
+			projectID: p.ProjectID, branch: p.Branch, paneID: p.ID, label: strconv.Itoa(j.PID), nested: true})
+	}
 	return out
 }
 
 // agentRowOf is the row of the agent running a subagent, which is what is
 // shown for it, having no screen of its own. Any other row is itself.
 func (m *Model) agentRowOf(r row) row {
-	if r.kind != kindSubagent {
+	if r.kind != kindSubagent && r.kind != kindJob {
 		return r
 	}
 	if i := indexOfRow(m.rows, paneNodeID(r.machine, r.paneID)); i >= 0 {

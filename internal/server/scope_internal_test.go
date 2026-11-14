@@ -194,6 +194,13 @@ func TestScopeMethods(t *testing.T) {
 		{"discarding another's branch past a stray field", proto.Message{Method: proto.MethodBranchDiscard, Params: []byte(`{"project_id":"r1","branch":"b","ids":5}`)}, false},
 		{"stopping the server past a stray field", proto.Message{Method: proto.MethodServerStop, Params: []byte(`{"apply":1}`)}, false},
 		{"scheduling past a stray field", proto.Message{Method: proto.MethodScheduleAdd, Params: []byte(`{"apply":1}`)}, false},
+		// Whose subscription pays is the person's: an agent may list the
+		// accounts, and start agents on one, but not change them.
+		{"list accounts", msg(proto.MethodAccountList, nil), true},
+		{"add an account", msg(proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "x"}), false},
+		{"remove an account", msg(proto.MethodAccountRemove, proto.AccountRef{Agent: "claude", Name: "x"}), false},
+		{"pin a folder", msg(proto.MethodAccountPin, proto.AccountPinParams{Path: "/x", Account: "x"}), false},
+		{"set failover", msg(proto.MethodAccountFailover, proto.AccountFailoverParams{At: 1}), false},
 		{"its own pane, params in good order", proto.Message{Method: proto.MethodPaneSendText, Params: []byte(`{"id":"p4","text":"x"}`)}, true},
 		{"its own pane, no params", proto.Message{Method: proto.MethodPaneMarkSeen}, true},
 		{"its own pane, null params", proto.Message{Method: proto.MethodPaneMarkSeen, Params: []byte(`null`)}, true},

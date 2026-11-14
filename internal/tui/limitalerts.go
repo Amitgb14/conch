@@ -21,6 +21,7 @@ import (
 type limitAlert struct {
 	machine   string
 	agent     string
+	account   string // "" for the agent's own
 	window    string // "5-hour", "week" or "spend"
 	pct       float64
 	threshold int
@@ -49,7 +50,7 @@ func limitCrossings(seen map[string]int, mid string, l proto.PlanLimits, thresho
 		if lw == nil {
 			continue
 		}
-		key := limitKey(mid, l.Agent, w.name, lw.ResetsAt)
+		key := limitKey(mid, accountKey(l.Agent, l.Account), w.name, lw.ResetsAt)
 		passed := 0
 		for _, t := range thresholds {
 			if lw.UsedPct >= float64(t) {
@@ -64,7 +65,7 @@ func limitCrossings(seen map[string]int, mid string, l proto.PlanLimits, thresho
 			continue
 		}
 		seen[key] = passed
-		out = append(out, limitAlert{machine: mid, agent: l.Agent, window: w.name, pct: lw.UsedPct, threshold: passed, resets: lw.ResetsAt})
+		out = append(out, limitAlert{machine: mid, agent: l.Agent, account: l.Account, window: w.name, pct: lw.UsedPct, threshold: passed, resets: lw.ResetsAt})
 	}
 	return out
 }
@@ -83,7 +84,7 @@ func pruneLimitAlerts(seen map[string]int, now time.Time) {
 // text is the alert's message, e.g. "Claude 5-hour limit 82% used · resets
 // 15:04".
 func (a limitAlert) text(machineLabel string, now time.Time) string {
-	s := fmt.Sprintf("%s %s limit %d%% used", shortAgent(a.agent), a.window, int(math.Floor(a.pct)))
+	s := fmt.Sprintf("%s %s limit %d%% used", accountAgent(a.agent, a.account), a.window, int(math.Floor(a.pct)))
 	if !a.resets.IsZero() {
 		s += " · resets " + resetText(a.resets, now)
 	}

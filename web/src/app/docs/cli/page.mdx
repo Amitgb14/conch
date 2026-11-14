@@ -74,9 +74,12 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | --- | --- |
 | `conch view` | what the terminal is showing: its tabs, what each holds, and which pane has the keyboard. The server keeps no layout of its own — a TUI publishes this and conch carries it |
 | `conch show [-name NAME] ID...` | ask the terminal to put those panes in front of the person: one is brought up, several are gathered side by side in one tab. A request, not an order |
-| `conch status [-wide] [-json]` (or `conch ls`) | show server and pane status. In a terminal it fits the window: a line saying how many agents are working, waiting, done or idle, then each pane's ID, name, agent and its state, ssh host (when any pane has one), folder from `~` (cut from the start when it must be, since the end names it) and command (not an agent's, which is the agent; left out when there is no room to say anything). Piped — or with `-wide` — it is the full table scripts read, unchanged: ID, name, state, agent, ssh host, size, folder and command of each pane; `-json` gives the server and its panes as JSON (`{"server": null, "panes": []}` with no server). The ssh column is the host a terminal is logged in to with plain `ssh` right now — the one `-ssh` on `upload` and `download` reaches — and `-` for the rest. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
+| `conch status [-wide] [-json]` (or `conch ls`) | show server and pane status. In a terminal it fits the window: a line saying how many agents are working, waiting, done or idle, then each pane's ID, name, agent and its state, what an idle agent [left running](/docs/agents#left-running-in-the-background) (a BACKGROUND column, when any has; the summary line counts them), ssh host (when any pane has one), folder from `~` (cut from the start when it must be, since the end names it) and command (not an agent's, which is the agent; left out when there is no room to say anything). Piped — or with `-wide` — it is the full table scripts read, unchanged: ID, name, state, agent, ssh host, size, folder and command of each pane; `-json` gives the server and its panes as JSON (`{"server": null, "panes": []}` with no server), an agent's background jobs as `agent.background` (how many) and `agent.jobs` (`[{pid, command, since, ports}]`). The ssh column is the host a terminal is logged in to with plain `ssh` right now — the one `-ssh` on `upload` and `download` reaches — and `-` for the rest. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
-| `conch new -agent claude [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking |
+| `conch new -agent claude [-account NAME] [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking; `-account` starts it on another of its [accounts](/docs/agents#several-accounts) |
+| `conch account list \| add AGENT NAME [-dir DIR] \| remove AGENT NAME` | an agent's other [accounts](/docs/agents#several-accounts) (Claude Code, Codex), each with its plan usage and agents |
+| `conch account pin [PATH] NAME \| unpin [PATH]` | agents started in a project, worktree or task folder use that account |
+| `conch account failover PERCENT\|off` | a new agent whose account is past PERCENT of a plan window starts on the agent's next account |
 | `conch ssh TARGET [SSH OPTION...]` | a terminal on this computer logged in to a host with ssh, outside every project — the session the TUI's `H` opens, built the same way (conch's ssh config, a connection of its own), so the tree, the files view and `-ssh` on `upload` and `download` know it as one; options after the target are ssh's (`-p 2222`, `-o Setting=value`); prints its pane ID. Not with `-m`: the session starts here |
 | `conch ssh -copy-key TARGET [SSH OPTION...]` | a terminal that puts this computer's public key on the host (making `~/.ssh/id_ed25519` first when there is none), so later logins need no password — the TUI's `K`. ssh asks for the host's password in that terminal, once; prints the pane's ID |
 | `conch ssh -check-key TARGET [SSH OPTION...]` | whether the host takes this computer's key, by one batch-mode login that never asks: prints `key`, `password` (every key refused) or `unreachable`, the last two with what ssh said, and exits 0 for all three |
@@ -100,7 +103,7 @@ conch agent prompt -wait reviewer "Check finding 3 again" && conch read reviewer
 ```
 
 - An ID is always an ID: `p` and a number is never looked up as a name, so names of that shape are refused.
-- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its ID, its label or its ssh target, as `-m` takes, looked up in that order — so an ID always reaches its own machine — and the windows name a machine by its label only when no other machine answers to it, else by its ID. One that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused. Only the command's pane is read this way: `conch send p5 look at busybox:p3` sends that text as it is.
+- A pane on another machine can be named `MACHINE:ID` — `conch read busybox:p3` is `conch -m busybox read p3`. That is how the TUI's status bar, Conch.app and the phone show a pane's ID, and what their **Copy pane ID** gives, so a copied ID works as it is. The machine is its ID, its label or its ssh target, as `-m` takes, looked up in that order — so an ID always reaches its own machine — and the windows name a machine by its label only when no other machine answers to it, else by its ID. One that is not in `conch machine ls` is left alone, and a ref that disagrees with `-m` is refused. A command reaches one machine, so `conch show` refuses panes on two — and a bare `p5` beside `busybox:p3`, since `p5` alone means this computer's (or `-m`'s). Only the command's pane is read this way: `conch send p5 look at busybox:p3` sends that text as it is.
 - A name is looked up once, when the command starts; a `wait` then stays with that pane.
 - Names are exact and case sensitive. A name two running panes share is refused rather than guessed — say which with its ID. A pane that has ended still answers to its name until another running pane takes it.
 - Names belong to one machine's server, so `-m` looks them up there.
@@ -158,14 +161,21 @@ conch tells who is asking from the operating system — the process at the other
 | `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
 | `conch agent library [list \| add \| mcp \| skill \| on \| off \| rm \| import AGENT \| plan \| apply \| undo]` | MCP servers and skills kept in conch, each given to the agents you choose. `add NAME URL` or `add NAME -- COMMAND ARGS` with `-to NAMES`, `-env K=${VAR}`, `-header K=V`, `-sse`; `skill NAME FOLDER`, or `skill [NAME] owner/repo[/path][@ref]` (or a github.com link) to download a skill from GitHub into the library on that machine; `on`/`off NAME AGENTS`; `plan` says what `apply` would write. See [Shared MCP servers and skills](/docs/tasks#shared-mcp-servers-and-skills) |
 
+#### The agents conch knows
+
+The names `-agent`, `conch agent install` and `conch new -agent` take. **Supported** — their sessions are read: `claude` (Claude Code), `codex` (Codex), `gemini` (Gemini CLI), `opencode` (OpenCode), `devin` (Devin), `copilot` (Copilot CLI), `cline` (Cline), `qwen` (Qwen Code) and `goose` (Goose).
+
+**Runs here** — from a manifest in `internal/detect/manifests`, which says what was checked for each: `aider` (Aider), `amp` (Amp), `antigravity` (Antigravity CLI, `agy`), `auggie` (Auggie), `continue` (Continue CLI, `cn`), `crush` (Crush), `cursor` (Cursor CLI), `droid` (Droid), `grok` (Grok), `kilo` (Kilo Code), `kimi` (Kimi Code), `kiro` (Kiro CLI, `kiro-cli chat`), `vibe` (Mistral Vibe) and `pi` (Pi). Add your own with `conch agent add`.
+
 ### project
 
 | Command | Description |
 | --- | --- |
 | `conch project add PATH` | add a project to the sidebar |
-| `conch project clone URL [DIR]` | clone a git repository and add it as a project — into DIR, or a folder named after the repository as `git clone` names it (here, in the current folder; with `-m`, in that machine's home). https, ssh and `git@host:owner/repo` URLs; a private repository uses that machine's git credentials, and git never stops to ask for a password |
-| `conch project move [-plan] [-into DIR] [-y] [-json] PROJECT -to MACHINE` | move a whole git project to another machine: cloned there from its origin (or joining the clone it has; with no origin, its repository copied there), every task worktree with its commits and uncommitted work, branches holding commits the origin hasn't, and the agents with their conversations. `-plan` only says what would move; `-json` says the plan, each step and the result as lines of JSON. Everything here is kept — [more](/docs/remote-machines#moving-a-whole-project) |
+| `conch project clone URL [DIR]` | clone a git repository and add it as a project — into DIR, or a folder named after the repository as `git clone` names it (here, in the current folder; with `-m`, in that machine's home — there DIR is an absolute path or one under `~`). https, ssh and `git@host:owner/repo` URLs; a private repository uses that machine's git credentials, and git never stops to ask for a password |
+| `conch project move [-plan] [-into DIR] [-y] [-json] PROJECT -to MACHINE` | move a whole git project to another machine: cloned there from its origin (or joining the clone it has; with no origin, its repository copied there), every task worktree with its commits and uncommitted work, branches holding commits the origin hasn't, and the agents with their conversations. `-to local` brings one back here: `conch -m gpu project move r1 -to local`. `-plan` only says what would move; `-json` says the plan, each step and the result as lines of JSON. Everything here is kept — [more](/docs/remote-machines#moving-a-whole-project) |
 | `conch project create [-no-git] PATH` | create a folder with a git repository and an initial commit (`-no-git`: a plain folder) |
+| `conch project git-init ID\|PATH` | make a project that is a plain folder a git repository: `git init` on `main` and an empty first commit, the files already there left uncommitted, so a task can make a branch in it. Refused for a folder that is already one or sits inside another repository; with no git identity set it says to set `user.name` and `user.email` and leaves the folder as it was |
 | `conch project ls` | list projects, their base branch and worktrees |
 | `conch project rm ID` | remove a project from the sidebar |
 | `conch project files ID [-reset \| -none \| PATTERN...]` | set the [local file patterns](/docs/tasks#local-files-in-worktrees) copied into new worktrees; `-reset` restores the defaults, `-none` copies nothing |
@@ -181,22 +191,45 @@ Projects kept together because they change together — an API, its web app, the
 | `conch group add NAME PROJECT...` | make a group of projects already added, or add projects to one; a project is named by its ID, its folder, or its name when only one project has it |
 | `conch group rm NAME [PROJECT...]` | take projects out of a group, or with none named take the group away — its projects stay |
 | `conch group rename OLD NEW` / `conch group notes NAME [TEXT]` | rename a group; give it notes for the agents working across it (`""` clears them) |
-| `conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...` | one task across a group's repos: the branch (named from the prompt unless given) in a worktree of each — or of those `-only` names — gathered in a task folder (`$CONCH_HOME/tasks/GROUP/BRANCH`) with a link to each worktree and `CONCH-TASK.md`; one agent works there with every worktree added (Claude's and Codex's `--add-dir`), or with `-each` an agent in each worktree, told about the others. Refused before anything is made when a repo is not a git repository or already has the branch checked out; prints the folder and the agents' pane IDs |
+| `conch group task [-branch B] [-agent A] [-each] [-only P,P] NAME PROMPT...` | one task across a group's repos: the branch (named from the prompt unless given) in a worktree of each — or of those `-only` names — gathered in a task folder (`$CONCH_HOME/tasks/GROUP/BRANCH`) with a link to each worktree and `CONCH-TASK.md`; one agent works there with every worktree added (Claude's and Codex's `--add-dir`; Codex is started with `--sandbox workspace-write`, since it refuses the extra folders read-only, or `danger-full-access` when your `~/.codex/config.toml` sets that), or with `-each` an agent in each worktree, told about the others. Refused before anything is made when a repo is not a git repository or already has the branch checked out; prints the folder and the agents' pane IDs. The flags may come after NAME too; `--` ends them, for a prompt that starts with a dash |
 | `conch group tasks NAME` / `conch group task-rm NAME BRANCH` | a group's tasks, with their repos, folder and agents; forget one and remove its folder — each repo keeps its worktree and branch, to merge or delete as any branch |
 | `conch group merge [-order P,P] [-remove] NAME BRANCH` | Merge All When Green: once every pull request of the task is open, green and held back by nothing the autopilot would hold one for, they merge one by one in that order (default the task's), each after the one before has landed; one GitHub refuses stops it there. The server waits, so it carries on with nothing open. `-remove` then takes the task away with each repo's worktree and branch; `-stop` stops waiting. `conch group tasks` says where it stands |
 
 ### task
 
-`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-at` later, `-every` again and again, `-queue` when the project has room, `-after` once other work has finished, on top of it: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
+`conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME] [-account NAME] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] PROMPT` creates a branch and worktree and starts an agent with the prompt (`-account` on that [account](/docs/agents#several-accounts) of the agent's; `-at` later, `-every` again and again, `-queue` when the project has room, `-after` once other work has finished, on top of it: see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule); `conch schedule` lists and removes what is scheduled); in a folder that isn't a git repository — or, with `-m` and no `-cwd`, the machine's home — the agent works there with no branch. See [Tasks](/docs/tasks).
 
 | Flag | Default |
 | --- | --- |
 | `-cwd DIR` | a directory in the project; default: the current one. With `-m` it is required, as an absolute path on that machine |
 | `-branch B` | branch name; default: derived from the prompt |
 | `-base B` | branch to start from; default: the project's base |
-| `-agent NAME` | `claude`, `codex`, `gemini` or `opencode`, or several separated by commas; default: `[agents] default`, and with none chosen Claude Code — or, on a machine last found without it, an agent it has (the server knows once anything has asked: opening conch, `conch doctor` or `conch agent status`). An agent this machine is known not to have is refused with how to install it, rather than started to die with *command not found*; after one dies that way, a task naming no agent looks for the others — and from that look on, the missing one is refused by name |
+| `-agent NAME` | an agent's name ([the agents conch knows](#the-agents-conch-knows)), or several separated by commas; default: `[agents] default`, and with none chosen Claude Code — or, on a machine last found without it, an agent it has (the server knows once anything has asked: opening conch, `conch doctor` or `conch agent status`). An agent this machine is known not to have is refused with how to install it, rather than started to die with *command not found*; after one dies that way, a task naming no agent looks for the others — and from that look on, the missing one is refused by name |
 | `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
 | `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
+| `-issue N` | work on that GitHub issue, read with `gh`: its title and body are the prompt, and any `PROMPT` is added |
+| `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address — read by the server with the key in [`[trackers]`](/docs/configuration#trackers): its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
+
+### ticket
+
+Tickets in Linear and Jira, through the server on the project's machine and the key in [`[trackers]`](/docs/configuration#trackers). Each command takes `-cwd DIR`; outside a project, name the tracker (`linear:ENG-123`). conch changes a ticket only when one of these is run.
+
+| Command | Description |
+| --- | --- |
+| `conch ticket ls [-tracker linear\|jira] [-mine] [-n N] [-json]` | the project's open tickets, most recently changed first; `-mine` those assigned to you |
+| `conch ticket show [-json] TICKET` | a ticket: status, address, body, comments and links |
+| `conch ticket comment TICKET TEXT...` | add a comment |
+| `conch ticket status TICKET STATUS...` | move it to a status as the tracker names it (`In Review`, `Done`); Jira takes the transition that leads there |
+| `conch ticket link [-title T] TICKET URL` | attach a link — a pull request, a branch — to the ticket |
+| `conch ticket all [-mine] [-json]` | every project's open tickets — its GitHub issues and its Linear or Jira tickets — with what conch is doing about each: a task queued, its agent working or waiting, its pull request and CI, merged. Conch.app's Tickets window (⇧⌘I) shows the same |
+| `conch ticket check [-json]` | whether GitHub (through `gh`), Linear and Jira can be reached with what the server has: whose the key is, the teams or projects it sees, open tickets and yours, each `[[trackers.projects]]` entry, and what is wrong — never the key. Settings → Trackers shows the same |
+
+```sh
+conch task -ticket ENG-123
+conch branch pr -title "ENG-123: Export as CSV"
+conch ticket link ENG-123 https://github.com/acme/api/pull/42
+conch ticket status ENG-123 "In Review"
+```
 
 ### branch
 
@@ -265,7 +298,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox provider show\|save\|rm NAME` | print a provider file; make a draft a provider; forget one (refused while a machine here is one of its sandboxes, which are never touched) |
 | `conch sandbox provider search [-json] [TERM]` | the [provider registry](/docs/sandboxes#the-provider-registry): providers others adapted and published, whether each was checked live, and what you have of it |
 | `conch sandbox provider install [-y] [NAME]` | install one from the registry: says where your API key and ssh go and asks (`-y` doesn't), checks the file's hash, then lists your sandboxes with the key if it is set. No NAME lists them and asks which |
-| `conch sandbox provider update [-y] [NAME]` | take the registry's newer version of what you installed; a file edited here is left alone, and new hosts are taken only when you say yes (never with `-y`) |
+| `conch sandbox provider update [-y] [NAME]` | take the registry's newer version of what you installed; a file edited here is left alone, and new hosts, or a new variable or header for the key, are taken only when you say yes (never with `-y`) |
 | `conch sandbox provider publish [-dry-run] [-json] NAME` | check one of yours with your key, then propose it to the registry as a pull request through `gh` (your fork, or the repository itself if you can push); your key is never part of it |
 | `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
@@ -415,11 +448,11 @@ conch doctor -json    # the same checks, for a script
 The first thing to run when something does not work. Each line is one thing conch relies on, and anything wrong comes with the command that puts it right:
 
 ```
-✓ conch     0.1.9 · darwin/arm64
+✓ conch     0.2.0 · darwin/arm64
 ✓ config    /Users/you/.config/conch/config.toml
 ✓ keys      ctrl+b, then 46 keys
 ✓ socket    /Users/you/.config/conch/conch.sock
-! server    pid 28356, up 6d, on another build (0.1.8) than this conch (0.1.9)
+! server    pid 28356, up 6d, on another build (0.1.10) than this conch (0.2.0)
             → conch server reload -binary /Users/you/.local/bin/conch  (panes and agents keep running)
 ✓ agents    claude 2.1.3 · codex 0.46.0  (not installed: gemini, opencode, devin)
 ✓ git       2.49.0, committing as You
@@ -591,3 +624,30 @@ conch cloud git-credential [-socket PATH] get              # git's credential he
 Once signed in, the account's machines are in conch's machines (`conch machine ls`, the TUI's tree, Conch.app's sidebar) as `conch:<id>`, named as on the account, and `-m NAME` reaches one. They are reached through Conch Cloud's relay rather than ssh: `exec` and `bridge` ask the control plane for a ticket and the machine's key, check the key against the one kept from the first connection (`cloud-keys.json`; a different key on a machine that was not recreated is refused), and open an end-to-end encrypted tunnel to the machine's conch. A background connection never wakes a machine that sleeps — it is shown asleep — but `exec` and `bridge`, asked for by you, wake it and wait.
 
 `conch cloud agent` is the machine's side of Conch Cloud, and runs **inside** a cloud machine: its host starts it (the `conch-cloud-agent` systemd unit — see [Cloud machine image](/docs/cloud-machine)) after writing `/run/conch-cloud/boot.json`. It refuses a `boot.json` anyone but its owner can read, keeps the machine's Noise key in `/var/lib/conch/cloud/noise.key` (0600, made once), starts the machine's conch server as `-user` (`conch` when it runs as root), says hello to the control plane, reports what the agents are doing so an idle machine sleeps, and joins the relay as the room's gateway so clients reach the server through an end-to-end encrypted tunnel. Agents it starts are given the account's env secrets (a shell is not, and only the server it registered with may ask for them); the machine token and those secrets are never written to disk, though a running agent's environment, and the token git is handed, are readable by processes of the same user — see [Cloud machine image](/docs/cloud-machine). It exits 3 when the control plane refuses its token — each inject gives the machine a new one and restarts the agent — and 4 when the control plane refuses the machine itself. `install` readies a machine image: it writes the `conch-cloud-agent` unit (running this conch), enables it and makes `/var/lib/conch/cloud`; the user (`conch` by default) must exist. `git-credential` is what git asks for the git proxy's password: the machine token, from the agent's memory.
+
+## Agent accounts
+
+An account is a configuration folder of the agent's own: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex. Its sign-in, settings and conversations live there, so each account is signed in once and keeps its own history. Gemini CLI, OpenCode and Devin keep one account each: conch knows no clean way to give them a second.
+
+```sh
+conch account add claude work                  # a folder of conch's for it
+conch account add claude home -dir ~/.claude-home
+conch new -agent claude -account work          # start it there, and /login once
+conch account pin ~/src/acme work              # agents started in acme use work
+conch task -account home "Fix the flaky test"  # this task's agent uses home
+conch account list                             # each one's 5h and 7d usage, and its agents
+```
+
+An agent starts on the account it is asked for (`-account`, `default` for the agent's own), else the one its folder is pinned to, else the agent's own. The longest pin wins, so a worktree or a task folder can differ from its project.
+
+A pin names an account by name: a project pinned to `work` uses Claude's `work` and Codex's `work`, and an agent with none by that name keeps its own.
+
+**Plan limits are per account.** The status bar shows the account of the agent in view (`Claude work 5h 88%`), the limits window lists every account, and an alert says which account passed the line. **Settings → Agents → Agent accounts…** lists each machine's accounts with their usage and how many agents run on each.
+
+**Failover.** With `conch account failover 90` (or the Failover row in Settings), a new agent whose account is past 90% of a plan window starts on the agent's next account: its own first, then the others in the order added. A running agent is never moved, since its conversation lives in its account's folder.
+
+**Sessions** are read from every account's folder, say which account they belong to, and resume on that account whatever the folder is pinned to now.
+
+Accounts are kept by each machine's server in `~/.config/conch/accounts.json`, so `conch -m box account add claude work` makes one on `box`. Removing an account forgets it and leaves its folder, sign-in and conversations where they are.
+
+An account's folder starts empty: your `CLAUDE.md`, skills and settings in `~/.claude` are not in it until you copy or link them there.

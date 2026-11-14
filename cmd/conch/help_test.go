@@ -14,6 +14,7 @@ import (
 // the full usage says about it, and points at a section of the CLI page
 // that is there.
 func TestHelpForEveryCommand(t *testing.T) {
+	t.Setenv("CONCH_CLOUD", "1") // Conch Cloud's commands too, as their help is with it on
 	page, err := os.ReadFile("../../web/src/app/docs/cli/page.mdx")
 	if err != nil {
 		t.Fatal(err)

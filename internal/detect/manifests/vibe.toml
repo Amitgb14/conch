@@ -1,0 +1,27 @@
+# Mistral Vibe — Mistral's CLI (github.com/mistralai/mistral-vibe). The
+# "runs here" tier.
+#
+# It needs no screen rules: since 3.x it reports activity, approvals,
+# questions, completion and failure through the Program Status Protocol
+# (OSC 7501), as its changelog says, and conch answers and prefers that.
+#
+# Verified against its source (vibe/cli-rust/src/cli.rs,
+# vibe/cli/launcher.py) on 2026-11-13, not with the real CLI:
+#   - `vibe "prompt"` is the initial prompt of an interactive session;
+#     -p/--prompt is the headless one that exits.
+#   - --resume ID reopens a session, --continue the most recent here.
+#   - `vibe` is a small Python launcher that execs the Rust interface,
+#     vibe-rs, so that is the process a pane sees.
+#   - sessions are logged in ~/.vibe/logs/session; conch does not read
+#     them.
+agent = "vibe"
+label = "Mistral Vibe"
+process_names = ["vibe", "vibe-rs"]
+
+[run]
+binary = "vibe"
+dirs = ["~/.local/bin"]
+prompt = "{prompt}"
+resume = "--resume {id}"
+resume_last = "--continue"
+install = "curl -LsSf https://mistral.ai/vibe/install.sh | bash"

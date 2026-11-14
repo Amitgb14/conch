@@ -292,7 +292,7 @@ func (s *Server) read() (*Payload, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Payload{Raw: string(raw), Version: version(raw, exists), Path: config.File(), Exists: exists, Schema: Schema(s.Choices)}
+	p := &Payload{Raw: string(raw), Version: version(raw, exists), Path: config.File(), Exists: exists}
 	cfg := config.Default()
 	if exists {
 		if _, err := toml.Decode(string(raw), &cfg); err != nil {
@@ -305,6 +305,10 @@ func (s *Server) read() (*Payload, error) {
 	if cfg.Keys.Prefix == "" {
 		cfg.Keys.Prefix = config.Default().Keys.Prefix
 	}
+	// Conch Cloud's settings show once the file (or CONCH_CLOUD) has it on.
+	ch := s.Choices
+	ch.Cloud = config.CloudEnabled(cfg)
+	p.Schema = Schema(ch)
 	if p.Config, err = toMap(cfg); err != nil {
 		return nil, err
 	}

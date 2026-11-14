@@ -2,21 +2,23 @@ export const metadata = { title: "The interface", description: "The tree, splits
 
 # The interface
 
-The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits; this page covers each part.
+The TUI shows a tree of machines, projects, branches, agents and terminals beside tabs and splits.
 
 <TuiShot id="working" title="conch" caption="The tree on the left, an agent's pane on the right." />
 
 ## The sidebar
 
-Each machine holds `Workspace` (its projects) and `CLI` (agents and terminals of no project). Badges: `⠋1` working, `⚑1` waiting, `✓1` done.
+Each machine holds `Workspace` (projects) and `CLI` (agents and terminals outside projects). Badges: `⠋1` working, `⚑1` waiting, `✓1` done; `⟳2` on an agent is what it [left running](/docs/agents#left-running-in-the-background).
 
 **How:** `a` adds a project, `c` starts an agent, `n` a terminal. `!` goes to the next waiting agent.
+
+A plain folder's menu can **Make it a git repository**.
 
 <TuiShot id="project" title="A project" caption="A project's branches, agents and terminals." />
 
 ## Workspaces
 
-Each workspace shows only its own projects, agents, terminals, hosts and tabs.
+Each workspace shows only its own projects, agents, terminals, hosts, tabs.
 
 **How:** `+` atop the sidebar or `ctrl+b N`; `ctrl+b (` and `)` switch.
 
@@ -24,7 +26,7 @@ Each workspace shows only its own projects, agents, terminals, hosts and tabs.
 
 A terminal logged in to another host with your own `ssh`. Nothing is installed there.
 
-**How:** `H`, then pick a host or type `user@host`; `y` saves it. On a saved host `K` sets up login without a password and `M` makes it a [machine](/docs/remote-machines).
+**How:** `H`, a host or `user@host`; `y` saves it. On a saved host, `K` sets up passwordless login and `M` makes it a [machine](/docs/remote-machines).
 
 ## SSH folders
 
@@ -34,7 +36,7 @@ Group saved hosts with their sessions — `eng`, `staging`, `prod`.
 
 ## Grouped by tab
 
-The tree lists a project's panes under the tab each is open in, as the tab bar does.
+The tree lists a project's panes under the tab each is in.
 
 **How:** Settings → Tree grouping → By tab lists panes under their tab.
 
@@ -42,7 +44,7 @@ The tree lists a project's panes under the tab each is open in, as the tab bar d
 
 Type git commands that run in a branch's worktree.
 
-**How:** `b` or `$` on a branch; `tab` lists everyday actions. With an agent on the branch, `ctrl+t` sends what you type to it instead.
+**How:** `b` or `$` on a branch; `tab` lists everyday actions; `ctrl+t` sends what you type to its agent.
 
 ## Changes view
 
@@ -75,7 +77,7 @@ What needs a decision, across machines: waiting agents, failed checks, finished 
 [verify]
 auto_fix = 2         # send a failed check back up to twice
 auto_pr = true       # push a finished branch and open its pull request
-auto_merge = true    # merge a pull request when it turns green
+auto_merge = true    # merge a pull request when it turns green (from no checks, or at a new head, too)
 auto_resolve = 2     # bring a conflicting branch up to date
 ```
 
@@ -96,13 +98,13 @@ Every project has a **Files** row: a checkout with each file's git status and a 
 
 ### A machine's own files
 
-A remote machine, and a terminal running `ssh host`, get a **Files** row of their own, which also copies files between there and here.
+A remote machine and an `ssh` terminal get a **Files** row too, which copies files both ways.
 
 **How:** `f` on a remote machine or ssh terminal; `U` uploads, `D` downloads.
 
 ## Splits and tabs
 
-Tabs work like tmux windows: every agent and terminal gets its own tab, and each tab can be split.
+Tabs work like tmux windows, and each can be split.
 
 | Keys | |
 | --- | --- |
@@ -125,6 +127,10 @@ Every pane keeps 10,000 lines of history, an agent's pane included.
 Alerts for a pane that is not an agent — a build, a test run, a log.
 
 **How:** `ctrl+b M` alerts when a pane goes quiet, `ctrl+b A` when it prints.
+
+## Resource monitor
+
+`▁▃▆` in the status bar shows what conch uses here; the Mac app's [System Monitor](/docs/mac-app#system-monitor) shows the whole machine.
 
 ## Links an agent printed
 

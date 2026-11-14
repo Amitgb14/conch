@@ -13,18 +13,18 @@ private func cm(_ name: String, _ state: String, id: String? = nil) -> CloudMach
               PlaceMachine(id: "devbox", label: "devbox", online: true),
               PlaceMachine(id: "old", label: "old", online: false),
               PlaceMachine(id: "box", label: "box · cloud", online: false, cloud: true)]
-    let out = projectPlaces(machines: ms, signedIn: false, cloudMachines: 0)
+    let out = projectPlaces(machines: ms, signedIn: false, cloudMachines: 0, offerCloud: true)
     #expect(out.map(\.place) == [.machine("local"), .machine("devbox"), .machine("old"), .cloud])
     #expect(out.map(\.title) == ["This Mac", "devbox", "old", "Conch Cloud"])
     #expect(out.map(\.enabled) == [true, true, false, true])
     #expect(out.last?.note == "Sign in to use")
     #expect(out[2].note == "offline")
 
-    let signed = projectPlaces(machines: ms, signedIn: true, cloudMachines: 2, excluding: "local")
+    let signed = projectPlaces(machines: ms, signedIn: true, cloudMachines: 2, offerCloud: true, excluding: "local")
     #expect(signed.map(\.place) == [.machine("devbox"), .machine("old"), .cloud])
     #expect(signed.last?.note == "2 machines")
-    #expect(projectPlaces(machines: ms, signedIn: true, cloudMachines: 1).last?.note == "1 machine")
-    #expect(projectPlaces(machines: ms, signedIn: true, cloudMachines: 0).last?.note == "a new machine")
+    #expect(projectPlaces(machines: ms, signedIn: true, cloudMachines: 1, offerCloud: true).last?.note == "1 machine")
+    #expect(projectPlaces(machines: ms, signedIn: true, cloudMachines: 0, offerCloud: true).last?.note == "a new machine")
     #expect(Set(out.map(\.id)).count == out.count)
 }
 

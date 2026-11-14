@@ -30,6 +30,8 @@ type Config struct {
 	Web     WebCfg     `toml:"web"`
 	App     AppCfg     `toml:"app"`
 	Cloud   CloudCfg   `toml:"cloud"`
+	// Trackers are where tickets come from besides GitHub (trackers.go).
+	Trackers TrackersCfg `toml:"trackers"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
@@ -57,7 +59,42 @@ type WebCfg struct {
 // the server it signed in to with its sign-in, so changing this takes
 // effect at the next conch login.
 type CloudCfg struct {
-	API string `toml:"api,omitempty"`
+	// Enabled offers Conch Cloud: conch login, conch cloud machine, Move
+	// to Conch Cloud, the settings. Off in this release; CONCH_CLOUD
+	// overrides it either way (CloudEnabled).
+	Enabled bool   `toml:"enabled,omitempty"`
+	API     string `toml:"api,omitempty"`
+}
+
+// CloudEnv is the variable that turns Conch Cloud on (1, true, yes, on)
+// or off (anything else) whatever config.toml says.
+const CloudEnv = "CONCH_CLOUD"
+
+// CloudEnabled says whether conch offers Conch Cloud. It is hidden in
+// this release: off unless CONCH_CLOUD or [cloud] enabled turns it on.
+// The variable, when set to anything but "", wins over the file, so one
+// shell can try it — or leave it off — without editing the settings.
+// Hidden is not broken: a cloud machine already in machines.json is
+// still reached either way; what is switched off is offering Cloud.
+func CloudEnabled(c Config) bool {
+	if v := strings.TrimSpace(os.Getenv(CloudEnv)); v != "" {
+		switch strings.ToLower(v) {
+		case "1", "true", "yes", "on":
+			return true
+		}
+		return false
+	}
+	return c.Cloud.Enabled
+}
+
+// CloudOn is CloudEnabled for the config.toml on disk. A file that
+// cannot be read counts as Cloud off, unless the variable says on.
+func CloudOn() bool {
+	cfg, err := Load()
+	if err != nil {
+		cfg = Default()
+	}
+	return CloudEnabled(cfg)
 }
 
 // AppCfg is how Conch.app (macos/) draws its window. The TUI reads none of
@@ -100,6 +137,19 @@ type AppCfg struct {
 	// "tiles" white on a square of that colour, as System Settings does;
 	// "" plain, in the text's.
 	IconStyle string `toml:"icon_style,omitempty"`
+	// Chat is the workbench's chat, an agent's conversation drawn as
+	// messages with attachments and a Stop. On unless false (CONCH_CHAT=0
+	// turns it off too); off, the agent's own terminal takes its place.
+	// It was off unless true in 0.2.0, a pointer since so that false is
+	// written down. The app reads it; conch only keeps it.
+	Chat *bool `toml:"chat,omitempty"`
+	// CheckUpdates makes Conch.app ask GitHub once a day whether a newer
+	// release of itself is out ([update] is the command line's). On
+	// unless false; a development build never asks.
+	CheckUpdates *bool `toml:"check_updates,omitempty"`
+	// AutoUpdate installs that release as soon as the check finds one,
+	// leaving the relaunch to the person. Off by default.
+	AutoUpdate bool `toml:"auto_update,omitempty"`
 }
 
 // The range the app keeps the window's text size and the terminal's font
@@ -112,8 +162,14 @@ const (
 // ShowsPorts reports whether the app puts listening ports in pane headers.
 func (a AppCfg) ShowsPorts() bool { return a.Ports == nil || *a.Ports }
 
+// ChecksUpdates reports whether Conch.app looks for newer releases.
+func (a AppCfg) ChecksUpdates() bool { return a.CheckUpdates == nil || *a.CheckUpdates }
+
 // TakesPrefix reports whether the app's panes take conch's prefix keys.
 func (a AppCfg) TakesPrefix() bool { return a.PrefixKeys == nil || *a.PrefixKeys }
+
+// ShowsChat reports whether the app's workbench offers its chat.
+func (a AppCfg) ShowsChat() bool { return a.Chat == nil || *a.Chat }
 
 // TextSizeOrDefault is the window's text size in percent, kept in range.
 func (a AppCfg) TextSizeOrDefault() int {
@@ -297,6 +353,22 @@ type VerifyCfg struct {
 	// Claude's work, say. Empty (the default) asks nobody, since every
 	// review spends plan usage.
 	Reviewer string `toml:"reviewer,omitempty"`
+	// Intake maps a project ID to a GitHub label: the server takes each
+	// open issue with it as a queued task by itself, once, so the backlog
+	// is worked through with nobody handing it in. IntakeWIP is how many
+	// agents may be busy in the project before the next waits (0: the
+	// queue's default). No label, no intake: off unless named.
+	Intake    map[string]string `toml:"intake,omitempty"`
+	IntakeWIP int               `toml:"intake_wip,omitempty"`
+	// Triage maps a project ID to the label that asks for an issue to be
+	// triaged: an agent reads it and the code, changing nothing, comments
+	// what done means, its size and the files it touches, and labels it
+	// ready (the intake label), needs-info or too-big. TriageAgent is who
+	// reads (claude when empty); TriageCommentOnly leaves the labels alone.
+	// Off unless named: every triage is an agent run.
+	Triage            map[string]string `toml:"triage,omitempty"`
+	TriageAgent       string            `toml:"triage_agent,omitempty"`
+	TriageCommentOnly bool              `toml:"triage_comment_only,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.
@@ -378,8 +450,9 @@ type AgentsCfg struct {
 	PermissionMode string `toml:"permission_mode,omitempty"`
 	// UnrestrictedLaunch lets an agent calling conch from its pane start
 	// panes however it likes: any command, environment and flags — a
-	// helper told to ask nobody before it acts among them. Off, an agent
-	// may choose only which agent to start and its --model
+	// helper told to ask nobody before it acts among them — and type into
+	// shells. Off, an agent may choose only which agent to start and its
+	// --model, and types only into panes running an agent
 	// (internal/server/launchrule.go).
 	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
 }

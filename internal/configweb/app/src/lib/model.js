@@ -34,6 +34,18 @@ export function setValue(cfg, table, key, value) {
   return next
 }
 
+/**
+ * A copy of a nested table — [trackers.linear] within [trackers] — with one
+ * key set; undefined removes it, and a table left with nothing is
+ * undefined, so the file does not keep an empty one.
+ */
+export function setIn(table, key, value) {
+  const t = { ...(table ?? {}) }
+  if (value === undefined) delete t[key]
+  else t[key] = value
+  return Object.keys(t).length ? t : undefined
+}
+
 /** Whether two values are the same, as JSON says it. Key order does not count. */
 export function same(a, b) {
   return canonical(a) === canonical(b)

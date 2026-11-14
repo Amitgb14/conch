@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,9 +176,15 @@ func TestWriteRange(t *testing.T) {
 		"negative":     {Root: repo, Path: "big.log", Offset: -1, Base: "h"},
 		"no base":      {Root: repo, Path: "big.log"},
 		"too big":      {Root: repo, Path: "big.log", Base: "h", Data: strings.Repeat("x", proto.FSWriteMax+1)},
-		"no file":      {Root: repo, Base: "h"},
-		"outside":      {Root: repo, Path: "../x", Base: "h"},
-		"folder":       {Root: repo, Path: "internal", Base: "h"},
+		// Offset+Length overflowed into a negative that passed the check,
+		// and the server panicked allocating Length bytes.
+		"length overflows": {Root: repo, Path: "big.log", Offset: 1, Length: math.MaxInt64, Base: "h"},
+		"offset overflows": {Root: repo, Path: "big.log", Offset: math.MaxInt64, Length: 1, Base: "h"},
+		"length too big":   {Root: repo, Path: "big.log", Length: proto.FSWriteMax + 1, Base: "h"},
+		"longer than file": {Root: repo, Path: "big.log", Length: int64(len(want)) + 1, Base: "h"},
+		"no file":          {Root: repo, Base: "h"},
+		"outside":          {Root: repo, Path: "../x", Base: "h"},
+		"folder":           {Root: repo, Path: "internal", Base: "h"},
 	} {
 		if _, perr := s.writeRange(c, wp); perr == nil {
 			t.Errorf("%s: written", name)

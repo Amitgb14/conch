@@ -33,7 +33,7 @@ func (s *Server) pollUsage(e *entry) {
 	agent := info.Agent.Name
 	src := e.usage
 	if src == nil || src.agent != agent || time.Since(src.found) > usageRefind {
-		if found := findSession(agent, e.dir, info.Created); found != nil {
+		if found := findSession(s.sessionEnv(), agent, info.Account, e.dir, info.Created); found != nil {
 			if src == nil || src.id != found.ID || src.path != found.Path {
 				src = &usageSource{agent: agent, id: found.ID, path: found.Path}
 				if agent == "codex" {
@@ -53,6 +53,7 @@ func (s *Server) pollUsage(e *entry) {
 	case "codex":
 		tok, err = src.rollout.Update()
 		if l := src.rollout.Limits(); l != nil {
+			l.Account = e.accountName()
 			s.setLimits(*l)
 		}
 	case "opencode":
@@ -68,12 +69,12 @@ func (s *Server) pollUsage(e *entry) {
 	s.observe(e) // broadcasts the change
 }
 
-// findSession picks the newest session of agent in dir since the pane
-// started.
-func findSession(agent, dir string, since time.Time) *sessions.Session {
+// findSession picks the newest session of agent on account in dir since
+// the pane started.
+func findSession(env sessions.Env, agent, account, dir string, since time.Time) *sessions.Session {
 	var best *sessions.Session
-	for _, ss := range sessions.List(sessions.CurrentEnv(), []string{dir}, 50) {
-		if ss.Agent != agent || filepath.Clean(ss.Dir) != filepath.Clean(dir) || ss.Updated.Before(since.Add(-time.Minute)) {
+	for _, ss := range sessions.List(env, []string{dir}, 50) {
+		if ss.Agent != agent || ss.Account != account || filepath.Clean(ss.Dir) != filepath.Clean(dir) || ss.Updated.Before(since.Add(-time.Minute)) {
 			continue
 		}
 		if best == nil || ss.Updated.After(best.Updated) {
@@ -99,6 +100,7 @@ func (s *Server) statusLine(e *entry, rp proto.AgentReportParams) {
 	}
 	if rp.Limits != nil {
 		rp.Limits.Agent = rp.Agent
+		rp.Limits.Account = e.accountName()
 		s.setLimits(*rp.Limits)
 	}
 	s.observe(e)
@@ -117,8 +119,9 @@ func (s *Server) setLimits(l proto.PlanLimits) {
 	if s.limits == nil {
 		s.limits = map[string]proto.PlanLimits{}
 	}
-	old, had := s.limits[l.Agent]
-	s.limits[l.Agent] = l
+	key := limitKey(l.Agent, l.Account)
+	old, had := s.limits[key]
+	s.limits[key] = l
 	s.limitsMu.Unlock()
 	if had && sameWindow(old.FiveHour, l.FiveHour) && sameWindow(old.Week, l.Week) &&
 		sameWindow(old.Spend, l.Spend) && sameNamed(old.Windows, l.Windows) {

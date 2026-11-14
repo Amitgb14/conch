@@ -7,7 +7,7 @@
 // title, its question and its screen are text, never markup.
 import {
   parseLine, frameRows, sortPanes, upsertPane, removeAgent, groupAgents, groupByMachine, agentLabel,
-  ago, route, can, backoff, reviewCount, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
+  ago, route, can, backoff, reviewCount, backgroundLine, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
   markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS, relayWhy, paneRef,
 } from "/lib.mjs"
@@ -17,7 +17,7 @@ import { LOGOS } from "/logos.mjs"
 const API_VERSION = 2
 // The agents conch can start. There is no route that lists the ones
 // installed, so a new agent names one of these or leaves it to conch.
-const AGENTS = ["claude", "codex", "gemini", "opencode", "devin"]
+const AGENTS = ["claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose"]
 
 const state = {
   hello: null, // who this device is, once paired
@@ -367,7 +367,8 @@ function row(p, extra) {
     mark(p),
     h("span", { class: "body" },
       h("span", { class: "name" }, agentLabel(p), elsewhere(p),
-        p.review?.length ? h("span", { class: "review-tag", title: reviewCount(p) }, `✎ ${p.review.length}`) : null),
+        p.review?.length ? h("span", { class: "review-tag", title: reviewCount(p) }, `✎ ${p.review.length}`) : null,
+        p.background?.length ? h("span", { class: "background-tag", title: backgroundLine(p) }, `⟳ ${p.background.length}`) : null),
       h("span", { class: "sub" }, subtitle(p) || p.cwd || "")),
     h("span", { class: "when" }, ago(p.since)),
     extra)
@@ -1058,7 +1059,9 @@ function chatView(pane) {
     const since = ago(p.since)
     put(status, pill(p.state), h("span", { class: "quiet" }, !since || since === "now" ? " just now" : ` for ${since}`),
       p.cost_usd ? h("span", { class: "quiet" }, ` · $${p.cost_usd.toFixed(2)}`) : null,
-      p.failed ? h("span", { class: "error" }, " · its last request failed") : null)
+      p.failed ? h("span", { class: "error" }, " · its last request failed") : null,
+      // What it left running, which "done" alone would hide.
+      p.background?.length ? h("span", { class: "background" }, ` · ${backgroundLine(p)}`) : null)
     const qid = p.state === "waiting" ? p.question?.id || "?" : ""
     if (qid !== shown) { // the same question keeps its buttons as they are
       shown = qid

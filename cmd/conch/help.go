@@ -29,7 +29,7 @@ var helpAliases = map[string]string{
 var helpDocs = map[string]string{
 	"new": "panes", "ssh": "panes", "status": "panes", "read": "panes", "attach": "panes", "send": "panes", "wait": "panes", "close": "panes",
 	"rename": "panes", "redraw": "panes", "view": "panes", "show": "panes",
-	"schedule": "task", "skill": "agent", "upload": "machine", "download": "machine",
+	"schedule": "task", "ticket": "task", "skill": "agent", "upload": "machine", "download": "machine",
 }
 
 // helpExamples are a few real uses of the commands people reach for
@@ -39,6 +39,7 @@ var helpExamples = map[string][]string{
 		`conch task "fix the flaky login test"`,
 		`conch task -agent codex,claude "add a dark mode toggle"   # one try each, side by side`,
 		`conch task -issue 42                                       # work on a GitHub issue`,
+		`conch task -ticket ENG-123                                 # or a Linear or Jira ticket`,
 	},
 	"new": {
 		"conch new -agent claude                  # Claude Code in this folder",
@@ -116,6 +117,9 @@ func commandHelp(cmd string) string {
 	if cmd == "help" {
 		return shortUsage
 	}
+	if cloudHidden(cmd) {
+		return cloudNotEnabled(cmd).Error() + "\n"
+	}
 	var b strings.Builder
 	for _, c := range compCommands {
 		if c.word == cmd {
@@ -153,7 +157,7 @@ func unknownCommand(word string) string {
 
 // nearestCommand is the command a mistyped word most likely meant, or "".
 func nearestCommand(word string) string {
-	names := append(compWords(compCommands), "ls", "worktrees", "machines", "sandboxes")
+	names := append(compWords(offeredCommands()), "ls", "worktrees", "machines", "sandboxes")
 	return helpCommand(nearestWord(word, names))
 }
 
