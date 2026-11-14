@@ -689,21 +689,6 @@ struct SectionForm: View {
         }
     }
 
-    /// A table of fixed fields ([trackers.linear]) as a card: what it is,
-    /// then each field, read and written inside that table.
-    func nestedCard(_ t: SettingsField) -> some View {
-        let fs = (t.fields ?? []).filter(\.simple)
-        return SettingsCard(title: t.label) {
-            if let help = t.help, !help.isEmpty {
-                Text(help).font(.ui(size: 12)).foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 2)
-            }
-            ForEach(Array(fs.enumerated()), id: \.element.key) { i, f in
-                FieldRow(model: model, section: section, field: f, first: i == 0 && (t.help ?? "").isEmpty, place: .nested(table: t.key))
-            }
-        }
-    }
-
     func card(_ title: String?, _ fs: [SettingsField], in s: SettingsSection? = nil) -> some View {
         SettingsCard(title: title) {
             ForEach(Array(fs.enumerated()), id: \.element.key) { i, f in
