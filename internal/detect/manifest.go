@@ -37,11 +37,23 @@ type Manifest struct {
 	// no working rule has matched the screen for this long. Hooks miss some
 	// transitions (an Esc interrupt fires no hook); 0 disables.
 	HookWorkingStale duration `toml:"hook_working_stale"`
+	// Interrupt is the keys that stop the agent's work, in pane.send_keys
+	// notation, each sent on its own: escape for most, escape twice for an
+	// agent whose screen says "esc twice to interrupt". Empty is escape.
+	Interrupt []string `toml:"interrupt"`
 	// Helpers are programs the agent keeps running below it for its own
 	// sake — a language server, a keep-awake — matched by name like
 	// process_names. They are not work it left running in the background.
 	Helpers []string `toml:"helpers"`
 	Rules   []Rule   `toml:"rules"`
+}
+
+// InterruptKeys is the keys that stop the agent: its manifest's, or escape.
+func (m *Manifest) InterruptKeys() []string {
+	if m == nil || len(m.Interrupt) == 0 {
+		return []string{"escape"}
+	}
+	return append([]string(nil), m.Interrupt...)
 }
 
 // Rule maps a pattern to a state. Rules are tried in order.

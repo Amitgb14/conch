@@ -54,15 +54,16 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
 /// The variable that turns the workbench's chat on or off over config.toml.
 public let chatEnv = "CONCH_CHAT"
 
-/// Whether the workbench offers its chat: CONCH_CHAT when set (1, true,
-/// yes or on is on, anything else off), else [app] chat in config.toml,
-/// else off. Hidden in 0.2.0: its Stop sent the agent an escape that could
-/// take a while to take, so the chat waits for a release that fixes it.
+/// Whether the workbench offers its chat: CONCH_CHAT when set (0, false,
+/// no or off is off, anything else on), else [app] chat in config.toml
+/// (false is off), else on. It was hidden in 0.2.0, while its Stop could
+/// take seconds to take and it had no attachments; the switch stays for
+/// anybody who would rather have the agent's own terminal there.
 public func chatEnabled(toml: String?, env: [String: String]) -> Bool {
     if let v = env[chatEnv]?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
-        return ["1", "true", "yes", "on"].contains(v.lowercased())
+        return !["0", "false", "no", "off"].contains(v.lowercased())
     }
-    return tomlSetting("app", "chat", in: toml) == "true"
+    return tomlSetting("app", "chat", in: toml) != "false"
 }
 
 /// The four parts of a workbench, by their layout keys.
@@ -409,15 +410,28 @@ public struct ChatLog: Equatable, Sendable {
     /// otherwise a count of turns that knows about those trimmed off the
     /// front — a plain index into the turns kept stopped matching anything
     /// once the log was full, and the message stayed "sending" for ever.
+    ///
+    /// A message with attachments is matched by its words alone: an agent
+    /// may keep the lines naming the files differently (Claude turns an
+    /// image's path into a picture), and the words are what was said.
     public func has(sent text: String, after m: ChatMark) -> Bool {
-        let want = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let later: ArraySlice<ChatTurn>
+        let want = splitAttached(text).text
+        return turns(after: m).contains { $0.role == "user" && splitAttached($0.text ?? "").text == want }
+    }
+
+    /// Whether the conversation says the agent was interrupted after a
+    /// place in it: Claude's transcript writes "[Request interrupted by
+    /// user]", which agent.chat turns into an "Interrupted" note.
+    public func interrupted(after m: ChatMark) -> Bool {
+        turns(after: m).contains { $0.role == "note" && ($0.text ?? "").hasPrefix("Interrupted") }
+    }
+
+    /// The turns after a place in the conversation.
+    func turns(after m: ChatMark) -> ArraySlice<ChatTurn> {
         if let s = m.seq {
-            later = ArraySlice(turns.filter { ($0.seq ?? Int.min) > s })
-        } else {
-            later = turns.dropFirst(min(max(m.count - trimmed, 0), turns.count))
+            return ArraySlice(turns.filter { ($0.seq ?? Int.min) > s })
         }
-        return later.contains { $0.role == "user" && ($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == want }
+        return turns.dropFirst(min(max(m.count - trimmed, 0), turns.count))
     }
 }
 

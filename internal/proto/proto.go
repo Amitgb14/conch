@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAutopilotIntake,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -237,6 +237,21 @@ const CapProjectGitInit = "project.git_init.v1"
 // CapAgentChat is agent.chat: a pane's agent's conversation with the tools
 // it used, from its saved transcript, for a chat drawn beside its terminal.
 const CapAgentChat = "agent.chat.v1"
+
+// CapAgentInterrupt is agent.interrupt: what a chat's Stop sends — the
+// agent's own interrupt key, each on its own so the agent cannot read it
+// as the start of an escape sequence, or ctrl+c when Hard — after which
+// the server looks at the agent at once and again every moment until it
+// stops working, rather than at its next tick. An older server has only
+// pane.send_keys, and a client falls back to that.
+const CapAgentInterrupt = "agent.interrupt.v1"
+
+// CapAgentAttach is agent.attach: a new folder for a message's
+// attachments in the agent's checkout, .conch/attachments/ID, kept out
+// of git through its info/exclude, with folders there older than
+// AttachKeep removed. The files are then copied in with fs.upload (Dir),
+// which carries them in chunks, so a file can be bigger than one message.
+const CapAgentAttach = "agent.attach.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -528,6 +543,9 @@ const (
 	// MethodAgentBackgroundStop ends one of the jobs an agent left running
 	// (AgentStatus.Jobs), and only one of those (agent.background.v1).
 	MethodAgentBackgroundStop = "agent.background.stop"
+
+	MethodAgentInterrupt = "agent.interrupt"
+	MethodAgentAttach    = "agent.attach"
 
 	MethodProjectIssues = "project.issues"
 
@@ -2663,6 +2681,49 @@ type ChatTurn struct {
 // log's Epoch and Ver it has, and is sent only what is new or changed
 // since; without them (or from another log) it is sent the newest turns
 // with Reset.
+// AgentInterruptParams stops what the agent in pane ID is doing: its own
+// interrupt key (escape, or escape twice for an agent that asks for it),
+// or with Hard ctrl+c.
+type AgentInterruptParams struct {
+	ID   string `json:"id"`
+	Hard bool   `json:"hard,omitempty"`
+}
+
+// AgentInterruptResult says which keys were sent and the agent's state
+// just after: often still working, since an agent takes a moment to stop;
+// pane.updated says when it has.
+type AgentInterruptResult struct {
+	ID    string   `json:"id"`
+	Keys  []string `json:"keys"`
+	State string   `json:"state,omitempty"`
+}
+
+// AgentAttachParams asks for a folder for one message's attachments in
+// the checkout of the agent in pane ID.
+type AgentAttachParams struct {
+	ID string `json:"id"`
+}
+
+// AgentAttachResult is that folder (Dir, absolute), the checkout it is in
+// (Root) and the agent's own folder (Cwd), against which a path in the
+// message is given. MaxSize and MaxFiles are the limits a client keeps to.
+type AgentAttachResult struct {
+	Dir      string `json:"dir"`
+	Root     string `json:"root"`
+	Cwd      string `json:"cwd"`
+	MaxSize  int64  `json:"max_size"`
+	MaxFiles int    `json:"max_files"`
+}
+
+// The limits on a message's attachments, and how long they are kept.
+const (
+	AttachMaxSize  int64 = 20 << 20
+	AttachMaxFiles       = 10
+	AttachKeep           = 7 * 24 * time.Hour
+	// AttachDir is where in a checkout attachments go, with slashes.
+	AttachDir = ".conch/attachments"
+)
+
 type AgentChatParams struct {
 	ID    string `json:"id"`
 	Epoch string `json:"epoch,omitempty"`

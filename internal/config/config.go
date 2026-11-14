@@ -137,11 +137,12 @@ type AppCfg struct {
 	// "tiles" white on a square of that colour, as System Settings does;
 	// "" plain, in the text's.
 	IconStyle string `toml:"icon_style,omitempty"`
-	// Chat turns on the workbench's chat, an agent's conversation drawn as
-	// messages: a preview in 0.2.0, off unless true (or CONCH_CHAT=1), its
-	// Stop too slow to rely on. Off, the agent's own terminal takes its
-	// place. The app reads it; conch only keeps it.
-	Chat bool `toml:"chat,omitempty"`
+	// Chat is the workbench's chat, an agent's conversation drawn as
+	// messages with attachments and a Stop. On unless false (CONCH_CHAT=0
+	// turns it off too); off, the agent's own terminal takes its place.
+	// It was off unless true in 0.2.0, a pointer since so that false is
+	// written down. The app reads it; conch only keeps it.
+	Chat *bool `toml:"chat,omitempty"`
 	// CheckUpdates makes Conch.app ask GitHub once a day whether a newer
 	// release of itself is out ([update] is the command line's). On
 	// unless false; a development build never asks.
@@ -166,6 +167,9 @@ func (a AppCfg) ChecksUpdates() bool { return a.CheckUpdates == nil || *a.CheckU
 
 // TakesPrefix reports whether the app's panes take conch's prefix keys.
 func (a AppCfg) TakesPrefix() bool { return a.PrefixKeys == nil || *a.PrefixKeys }
+
+// ShowsChat reports whether the app's workbench offers its chat.
+func (a AppCfg) ShowsChat() bool { return a.Chat == nil || *a.Chat }
 
 // TextSizeOrDefault is the window's text size in percent, kept in range.
 func (a AppCfg) TextSizeOrDefault() int {
