@@ -854,7 +854,8 @@ final class FakeServer: @unchecked Sendable {
 // Each agent's dot is its own colour; one conch has none for is muted.
 @Test func agentColors() {
     #expect(agentColor("claude") == RGB("#D97757") && agentColor("mine") == nil && agentColor(nil) == nil)
-    let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
+    let names = ["claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose", "aider", "amp", "cursor", "grok", "kilo", "pi",
+                 "kiro", "crush", "droid", "kimi", "vibe", "antigravity", "auggie", "continue"]
     #expect(Set(names.compactMap { agentColor($0)?.hex }).count == names.count)
 }
 
@@ -984,7 +985,8 @@ final class FakeServer: @unchecked Sendable {
     #expect(AgentMark.of("claude") == AgentMark(glyph: "\u{f069}", symbol: "asterisk") && AgentMark.of("claude").glyphNeedsNerdFont)
     #expect(AgentMark.of("pi").glyph == "π" && !AgentMark.of("pi").glyphNeedsNerdFont)
     #expect(AgentMark.of("mine").glyph == "\u{f2db}" && AgentMark.of(nil) == AgentMark.of("mine"))
-    let names = ["claude", "codex", "gemini", "opencode", "devin", "aider", "amp", "cursor", "grok", "kilo", "pi"]
+    let names = ["claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose", "aider", "amp", "cursor", "grok", "kilo", "pi",
+                 "kiro", "crush", "droid", "kimi", "vibe", "antigravity", "auggie", "continue"]
     #expect(Set(names.map { AgentMark.of($0).glyph }).count == names.count)
 }
 
@@ -2000,7 +2002,7 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
 // The agents with a logo draw it: each reads to a shape whose every
 // point is inside its 24×24 box; any other agent keeps its mark.
 @Test func agentLogos() {
-    for agent in ["claude", "codex", "gemini", "Claude", "grok", "devin", "amp", "kilo", "opencode", "cursor"] {
+    for agent in ["claude", "codex", "gemini", "Claude", "grok", "devin", "amp", "kilo", "opencode", "cursor", "copilot", "cline", "qwen", "goose"] {
         guard let ops = AgentLogos.ops(agent) else { Issue.record("no logo for \(agent)"); continue }
         // A fill closes what is left open (Gemini's path ends without z).
         #expect(ops.count > 4 && ops.contains { if case .move = $0 { return true }; return false }, "\(agent)")

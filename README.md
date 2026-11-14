@@ -7,8 +7,10 @@ and terminals — beside a live view of whatever you select. It is not the only
 way in: [Conch.app](#conchapp-on-a-mac) is the same thing in a native Mac
 window, and [`conch web`](#from-your-phone) hands it to your phone.
 
-Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode** and
-**Devin**, on your machine or on remote machines over SSH.
+Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**,
+**Devin**, **Copilot CLI**, **Cline**, **Qwen Code** and **Goose** — and runs
+a dozen more, from Kiro and Crush to Mistral Vibe — on your machine or on
+remote machines over SSH.
 
 **[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs/)**
 
@@ -143,7 +145,7 @@ helper and read its answer (`conch`), several at once (`conch-team`),
 review until clean (`conch-review`), tests to a merged pull request
 (`conch-ship`), a ticket all the way (`conch-factory`), and the automated
 workflow for a project (`conch-autopilot`). Install them for every agent
-— Claude Code, Codex, Gemini CLI, OpenCode and Devin:
+— Claude Code, Codex, Gemini CLI, OpenCode, Devin, Copilot CLI, Cline, Qwen Code and Goose:
 
 ```sh
 conch agent skill -apply

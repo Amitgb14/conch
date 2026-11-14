@@ -1533,6 +1533,12 @@ var (
 		"gemini":   "🔵", // Google blue
 		"opencode": "🟣",
 		"devin":    "🟡",
+		// Copilot, Cline, Qwen and Goose: still circles, the supported
+		// tier, though only Qwen's has a colour of its own to take.
+		"copilot": "🔘", // chosen: GitHub is black and white, which vanishes one way or the other
+		"cline":   "🔴", // chosen: Cline's robot is black and white
+		"qwen":    "🧿", // the blue of Qwen's mark, as a circle Gemini has not taken
+		"goose":   "🟤", // chosen: its own mark is 🪿, which is no circle and older fonts lack
 		// The agents conch only runs, from a manifest: squares, since the
 		// circles are the supported five and five more hues would be five
 		// more things to tell apart. The shape says which tier it is.
@@ -1542,6 +1548,18 @@ var (
 		"grok":   "🟦", // xAI's accent blue: its own black and white vanish on one background or the other
 		"kilo":   "🟨", // Kilo Code's own yellow
 		"pi":     "🟥", // the salmon of its mark; the blue square is Grok's
+		// Six coloured squares run out at six agents, so from here a mark
+		// is the agent's own shape where an emoji comes close — as Cursor's
+		// cube already was — and otherwise something that is still not a
+		// circle, chosen for the name.
+		"kiro":        "👻", // a ghost, which is Kiro's own mark
+		"crush":       "🟪", // Charple, the purple of Charm's own theme
+		"droid":       "🟫", // chosen: Factory's rotor is black
+		"kimi":        "🔷", // chosen: a blue diamond
+		"vibe":        "🔶", // Mistral's orange, as a diamond
+		"antigravity": "🛸", // chosen, for the name
+		"auggie":      "🧩", // chosen: a piece added, for Augment
+		"continue":    "⏩", // chosen, for the name
 	}
 	// agentDotOther is for an agent conch has no mark for — somebody's own
 	// manifest. A blank where every other agent has a mark reads as
@@ -1563,6 +1581,10 @@ var (
 		"gemini":   "#4285F4", // Google's blue
 		"opencode": "#C792EA",
 		"devin":    "#E3B341",
+		"copilot":  "#A371F7", // chosen: GitHub's purple, as Copilot's pages use it
+		"cline":    "#E5534B", // chosen, to go with its dot
+		"qwen":     "#5B7CFF", // Qwen's mark is #082DFF, which a dark terminal would swallow; lighter
+		"goose":    "#C8A27A", // chosen, to go with its dot
 		"aider":    "#4CAF50", // chosen, not theirs: aider publishes no brand colour
 		"amp":      "#FF6B35", // chosen, not theirs
 		"cursor":   "#C9D1D9", // its mark is a white cube, so near enough white
@@ -1571,20 +1593,40 @@ var (
 		// pi's mark is three blocks, #F09082 salmon, #4D9ABF blue and
 		// #F1BE58 yellow. The blue, because the salmon sits a shade from
 		// Claude Code's terracotta and most trees are full of Claude.
-		"pi": "#4D9ABF",
+		"pi":          "#4D9ABF",
+		"kiro":        "#9046FF", // chosen: the purple kiro.dev is drawn in, not checked against a brand guide
+		"crush":       "#6B50FF", // Charple, Crush's own (charmtone)
+		"droid":       "#B08968", // chosen, to go with its square: Factory is black and white
+		"kimi":        "#3D8BFF", // chosen, to go with its diamond
+		"vibe":        "#FA520F", // Mistral's orange, not checked against a brand guide
+		"antigravity": "#34A853", // chosen: Google's green, since Gemini has the blue
+		"auggie":      "#A78BFA", // chosen
+		"continue":    "#9CA3AF", // chosen: Continue's mark is black and white
 	}
 	agentGlyphs = map[string]string{
-		"claude":   "\uf069", // an asterisk, which is the shape of Anthropic's own
-		"codex":    "\uf2dc", // six-fold, as OpenAI's Blossom is
-		"gemini":   "\uf1a0", // Google's own, the one real logo here
-		"opencode": "\uf120", // a terminal, which is its whole identity
-		"devin":    "\uf135", // a rocket: chosen, since Cognition's mark is a wordmark
-		"aider":    "\uf0c0", // two people: chosen, for pair programming
-		"amp":      "\uf0e7", // a bolt: chosen, for the name
-		"cursor":   "\uf1b2", // a cube, the shape of Cursor's own mark
-		"grok":     "\uf00d", // xAI's letter, and the shape of the slash through its mark
-		"kilo":     "\uf009", // pixels, which Kilo Code's wordmark is drawn from
-		"pi":       "π",      // its own name, and a character every font has
+		"claude":      "\uf069", // an asterisk, which is the shape of Anthropic's own
+		"codex":       "\uf2dc", // six-fold, as OpenAI's Blossom is
+		"gemini":      "\uf1a0", // Google's own, the one real logo here
+		"opencode":    "\uf120", // a terminal, which is its whole identity
+		"devin":       "\uf135", // a rocket: chosen, since Cognition's mark is a wordmark
+		"copilot":     "\uf09b", // GitHub's own, whose Copilot it is
+		"cline":       "\uf121", // code: chosen, since Font Awesome 4.7 has no robot
+		"qwen":        "\uf0c2", // a cloud: chosen, for Alibaba Cloud, which makes it
+		"goose":       "\uf099", // a bird, the nearest Font Awesome 4.7 has to a goose
+		"aider":       "\uf0c0", // two people: chosen, for pair programming
+		"amp":         "\uf0e7", // a bolt: chosen, for the name
+		"cursor":      "\uf1b2", // a cube, the shape of Cursor's own mark
+		"grok":        "\uf00d", // xAI's letter, and the shape of the slash through its mark
+		"kilo":        "\uf009", // pixels, which Kilo Code's wordmark is drawn from
+		"pi":          "π",      // its own name, and a character every font has
+		"kiro":        "\uf2ac", // a ghost, Kiro's own mark
+		"crush":       "\uf0d0", // a wand: chosen, for Charm
+		"droid":       "\uf17b", // a droid: chosen, for the name
+		"kimi":        "\uf186", // a moon: chosen, for Moonshot, which makes it
+		"vibe":        "\uf001", // a note: chosen, for the name
+		"antigravity": "\uf197", // a shuttle: chosen, for the name
+		"auggie":      "\uf12e", // a puzzle piece, as its dot
+		"continue":    "\uf04e", // forward, as its dot
 	}
 )
 

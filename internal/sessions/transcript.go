@@ -42,6 +42,14 @@ func Transcript(ctx context.Context, e Env, s Session) ([]Turn, error) {
 		} else {
 			turns, err = opencodeFileTranscript(e, s.ID)
 		}
+	case "copilot":
+		turns, err = copilotTranscript(s.Path)
+	case "cline":
+		turns, err = clineTranscript(s.Path)
+	case "qwen":
+		turns, err = qwenTranscript(s.Path)
+	case "goose":
+		turns, err = gooseTranscript(ctx, s.Path, s.ID)
 	default:
 		return nil, fmt.Errorf("conch can't read %s sessions", s.Agent)
 	}

@@ -1,0 +1,30 @@
+# Kimi Code — Moonshot AI's CLI (github.com/MoonshotAI/kimi-code, the
+# TypeScript rewrite; the older Python kimi-cli is archived and installed
+# a `kimi` of its own). The "runs here" tier.
+#
+# It needs no screen rules: it asks the terminal whether it speaks the
+# Program Status Protocol (OSC 7501 ; ?) and then reports its own state,
+# which conch answers and prefers.
+#
+# Verified against its source and
+# moonshotai.github.io/kimi-code/en/reference/kimi-command (2026-11-13),
+# not with the real CLI:
+#   - there is no way to give an interactive session a first message:
+#     the command takes no argument, and -p/--prompt runs one prompt and
+#     exits. So no prompt line.
+#   - --session ID reopens a session, --continue the most recent one in
+#     this folder.
+#   - sessions live in ~/.kimi-code/sessions (KIMI_CODE_HOME moves it);
+#     conch does not read them yet.
+#   - it names its process kimi-code; the installer puts `kimi` in
+#     ~/.kimi-code/bin.
+agent = "kimi"
+label = "Kimi Code"
+process_names = ["kimi", "kimi-code"]
+
+[run]
+binary = "kimi"
+dirs = ["~/.kimi-code/bin"]
+resume = "--session {id}"
+resume_last = "--continue"
+install = "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash"

@@ -38,7 +38,8 @@ func findItem(a proto.AgentSetup, group, name string) *proto.SetupItem {
 func TestWorktreeLocalFilesAndSetup(t *testing.T) {
 	home := t.TempDir()
 	home, _ = filepath.EvalSymlinks(home)
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("HOME", home)
@@ -166,7 +167,8 @@ func TestWorktreeLocalFilesAndSetup(t *testing.T) {
 func TestAgentSyncOverTheProtocol(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("CONCH_HOME", t.TempDir())
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("HOME", home)
@@ -190,7 +192,7 @@ func TestAgentSyncOverTheProtocol(t *testing.T) {
 
 	// A plan: changes, and nothing on disk.
 	plan := call(proto.AgentSyncParams{Dir: repo, From: "claude"})
-	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 4 {
+	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 8 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "AGENTS.md")); !os.IsNotExist(err) {
@@ -251,7 +253,8 @@ func TestAgentSyncKeepsItsRecordOutOfTheCheckout(t *testing.T) {
 	home, conchHome := t.TempDir(), t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CONCH_HOME", conchHome)
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(k, "")
 	}
 	c, dir := startServer(t)
@@ -387,7 +390,8 @@ func TestAgentSyncUserOverTheProtocol(t *testing.T) {
 	t.Setenv("HOME", home)
 	conchHome := filepath.Join(home, ".config", "conch")
 	t.Setenv("CONCH_HOME", conchHome)
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(k, "")
 	}
 	write(t, filepath.Join(home, ".claude", "CLAUDE.md"), "# mine\n\nBritish English.\n")
@@ -448,7 +452,8 @@ func TestAgentLibraryOverTheProtocol(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("CONCH_HOME", filepath.Join(home, ".config", "conch"))
 	t.Setenv("PATH", t.TempDir()) // no agent to be found, real or not
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(k, "")
 	}
 	write(t, filepath.Join(home, ".claude.json"), `{"mcpServers":{"gh":{"command":"npx","env":{"GH_TOKEN":"${GH_TOKEN}"}}}}`)
@@ -474,7 +479,7 @@ func TestAgentLibraryOverTheProtocol(t *testing.T) {
 	}
 
 	empty := get(proto.AgentLibraryParams{})
-	if empty.Library.Servers == nil || len(empty.Cells) != 0 || strings.Join(empty.Agents, ",") != "claude,codex,gemini,opencode,devin" {
+	if empty.Library.Servers == nil || len(empty.Cells) != 0 || strings.Join(empty.Agents, ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
 		t.Fatalf("empty %+v", empty)
 	}
 	imp := get(proto.AgentLibraryParams{Import: "claude"})

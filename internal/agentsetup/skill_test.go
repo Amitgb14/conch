@@ -71,10 +71,9 @@ func TestSkillTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Claude and Devin have folders of their own; Codex, Gemini and
-	// OpenCode share one.
+	// Claude and Devin have folders of their own; the rest share one.
 	want := " " + filepath.Join(e.Home, ".claude", "skills", "conch", "SKILL.md") + " claude\n" +
-		" " + filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") + " codex,gemini,opencode\n" +
+		" " + filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") + " codex,gemini,opencode,copilot,cline,qwen,goose\n" +
 		" " + filepath.Join(e.Home, ".config", "devin", "skills", "conch", "SKILL.md") + " devin\n"
 	if summary(got) != want {
 		t.Fatalf("targets:\n%s\nwant\n%s", summary(got), want)

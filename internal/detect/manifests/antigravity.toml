@@ -1,0 +1,24 @@
+# Antigravity CLI — Google's terminal agent, `agy`
+# (https://antigravity.google/docs/cli-overview). The "runs here" tier.
+#
+# Verified against antigravity.google/docs/cli/reference and
+# /docs/getting-started (2026-11-13), not with the real CLI:
+#   - -i/--prompt-interactive runs a first message and keeps the session
+#     open; -p/--print is the one that answers and exits.
+#   - --conversation ID reopens a conversation and --continue the most
+#     recent.
+#   - where it keeps conversations is not documented (its settings are in
+#     ~/.gemini/antigravity-cli), so conch does not read them.
+#   - it leaves the window title alone and its prompts are not quoted in
+#     its docs, so there are no screen rules yet.
+agent = "antigravity"
+label = "Antigravity CLI"
+process_names = ["agy"]
+
+[run]
+binary = "agy"
+dirs = ["~/.local/bin"]
+prompt = "-i {prompt}"
+resume = "--conversation {id}"
+resume_last = "--continue"
+install = "curl -fsSL https://antigravity.google/cli/install.sh | bash"

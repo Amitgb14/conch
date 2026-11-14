@@ -83,7 +83,7 @@ func SettingsChoices(agents []string) configweb.Choices {
 	}
 	slices.Sort(c.Accents)
 	if len(agents) == 0 {
-		agents = []string{"claude", "codex", "gemini", "opencode", "devin"}
+		agents = []string{"claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose"}
 	}
 	for _, a := range agents {
 		c.Agents = append(c.Agents, configweb.Option{Value: a, Label: agentLabel(a)})

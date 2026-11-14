@@ -1,0 +1,27 @@
+# Droid — Factory's CLI (https://docs.factory.com/cli). The "runs here"
+# tier.
+#
+# Verified against docs.factory.com/cli/configuration/cli-reference
+# (2026-11-13), not with the real CLI:
+#   - `droid "query"` starts the REPL with that first message; `droid
+#     exec` is the one that answers and exits, so it is not what conch
+#     passes.
+#   - --resume ID reopens a session, and --resume alone the most recently
+#     modified. (Inside `droid exec`, -r means something else, which is
+#     why the long form is written here.)
+#   - sessions are JSONL under ~/.factory/projects, from a hook example in
+#     the docs; the layout is not documented, so conch does not read it.
+#   - it is closed source and its screen text is not quoted anywhere conch
+#     could check, so there are no screen rules: the row shows it running,
+#     not whether it waits.
+agent = "droid"
+label = "Droid"
+process_names = ["droid"]
+
+[run]
+binary = "droid"
+dirs = ["~/.local/bin"]
+prompt = "{prompt}"
+resume = "--resume {id}"
+resume_last = "--resume"
+install = "curl -fsSL https://app.factory.ai/cli | sh"

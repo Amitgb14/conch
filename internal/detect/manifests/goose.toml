@@ -1,0 +1,20 @@
+# Goose. Copy to ~/.config/conch/agents/goose.toml to override.
+#
+# Goose reports its own state through the Program Status Protocol (OSC
+# 7501, app=goose) whenever its output is a terminal, unless
+# GOOSE_CLI_PROGRAM_STATUS=false, and conch prefers that. The rules are
+# for when it does not, from its source (crates/goose-cli/src/session),
+# not read off a live screen: its question before a tool runs, and the
+# line under its spinner. Its window title is 🪿 and the folder.
+agent = "goose"
+process_names = ["goose"]
+
+[[rules]]
+name = "approval"
+state = "blocked"
+pattern = 'Goose would like to call the above tool|Do you allow this tool call\?'
+
+[[rules]]
+name = "interruptible"
+state = "working"
+pattern = 'Ctrl\+C to interrupt'

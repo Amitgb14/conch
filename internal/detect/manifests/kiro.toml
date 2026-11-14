@@ -1,0 +1,33 @@
+# Kiro CLI — AWS's agent, the successor of Amazon Q Developer CLI
+# (https://kiro.dev/docs/cli). The "runs here" tier.
+#
+# It needs no screen rules: Kiro CLI 2 and 3 report their own state
+# through the Program Status Protocol (OSC 7501) on an interactive
+# terminal (kiro.dev/docs/cli/terminal-ui), which conch answers and
+# prefers. KIRO_NO_PROGRAM_STATUS=1 turns that off, and then the row is
+# idle until conch is taught its screen.
+#
+# Verified against kiro.dev/docs/reference/cli-commands and
+# /docs/cli/chat/session-management (2026-11-13), not with the real CLI:
+#   - the session is `kiro-cli chat`, which is why `chat` is a flag here;
+#     a first message is its positional INPUT, and stays interactive
+#     unless --no-interactive is given.
+#   - --resume-id ID reopens a session, --resume the most recent one in
+#     this folder.
+#   - sessions are kept in a local database under ~/.kiro whose layout is
+#     not documented, so conch does not read them.
+#   - the installer puts kiro-cli in ~/.local/bin; a headless install
+#     also ships kiro-cli-chat. `kiro` is left out on purpose: it is the
+#     Kiro IDE's launcher as well.
+agent = "kiro"
+label = "Kiro CLI"
+process_names = ["kiro-cli", "kiro-cli-chat"]
+
+[run]
+binary = "kiro-cli"
+dirs = ["~/.local/bin"]
+flags = "chat"
+prompt = "{prompt}"
+resume = "--resume-id {id}"
+resume_last = "--resume"
+install = "curl -fsSL https://cli.kiro.dev/install | bash"

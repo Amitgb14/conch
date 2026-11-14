@@ -17,7 +17,7 @@ import { LOGOS } from "/logos.mjs"
 const API_VERSION = 2
 // The agents conch can start. There is no route that lists the ones
 // installed, so a new agent names one of these or leaves it to conch.
-const AGENTS = ["claude", "codex", "gemini", "opencode", "devin"]
+const AGENTS = ["claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose"]
 
 const state = {
   hello: null, // who this device is, once paired

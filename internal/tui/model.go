@@ -1806,10 +1806,13 @@ type (
 // messages about agents a machine hasn't described.
 var agentLabels = map[string]string{
 	"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "devin": "Devin",
+	"copilot": "Copilot CLI", "cline": "Cline", "qwen": "Qwen Code", "goose": "Goose",
 	// The ones conch ships a manifest for. An agent somebody adds
 	// themselves is named by its manifest, which the server sends with
 	// the agent list; this map is for the places that have only a name.
 	"aider": "Aider", "amp": "Amp", "cursor": "Cursor CLI", "grok": "Grok", "kilo": "Kilo Code", "pi": "Pi",
+	"kiro": "Kiro CLI", "droid": "Droid", "kimi": "Kimi Code", "crush": "Crush", "antigravity": "Antigravity CLI",
+	"auggie": "Auggie", "vibe": "Mistral Vibe", "continue": "Continue CLI",
 }
 
 func agentLabel(agent string) string {

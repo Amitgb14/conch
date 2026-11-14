@@ -29,7 +29,7 @@ func a6Item(a proto.AgentSetup, group, name string) (proto.SetupItem, bool) {
 }
 
 func TestA6NamesCurrentEnvUnknown(t *testing.T) {
-	if got := strings.Join(Names(), ","); got != "claude,codex,gemini,opencode,devin" {
+	if got := strings.Join(Names(), ","); got != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
 		t.Fatalf("Names: %s", got)
 	}
 	home := t.TempDir()

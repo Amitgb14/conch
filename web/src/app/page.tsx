@@ -51,6 +51,26 @@ const agents = [
     state: "recognised by its process; its working and waiting states aren't read yet",
     install: "curl -fsSL https://cli.devin.ai/install.sh | bash",
   },
+  {
+    name: "Copilot CLI",
+    state: "its own reports (OSC 7501), its approval questions and the screen",
+    install: "curl -fsSL https://gh.io/copilot-install | bash",
+  },
+  {
+    name: "Cline",
+    state: "its approval dialog and the screen",
+    install: "npm install -g --prefix ~/.local cline",
+  },
+  {
+    name: "Qwen Code",
+    state: "its own reports (OSC 7501), the title and the screen",
+    install: "curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash",
+  },
+  {
+    name: "Goose",
+    state: "its own reports (OSC 7501) and the screen",
+    install: "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash",
+  },
 ]
 
 const states = [
@@ -104,7 +124,7 @@ export default function Home() {
                 <span className="text-muted-foreground">From one terminal.</span>
               </h1>
               <p className="mt-5 max-w-xl text-pretty text-muted-foreground sm:text-lg">
-                conch is a terminal orchestrator for Claude Code, Codex, Gemini CLI, OpenCode and Devin. A
+                conch is a terminal orchestrator for Claude Code, Codex, Gemini CLI, OpenCode, Devin, Copilot CLI, Cline, Qwen Code, Goose and more. A
                 background server owns their terminals, and one tree shows every machine, project,
                 branch and agent — and which of them is waiting for you.
               </p>

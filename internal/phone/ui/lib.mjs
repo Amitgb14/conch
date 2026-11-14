@@ -510,7 +510,11 @@ export function ttyInput(value, sentinel) {
 
 // MARKS is each agent's mark on the phone: the TUI's own shapes, drawn
 // in a circle of its colour (app.css .mark.NAME). Anything else is a dot.
-export const MARKS = { claude: "✱", codex: "⬡", gemini: "◆", opencode: "◎", devin: "◇" }
+// The later four are chosen, being plain shapes a phone's font has.
+export const MARKS = {
+  claude: "✱", codex: "⬡", gemini: "◆", opencode: "◎", devin: "◇",
+  copilot: "◐", cline: "▣", qwen: "✦", goose: "▲",
+}
 
 // markOf is a pane's mark: its glyph and the class that colours it.
 export function markOf(p) {

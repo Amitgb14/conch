@@ -16,7 +16,8 @@ func isolateUndo(t *testing.T) (home, conchHome string) {
 	t.Setenv("HOME", home)
 	t.Setenv("CONCH_HOME", conchHome)
 	t.Setenv("PATH", t.TempDir())
-	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(k, "")
 	}
 	return home, conchHome
