@@ -75,6 +75,10 @@ var inspectors = []inspector{
 	{"gemini", "Gemini CLI", inspectGemini},
 	{"opencode", "OpenCode", inspectOpenCode},
 	{"devin", "Devin", inspectDevin},
+	{"copilot", "Copilot CLI", inspectCopilot},
+	{"cline", "Cline", inspectCline},
+	{"qwen", "Qwen Code", inspectQwen},
+	{"goose", "Goose", inspectGoose},
 }
 
 // Names lists the agents Inspect knows.

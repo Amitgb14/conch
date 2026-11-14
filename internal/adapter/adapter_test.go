@@ -22,6 +22,18 @@ func TestCleanTitle(t *testing.T) {
 		"◇  Ready (api)":                   "",
 		"OC | Add health check":            "Add health check",
 		"OpenCode":                         "",
+		// Copilot names the session and the folder, then itself.
+		"Fix tests - api - GitHub Copilot": "Fix tests - api",
+		"GitHub Copilot":                   "",
+		// Cline titles its window with the last thing asked.
+		"> Add a health check": "Add a health check",
+		"Cline":                "",
+		// Qwen and Goose title theirs with the folder, which is no task.
+		"◐︎ Qwen - api":                        "",
+		"✳︎ Qwen - api":                        "",
+		"Qwen - api" + strings.Repeat(" ", 60): "",
+		"🪿 api":                                "",
+		"Qwen is a model, and this is somebody's own title": "Qwen is a model, and this is somebody's own title",
 	} {
 		if got := CleanTitle(in); got != want {
 			t.Errorf("CleanTitle(%q) = %q, want %q", in, got, want)
@@ -41,19 +53,20 @@ func TestRegistryAndIntegrationFiles(t *testing.T) {
 	for _, a := range reg {
 		names = append(names, a.Name())
 	}
-	// The five with adapters come first, in this order, then the agents
+	// The nine with adapters come first, in this order, then the agents
 	// conch only ships a manifest for. The order matters: it is the order
 	// the agent menu offers them in, and a supported agent should not be
 	// below one conch merely runs.
-	if strings.Join(names[:5], ",") != "claude,codex,gemini,opencode,devin" {
+	const supported = 9
+	if strings.Join(names[:supported], ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
 		t.Fatalf("registry order: %v", names)
 	}
-	for _, a := range reg[:5] {
+	for _, a := range reg[:supported] {
 		if a.Tier() != TierSupported {
 			t.Errorf("%s is %q", a.Name(), a.Tier())
 		}
 	}
-	for _, a := range reg[5:] {
+	for _, a := range reg[supported:] {
 		if a.Tier() != TierRunsHere {
 			t.Errorf("%s is %q", a.Name(), a.Tier())
 		}
@@ -235,6 +248,56 @@ func TestEnsureWritesTheFilesAgain(t *testing.T) {
 			if err := pr.Ensure(); err != nil {
 				t.Fatalf("codex: %v", err)
 			}
+		}
+	}
+}
+
+// The four agents supported after the first five, as their sources say
+// they are started: a first message that keeps the session open, and a
+// resume — never an option that answers and exits.
+func TestTheLaterSupportedAgents(t *testing.T) {
+	reg, err := New("/usr/local/bin/conch", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, prompt, resume, last string
+	}{
+		{"copilot", "-i 'fix it'", "--resume s1", "--continue"},
+		// Cline's bare message runs once; -i is its interface.
+		{"cline", "-i 'fix it'", "--id s1", ""},
+		{"qwen", "-i 'fix it'", "--resume s1", "--continue"},
+		// Goose's latest is the latest anywhere, so none is offered.
+		{"goose", "run --interactive --text 'fix it'", "session --resume --session-id s1", ""},
+	} {
+		a, ok := reg.Get(c.name)
+		if !ok {
+			t.Fatalf("no %s", c.name)
+		}
+		if a.Tier() != TierSupported {
+			t.Errorf("%s is %q", c.name, a.Tier())
+		}
+		if got := a.PromptArgs("fix it"); got != c.prompt {
+			t.Errorf("%s prompt %q, want %q", c.name, got, c.prompt)
+		}
+		if got := a.ResumeArgs("s1"); got != c.resume {
+			t.Errorf("%s resume %q, want %q", c.name, got, c.resume)
+		}
+		if got := a.ResumeArgs(""); got != c.last {
+			t.Errorf("%s resume last %q, want %q", c.name, got, c.last)
+		}
+		// A message that looks like an option is still a message.
+		if got := a.PromptArgs("--yolo"); !strings.HasSuffix(got, "' --yolo'") {
+			t.Errorf("%s took a message for an option: %q", c.name, got)
+		}
+		if a.InstallScript() == "" || !strings.Contains(a.InstallScript(), "set -e") {
+			t.Errorf("%s has no installer", c.name)
+		}
+		if len(a.Env()) != 0 {
+			t.Errorf("%s is given environment of conch's: %v", c.name, a.Env())
+		}
+		if ca, ok := a.(*cliAgent); !ok || !ca.CanPrompt() || !ca.CanResume() {
+			t.Errorf("%s cannot be prompted or resumed", c.name)
 		}
 	}
 }

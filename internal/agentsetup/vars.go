@@ -138,11 +138,28 @@ func codexVarsOf(s mcpServer) (codexVars, string) {
 
 // unwritable says why a server cannot be declared for agent, or "".
 func unwritable(agent string, s mcpServer) string {
-	if agent == "codex" {
+	switch agent {
+	case "codex":
 		_, why := codexVarsOf(s)
 		return why
+	case "cline":
+		// Cline's settings loader expands nothing: a ${TOKEN} there is
+		// the text "${TOKEN}" (core/src/extensions/mcp/config-loader.ts).
+		for _, v := range append(append([]string{s.Command, s.URL}, s.Args...), append(mapValues(s.Env), mapValues(s.Headers)...)...) {
+			if neutralRef.MatchString(v) {
+				return "Cline does not expand ${VAR} in its MCP settings"
+			}
+		}
 	}
 	return ""
+}
+
+func mapValues(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, k := range stringKeys(m) {
+		out = append(out, m[k])
+	}
+	return out
 }
 
 // LibraryVars are the variables the library's servers refer to, each

@@ -6,7 +6,8 @@ changing code; it is the contract for how work here is done.
 ## What conch is
 
 conch is a terminal orchestrator for AI coding agents — Claude Code, Codex,
-Gemini CLI, OpenCode and Devin — written in Go.
+Gemini CLI, OpenCode, Devin, Copilot CLI, Cline, Qwen Code and Goose, and
+more it only runs — written in Go.
 
 - A **server** daemon owns the pseudo-terminals the agents and shells run in,
   so they keep running when the UI closes. It speaks newline-delimited JSON
@@ -136,8 +137,11 @@ network. The person running the tests may be *inside* a live conch session.
 
 - **Config and home:** use `t.TempDir()` and
   `t.Setenv("HOME", …)`, `t.Setenv("CONCH_HOME", …)`. Never read or write
-  `~/.config/conch`, `~/.claude`, `~/.codex`, `~/.gemini` or
-  `~/.local/share/opencode`. TUI models in tests keep `statePath` empty so
+  `~/.config/conch`, `~/.claude`, `~/.codex`, `~/.gemini`,
+  `~/.local/share/opencode`, `~/.copilot`, `~/.cline`, `~/.qwen` or
+  `~/.config/goose` and `~/.local/share/goose` — and clear the variables
+  that move them (`COPILOT_HOME`, `CLINE_DIR`, `QWEN_HOME`,
+  `GOOSE_PATH_ROOT` and the rest) where a test reads the real environment. TUI models in tests keep `statePath` empty so
   `ui.json` is never written.
 - **Inherited session variables:** `t.Setenv("CONCH_SOCKET", "")` and
   `t.Setenv("CONCH_PANE_ID", "")` in anything that could connect. When running
@@ -586,7 +590,7 @@ helpers in `cmd/conch` and `internal/remote`.
 ## Adding an agent
 
 **There are two tiers, and this section is about the first one.** *Supported*
-is the contract below: five agents meet it. *Runs here* is a manifest —
+is the contract below: nine agents meet it. *Runs here* is a manifest —
 `$CONCH_HOME/agents/<name>.toml`, or one conch ships in
 `internal/detect/manifests` — naming the binary, how a first message is
 passed and how a session is resumed, **or saying neither**. conch starts and

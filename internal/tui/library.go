@@ -17,9 +17,10 @@ import (
 // Agents, since what follows you from project to project is machine-wide.
 // Editing it writes to no agent; Apply shows what it would write first.
 
-// libraryShort is each agent's column heading: five full names do not fit
+// libraryShort is each agent's column heading: nine full names do not fit
 // beside a server's name in a 40-column window.
-var libraryShort = map[string]string{"claude": "Cl", "codex": "Cx", "gemini": "Gm", "opencode": "Oc", "devin": "Dv"}
+var libraryShort = map[string]string{"claude": "Cl", "codex": "Cx", "gemini": "Gm", "opencode": "Oc", "devin": "Dv",
+	"copilot": "Cp", "cline": "Cn", "qwen": "Qw", "goose": "Gs"}
 
 func libraryAgent(a string) string {
 	if s, ok := libraryShort[a]; ok {

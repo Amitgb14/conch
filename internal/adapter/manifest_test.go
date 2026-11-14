@@ -60,7 +60,7 @@ install = "curl -fsSL https://example.invalid/robo.sh | sh"
 	if a.Label() != "Robo Coder" || a.Tier() != TierRunsHere {
 		t.Fatalf("label %q tier %q", a.Label(), a.Tier())
 	}
-	// The supported five are still supported, and still first.
+	// The supported agents are still supported, and still first.
 	if r[0].Name() != "claude" || r[0].Tier() != TierSupported {
 		t.Fatalf("first adapter %s/%s", r[0].Name(), r[0].Tier())
 	}
@@ -225,7 +225,7 @@ func TestTwoManifestsOneName(t *testing.T) {
 	}
 }
 
-// TestWithNoManifestsOfYourOwn: the usual case — the five with adapters,
+// TestWithNoManifestsOfYourOwn: the usual case — the nine with adapters,
 // and the agents conch ships a manifest for, each saying which it is.
 func TestWithNoManifestsOfYourOwn(t *testing.T) {
 	home := t.TempDir()
@@ -244,7 +244,7 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 			t.Errorf("%s has tier %q", a.Name(), a.Tier())
 		}
 	}
-	if supported != 5 {
+	if supported != 9 {
 		t.Errorf("%d supported agents", supported)
 	}
 	if runs == 0 {

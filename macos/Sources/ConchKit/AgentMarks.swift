@@ -28,13 +28,17 @@ public struct AgentMark: Equatable, Sendable {
         case "gemini": return .init(glyph: "\u{f1a0}", symbol: "sparkle")
         case "opencode": return .init(glyph: "\u{f120}", symbol: "terminal.fill")
         case "devin": return .init(glyph: "\u{f135}", symbol: "paperplane.fill")
+        case "copilot": return .init(glyph: "\u{f09b}", symbol: "airplane.circle.fill") // a co-pilot
+        case "cline": return .init(glyph: "\u{f121}", symbol: "chevron.left.forwardslash.chevron.right")
+        case "qwen": return .init(glyph: "\u{f0c2}", symbol: "cloud.fill")
+        case "goose": return .init(glyph: "\u{f099}", symbol: "bird.fill")
         case "aider": return .init(glyph: "\u{f0c0}", symbol: "person.2.fill")
         case "amp": return .init(glyph: "\u{f0e7}", symbol: "bolt.fill")
         case "cursor": return .init(glyph: "\u{f1b2}", symbol: "cube.fill")
         case "grok": return .init(glyph: "\u{f00d}", symbol: "xmark")
         case "kilo": return .init(glyph: "\u{f009}", symbol: "square.grid.2x2.fill")
         case "pi": return .init(glyph: "π", symbol: nil)
-        case "kiro": return .init(glyph: "\u{f2ac}", symbol: "cloud.fill") // a ghost; SF Symbols has none, a cloud is its outline
+        case "kiro": return .init(glyph: "\u{f2ac}", symbol: "theatermasks.fill") // a ghost; SF Symbols has none
         case "crush": return .init(glyph: "\u{f0d0}", symbol: "wand.and.stars")
         case "droid": return .init(glyph: "\u{f17b}", symbol: "gearshape.fill")
         case "kimi": return .init(glyph: "\u{f186}", symbol: "moon.fill")
@@ -64,6 +68,10 @@ public func agentColor(_ name: String?) -> RGB? {
     case "gemini": return RGB("#4285F4") // Google's blue
     case "opencode": return RGB("#C792EA")
     case "devin": return RGB("#E3B341")
+    case "copilot": return RGB("#A371F7") // chosen: GitHub's purple
+    case "cline": return RGB("#E5534B") // chosen
+    case "qwen": return RGB("#5B7CFF") // a lighter #082DFF, Qwen's own
+    case "goose": return RGB("#C8A27A") // chosen
     case "aider": return RGB("#4CAF50") // chosen: aider publishes none
     case "amp": return RGB("#FF6B35") // chosen
     case "cursor": return RGB("#C9D1D9") // its mark is white

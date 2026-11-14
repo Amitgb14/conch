@@ -153,7 +153,7 @@ func agentNameOK(s string) bool {
 // supportedAgent reports whether a name belongs to one of the agents conch
 // supports with an adapter of its own.
 func supportedAgent(name string) bool {
-	for _, a := range []string{"claude", "codex", "gemini", "opencode", "devin"} {
+	for _, a := range []string{"claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose"} {
 		if a == name {
 			return true
 		}

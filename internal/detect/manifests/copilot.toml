@@ -1,0 +1,21 @@
+# GitHub Copilot CLI. Copy to ~/.config/conch/agents/copilot.toml to
+# override.
+#
+# Copilot reports its own state through the Program Status Protocol (OSC
+# 7501, `state=…:app=copilot`, with kind=permission or question when it is
+# blocked) whenever its output is a terminal, without asking first, and
+# conch prefers that. The rules below are for a build that does not, and
+# are strings from its 1.0.112 package (cli-main.js), not read off a live
+# screen: its approval questions, and the hint while it works.
+agent = "copilot"
+process_names = ["copilot"]
+
+[[rules]]
+name = "approval"
+state = "blocked"
+pattern = 'Do you want to (run this command|allow this tool call|use this tool|modify .*|allow this access)\?'
+
+[[rules]]
+name = "stoppable"
+state = "working"
+pattern = '\(Esc to stop\)'

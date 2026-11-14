@@ -562,6 +562,11 @@ test("each pane's mark", () => {
   assert.deepEqual(markOf(many[5]), { glyph: "▢", cls: "shell" })
   assert.deepEqual(markOf(many[6]), { glyph: "●", cls: "other" })
   assert.deepEqual(markOf(null), { glyph: "●", cls: "other" })
+  // Every supported agent has a mark of its own, and no two share one.
+  const supported = ["claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose"]
+  const glyphs = supported.map((agent) => markOf({ kind: "agent", agent }).glyph)
+  assert.ok(!glyphs.includes("●"), glyphs.join(" "))
+  assert.equal(new Set(glyphs).size, supported.length)
 })
 
 test("the chips count and filter", () => {

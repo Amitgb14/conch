@@ -80,12 +80,12 @@ func TestCompletionCandidates(t *testing.T) {
 		{[]string{"server"}, "", []string{"stop", "reload"}},
 		{[]string{"agent"}, "s", []string{"status", "setup", "sync", "skill"}},
 		{[]string{"agent", "library"}, "a", []string{"add", "apply"}},
-		{[]string{"agent", "install"}, "co", []string{"codex", "continue"}},
+		{[]string{"agent", "install"}, "co", []string{"codex", "continue", "copilot"}},
 		{[]string{"agent", "install", "codex"}, "", nil},
 		{[]string{"new", "-agent"}, "ge", []string{"gemini"}},
 		// A comma list goes on from its last name, and leaves out the ones
 		// already in it.
-		{[]string{"task", "-agent"}, "codex,c", []string{"codex,claude", "codex,continue", "codex,crush", "codex,cursor"}},
+		{[]string{"task", "-agent"}, "codex,c", []string{"codex,claude", "codex,cline", "codex,continue", "codex,copilot", "codex,crush", "codex,cursor"}},
 		{[]string{"task", "-sandbox"}, "b", []string{"boat"}},
 		{[]string{"machine", "rm"}, "", []string{"busybox"}},
 		{[]string{"machine", "rename", "busybox"}, "", nil},

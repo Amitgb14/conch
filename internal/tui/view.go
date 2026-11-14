@@ -1533,6 +1533,12 @@ var (
 		"gemini":   "🔵", // Google blue
 		"opencode": "🟣",
 		"devin":    "🟡",
+		// Copilot, Cline, Qwen and Goose: still circles, the supported
+		// tier, though only Qwen's has a colour of its own to take.
+		"copilot": "🔘", // chosen: GitHub is black and white, which vanishes one way or the other
+		"cline":   "🔴", // chosen: Cline's robot is black and white
+		"qwen":    "🧿", // the blue of Qwen's mark, as a circle Gemini has not taken
+		"goose":   "🟤", // chosen: its own mark is 🪿, which is no circle and older fonts lack
 		// The agents conch only runs, from a manifest: squares, since the
 		// circles are the supported five and five more hues would be five
 		// more things to tell apart. The shape says which tier it is.
@@ -1575,6 +1581,10 @@ var (
 		"gemini":   "#4285F4", // Google's blue
 		"opencode": "#C792EA",
 		"devin":    "#E3B341",
+		"copilot":  "#A371F7", // chosen: GitHub's purple, as Copilot's pages use it
+		"cline":    "#E5534B", // chosen, to go with its dot
+		"qwen":     "#5B7CFF", // Qwen's mark is #082DFF, which a dark terminal would swallow; lighter
+		"goose":    "#C8A27A", // chosen, to go with its dot
 		"aider":    "#4CAF50", // chosen, not theirs: aider publishes no brand colour
 		"amp":      "#FF6B35", // chosen, not theirs
 		"cursor":   "#C9D1D9", // its mark is a white cube, so near enough white
@@ -1599,6 +1609,10 @@ var (
 		"gemini":      "\uf1a0", // Google's own, the one real logo here
 		"opencode":    "\uf120", // a terminal, which is its whole identity
 		"devin":       "\uf135", // a rocket: chosen, since Cognition's mark is a wordmark
+		"copilot":     "\uf09b", // GitHub's own, whose Copilot it is
+		"cline":       "\uf121", // code: chosen, since Font Awesome 4.7 has no robot
+		"qwen":        "\uf0c2", // a cloud: chosen, for Alibaba Cloud, which makes it
+		"goose":       "\uf099", // a bird, the nearest Font Awesome 4.7 has to a goose
 		"aider":       "\uf0c0", // two people: chosen, for pair programming
 		"amp":         "\uf0e7", // a bolt: chosen, for the name
 		"cursor":      "\uf1b2", // a cube, the shape of Cursor's own mark

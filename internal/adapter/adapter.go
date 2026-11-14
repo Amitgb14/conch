@@ -88,7 +88,7 @@ func New(exe, dir string) (Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := Registry{claude, newCodex(), gemini, opencode, newDevin()}
+	r := Registry{claude, newCodex(), gemini, opencode, newDevin(), newCopilot(), newCline(), newQwen(), newGoose()}
 	// Agents described by a manifest come after the supported ones, in the
 	// order their files sort. A manifest that cannot be read is reported
 	// and skipped: one bad file must not cost the agents around it.
@@ -407,6 +407,87 @@ echo "Sign in with devin auth login, or start it from conch and follow its promp
 	}
 }
 
+// ---- GitHub Copilot CLI ----
+
+// newCopilot launches GitHub's Copilot CLI. -i starts it interactive with
+// a first message (-p is the one that answers and exits); --resume takes
+// a session id and --continue the latest, which it says it prefers from
+// this folder, branch or repository. It reports its own state over OSC
+// 7501 without being asked, so conch passes it nothing — its hooks are
+// files in the project or in ~/.copilot, which are the person's own.
+func newCopilot() *cliAgent {
+	return &cliAgent{
+		name: "copilot", label: "Copilot CLI", binary: "copilot",
+		promptFlag: "-i",
+		resume:     "--resume %s", resumeLast: "--continue",
+		dirs: []string{"$HOME/.local/bin"},
+		install: withDownloader("GitHub Copilot CLI", "https://gh.io/copilot-install", "bash", "") + `
+echo
+echo "Installed: $("$HOME/.local/bin/copilot" --version)"
+echo "Start it from conch and sign in with /login."`,
+	}
+}
+
+// ---- Cline ----
+
+// newCline launches Cline's CLI. A bare message runs once and exits, so a
+// first message goes with -i, its interactive interface; --id reopens a
+// session. It documents no "the latest one", so conch offers none.
+func newCline() *cliAgent {
+	return &cliAgent{
+		name: "cline", label: "Cline", binary: "cline",
+		promptFlag: "-i",
+		resume:     "--id %s",
+		dirs:       []string{"$HOME/.local/bin"},
+		install: `set -e
+echo "Installing Cline with npm (cline) into ~/.local"
+if ! command -v npm >/dev/null 2>&1; then echo "Cline needs Node.js 20 or newer (nodejs.org)" >&2; exit 1; fi
+npm install -g --prefix "$HOME/.local" cline
+echo
+echo "Installed: $("$HOME/.local/bin/cline" --version)"
+echo "Start it from conch and sign in or pick a provider."`,
+	}
+}
+
+// ---- Qwen Code ----
+
+// newQwen launches Qwen Code, a fork of Gemini CLI, with Gemini's options:
+// -i for a first message in an interactive session, --resume ID and
+// --continue. It reports its own state over OSC 7501 without being asked.
+func newQwen() *cliAgent {
+	return &cliAgent{
+		name: "qwen", label: "Qwen Code", binary: "qwen",
+		promptFlag: "-i",
+		resume:     "--resume %s", resumeLast: "--continue",
+		dirs: []string{"$HOME/.local/bin"},
+		install: withDownloader("Qwen Code", "https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh", "bash", "") + `
+echo
+echo "Installed: $("$HOME/.local/bin/qwen" --version)"
+echo "Start it from conch and sign in."`,
+	}
+}
+
+// ---- Goose ----
+
+// newGoose launches Goose. Plain `goose` is a session; a first message is
+// `goose run --interactive --text MESSAGE`, which stays in the session
+// afterwards. `goose session --resume --session-id ID` reopens one. Its
+// own "the latest" is the latest anywhere, not in this folder — and it
+// moves to that session's folder — so conch does not offer it as the
+// latest here. It reports its own state over OSC 7501.
+func newGoose() *cliAgent {
+	return &cliAgent{
+		name: "goose", label: "Goose", binary: "goose",
+		promptFlag: "run --interactive --text",
+		resume:     "session --resume --session-id %s",
+		dirs:       []string{"$HOME/.local/bin"},
+		install: withDownloader("Goose", "https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh", "bash", "CONFIGURE=false") + `
+echo
+echo "Installed: $("$HOME/.local/bin/goose" --version)"
+echo "Run goose configure in a terminal, or start it from conch, to pick a provider."`,
+	}
+}
+
 // ---- Gemini CLI ----
 
 // GeminiHookEvents are the Gemini CLI hook events conch listens to.
@@ -536,7 +617,8 @@ func writeJSON(path string, v any) error {
 }
 
 // defaultTitles are titles agents show when they have no task yet.
-var defaultTitles = map[string]bool{"claude code": true, "claude": true, "opencode": true, "gemini cli": true}
+var defaultTitles = map[string]bool{"claude code": true, "claude": true, "opencode": true, "gemini cli": true,
+	"github copilot": true, "cline": true}
 
 // statusPrefix matches the activity agents put at the start of their
 // titles: Codex's "[ ! ] Action Required", Gemini's "✦  Working… (folder)".
@@ -546,11 +628,21 @@ var statusPrefix = regexp.MustCompile(`^\s*(\[ [!.] \] Action Required|✋\s*Act
 // status symbols (spinners, ✳) and OpenCode's "OC | " are dropped, and
 // titles that only name the agent become "".
 func CleanTitle(title string) string {
+	// Goose titles its window with its own mark and the folder, which is
+	// where it is rather than what it is doing.
+	if strings.HasPrefix(strings.TrimSpace(title), "🪿") {
+		return ""
+	}
 	title = statusPrefix.ReplaceAllString(title, "")
 	title = strings.TrimLeftFunc(title, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
 	title = strings.TrimSpace(strings.TrimPrefix(title, "OC |"))
+	title = strings.TrimSpace(strings.TrimSuffix(title, " - GitHub Copilot"))
+	title = strings.TrimSpace(strings.TrimPrefix(title, "> ")) // Cline's
+	if strings.HasPrefix(title, "Qwen - ") {
+		return "" // Qwen's title is the folder, padded to 80 columns
+	}
 	if defaultTitles[strings.ToLower(title)] {
 		return ""
 	}

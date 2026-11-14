@@ -1,0 +1,35 @@
+# Qwen Code, a fork of Gemini CLI. Copy to ~/.config/conch/agents/qwen.toml
+# to override.
+#
+# Qwen reports its own state through the Program Status Protocol (OSC
+# 7501, app=qwen-code) whenever its output is a terminal, without asking
+# first, and conch prefers that. The rules are for a build that does not,
+# from its source (packages/cli/src/ui), not read off a live screen: Qwen
+# changed Gemini's title — "Qwen - <folder>", with ◐︎ in front while it
+# answers and ✳︎ while it waits for a confirmation — and moved the cancel
+# hint to the end of its line, and kept Gemini's confirmation questions.
+agent = "qwen"
+process_names = ["qwen"]
+screen_lines = 40
+
+[[rules]]
+name = "waiting_title"
+state = "blocked"
+on = "title"
+pattern = '^\s*✳'
+
+[[rules]]
+name = "confirmation"
+state = "blocked"
+pattern = 'Apply this change\?|Allow execution of|Do you want to proceed\?|Waiting for user confirmation'
+
+[[rules]]
+name = "working_title"
+state = "working"
+on = "title"
+pattern = '^\s*◐'
+
+[[rules]]
+name = "cancellable"
+state = "working"
+pattern = 'esc to cancel'

@@ -75,7 +75,7 @@ func TestSyncPlanWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.From != "claude" || len(res.To) != 4 || res.Writes() == 0 {
+	if res.From != "claude" || len(res.To) != 8 || res.Writes() == 0 {
 		t.Fatalf("plan %+v\n%s", res.To, changeLines(res))
 	}
 	for _, p := range []string{"AGENTS.md", "GEMINI.md", ".agents/skills/review", ".codex/config.toml",
@@ -410,7 +410,7 @@ func TestSyncRefusals(t *testing.T) {
 	if _, err := UndoSync(root, "20260101-000001"); err == nil || !strings.Contains(err.Error(), "cannot be read") {
 		t.Fatalf("a record that is nonsense: %v", err)
 	}
-	if got := SyncNames(); strings.Join(got, ",") != "claude,codex,gemini,opencode,devin" {
+	if got := SyncNames(); strings.Join(got, ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
 		t.Fatalf("SyncNames %v", got)
 	}
 	if !CanSync("claude") || !CanSync("devin") || CanSync("cursor") {
@@ -606,7 +606,8 @@ func userHome(t *testing.T) (string, Env) {
 	conchHome := filepath.Join(home, ".config", "conch")
 	t.Setenv("HOME", home)
 	t.Setenv("CONCH_HOME", conchHome)
-	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME"} {
+	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME",
+		"COPILOT_HOME", "CLINE_DIR", "CLINE_DATA_DIR", "CLINE_MCP_SETTINGS_PATH", "QWEN_HOME", "GOOSE_PATH_ROOT"} {
 		t.Setenv(v, "")
 	}
 	write(t, filepath.Join(home, ".claude", "CLAUDE.md"), "# My rules\n\nBritish English, always.\n")

@@ -165,6 +165,22 @@ var writable = map[string]agentFiles{
 	"devin": {instructions: "AGENTS.md",
 		skills: []string{".agents/skills", ".devin/skills", ".claude/skills"}, mcp: ".devin/mcp_config.json", mcpKey: "mcpServers",
 		readsInstructions: []string{"CLAUDE.md"}, readsMCP: []string{".mcp.json", "opencode.json"}},
+	// Copilot reads Claude Code's and Gemini's instructions, Claude's
+	// skills and a project's .mcp.json by itself.
+	"copilot": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills", ".github/skills", ".claude/skills"}, mcp: ".github/mcp.json", mcpKey: "mcpServers",
+		readsInstructions: []string{"CLAUDE.md", "GEMINI.md"}, readsMCP: []string{".mcp.json"}},
+	// Cline keeps its servers in one file of yours, never a checkout's.
+	"cline": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills", ".cline/skills", ".claude/skills"}},
+	// Qwen is Gemini CLI's layout under its own names, and reads AGENTS.md.
+	"qwen": {instructions: "QWEN.md", imports: true,
+		skills: []string{".agents/skills", ".qwen/skills"}, mcp: ".qwen/settings.json", mcpKey: "mcpServers",
+		readsInstructions: []string{"AGENTS.md"}},
+	// Goose's servers are YAML in a file of yours, which conch does not
+	// rewrite.
+	"goose": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills", ".goose/skills", ".claude/skills"}},
 }
 
 // withoutDevinCompat drops what Devin reads of other agents' files when its
@@ -263,6 +279,36 @@ func userFiles(e Env, agent string) (agentFiles, bool) {
 			readsInstructions: []string{filepath.Join(home, ".claude", "CLAUDE.md")},
 			readsMCP:          []string{filepath.Join(home, ".claude.json"), filepath.Join(oc, "opencode.json")},
 		}), true
+	case "copilot":
+		dir := filepath.Join(home, ".copilot")
+		if d := e.get("COPILOT_HOME"); d != "" {
+			dir = d
+		}
+		return agentFiles{
+			instructions: filepath.Join(dir, "copilot-instructions.md"),
+			skills:       []string{shared, filepath.Join(dir, "skills")},
+			mcp:          filepath.Join(dir, "mcp-config.json"), mcpKey: "mcpServers",
+		}, true
+	case "cline":
+		// A rules file of conch's own in Cline's folder, rather than
+		// ~/.agents/AGENTS.md, which other agents read too.
+		return agentFiles{
+			instructions: filepath.Join(clineDir(e), "rules", "AGENTS.md"),
+			skills:       []string{shared, filepath.Join(clineDir(e), "skills")},
+			mcp:          clineMCPSettings(e), mcpKey: "mcpServers",
+		}, true
+	case "qwen":
+		dir := qwenHome(e)
+		return agentFiles{
+			instructions: filepath.Join(dir, "QWEN.md"), imports: true,
+			skills: []string{shared, filepath.Join(dir, "skills")},
+			mcp:    filepath.Join(dir, "settings.json"), mcpKey: "mcpServers",
+		}, true
+	case "goose":
+		return agentFiles{
+			instructions: filepath.Join(gooseConfigDir(e), "AGENTS.md"),
+			skills:       []string{shared},
+		}, true
 	}
 	return agentFiles{}, false
 }
@@ -793,7 +839,7 @@ func serverOf(agent, name string, m map[string]any) mcpServer {
 	switch t := firstStr(m, "type", "transport"); {
 	case t == "sse":
 		s.Transport = "sse"
-	case t == "" && agent == "gemini" && str(m, "httpUrl") == "" && s.URL != "":
+	case t == "" && (agent == "gemini" || agent == "qwen") && str(m, "httpUrl") == "" && s.URL != "":
 		s.Transport = "sse" // Gemini's url is SSE, its httpUrl streamable HTTP
 	}
 	if agent == "codex" {
@@ -958,11 +1004,21 @@ func jsonServer(agent string, s mcpServer) map[string]any {
 		if len(env) > 0 {
 			m["environment"] = toAny(env)
 		}
-	case url != "" && agent == "gemini":
+	case url != "" && (agent == "gemini" || agent == "qwen"):
 		if s.Transport == "sse" {
 			m["url"] = url
 		} else {
 			m["httpUrl"] = url
+		}
+	case url != "" && agent == "cline":
+		m["type"], m["url"] = "streamableHttp", url
+		if s.Transport == "sse" {
+			m["type"] = "sse"
+		}
+	case url != "" && agent == "copilot":
+		m["type"], m["url"] = "http", url
+		if s.Transport == "sse" {
+			m["type"] = "sse"
 		}
 	case url != "" && agent == "devin":
 		m["url"], m["transport"] = url, "http"

@@ -157,9 +157,11 @@ func TestUIFiles(t *testing.T) {
 	// message to many and tries — added 30 KB of screens; 156 until the
 	// screen checking a relay's key words before pairing went in; 160
 	// until the agents' own logos on the New screen (logos.mjs, 7 KB of
-	// paths, the same as Conch.app's).
-	if total > 172<<10 {
-		t.Errorf("the app is %d bytes; keep it under 172 KiB", total)
+	// paths, the same as Conch.app's); 172 until four more agents became
+	// ones it can start — Copilot CLI, Cline, Qwen Code and Goose — with
+	// 4.5 KB of logos between them.
+	if total > 176<<10 {
+		t.Errorf("the app is %d bytes; keep it under 176 KiB", total)
 	}
 	if images > 64<<10 {
 		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)
@@ -456,9 +458,10 @@ func TestUIIsServedDeflated(t *testing.T) {
 	t.Logf("the app's shell is %d bytes, %d served (%.0f%%); its icons are %d served",
 		shell, deflated, 100*float64(deflated)/float64(shell), icons)
 	// 48 KiB until the relay and the views for many agents took it to 50;
-	// 52 until the agents' logos (logos.mjs), whose paths barely deflate.
-	if deflated > 56<<10 {
-		t.Errorf("a phone downloads %d bytes to start the app; keep it under 56 KiB", deflated)
+	// 52 until the agents' logos (logos.mjs), whose paths barely deflate;
+	// 56 until four more agents' logos.
+	if deflated > 60<<10 {
+		t.Errorf("a phone downloads %d bytes to start the app; keep it under 60 KiB", deflated)
 	}
 }
 
