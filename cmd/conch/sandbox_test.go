@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1452,6 +1453,7 @@ func TestA4SandboxListJustDeleted(t *testing.T) {
 	}
 	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
 	rows := strings.Split(strings.TrimSpace(out), "\n")
+	slices.Sort(rows[1:]) // the provider lists in no particular order
 	if len(rows) != 3 || flat(rows[1]) != "- - sb-live deleting 1 vCPU, 1 GiB, 3 GiB disk" || flat(rows[2]) != "- - sb-other deleting 1 vCPU, 1 GiB, 3 GiB disk" {
 		t.Fatalf("ls:\n%s", out)
 	}
