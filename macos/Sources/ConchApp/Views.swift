@@ -1633,6 +1633,7 @@ struct ChoiceButtons: View {
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .frame(maxWidth: short ? nil : .infinity, alignment: .leading)
                         .modifier(AnswerLook(on: on))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Answer “\(c.label)” without opening the agent")
@@ -2207,12 +2208,19 @@ struct AnswerStrip: View {
                 .foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 8)
             ForEach(question.choices.prefix(4), id: \.choice) { c in
-                Button(c.label) { store.answer(pane, question, c) }
-                    .buttonStyle(.plain).font(.ui(size: 12, weight: c.default == true ? .semibold : .regular))
-                    .lineLimit(1).frame(maxWidth: 200)
-                    .foregroundStyle(Theme.ink ? (c.default == true ? Theme.window : Theme.inkLine) : c.default == true ? Theme.onWarn : Theme.text)
-                    .padding(.horizontal, 9).padding(.vertical, 3)
-                    .modifier(AnswerLook(on: c.default == true, edged: false))
+                // The box is the button's label, so all of it takes the
+                // click: drawn around a plain button, only the word did,
+                // and a click beside it went to the card and focused it.
+                Button { store.answer(pane, question, c) } label: {
+                    Text(c.label).font(.ui(size: 12, weight: c.default == true ? .semibold : .regular))
+                        .lineLimit(1).frame(maxWidth: 200)
+                        .foregroundStyle(Theme.ink ? (c.default == true ? Theme.window : Theme.inkLine) : c.default == true ? Theme.onWarn : Theme.text)
+                        .padding(.horizontal, 9).padding(.vertical, 3)
+                        .modifier(AnswerLook(on: c.default == true, edged: false))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Answer “\(c.label)” without opening the agent")
             }
         }
         .padding(.horizontal, Theme.ink ? 18 : Theme.meadow ? 16 : 10).padding(.top, Theme.ink ? 8 : Theme.meadow ? 10 : 6).padding(.bottom, Theme.ink ? 20 : Theme.meadow ? 10 : 6)
