@@ -74,6 +74,7 @@ type Server struct {
 	schedules *scheduleBook
 	reviews   *reviewBook
 	autopilot *autopilot
+	intake    *intakeBook
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -157,6 +158,7 @@ func New(sockPath, configDir string) *Server {
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
 	s.schedules = loadSchedule(configDir)
+	s.intake = loadIntake(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
 	if os.Getenv(reloadStateEnv) == "" {
@@ -236,6 +238,7 @@ func (s *Server) Run() error {
 	go s.watcher.run(s.quit)
 	go s.runSchedule(s.quit)
 	go s.runAutopilot(s.quit)
+	go s.runIntake(s.quit)
 	go s.runListening(s.quit)
 	go s.runShellTheme(s.quit)
 
@@ -1490,6 +1493,9 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.autopilot.set(pol)
 		s.autopilotMerges()
+		if len(pol.Intake) > 0 {
+			go s.intakeOnce() // a label just named is looked at now, not in five minutes
+		}
 		return s.autopilotState(), nil
 
 	case proto.MethodAutopilotCheck:

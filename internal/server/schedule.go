@@ -292,7 +292,7 @@ func (s *Server) fire(it proto.ScheduledItem, now time.Time) (proto.ScheduledIte
 	}
 	if it.Queue {
 		if running := s.runningAgents(it.Task.ProjectID); running >= it.WIP {
-			it.Waiting = fmt.Sprintf("%d agents are running in the project; it starts when fewer than %d are", running, it.WIP)
+			it.Waiting = fmt.Sprintf("%d agents are busy in the project; it starts when fewer than %d are", running, it.WIP)
 			return it, true, fired{}
 		}
 	}
@@ -360,8 +360,9 @@ func (s *Server) fire(it proto.ScheduledItem, now time.Time) (proto.ScheduledIte
 	return next, keep, fired{}
 }
 
-// runningAgents counts the agents running in a project — reviewers left
-// out, since they review work rather than add to it.
+// runningAgents counts the agents busy in a project, which is what a
+// queue waits on — reviewers left out, since they review work rather than
+// add to it.
 func (s *Server) runningAgents(projectID string) int {
 	s.mu.Lock()
 	entries := make([]*entry, 0, len(s.panes))
@@ -370,14 +371,37 @@ func (s *Server) runningAgents(projectID string) int {
 	}
 	s.mu.Unlock()
 	n := 0
+	now := time.Now()
 	for _, e := range entries {
 		info := e.info()
-		agent := info.Agent != nil || e.launched != ""
-		if info.State == proto.PaneRunning && agent && info.ProjectID == projectID && !proto.IsReviewer(info) {
+		if info.ProjectID == projectID && holdsQueue(info, e.launched != "", now) {
 			n++
 		}
 	}
 	return n
+}
+
+// queueGrace is how long a new agent counts as busy whatever it shows: a
+// task's agent can read as idle for a moment before it takes its prompt,
+// and a queue that saw it so would start the next task at once.
+const queueGrace = 2 * time.Minute
+
+// holdsQueue says whether an agent pane keeps a queued task waiting: one
+// working, one waiting on the person, or one just started. An agent idle
+// or done holds nothing — counting those once kept a queue waiting for
+// good in a project with a few agents left open (seen with 18 of them).
+func holdsQueue(info proto.PaneInfo, launched bool, now time.Time) bool {
+	if info.State != proto.PaneRunning || proto.IsReviewer(info) || (info.Agent == nil && !launched) {
+		return false
+	}
+	if info.Agent == nil || now.Sub(info.Created) < queueGrace {
+		return true
+	}
+	switch info.Agent.State {
+	case proto.AgentIdle, proto.AgentDone:
+		return false
+	}
+	return true
 }
 
 // repeat moves a repeating item on past now; a one-off is done.

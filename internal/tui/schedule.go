@@ -117,7 +117,7 @@ func (m *Model) scheduleTask(machine string, task proto.TaskCreateParams, later 
 	}
 	it := proto.ScheduledItem{At: time.Now(), Task: &task}
 	done := func() tea.Msg {
-		return flashMsg(fmt.Sprintf("queued: it starts when fewer than %d agents are running in the project", proto.DefaultWIP))
+		return flashMsg(fmt.Sprintf("queued: it starts when fewer than %d agents are busy in the project", proto.DefaultWIP))
 	}
 	ref, isAfter := strings.CutPrefix(later, "after ")
 	switch {

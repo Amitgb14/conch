@@ -39,6 +39,15 @@ func AutopilotPolicy(v config.VerifyCfg) proto.AutopilotPolicy {
 			pol.Checks[id] = cmd
 		}
 	}
+	for id, label := range v.Intake {
+		if label = strings.TrimSpace(label); id != "" && label != "" {
+			if pol.Intake == nil {
+				pol.Intake = map[string]string{}
+			}
+			pol.Intake[id] = label
+		}
+	}
+	pol.IntakeWIP = v.IntakeWIP
 	return pol
 }
 

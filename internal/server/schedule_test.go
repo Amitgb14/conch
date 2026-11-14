@@ -296,7 +296,7 @@ func TestQueuedTasksWaitForRoom(t *testing.T) {
 	// One tick starts as many as there is room for, in the order queued.
 	s.fireDue(now)
 	items := s.schedules.list().Items
-	if len(items) != 1 || items[0].Task.Prompt != "third job" || !strings.Contains(items[0].Waiting, "2 agents are running") {
+	if len(items) != 1 || items[0].Task.Prompt != "third job" || !strings.Contains(items[0].Waiting, "2 agents are busy") {
 		t.Fatalf("after the first tick: %+v", items)
 	}
 	if n := s.runningAgents(p.id); n != 2 {
