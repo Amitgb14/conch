@@ -510,12 +510,19 @@ final class FilesModel: ObservableObject {
     /// one. With edits not saved, it is only switched once they are saved
     /// (or dropped), and not at all when saving them fails.
     func choose(_ co: Checkout) {
-        guard let path = co.path, path != root else { return }
-        guard anyDirty else { return show(co) }
+        guard co.path != root else { return }
+        // Checked out nowhere: a worktree for it first, then its files.
+        let go = { [self] in
+            if co.path != nil { return show(co) }
+            store.checkOut(project: ConchKit.key(machine, project), branch: co.branch, then: .nothing) { [weak self] path in
+                self?.show(Checkout(branch: co.branch, path: path, main: false))
+            }
+        }
+        guard anyDirty else { return go() }
         let from = root
         Task {
             guard await confirmLeaving("to \(co.branch)"), root == from else { return }
-            show(co)
+            go()
         }
     }
 
@@ -623,14 +630,13 @@ struct FilesView: View {
     }
 
     /// The checkout shown, and the others to switch to: each branch with a
-    /// worktree; one without is listed, greyed, to say why it can't be.
+    /// worktree, then those checked out nowhere, which are given one.
     var branchMenu: some View {
         Menu {
             ForEach(model.choices) { co in
-                Button(co.path == model.root ? "✓ " + co.label : co.path == nil ? "\(co.branch) — no worktree" : "   " + co.label) {
+                Button(co.path == model.root ? "✓ " + co.label : co.path == nil ? "   \(co.branch) — check out in a worktree" : "   " + co.label) {
                     model.choose(co)
                 }
-                .disabled(co.path == nil)
             }
         } label: {
             HStack(spacing: 5) {
@@ -639,7 +645,7 @@ struct FilesView: View {
             }
         }
         .menuStyle(.borderlessButton).fixedSize()
-        .help("Show another branch's files: any branch checked out in a worktree")
+        .help("Show another branch's files; one checked out nowhere is given a worktree of its own")
     }
 
     func headerButtons(compact: Bool) -> some View {

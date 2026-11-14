@@ -158,6 +158,11 @@ public struct Checkout: Equatable, Sendable, Identifiable {
     public var main: Bool
     public var id: String { path ?? "branch:" + branch }
     public var label: String { main ? "\(branch) (main checkout)" : branch }
+    public init(branch: String, path: String?, main: Bool) {
+        self.branch = branch
+        self.path = path
+        self.main = main
+    }
 }
 
 /// The checkouts to choose from: the main checkout first, then each
