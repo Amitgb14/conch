@@ -183,3 +183,49 @@ private func tablesForm() throws -> (SettingsForm, SettingsSection, SettingsSect
     f.set(sandbox, key, at: .entry(table: "", name: "daytona"), .string("DAYTONA_API_KEY"))
     #expect(settingsChanged(f) == 0)
 }
+
+// A table of fixed fields inside a section — [trackers.linear] — is drawn
+// as a card and edited in place: before, the window skipped the kind, so
+// Trackers showed only its Projects list and no way to set a key.
+@Test func settingsNestedTable() throws {
+    let json = #"""
+    {"config":{"trackers":{"linear":{"team":"ENG"}}},
+     "raw":"","version":"v1","path":"/x/config.toml","exists":true,
+     "schema":[
+      {"id":"trackers","key":"trackers","title":"Trackers","description":"d","icon":"ticket","fields":[
+        {"key":"linear","label":"Linear","kind":"table","fields":[
+          {"key":"api_key","label":"API key","kind":"secret"},
+          {"key":"team","label":"Team","kind":"string"},
+          {"key":"api_url","label":"API address","kind":"string","default":"https://api.linear.app/graphql"}]},
+        {"key":"jira","label":"Jira Cloud","kind":"table","fields":[
+          {"key":"url","label":"Site","kind":"string"}]},
+        {"key":"projects","label":"Projects","kind":"tables","fields":[
+          {"key":"project","label":"Project","kind":"string"}]}]}]}
+    """#
+    let p = try JSONDecoder().decode(SettingsPayload.self, from: Data(json.utf8))
+    var f = SettingsForm(p)
+    let tr = p.schema[0], linear = tr.fields[0], jira = tr.fields[1]
+    let key = linear.fields![0], team = linear.fields![1], url = linear.fields![2], site = jira.fields![0]
+    // Every kind in it is drawn, so nothing is left to "edit in config.toml".
+    #expect(tr.simple && tr.tableNote == nil && linear.drawn)
+
+    #expect(f.value(tr, team, at: .nested(table: "linear")) == .string("ENG"))
+    #expect(f.value(tr, url, at: .nested(table: "linear")) == .string("https://api.linear.app/graphql")) // its default
+    #expect(f.value(tr, key, at: .nested(table: "linear")) == nil)
+    #expect(f.value(tr, site, at: .nested(table: "jira")) == nil) // a table not in the file yet
+    #expect(f.value(tr, team, at: .nested(table: "nope")) == nil)
+
+    f.set(tr, key, at: .nested(table: "linear"), .string("lin_api_x"))
+    #expect(f.config["trackers"]?.object?["linear"]?.object?["api_key"] == .string("lin_api_x") && f.dirty)
+    #expect(f.config["trackers"]?.object?["linear"]?.object?["team"] == .string("ENG")) // the rest kept
+
+    // A table not there yet is made by its first field.
+    f.set(tr, site, at: .nested(table: "jira"), .string("https://acme.atlassian.net"))
+    #expect(f.value(tr, site, at: .nested(table: "jira")) == .string("https://acme.atlassian.net"))
+    // And emptied, it leaves the file rather than stay as an empty table.
+    f.set(tr, site, at: .nested(table: "jira"), nil)
+    #expect(f.config["trackers"]?.object?["jira"] == nil)
+    // A table that is not one of its fields sets nothing.
+    f.set(tr, team, at: .nested(table: "nope"), .string("x"))
+    #expect(f.config["trackers"]?.object?["nope"] == nil)
+}

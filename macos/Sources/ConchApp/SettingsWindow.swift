@@ -438,6 +438,9 @@ struct SectionForm: View {
     /// Its maps, drawn as pairs: [keys.bind]. [verify]'s commands are
     /// drawn with the rest of Checks & autopilot.
     var maps: [SettingsField] { section.fields.filter { $0.kind == "map" } }
+    /// Its tables of fixed fields, each a card of its own: [trackers]'
+    /// Linear and Jira.
+    var nestedTables: [SettingsField] { section.fields.filter { $0.kind == "table" } }
 
     /// The section another's page draws: Checks & autopilot on Git's.
     func guest(_ id: String) -> SettingsSection? { model.form?.payload.schema.first { $0.id == id } }
@@ -445,7 +448,7 @@ struct SectionForm: View {
     /// Keys a map offers: the projects on this computer for a check, the
     /// actions conch's keys do for a rebinding.
     func offer(_ s: SettingsSection, _ f: SettingsField) -> [(key: String, label: String)] {
-        if s.key == "verify" && f.key == "commands" {
+        if s.key == "verify" && (f.key == "commands" || f.key == "intake") {
             return (model.store.snapshots["local"]?.projects ?? []).map { (key: $0.id, label: $0.name) }.sorted { $0.label < $1.label }
         }
         return (f.suggest ?? []).map { (key: $0, label: $0) }
@@ -607,6 +610,7 @@ struct SectionForm: View {
             default:
                 if !fields.isEmpty { card(nil, fields) }
             }
+            ForEach(nestedTables, id: \.key) { t in nestedCard(t) }
             if section.key != "verify" {
                 ForEach(maps, id: \.key) { m in
                     MapList(model: model, section: section, field: m, offer: offer(section, m))
@@ -621,6 +625,21 @@ struct SectionForm: View {
             }
         }
         .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    /// A table of fixed fields ([trackers.linear]) as a card: what it is,
+    /// then each field, read and written inside that table.
+    func nestedCard(_ t: SettingsField) -> some View {
+        let fs = (t.fields ?? []).filter(\.simple)
+        return SettingsCard(title: t.label) {
+            if let help = t.help, !help.isEmpty {
+                Text(help).font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 2)
+            }
+            ForEach(Array(fs.enumerated()), id: \.element.key) { i, f in
+                FieldRow(model: model, section: section, field: f, first: i == 0 && (t.help ?? "").isEmpty, place: .nested(table: t.key))
+            }
+        }
     }
 
     func card(_ title: String?, _ fs: [SettingsField], in s: SettingsSection? = nil) -> some View {
