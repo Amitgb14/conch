@@ -91,6 +91,40 @@ func TestLintIsWhatCIChecksFirst(t *testing.T) {
 	}
 }
 
+// TestCIBuildsTheMacApp: go test never sees macos/, so without a job of
+// its own a pull request that breaks Conch.app's compile merges green —
+// two did, each fine alone, by declaring the same method twice.
+func TestCIBuildsTheMacApp(t *testing.T) {
+	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The job's lines: from "  swift:" to the next job, a key indented
+	// two spaces.
+	var job []string
+	in := false
+	for _, line := range strings.Split(string(ci), "\n") {
+		top := strings.HasPrefix(line, "  ") && len(line) > 2 && line[2] != ' ' && line[2] != '#'
+		switch {
+		case line == "  swift:":
+			in = true
+		case in && top:
+			in = false
+		case in:
+			job = append(job, line)
+		}
+	}
+	if job == nil {
+		t.Fatal("ci.yml has no swift job")
+	}
+	body := strings.Join(job, "\n")
+	for _, want := range []string{"runs-on: macos-", "working-directory: macos", "run: swift test"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the swift job lacks %q:\n%s", want, body)
+		}
+	}
+}
+
 // makeRecipes reads the Makefile as the lines of each target, which is all
 // that is needed here: a recipe line begins with a tab.
 func makeRecipes(t *testing.T) map[string]string {
