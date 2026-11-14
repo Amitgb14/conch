@@ -123,7 +123,7 @@ func (s *Server) runIntake(quit <-chan struct{}) {
 		case <-quit:
 			return
 		case <-t.C:
-			s.intakeOnce()
+			s.backlogOnce()
 		}
 	}
 }
@@ -268,4 +268,11 @@ func (s *Server) issueInHand(id string, info proto.ProjectInfo, issue int) bool 
 		}
 	}
 	return false
+}
+
+// backlogOnce is one look at the backlog: triage first, so an issue it
+// labels ready is taken by intake in the same look.
+func (s *Server) backlogOnce() {
+	s.triageOnce()
+	s.intakeOnce()
 }

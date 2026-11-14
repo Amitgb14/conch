@@ -448,7 +448,7 @@ struct SectionForm: View {
     /// Keys a map offers: the projects on this computer for a check, the
     /// actions conch's keys do for a rebinding.
     func offer(_ s: SettingsSection, _ f: SettingsField) -> [(key: String, label: String)] {
-        if s.key == "verify" && (f.key == "commands" || f.key == "intake") {
+        if s.key == "verify" && ["commands", "intake", "triage"].contains(f.key) {
             return (model.store.snapshots["local"]?.projects ?? []).map { (key: $0.id, label: $0.name) }.sorted { $0.label < $1.label }
         }
         return (f.suggest ?? []).map { (key: $0, label: $0) }

@@ -75,6 +75,7 @@ type Server struct {
 	reviews   *reviewBook
 	autopilot *autopilot
 	intake    *intakeBook
+	triage    *triageBook
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -159,6 +160,7 @@ func New(sockPath, configDir string) *Server {
 	s.stars = loadStars(configDir)
 	s.schedules = loadSchedule(configDir)
 	s.intake = loadIntake(configDir)
+	s.triage = loadTriage(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
 	if os.Getenv(reloadStateEnv) == "" {
@@ -1493,8 +1495,8 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		s.autopilot.set(pol)
 		s.autopilotMerges()
-		if len(pol.Intake) > 0 {
-			go s.intakeOnce() // a label just named is looked at now, not in five minutes
+		if len(pol.Intake) > 0 || len(pol.Triage) > 0 {
+			go s.backlogOnce() // a label just named is looked at now, not in five minutes
 		}
 		return s.autopilotState(), nil
 

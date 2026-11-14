@@ -79,6 +79,10 @@ conch schedule            # list; conch schedule rm ID removes one
 # as a task, once, with a comment on the issue (configuration: [verify] intake).
 [verify.intake]
 r1a2b3c = "ready"
+# And read first: an agent triages each issue labelled "new", comments what
+# done means, and labels it ready, needs-info or too-big ([verify] triage).
+[verify.triage]
+r1a2b3c = "new"
 ```
 
 In the task dialog, the **When** field takes `queue`, `after api/model` or a time. For an agent stopped at its plan limit, `C` in the [review queue](/docs/interface) resumes it after the reset.

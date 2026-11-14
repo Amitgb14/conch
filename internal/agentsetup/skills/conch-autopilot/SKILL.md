@@ -148,6 +148,15 @@ issue. Which label means "take this" is the person's choice — ask, don't
 pick one — and, as with the rest of `[verify]`, set it only once they agree:
 every issue it takes spends their usage.
 
+Before intake, issues can be triaged: `[verify.triage]` (`r1a2b3c = "new"`)
+has an agent read each issue with that label and the code, changing
+nothing, comment what done means, the size and the files, and label it
+ready (intake's label), needs-info or too-big (`triage_comment_only = true`
+leaves the labels to them). The line is then: a ticket filed, triaged,
+taken, built, reviewed, merged — with the person needed for needs-info and
+too-big alone. Offer it only with intake, and say each triage is an agent
+run.
+
 The autopilot does not touch a ticket by itself. If the person wants
 theirs to follow the work — a comment when the pull request opens, moved
 to In Review, then Done once it merges — that is something they ask for,

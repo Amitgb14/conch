@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Issue is a GitHub issue, as much of it as a task needs.
@@ -94,5 +95,28 @@ func IssuesLabelled(ctx context.Context, dir, label string, limit int) ([]Issue,
 // CommentIssue adds a comment to issue number of the repository at dir.
 func CommentIssue(ctx context.Context, dir string, number int, body string) error {
 	_, err := run(ctx, dir, "issue", "comment", strconv.Itoa(number), "--body", body)
+	return err
+}
+
+// EnsureLabel makes label in the repository at dir unless it is there:
+// gh will not add a label a repository has not got.
+func EnsureLabel(ctx context.Context, dir, label, color, about string) error {
+	_, err := run(ctx, dir, "label", "create", label, "--color", color, "--description", about)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "already exists") {
+		return nil
+	}
+	return err
+}
+
+// EditLabels adds and removes labels on issue number.
+func EditLabels(ctx context.Context, dir string, number int, add, remove []string) error {
+	args := []string{"issue", "edit", strconv.Itoa(number)}
+	for _, l := range add {
+		args = append(args, "--add-label", l)
+	}
+	for _, l := range remove {
+		args = append(args, "--remove-label", l)
+	}
+	_, err := run(ctx, dir, args...)
 	return err
 }

@@ -38,6 +38,13 @@ func runAutopilot(args []string) error {
 		return err
 	}
 	fmt.Printf("autopilot: auto_fix %d, auto_merge %v, auto_pr %v, %d check(s)\n", pol.AutoFix, pol.AutoMerge, pol.AutoPR, len(pol.Checks))
+	if len(pol.Triage) > 0 {
+		if len(c.MissingCapabilities([]string{proto.CapAutopilotTriage})) > 0 {
+			fmt.Println("triage: this server is older than autopilot.triage.v1 and triages nothing; reload it")
+		} else {
+			fmt.Printf("triage: issues labelled for %d project(s) are read by an agent and labelled\n", len(pol.Triage))
+		}
+	}
 	if len(pol.Intake) > 0 {
 		if len(c.MissingCapabilities([]string{proto.CapAutopilotIntake})) > 0 {
 			fmt.Println("intake: this server is older than autopilot.intake.v1 and takes no issues; reload it")
