@@ -48,6 +48,15 @@ func AutopilotPolicy(v config.VerifyCfg) proto.AutopilotPolicy {
 		}
 	}
 	pol.IntakeWIP = v.IntakeWIP
+	for id, label := range v.Triage {
+		if label = strings.TrimSpace(label); id != "" && label != "" {
+			if pol.Triage == nil {
+				pol.Triage = map[string]string{}
+			}
+			pol.Triage[id] = label
+		}
+	}
+	pol.TriageAgent, pol.TriageCommentOnly = strings.TrimSpace(v.TriageAgent), v.TriageCommentOnly
 	return pol
 }
 

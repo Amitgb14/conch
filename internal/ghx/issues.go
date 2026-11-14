@@ -126,6 +126,29 @@ func CommentIssue(ctx context.Context, dir string, number int, body string) erro
 	return err
 }
 
+// EnsureLabel makes label in the repository at dir unless it is there:
+// gh will not add a label a repository has not got.
+func EnsureLabel(ctx context.Context, dir, label, color, about string) error {
+	_, err := run(ctx, dir, "label", "create", label, "--color", color, "--description", about)
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "already exists") {
+		return nil
+	}
+	return err
+}
+
+// EditLabels adds and removes labels on issue number.
+func EditLabels(ctx context.Context, dir string, number int, add, remove []string) error {
+	args := []string{"issue", "edit", strconv.Itoa(number)}
+	for _, l := range add {
+		args = append(args, "--add-label", l)
+	}
+	for _, l := range remove {
+		args = append(args, "--remove-label", l)
+	}
+	_, err := run(ctx, dir, args...)
+	return err
+}
+
 // IssueRow is an issue as a list of them shows it: no body, and who it is
 // assigned to.
 type IssueRow struct {

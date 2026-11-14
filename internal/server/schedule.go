@@ -391,7 +391,7 @@ const queueGrace = 2 * time.Minute
 // or done holds nothing — counting those once kept a queue waiting for
 // good in a project with a few agents left open (seen with 18 of them).
 func holdsQueue(info proto.PaneInfo, launched bool, now time.Time) bool {
-	if info.State != proto.PaneRunning || proto.IsReviewer(info) || (info.Agent == nil && !launched) {
+	if info.State != proto.PaneRunning || proto.IsReviewer(info) || proto.IsTriager(info) || (info.Agent == nil && !launched) {
 		return false
 	}
 	if info.Agent == nil || now.Sub(info.Created) < queueGrace {
