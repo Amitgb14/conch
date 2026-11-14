@@ -34,6 +34,32 @@ final class SettingsModel: ObservableObject {
     /// How many times this window has saved: what was shown from the
     /// file, such as whether a provider has its key, is read again.
     @Published var saves = 0
+    /// How the trackers stand (ticket.check), for Trackers' cards; nil
+    /// until asked, or from a server that predates the check.
+    @Published var trackers: TicketCheckResult?
+    @Published var trackersChecking = false
+    @Published var trackersFailure = ""
+
+    /// Asks this computer's server how each tracker stands: on opening
+    /// Trackers, after a save, and on Test again.
+    func checkTrackers() {
+        guard !trackersChecking else { return }
+        guard let c = store.connection("local") else { return }
+        guard c.hello?.capabilities?.contains("ticket.check.v1") == true else {
+            trackersFailure = "This conch server predates checking trackers: reload it to see whether each key works."
+            return
+        }
+        trackersChecking = true
+        Task { @MainActor in
+            defer { trackersChecking = false }
+            do {
+                trackers = try await c.call("ticket.check", [String: String](), as: TicketCheckResult.self)
+                trackersFailure = ""
+            } catch {
+                trackersFailure = "\(error)"
+            }
+        }
+    }
     @Published var saving = false
 
     let store: Store
@@ -527,6 +553,16 @@ struct SectionForm: View {
                 card(nil, rest(["theme", "light_theme"]))
             case "app":
                 card(nil, rest(SettingsIconKeys))
+            case "trackers":
+                if !model.trackersFailure.isEmpty {
+                    Text(model.trackersFailure).font(.ui(size: 12)).foregroundStyle(Theme.warn)
+                }
+                SettingsCard(title: "GitHub") {
+                    Text("Issues for every project with a GitHub remote, read through gh.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 16).padding(.top, 10)
+                    TrackerStatus(model: model, tracker: "github")
+                }
+                if !fields.isEmpty { card(nil, fields) }
             case "git":
                 // Git's own, then Checks & autopilot: what a finished
                 // branch passes, its pull request and its merge.
@@ -623,15 +659,26 @@ struct SectionForm: View {
                     KeyedList(model: model, section: section, field: t)
                 }
             }
+            if section.key == "trackers" { TrackerProjectsCard(model: model) }
         }
         .frame(maxWidth: 760, alignment: .leading)
+        .task(id: section.key) { if section.key == "trackers" { model.checkTrackers() } }
+        .onChange(of: model.saves) { _ in if section.key == "trackers" { model.checkTrackers() } }
     }
 
     /// A table of fixed fields ([trackers.linear]) as a card: what it is,
     /// then each field, read and written inside that table.
     func nestedCard(_ t: SettingsField) -> some View {
-        let fs = (t.fields ?? []).filter(\.simple)
+        var fs = (t.fields ?? []).filter(\.simple)
+        let trackers = section.key == "trackers"
+        if trackers, let areas = model.trackers?.trackers.first(where: { $0.tracker == t.key })?.areas, !areas.isEmpty {
+            // Team or project: the ones the key can see, to pick from.
+            for i in fs.indices where ["team", "project"].contains(fs[i].key) && fs[i].kind == "string" {
+                fs[i].suggest = areas.map(\.key)
+            }
+        }
         return SettingsCard(title: t.label) {
+            if trackers { TrackerStatus(model: model, tracker: t.key) }
             if let help = t.help, !help.isEmpty {
                 Text(help).font(.ui(size: 12)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 2)

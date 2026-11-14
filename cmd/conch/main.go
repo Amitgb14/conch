@@ -188,7 +188,7 @@ Usage:
                                 -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
-  conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL
+  conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL | check
                                 tickets in Linear or Jira ([trackers] in config.toml): list the
                                 project's open ones, read one, comment, move it, link a pull request
   conch branch commit [-file PATH]... -m MESSAGE
