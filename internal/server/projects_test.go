@@ -638,6 +638,96 @@ func TestPaneBranchFollowsCheckout(t *testing.T) {
 	branchOf("main")
 }
 
+// git detaches HEAD while it rebases, so the worktree list names no
+// branch until the rebase ends — and an agent working on main mid-rebase
+// showed under no branch at all (#230). The rebase names its branch; a
+// HEAD detached on purpose still has none.
+func TestPaneBranchFollowsARebase(t *testing.T) {
+	c, dir := startServer(t)
+	repo := filepath.Join(dir, "api")
+	os.MkdirAll(repo, 0o755)
+	git(t, repo, "init", "-q", "-b", "main")
+	git(t, repo, "config", "user.name", "t")
+	git(t, repo, "config", "user.email", "t@example.com")
+	commitFile := func(content, msg string) {
+		os.WriteFile(filepath.Join(repo, "a.txt"), []byte(content), 0o644)
+		git(t, repo, "commit", "-q", "-am", msg)
+	}
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one\n"), 0o644)
+	git(t, repo, "add", ".")
+	git(t, repo, "commit", "-q", "-m", "init")
+	git(t, repo, "checkout", "-q", "-b", "feature")
+	commitFile("from feature\n", "feature edit")
+	git(t, repo, "checkout", "-q", "main")
+	commitFile("from main\n", "main edit")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var info proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{
+		Command: []string{"/bin/sh", "-c", "sleep 60"}, Cwd: repo,
+	}, &info); err != nil {
+		t.Fatal(err)
+	}
+	waitProject(t, c, func(p proto.ProjectInfo) bool { return p.Path == repo })
+
+	paneBranch := func() string {
+		t.Helper()
+		var panes proto.PaneList
+		if err := c.Call(ctx, proto.MethodPaneList, nil, &panes); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range panes.Panes {
+			if p.ID == info.ID {
+				return p.Branch
+			}
+		}
+		t.Fatal("pane gone")
+		return ""
+	}
+
+	cmd := exec.Command("git", "-C", repo, "rebase", "feature")
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("the rebase didn't stop on a conflict:\n%s", out)
+	}
+	p := waitProject(t, c, func(p proto.ProjectInfo) bool {
+		return len(p.Worktrees) == 1 && p.Worktrees[0].Operation == "rebase"
+	})
+	wt := p.Worktrees[0]
+	if wt.Branch != "main" || !wt.Detached || wt.Status == nil || wt.Status.Conflicts != 1 {
+		t.Fatalf("worktree mid-rebase: %+v (status %+v)", wt, wt.Status)
+	}
+	for _, b := range p.Branches {
+		if b.Name == "main" && b.Worktree != repo {
+			t.Fatalf("main's checkout mid-rebase: %q", b.Worktree)
+		}
+	}
+	if got := paneBranch(); got != "main" {
+		t.Fatalf("pane mid-rebase is on %q, want main", got)
+	}
+
+	git(t, repo, "rebase", "--abort")
+	p = waitProject(t, c, func(p proto.ProjectInfo) bool {
+		return len(p.Worktrees) == 1 && p.Worktrees[0].Operation == "" && !p.Worktrees[0].Detached
+	})
+	if wt := p.Worktrees[0]; wt.Branch != "main" {
+		t.Fatalf("after the rebase: %+v", wt)
+	}
+
+	// Detached on purpose: no branch, and no operation.
+	git(t, repo, "checkout", "-q", "--detach")
+	p = waitProject(t, c, func(p proto.ProjectInfo) bool {
+		return len(p.Worktrees) == 1 && p.Worktrees[0].Detached
+	})
+	if wt := p.Worktrees[0]; wt.Branch != "" || wt.Operation != "" {
+		t.Fatalf("plain detached HEAD: %+v", wt)
+	}
+	if got := paneBranch(); got != "" {
+		t.Fatalf("pane on a detached HEAD is on %q", got)
+	}
+}
+
 // pane.redraw clears the screen conch keeps and asks the program to draw
 // it again, without sending it a keystroke.
 func TestPaneRedraw(t *testing.T) {

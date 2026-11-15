@@ -176,3 +176,51 @@ func TestWorktreeCleanupKeepsTheBaseBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A worktree mid-rebase has HEAD detached by git, and once looked like any
+// detached worktree: suggested for cleanup, its branch offered to prune.
+// It is neither, and its branch is the one being rebased (#230).
+func TestCleanupLeavesARebaseAlone(t *testing.T) {
+	c, proj, _, feat, _ := harvestFixture(t)
+	id := proj.ID
+	os.WriteFile(filepath.Join(feat, "f.txt"), []byte("f\n"), 0o644)
+	git(t, feat, "add", "f.txt")
+	git(t, feat, "commit", "-q", "-m", "feat work")
+	git(t, feat, "push", "-q", "-u", "origin", "feat") // so deleting it would lose nothing
+	// Stopped by a failing exec, with nothing uncommitted.
+	cmd := exec.Command("git", "-C", feat, "rebase", "--force-rebase", "-x", "false", "main")
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("the rebase didn't stop:\n%s", out)
+	}
+
+	var stale proto.WorktreeStale
+	if err := call(t, c, proto.MethodWorktreeStale, proto.ProjectRef{ID: id}, &stale); err != nil {
+		t.Fatal(err)
+	}
+	if len(stale.Worktrees) != 1 {
+		t.Fatalf("listed %+v", stale.Worktrees)
+	}
+	if w := stale.Worktrees[0]; w.Suggested || w.Operation != "rebase" || w.Branch != "feat" || len(w.Reasons) != 0 {
+		t.Fatalf("mid-rebase: %+v", w)
+	}
+
+	var res proto.WorktreeCleanupResult
+	if err := call(t, c, proto.MethodWorktreeCleanup, proto.WorktreeCleanupParams{ProjectID: id, Remove: []proto.CleanupWorktree{{Path: feat}}}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Removed) != 0 || len(res.Failed) != 1 || !strings.Contains(res.Failed[0].Error, "a rebase is in progress") {
+		t.Fatalf("cleanup mid-rebase: %+v", res)
+	}
+	if _, err := os.Stat(feat); err != nil {
+		t.Fatalf("the worktree went: %v", err)
+	}
+
+	var pruned proto.BranchPruneResult
+	if err := call(t, c, proto.MethodBranchPrune, proto.BranchPruneParams{ProjectID: id, Branches: []proto.PruneBranch{{Name: "feat"}}}, &pruned); err != nil {
+		t.Fatal(err)
+	}
+	if len(pruned.Deleted) != 0 || len(pruned.Failed) != 1 || !strings.Contains(pruned.Failed[0].Error, "checked out in") {
+		t.Fatalf("pruning the branch being rebased: %+v", pruned)
+	}
+}

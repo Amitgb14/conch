@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapWorktreeOperation,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -257,6 +257,11 @@ const CapAgentAttach = "agent.attach.v1"
 // project's triage label read by an agent and labelled ready, needs-info
 // or too-big, with a comment saying why.
 const CapAutopilotTriage = "autopilot.triage.v1"
+
+// CapWorktreeOperation is WorktreeInfo.Operation, and a worktree mid-rebase
+// carrying the branch being rebased as its Branch: git detaches HEAD until
+// the rebase ends, and the agents in it showed under no branch.
+const CapWorktreeOperation = "worktree.operation.v1"
 
 // CapBranchPrune is branch.stale and branch.prune: local branches nobody
 // has committed to for a while, and deleting them.
@@ -973,6 +978,12 @@ type WorktreeInfo struct {
 	// servers, and Conflicts where git is older than 2.38.
 	Overlaps  []Overlap `json:"overlaps,omitempty"`
 	Conflicts []string  `json:"conflicts,omitempty"`
+	// Operation is what git left unfinished here: "rebase", "merge",
+	// "cherry-pick", "revert" or "am". Mid-rebase, Branch is the branch
+	// being rebased while Detached stays true, since HEAD is: a client
+	// shows the checkout under that branch. Absent from older servers
+	// (CapWorktreeOperation).
+	Operation string `json:"operation,omitempty"`
 }
 
 // Overlap is another branch's checkout touching the same files.
@@ -1901,6 +1912,10 @@ type StaleWorktree struct {
 	// Suggested means it can go without losing anything.
 	Reasons   []string `json:"reasons,omitempty"`
 	Suggested bool     `json:"suggested,omitempty"`
+	// Operation is what git left unfinished in it ("rebase", "merge"…), as
+	// in WorktreeInfo: such a worktree is never suggested, and mid-rebase
+	// Branch is the branch being rebased (CapWorktreeOperation).
+	Operation string `json:"operation,omitempty"`
 }
 
 // WorktreeCleanupParams removes linked worktrees, deleting their branches

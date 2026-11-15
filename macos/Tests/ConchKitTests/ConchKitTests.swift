@@ -2117,6 +2117,29 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(texts(branchBadgeParts(b("f", pr: PRInfo(number: 6, state: "OPEN", checks: "pending")), worktree: nil, isBase: false, agents: [.working])) == ["⠋", "#6●"])
     #expect(texts(branchBadgeParts(b("main", baseAhead: 5, ahead: 1, behind: 2), worktree: nil, isBase: true, agents: [])) == ["⇡1⇣2"])
     #expect(branchBadgeParts(b("f"), worktree: w(GitStatus(files: 0)), isBase: false, agents: [.idle]).isEmpty)
+    // Mid-rebase (#230): said before its conflicts.
+    var rebasing = w(GitStatus(files: 1, conflicts: 1))
+    rebasing.operation = "rebase"
+    let rebasingParts = branchBadgeParts(b("main"), worktree: rebasing, isBase: true, agents: [.working])
+    #expect(texts(rebasingParts) == ["⠋", "rebasing", "⚠1"])
+    #expect(rebasingParts[1].tone == .warn)
+    rebasing.operation = ""
+    #expect(texts(branchBadgeParts(b("main"), worktree: rebasing, isBase: true, agents: [])) == ["⚠1"])
+}
+
+@Test func operationWords() {
+    #expect(operationWord("rebase") == "rebasing")
+    #expect(operationWord("cherry-pick") == "cherry-picking")
+    #expect(operationWord("am") == "applying patches")
+    #expect(operationWord("bisect") == "bisect")
+}
+
+// An older server sends no operation; a newer one's decodes.
+@Test func worktreeOperationDecodes() throws {
+    let old = try JSONDecoder().decode(WorktreeInfo.self, from: Data(#"{"path":"/r","branch":"main"}"#.utf8))
+    #expect(old.operation == nil)
+    let mid = try JSONDecoder().decode(WorktreeInfo.self, from: Data(#"{"path":"/r","branch":"main","detached":true,"operation":"rebase"}"#.utf8))
+    #expect(mid.operation == "rebase" && mid.branch == "main")
 }
 
 // A pane row says how it ended — exited, or exit N and failed in red — or
