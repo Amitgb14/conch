@@ -171,7 +171,7 @@ extension SettingsNav {
     /// for a schema without Git; with one, it is on Git's page.
     public static let groups: [(String, [String])] = [
         ("General", ["ui", "app", "keys", "notify", "update"]),
-        ("Agents", ["agents", skills, "permissions", "brain"]),
+        ("Agents", ["agents", skills, "teams", "permissions", "brain"]),
         ("Workspace", ["git", "verify", "shell", "preview", "actions"]),
         ("Machines", ["remote", "sandbox", "web"]),
     ]

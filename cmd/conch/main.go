@@ -70,9 +70,11 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
-  conch status [-wide] [-json] show server and pane status, with the host a terminal is on with ssh;
+  conch status [-wide] [-json] [-team NAME]
+                                show server and pane status, with the host a terminal is on with ssh;
                                 fitted to the terminal (-wide: every column, as piped); BACKGROUND
-                                is what an idle agent left running (-json: agent.background, agent.jobs)
+                                is what an idle agent left running (-json: agent.background, agent.jobs);
+                                -team: only that team's agents
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names); from an agent's
@@ -119,6 +121,9 @@ Usage:
   conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
   conch agent answer [-question QID] ID CHOICE
                                 pick a choice of a waiting agent's menu without opening its pane
+  conch agent team ID [TEAM | - | -clear]
+                                which team an agent is in, or put it in one: - keeps it out of
+                                every team, -clear leaves it to [[teams]]' rules in config.toml
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -172,7 +177,7 @@ Usage:
                 | merge [-order P,P] [-remove] [-stop] NAME BRANCH
                                 projects kept together because they change together (an API, its
                                 web app, their specs), each still a project of its own
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-sandbox PROVIDER] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-team NAME] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);

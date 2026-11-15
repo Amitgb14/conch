@@ -577,7 +577,7 @@ final class Store: ObservableObject {
     var tree: [TreeNode] {
         shownMachines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
-                                                            savedHosts: savedHosts, folders: folders)
+                                                            savedHosts: savedHosts, folders: folders, teams: teams)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -971,6 +971,8 @@ final class Store: ObservableObject {
         }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
+        let ts = parseTeams(toml: toml ?? "")
+        if ts != teams { teams = ts }
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
         // Scenes of your own, read again each time as themes are: one
@@ -2677,7 +2679,8 @@ final class Store: ObservableObject {
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
-                           offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [])
+                           offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [],
+                           teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2701,6 +2704,8 @@ final class Store: ObservableObject {
 
     /// config.toml's [[actions]], read with the theme.
     @Published private(set) var actions: [CustomAction] = []
+    /// config.toml's [[teams]] (Teams.swift), read with it.
+    @Published private(set) var teams: [AgentTeam] = []
     /// Panes an action with keep runs in: left open when they exit, so
     /// what the command printed can be read.
     private var keptPanes: Set<String> = []
@@ -2759,6 +2764,9 @@ final class Store: ObservableObject {
         switch a {
         case .open, .divider: activate(node)
         case .rename(let k): renamePane(k)
+        case .setTeam(let k, let t): setTeam(k, t)
+        case .newTeam(let k): newTeam(k)
+        case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)
         case .workbench(let k): openWorkbench(k)
         case .close(let k): closePane(k)
@@ -3377,7 +3385,7 @@ final class Store: ObservableObject {
         if (d.issue ?? 0) > 0 || !d.ticket.isEmpty || !taskWhenArgs(d.when).isEmpty {
             guard let b = binary, let dir = snapshots[m]?.project(pr)?.path else { return }
             taskDraft = nil
-            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when))
+            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when, team: d.team))
             job(d.when.isEmpty ? "Starting the task" : "Scheduling the task") {
                 let out = String(decoding: try await runConch(b, args), as: UTF8.self)
                 let said = out.split(separator: "\n").last.map(String.init) ?? ""
@@ -3402,6 +3410,7 @@ final class Store: ObservableObject {
                 joinWorkspace(machine: m, pane: p)
                 layout.open(key(m, p.id))
                 focusTerminal()
+                if !d.team.isEmpty { setTeam(key(m, p.id), d.team) }
             } catch {
                 self.error = "Could not start the task: \(error)"
             }
@@ -3464,7 +3473,7 @@ final class Store: ObservableObject {
     }
 
     /// A line of text from a small dialog, or nil when cancelled.
-    private func ask(_ title: String, info: String, value: String, button: String) -> String? {
+    func ask(_ title: String, info: String, value: String, button: String) -> String? {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = info
@@ -3636,6 +3645,8 @@ struct TaskDraft: Identifiable {
     var ticket = ""
     /// When it starts: "" now, else as `conch task -at` and the rest take it.
     var when = ""
+    /// The team it joins: a name, "-" for none, "" for its rules'.
+    var team = ""
 }
 
 private struct PaneRefParams: Encodable { var id: String }

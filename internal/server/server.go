@@ -770,6 +770,21 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		s.rename(e, rp.Name)
 		return e.info(), nil
 
+	case proto.MethodPaneTeam:
+		tp, e, perr := withPane(s, msg, func(p proto.PaneTeamParams) string { return p.ID })
+		if perr != nil {
+			return nil, perr
+		}
+		team := strings.TrimSpace(gitx.Printable(tp.Team))
+		if len(team) > 64 {
+			return nil, proto.Errorf(proto.ErrBadRequest, "a team's name is 64 characters at most")
+		}
+		e.mu.Lock()
+		e.team = team
+		e.mu.Unlock()
+		s.reshown(e)
+		return e.info(), nil
+
 	case proto.MethodPaneScroll:
 		sp, e, perr := withPane(s, msg, func(p proto.PaneScrollParams) string { return p.ID })
 		if perr != nil {

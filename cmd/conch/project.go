@@ -221,13 +221,19 @@ func runTask(args []string) error {
 	wip := fs.Int("wip", 0, "with -queue, how many agents the project runs before it waits (default 3)")
 	account := fs.String("account", "", "the agents' account (conch account list); default: the folder's pin, else each agent's own")
 	after := fs.String("after", "", "start it once this has finished, on top of its branch: a branch, a pane, or a task on the schedule (its ID or -branch)")
+	team := fs.String("team", "", "put the agents in this team, as the app's Team menu does ([[teams]] in config.toml)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	*team = strings.TrimSpace(*team)
+	// A team is put on a pane, and these start none now.
+	if *team != "" && (*at != "" || *every != "" || *queue || *after != "" || *inSandbox != "") {
+		return errors.New("-team puts agents that start now in a team; -at, -every, -queue, -after and -sandbox start them later or elsewhere")
 	}
 	prompt := strings.Join(fs.Args(), " ")
 	*ticket = strings.TrimSpace(*ticket)
 	if prompt == "" && *issue <= 0 && *ticket == "" {
-		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-sandbox PROVIDER] PROMPT")
+		return errors.New("usage: conch task [-cwd DIR] [-branch B] [-base B] [-agent NAME[,NAME...]] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-team NAME] [-sandbox PROVIDER] PROMPT")
 	}
 	if *issue < 0 {
 		return errors.New("-issue takes an issue's number")
@@ -308,6 +314,9 @@ func runTask(args []string) error {
 	case onRemoteMachine() && dir == "":
 		// Nothing here says where on that machine: the agent starts in its
 		// home, as a machine-level pane, like conch -m M new -agent.
+		if *team != "" {
+			return errors.New("-team works in a project: give -cwd")
+		}
 		return runPlainTask(nil, "", agents, *n, *branch, *base, *name, *account, prompt)
 	case onRemoteMachine():
 		if err := remoteDir(dir); err != nil {
@@ -347,6 +356,9 @@ func runTask(args []string) error {
 			return errors.New("-at, -every, -queue and -after start a task on a branch of its own, so they need a git repository")
 		}
 		// No repository to branch: the agent works in the folder itself.
+		if *team != "" {
+			return errors.New("-team works in a git project: put the agent in a team after with conch agent team")
+		}
 		return runPlainTask(c, dir, agents, *n, *branch, *base, *name, *account, prompt)
 	}
 	branchFrom := prompt
@@ -403,6 +415,9 @@ func runTask(args []string) error {
 			}
 		}
 	}
+	if *team != "" && len(c.MissingCapabilities([]string{proto.CapPaneTeam})) > 0 {
+		return fmt.Errorf("the conch server (pid %d) is from an older build without teams; reload it with `conch server reload`", c.Server.PID)
+	}
 	var failed int
 	for _, at := range attempts {
 		var info proto.PaneInfo
@@ -424,6 +439,11 @@ func runTask(args []string) error {
 		if renameAfter {
 			if err := call(c, proto.MethodPaneRename, proto.PaneRenameParams{ID: info.ID, Name: *name}, &info); err != nil {
 				return fmt.Errorf("%s started, but naming it failed: %v", info.ID, err)
+			}
+		}
+		if *team != "" {
+			if err := call(c, proto.MethodPaneTeam, proto.PaneTeamParams{ID: info.ID, Team: *team}, &info); err != nil {
+				return fmt.Errorf("%s started, but putting it in %s failed: %v", info.ID, *team, err)
 			}
 		}
 		fmt.Printf("%s  %s  %s\n", info.ID, info.Cwd, info.Branch)

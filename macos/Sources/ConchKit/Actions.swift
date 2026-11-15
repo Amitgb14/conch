@@ -237,8 +237,11 @@ public func taskWhenArgs(_ when: String) -> [String] {
 
 /// `conch task`'s arguments for a sheet that needs the command rather than
 /// task.create: an issue, a ticket, or a time other than now.
-public func taskArgs(dir: String, prompt: String, agent: String, branch: String, issue: Int?, ticket: String = "", when: String) -> [String] {
+public func taskArgs(dir: String, prompt: String, agent: String, branch: String, issue: Int?, ticket: String = "", when: String, team: String = "") -> [String] {
     var a = ["task", "-cwd", dir, "-agent", agent]
+    // A team is put on an agent that starts now: a later one has no pane.
+    let tm = team.trimmingCharacters(in: .whitespaces)
+    if !tm.isEmpty && taskWhenArgs(when).isEmpty { a += ["-team", tm] }
     let b = branch.trimmingCharacters(in: .whitespaces)
     if !b.isEmpty { a += ["-branch", b] }
     let t = ticket.trimmingCharacters(in: .whitespaces)

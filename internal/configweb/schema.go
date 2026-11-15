@@ -346,6 +346,15 @@ func Schema(c Choices) []Section {
 					{Key: "keep", Label: "Keep the terminal open after", Kind: KindBool, Default: true},
 				}},
 			}},
+		{ID: "teams", Key: "", Title: "Teams", Icon: "users", Description: "Group agents by what they work on. A new agent joins the first team whose project or branch matches; one put in a team by hand stays there.",
+			Fields: []Field{
+				{Key: "teams", Label: "Teams", Kind: KindTables, Fields: []Field{
+					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "Backend"},
+					{Key: "color", Label: "Colour", Kind: KindSelect, Options: append([]Option{{Value: "", Label: "By its place"}}, opts(config.TeamColors...)...)},
+					{Key: "projects", Label: "Projects", Kind: KindList, Help: "Project names whose agents join it."},
+					{Key: "branches", Label: "Branches", Kind: KindList, Help: "Branch patterns, * for anything: ui/*, *-redesign."},
+				}},
+			}},
 		{ID: "permissions", Key: "", Title: "Permission rules", Icon: "lock", Description: "Answer an agent's tool requests by rule; the first that matches decides.",
 			Fields: []Field{
 				{Key: "permissions", Label: "Rules", Kind: KindTables, Fields: []Field{

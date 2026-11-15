@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapWorktreeOperation,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -272,6 +272,9 @@ const CapBranchPrune = "branch.prune.v1"
 // answers with its old branches, which is not the same list.
 const CapBranchPruneMerged = "branch.prune.merged.v1"
 
+// CapPaneTeam is pane.team and PaneInfo.Team: agents grouped by team.
+const CapPaneTeam = "pane.team.v1"
+
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
 const CapAutopilotIntake = "autopilot.intake.v1"
@@ -446,16 +449,18 @@ const CapPaneSSH = "pane.ssh.v1"
 
 // Methods.
 const (
-	MethodHello           = "hello"
-	MethodPing            = "ping"
-	MethodServerStop      = "server.stop"
-	MethodServerReload    = "server.reload"
-	MethodPaneList        = "pane.list"
-	MethodPaneCreate      = "pane.create"
-	MethodPaneClose       = "pane.close"
-	MethodPaneResize      = "pane.resize"
-	MethodPaneSendText    = "pane.send_text"
-	MethodPaneSendKeys    = "pane.send_keys"
+	MethodHello        = "hello"
+	MethodPing         = "ping"
+	MethodServerStop   = "server.stop"
+	MethodServerReload = "server.reload"
+	MethodPaneList     = "pane.list"
+	MethodPaneCreate   = "pane.create"
+	MethodPaneClose    = "pane.close"
+	MethodPaneResize   = "pane.resize"
+	MethodPaneSendText = "pane.send_text"
+	MethodPaneSendKeys = "pane.send_keys"
+	// MethodPaneTeam puts a pane in a team by hand (CapPaneTeam).
+	MethodPaneTeam        = "pane.team"
 	MethodPaneRead        = "pane.read"
 	MethodPaneSubscribe   = "pane.subscribe"
 	MethodPaneUnsubscribe = "pane.unsubscribe"
@@ -807,6 +812,10 @@ type PaneInfo struct {
 	// Account is the account its agent was started on, "" for the agent's
 	// own (CapAccounts).
 	Account string `json:"account,omitempty"`
+	// Team is the team the pane was put in by hand (CapPaneTeam), "-" for
+	// kept out of every team; "" leaves it to config.toml's [[teams]]
+	// rules (config.TeamFor), which clients apply.
+	Team string `json:"team,omitempty"`
 	// Title is the terminal title with decoration (spinners, the agent's
 	// default title) stripped; agents set it to a summary of their task.
 	Title string `json:"title,omitempty"`
@@ -880,6 +889,13 @@ func IsPaneID(ref string) bool {
 		}
 	}
 	return true
+}
+
+// PaneTeamParams puts a pane in a team: a name, "-" for no team whatever
+// the rules say, or "" to leave it to the rules again.
+type PaneTeamParams struct {
+	ID   string `json:"id"`
+	Team string `json:"team"`
 }
 
 // PaneRenameParams renames a pane; an empty name restores the default.
