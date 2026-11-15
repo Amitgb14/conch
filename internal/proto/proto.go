@@ -961,7 +961,8 @@ type WorktreeInfo struct {
 	// Overlaps are the other checkouts of the project that have touched
 	// files this one has too: two agents heading for the same merge
 	// conflict. Conflicts are the files merging this branch into the base
-	// would conflict in, tried without merging. Both are absent from older
+	// would conflict in, tried without merging — or, in a checkout stopped
+	// mid-rebase or merge, the files it stopped on. Both are absent from older
 	// servers, and Conflicts where git is older than 2.38.
 	Overlaps  []Overlap `json:"overlaps,omitempty"`
 	Conflicts []string  `json:"conflicts,omitempty"`

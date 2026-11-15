@@ -430,6 +430,10 @@ func undoMerge(dir string, squash bool) {
 	_, _ = run(ctx, dir, "reset", "--quiet", "--merge")
 }
 
+// ConflictFiles are the files a merge or rebase stopped on in the
+// checkout at dir: those git lists as unmerged.
+func ConflictFiles(ctx context.Context, dir string) []string { return conflictFiles(ctx, dir) }
+
 func conflictFiles(ctx context.Context, dir string) []string {
 	out, err := run(ctx, dir, "diff", "--name-only", "--diff-filter=U", "-z")
 	if err != nil {

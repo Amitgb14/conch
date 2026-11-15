@@ -85,7 +85,8 @@ func TestWorktreeRebasingBranch(t *testing.T) {
 	call(t, c, proto.MethodProjectRefresh, proto.ProjectRef{ID: proj.ID}, nil)
 	p := waitProject(t, c, func(p proto.ProjectInfo) bool {
 		for _, w := range p.Worktrees {
-			if w.Path == wt && w.Rebasing == "feat" && w.Status != nil && w.Status.Conflicts > 0 {
+			// Its conflicts are the files the rebase stopped on.
+			if w.Path == wt && w.Rebasing == "feat" && w.Status != nil && w.Status.Conflicts > 0 && slices.Equal(w.Conflicts, []string{"a.txt"}) {
 				return true
 			}
 		}
