@@ -19,9 +19,9 @@ extension Theme {
     /// background, or nothing, so the scene shows.
     static var ground: Color { scene.on ? .clear : window }
     /// A pane's background, as far as the scene shows through it.
-    static var paneFill: Color { window.opacity(scene.paneOpacity) }
+    static var paneFill: Color { window.opacity(scene.underTerminal) }
     /// The same behind a pane's terminal, for AppKit.
-    static var paneTerminal: NSColor { terminal.withAlphaComponent(scene.paneOpacity) }
+    static var paneTerminal: NSColor { terminal.withAlphaComponent(scene.underTerminal) }
 }
 
 /// A surface of the frame — the sidebar, the tab bar, the status bar —
