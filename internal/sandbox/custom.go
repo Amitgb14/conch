@@ -138,16 +138,52 @@ type ListCall struct {
 // registered with the person's account there; "authorize", one conch
 // hands over through Authorize; "none", a credential in User from Access.
 type SSHWay struct {
-	Host string `toml:"host"`
-	User string `toml:"user"`
-	Port int    `toml:"port"`
-	Key  string `toml:"key"`
+	Host string  `toml:"host"`
+	User string  `toml:"user"`
+	Port SSHPort `toml:"port"`
+	Key  string  `toml:"key"`
 	// Authorize lets a public key in ({public_key} in its body).
 	Authorize Call `toml:"authorize"`
 	// Access is asked before each connection when the way in is a
 	// credential handed out per connection; Host and User may then read
 	// its reply as {reply.PATH}.
 	Access Call `toml:"access"`
+}
+
+// SSHPort is ssh's port: a number, or (format 3) "{reply.PATH}", read
+// from [ssh.access]'s reply for a gateway that says its port per
+// connection, as it says its host.
+type SSHPort struct {
+	N     int
+	Reply string // the PATH of "{reply.PATH}"
+}
+
+var replyRef = regexp.MustCompile(`\{reply\.([^{}]+)\}`)
+
+func (p *SSHPort) UnmarshalTOML(v any) error {
+	switch x := v.(type) {
+	case int64:
+		p.N = int(x)
+		if int64(p.N) != x {
+			p.N = -1 // out of range, said by Problems
+		}
+	case string:
+		m := replyRef.FindStringSubmatch(x)
+		if m == nil || m[0] != x {
+			return fmt.Errorf(`[ssh] port %q: a number, or "{reply.PATH}" alone`, x)
+		}
+		p.Reply = m[1]
+	default:
+		return fmt.Errorf(`[ssh] port: a number, or "{reply.PATH}"`)
+	}
+	return nil
+}
+
+func (p SSHPort) String() string {
+	if p.Reply != "" {
+		return "{reply." + p.Reply + "}"
+	}
+	return strconv.Itoa(p.N)
 }
 
 // conch's own states a provider file may map to.
@@ -285,8 +321,11 @@ func (f *ProviderFile) Problems() []string {
 	if f.SSH.Host == "" || f.SSH.User == "" {
 		add("[ssh] host and user: conch reaches every sandbox over ssh, so a provider with no ssh cannot be used")
 	}
-	if f.SSH.Port < 0 || f.SSH.Port > 65535 {
-		add("[ssh] port %d", f.SSH.Port)
+	if f.SSH.Port.N < 0 || f.SSH.Port.N > 65535 {
+		add("[ssh] port %d", f.SSH.Port.N)
+	}
+	if f.SSH.Port.Reply != "" && f.SSH.Access.Call == "" {
+		add("[ssh] port %s: there is no [ssh.access] reply to read it from", f.SSH.Port)
 	}
 	switch f.SSH.Key {
 	case "account", "none":
@@ -331,6 +370,9 @@ func (f *ProviderFile) needs3() string {
 		if len(c.headers) > 0 {
 			return c.what
 		}
+	}
+	if f.SSH.Port.Reply != "" {
+		return "[ssh] port from the reply"
 	}
 	return ""
 }
@@ -514,8 +556,8 @@ func (f *ProviderFile) Describe() []Mapping {
 	sort.Strings(states)
 	m = append(m, Mapping{"States", strings.Join(states, " "), ""})
 	way := fmt.Sprintf("ssh %s@%s", f.SSH.User, f.SSH.Host)
-	if f.SSH.Port != 0 && f.SSH.Port != 22 {
-		way += fmt.Sprintf(" -p %d", f.SSH.Port)
+	if f.SSH.Port.Reply != "" || f.SSH.Port.N != 0 && f.SSH.Port.N != 22 {
+		way += " -p " + f.SSH.Port.String()
 	}
 	switch f.SSH.Key {
 	case "account":
@@ -1100,13 +1142,23 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 	}
 	fill := func(s string) string {
 		s = v.str(s)
-		return regexp.MustCompile(`\{reply\.([^{}]+)\}`).ReplaceAllStringFunc(s, func(m string) string {
+		return replyRef.ReplaceAllStringFunc(s, func(m string) string {
 			return pickStr(reply, strings.TrimSuffix(strings.TrimPrefix(m, "{reply."), "}"))
 		})
 	}
-	a := Access{User: fill(c.f.SSH.User), Host: fill(c.f.SSH.Host), Port: c.f.SSH.Port, PlainUser: c.f.SSH.Key != "none"}
+	a := Access{User: fill(c.f.SSH.User), Host: fill(c.f.SSH.Host), Port: c.f.SSH.Port.N, PlainUser: c.f.SSH.Key != "none"}
 	if a.User == "" || a.Host == "" {
 		return Access{}, fmt.Errorf("%s gave no ssh user or host for %s", c.label(), id)
+	}
+	if path := c.f.SSH.Port.Reply; path != "" {
+		// Said rather than left to ssh's default: the default is what a
+		// gateway that names its port does not listen on.
+		raw := pickStr(reply, path)
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 65535 {
+			return Access{}, fmt.Errorf("%s gave no ssh port for %s at %q (got %q)", c.label(), id, path, raw)
+		}
+		a.Port = n
 	}
 	return a, nil
 }

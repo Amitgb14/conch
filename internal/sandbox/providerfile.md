@@ -71,7 +71,7 @@ failed = "error"
 [ssh]
 host = "ssh.acme.dev"         # may use {id} {name}, or {reply.PATH} after [ssh.access]
 user = "{id}"
-port = 22                     # 0 or 22: ssh's default
+port = 22                     # 0 or 22: ssh's default ("{reply.port}" in format 3)
 # Whose key opens it:
 #   "account"   keys the person registers with their account there (say how in note)
 #   "authorize" conch hands its public key over with [ssh.authorize]
@@ -109,8 +109,15 @@ them then refuses the file rather than misreading it.
 
 ## Format 3
 
-**Headers**, for an API that needs more than the key on a request. A file
-that has any starts with `format = 3`. `headers` at the top (before the
+Two things for gateways and APIs that need more. A file that uses either
+starts with `format = 3`.
+
+- **A port from the reply.** When `[ssh.access]`'s reply says which port
+  to connect on, `port = "{reply.port}"` (any path into that reply) reads
+  it there, as `host` and `user` do. A reply without a port is an error,
+  not port 22.
+
+**Headers**, for an API that needs more than the key on a request. `headers` at the top (before the
 first `[table]`) go with every call; `headers` under a call go with that
 call, laid over the top ones by name, and one set to `""` there leaves
 the top one out of that call.

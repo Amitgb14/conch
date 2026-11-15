@@ -23,12 +23,13 @@ type fakeInstabox struct {
 	next     int
 	machines map[string]map[string]any
 	keys     map[string]string // Idempotency-Key → the request it came with
+	port     any               // the gateway's port, as the token's reply says it
 	seen     []http.Header
 }
 
 func newFakeInstabox(t *testing.T) (*fakeInstabox, string) {
 	t.Helper()
-	f := &fakeInstabox{machines: map[string]map[string]any{}, keys: map[string]string{}}
+	f := &fakeInstabox{machines: map[string]map[string]any{}, keys: map[string]string{}, port: 2222}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
 	return f, srv.URL
@@ -103,7 +104,7 @@ func (f *fakeInstabox) serve(w http.ResponseWriter, r *http.Request) {
 		m["state"] = "running"
 		reply(202, map[string]any{"id": "op_4"})
 	case r.Method == "POST" && parts[3] == "ssh-tokens":
-		reply(201, map[string]any{"token": "ibssh_abc", "host": "ssh.box.test", "port": 22})
+		reply(201, map[string]any{"token": "ibssh_abc", "host": "ssh.box.test", "port": f.port})
 	default:
 		fail(404, "not_found")
 	}
@@ -151,6 +152,7 @@ deleted = "gone"
 [ssh]
 host = "{reply.host}"
 user = "{reply.token}"
+port = "{reply.port}"
 key = "none"
 [ssh.access]
 call = "POST /v1/machines/{id}/ssh-tokens"
@@ -184,8 +186,24 @@ func TestFormatThreeSendsHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, err := p.SSHAccess(ctx, s.ID)
-	if err != nil || a.User != "ibssh_abc" || a.Host != "ssh.box.test" {
+	if err != nil || a.User != "ibssh_abc" || a.Host != "ssh.box.test" || a.Port != 2222 {
 		t.Fatalf("ssh: %+v %v", a, err)
+	}
+	// A reply with no port, or one that is not a port, is said: ssh's
+	// default is the port such a gateway does not listen on.
+	for _, bad := range []any{nil, "", "ssh", 0, 70000, 22.5} {
+		f.mu.Lock()
+		f.port = bad
+		f.mu.Unlock()
+		if a, err := p.SSHAccess(ctx, s.ID); err == nil || !strings.Contains(err.Error(), "no ssh port") {
+			t.Errorf("port %v: %+v %v", bad, a, err)
+		}
+	}
+	f.mu.Lock()
+	f.port = "2200" // a port written as a string reads too
+	f.mu.Unlock()
+	if a, err := p.SSHAccess(ctx, s.ID); err != nil || a.Port != 2200 {
+		t.Fatalf("string port: %+v %v", a, err)
 	}
 	if err := p.Delete(ctx, s.ID); err != nil {
 		t.Fatal(err)
@@ -245,6 +263,8 @@ func TestFormatThreeProblems(t *testing.T) {
 		{`X-Client = "conch"`, `X-Secret = "{key}"`, "unknown placeholder {key}"},
 		{`X-Client = "conch"`, `X-Client = "a\r\nX-Evil: 1"`, "line break"},
 		{`X-Confirm-Delete = "{id}"`, `X-Confirm-Delete = "{snapshot}"`, "[delete] headers: X-Confirm-Delete: unknown placeholder {snapshot}"},
+		{"[ssh.access]\ncall = \"POST /v1/machines/{id}/ssh-tokens\"\n", "", "no [ssh.access] reply to read it from"},
+		{`port = "{reply.port}"`, `port = 70000`, "[ssh] port 70000"},
 	} {
 		changed := strings.Replace(good, c.from, c.to, 1)
 		if changed == good {
@@ -267,6 +287,19 @@ func TestFormatThreeProblems(t *testing.T) {
 			t.Errorf("[%s]: %v", where, problems)
 		}
 	}
+	// A port from the reply alone asks for format 3.
+	withPort := strings.Replace(strings.Replace(good, "format = 3\n", "format = 2\n", 1), "headers = { Idempotency-Key = \"{uuid}\", X-Client = \"conch\" }\n", "", 1)
+	withPort = strings.Replace(withPort, "headers = { X-Confirm-Delete = \"{id}\", X-Note = \"for {name}\" }\n", "", 1)
+	withPort = strings.Replace(withPort, "headers = { idempotency-key = \"access-{id}-{uuid}\", X-Client = \"\" }\n", "", 1)
+	if _, problems, _ := ReadProviderFile(customHome(t, "box", withPort)); strings.Join(problems, "\n") != "[ssh] port from the reply needs format = 3" {
+		t.Errorf("port alone: %v", problems)
+	}
+	// A port that is neither a number nor a reply path is the file's error.
+	for _, bad := range []string{`"22"`, `"{reply.port}x"`, `"{id}"`, `true`} {
+		if _, _, err := ReadProviderFile(customHome(t, "box", strings.Replace(good, `port = "{reply.port}"`, "port = "+bad, 1))); err == nil || !strings.Contains(err.Error(), "port") {
+			t.Errorf("port = %s: %v", bad, err)
+		}
+	}
 	// A header value that is not a string is the file's error, said.
 	if _, _, err := ReadProviderFile(customHome(t, "box", strings.Replace(good, `X-Client = "conch"`, `X-Client = 1`, 1))); err == nil {
 		t.Error("a number for a header value was taken")
@@ -279,6 +312,9 @@ func TestFormatThreeDescribesHeaders(t *testing.T) {
 		t.Fatal(problems, err)
 	}
 	d := f.Describe()
+	if way := d[len(d)-1].Call; !strings.Contains(way, "@{reply.host} -p {reply.port}") {
+		t.Fatalf("way in: %q", way)
+	}
 	want := "DELETE /v1/machines/{id} [Idempotency-Key: {uuid}] [X-Client: conch] [X-Confirm-Delete: {id}] [X-Note: for {name}]"
 	if d[5].Does != "Delete" || d[5].Call != want {
 		t.Fatalf("%q", d[5].Call)
