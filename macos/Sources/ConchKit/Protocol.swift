@@ -197,6 +197,9 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     /// The files merging the branch into the base would conflict in,
     /// tried without merging (git 2.38 and later).
     public var conflicts: [String]?
+    /// The branch a rebase left unfinished here is rewriting: git detaches
+    /// HEAD meanwhile, so branch is nil. nil from an older server.
+    public var rebasing: String?
 
     public init(path: String, branch: String?, main: Bool? = nil, port: Int? = nil) {
         self.path = path

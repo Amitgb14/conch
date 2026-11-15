@@ -68,7 +68,7 @@ func history() -> [LogCommit] {
     let json = #"""
     {"id":"r1","name":"conch","path":"/p","base":"master",
      "worktrees":[{"path":"/p","branch":"master","main":true},
-                  {"path":"/w/a","branch":"stopped","status":{"files":2,"conflicts":2}},
+                  {"path":"/w/a","rebasing":"stopped","status":{"files":2,"conflicts":2}},
                   {"path":"/w/b","branch":"red"},
                   {"path":"/w/c","branch":"forecast","conflicts":["a.go","b.go"]},
                   {"path":"/w/d","branch":"asking"},
@@ -80,7 +80,7 @@ func history() -> [LogCommit] {
     """#
     let project = try conchDecoder().decode(ProjectInfo.self, from: Data(json.utf8))
     let panes = try conchDecoder().decode([PaneInfo].self, from: Data(#"""
-    [{"id":"p1","name":"a","state":"running","project_id":"r1","branch":"stopped","agent":{"name":"codex","state":"working"}},
+    [{"id":"p1","name":"a","state":"running","project_id":"r1","cwd":"/w/a/sub","agent":{"name":"codex","state":"working"}},
      {"id":"p2","name":"d","state":"running","project_id":"r1","branch":"asking","agent":{"name":"claude","state":"blocked"}},
      {"id":"p3","name":"e","state":"running","project_id":"r1","branch":"busy","agent":{"name":"gemini","state":"working"}},
      {"id":"p4","name":"other","state":"running","project_id":"r2","branch":"quiet","agent":{"name":"claude","state":"working"}}]
@@ -88,8 +88,11 @@ func history() -> [LogCommit] {
     let bs = graphBranches(project, panes: panes)
     #expect(bs.map(\.name) == ["stopped", "asking", "red", "forecast", "busy", "quiet"])
     let by = Dictionary(uniqueKeysWithValues: bs.map { ($0.name, $0) })
+    // Mid-rebase git names no branch: the worktree says which it is
+    // rewriting, and its agent is found by the folder it works in.
     #expect(by["stopped"]?.state == .conflicted(2))
     #expect(by["stopped"]?.agent?.id == "p1")
+    #expect(by["stopped"]?.stopped == true && by["red"]?.stopped == false)
     #expect(by["red"]?.state == .ciFailing && by["red"]?.ahead == 2 && by["red"]?.behind == 1)
     #expect(by["forecast"]?.state == .willConflict && by["forecast"]?.conflicts == ["a.go", "b.go"])
     #expect(by["asking"]?.state == .waiting)

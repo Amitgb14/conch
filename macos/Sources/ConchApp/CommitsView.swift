@@ -775,7 +775,7 @@ struct ConflictBanner: View {
 
     var body: some View {
         let _ = look
-        if let b = model.branches.first(where: { if case .conflicted = $0.state { return true } else { return false } }) {
+        if let b = model.branches.first(where: \.stopped) {
             let n: Int = { if case .conflicted(let n) = b.state { return n } else { return 0 } }()
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.err)
@@ -837,7 +837,7 @@ struct ConflictCard: View {
 
     var body: some View {
         let _ = look
-        let stopped: Bool = { if case .conflicted = branch.state { return true } else { return false } }()
+        let stopped = branch.stopped
         let tone = stopped ? Theme.err : Theme.warn
         let base = model.projectInfo?.base ?? "the base"
         VStack(alignment: .leading, spacing: 6) {

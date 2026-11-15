@@ -965,6 +965,10 @@ type WorktreeInfo struct {
 	// servers, and Conflicts where git is older than 2.38.
 	Overlaps  []Overlap `json:"overlaps,omitempty"`
 	Conflicts []string  `json:"conflicts,omitempty"`
+	// Rebasing is the branch a rebase left unfinished in this checkout is
+	// rewriting: git detaches HEAD while it works, so Branch is empty and
+	// this says whose conflict it is. Absent from older servers.
+	Rebasing string `json:"rebasing,omitempty"`
 }
 
 // Overlap is another branch's checkout touching the same files.

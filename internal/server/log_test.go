@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -64,5 +65,35 @@ func TestProjectLogRefusals(t *testing.T) {
 	waitProject(t, c, func(p proto.ProjectInfo) bool { return p.Path == plain })
 	if err := call(t, c, proto.MethodProjectLog, proto.LogParams{ProjectID: proj.ID}, nil); err == nil {
 		t.Error("not a repository: no error")
+	}
+}
+
+// A rebase that stops on a conflict detaches the worktree's HEAD, so git
+// names no branch there; the worktree says which branch the rebase is
+// rewriting, or a client could not tell whose conflict it is.
+func TestWorktreeRebasingBranch(t *testing.T) {
+	c, proj, repo, wt, _ := harvestFixture(t)
+	git(t, wt, "config", "user.name", "t")
+	git(t, wt, "config", "user.email", "t@example.com")
+	os.WriteFile(filepath.Join(wt, "a.txt"), []byte("feat\n"), 0o644)
+	git(t, wt, "commit", "-q", "-am", "on feat")
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("main\n"), 0o644)
+	git(t, repo, "commit", "-q", "-am", "on main")
+	if out, err := exec.Command("git", "-C", wt, "rebase", "main").CombinedOutput(); err == nil {
+		t.Fatalf("rebase did not stop: %s", out)
+	}
+	call(t, c, proto.MethodProjectRefresh, proto.ProjectRef{ID: proj.ID}, nil)
+	p := waitProject(t, c, func(p proto.ProjectInfo) bool {
+		for _, w := range p.Worktrees {
+			if w.Path == wt && w.Rebasing == "feat" && w.Status != nil && w.Status.Conflicts > 0 {
+				return true
+			}
+		}
+		return false
+	})
+	for _, w := range p.Worktrees {
+		if w.Main && w.Rebasing != "" {
+			t.Errorf("the main checkout is not rebasing: %+v", w)
+		}
 	}
 }

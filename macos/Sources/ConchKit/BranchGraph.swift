@@ -98,6 +98,12 @@ public struct GraphBranch: Equatable, Sendable {
     /// The files merging it into the base would conflict in.
     public var conflicts: [String]
     public var pr: PRInfo?
+
+    /// Whether its worktree stopped mid-rebase or merge on a conflict.
+    public var stopped: Bool {
+        if case .conflicted = state { return true }
+        return false
+    }
 }
 
 /// The project's agent branches — every branch checked out in a worktree
@@ -109,10 +115,17 @@ public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo]) -> [GraphBr
     let info = Dictionary((project.branches ?? []).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
     var out: [GraphBranch] = []
     for w in project.worktrees ?? [] where w.main != true {
-        guard let name = w.branch, !name.isEmpty, name != base, !mainBranches.contains(name),
+        // Mid-rebase git names no branch; the server says which it rewrites.
+        guard let name = w.branch ?? w.rebasing, !name.isEmpty, name != base, !mainBranches.contains(name),
               !out.contains(where: { $0.name == name }) else { continue }
         let b = info[name]
-        let agent = branchAgent(branchAgents(panes, project: project.id, branch: name), handedTo: nil)
+        // An agent whose branch is blank (its HEAD detached mid-rebase) is
+        // found by the folder it works in.
+        let inFolder = panes.filter { p in
+            p.agent != nil && p.running && p.projectID == project.id && (p.branch ?? "").isEmpty
+                && (p.cwd == w.path || (p.cwd ?? "").hasPrefix(w.path + "/"))
+        }
+        let agent = branchAgent(branchAgents(panes, project: project.id, branch: name) + inFolder, handedTo: nil)
         let pr = b?.pr.flatMap { ($0.state ?? "OPEN") == "OPEN" ? $0 : nil }
         let state: GraphBranchState
         if let n = w.status?.conflicts, n > 0 {

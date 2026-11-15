@@ -3300,8 +3300,7 @@ final class Store: ObservableObject {
     /// words as its first message.
     func askToResolve(machine: String, project: String, branch: GraphBranch, start: String? = nil) {
         guard let c = conns[machine], let pr = snapshots[machine]?.project(project) else { return }
-        let stopped: Bool = { if case .conflicted = branch.state { return true } else { return false } }()
-        let text = resolvePrompt(branch: branch.name, base: pr.base ?? "the base", files: branch.conflicts, stopped: stopped)
+        let text = resolvePrompt(branch: branch.name, base: pr.base ?? "the base", files: branch.conflicts, stopped: branch.stopped)
         if start == nil, let a = branch.agent {
             guard c.hello?.capabilities?.contains("agent.prompt.v1") == true else {
                 error = "The server on \(label(machine)) predates prompting an agent; reload it"
