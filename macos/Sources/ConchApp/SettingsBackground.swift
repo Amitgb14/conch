@@ -14,7 +14,29 @@ struct BackgroundCard: View {
 
     static let keys = ["background", "background_through", "background_frost", "background_motion", "background_fireworks", "project_backgrounds"]
 
-    var chosen: BackgroundScene { BackgroundScene(setting: model.form?.config["app"]?.object?["background"]?.string) }
+    var mine: [String] { model.store.myScenes.map(\.id) }
+    var chosen: BackgroundScene { BackgroundScene(setting: model.form?.config["app"]?.object?["background"]?.string, mine: mine) }
+    /// Every scene to pick: conch's, then yours.
+    var scenes: [BackgroundScene] { BackgroundScene.builtIn + model.store.myScenes.map { .mine($0.id) } }
+
+    /// A scene's name: yours by what its file calls it.
+    func label(_ s: BackgroundScene) -> String {
+        if case .mine(let id) = s { return model.store.myScenes.first { $0.id == id }?.label ?? id }
+        return s.label
+    }
+
+    /// A board in Settings shows something to read.
+    static let sample = [
+        Departure(time: Date(timeIntervalSinceReferenceDate: 0), agent: "claude", to: "api/login", state: .working),
+        Departure(time: Date(timeIntervalSinceReferenceDate: 600), agent: "codex", to: "web/search", state: .blocked),
+    ]
+
+    /// $CONCH_HOME/scenes, made if it is not there yet.
+    func openFolder() {
+        let dir = (model.store.conchDir as NSString).appendingPathComponent("scenes")
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(URL(fileURLWithPath: dir))
+    }
 
     func choose(_ s: BackgroundScene) {
         guard let f = section.fields.first(where: { $0.key == "background" }) else { return }
@@ -28,7 +50,16 @@ struct BackgroundCard: View {
                 Text("A scene behind the window: by day under a light theme, by night under a dark one. The toolbar, sidebar and tabs are frosted over it; panes let it through only as far as you say.")
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                    ForEach(BackgroundScene.allCases, id: \.self) { s in card(s) }
+                    ForEach(scenes, id: \.self) { s in card(s) }
+                }
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your own: a file in the scenes folder — colours, a picture, snow or bubbles. It describes a scene; it runs nothing.")
+                        .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Open Scenes Folder") { openFolder() }.controlSize(.small)
+                }
+                ForEach(model.store.sceneProblems, id: \.self) { p in
+                    Text(p).font(.ui(size: 11.5)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
@@ -49,7 +80,7 @@ struct BackgroundCard: View {
                     if s == .none {
                         Theme.window
                     } else {
-                        SceneView(scene: SceneLook(scene: s, still: true))
+                        SceneView(scene: SceneLook(scene: s, still: true), departures: Self.sample)
                     }
                     // The frame and a pane over it, as the window has them.
                     HStack(spacing: 5) {
@@ -61,7 +92,7 @@ struct BackgroundCard: View {
                 }
                 .frame(height: 78).clipped()
                 HStack {
-                    Text(s.label).font(.ui(size: 12.5, weight: on ? .semibold : .regular)).foregroundStyle(on ? Theme.text : Theme.text2)
+                    Text(label(s)).font(.ui(size: 12.5, weight: on ? .semibold : .regular)).foregroundStyle(on ? Theme.text : Theme.text2)
                     Spacer()
                     if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent) }
                 }
@@ -73,7 +104,7 @@ struct BackgroundCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(s.label)
+        .accessibilityLabel(label(s))
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
@@ -91,6 +122,14 @@ struct ProjectScenes: View {
         Dictionary((model.form?.mapEntries(section, field) ?? []).map { ($0.key, $0.value) }, uniquingKeysWith: { a, _ in a })
     }
 
+    var mine: [String] { model.store.myScenes.map(\.id) }
+
+    /// The scenes to pick, conch's and yours, by name.
+    var options: [(id: String, label: String)] {
+        let builtIn = BackgroundScene.builtIn.filter { $0 != .none }.map { (id: $0.rawValue, label: $0.label) }
+        return builtIn + model.store.myScenes.map { (id: $0.id, label: $0.label) }
+    }
+
     var names: [String] {
         var all = Set(chosen.keys)
         for snap in model.store.snapshots.values { for p in snap.projects { all.insert(p.name) } }
@@ -99,8 +138,8 @@ struct ProjectScenes: View {
 
     /// What the picker shows for a saved value: a typo is the window's
     /// scene, as the window reads it.
-    static func choice(_ v: String?) -> String {
-        let s = BackgroundScene(setting: v)
+    static func choice(_ v: String?, mine: [String]) -> String {
+        let s = BackgroundScene(setting: v, mine: mine)
         if s != .none { return s.rawValue }
         return v?.trimmingCharacters(in: .whitespaces).lowercased() == "none" ? "none" : ""
     }
@@ -121,10 +160,10 @@ struct ProjectScenes: View {
                     HStack(spacing: 10) {
                         Text(name).font(.ui(size: 12.5, weight: .medium)).lineLimit(1).frame(width: 190, alignment: .leading)
                         Picker("", selection: Binding(
-                            get: { Self.choice(set[name]) },
+                            get: { Self.choice(set[name], mine: mine) },
                             set: { v in model.form?.setMapEntry(section, field, name, v.isEmpty ? nil : v) })) {
                             Text("Same as the window").tag("")
-                            ForEach(BackgroundScene.allCases.filter { $0 != .none }, id: \.self) { s in Text(s.label).tag(s.rawValue) }
+                            ForEach(options, id: \.id) { o in Text(o.label).tag(o.id) }
                             Text("No scene").tag("none")
                         }
                         .labelsHidden().frame(width: 200)

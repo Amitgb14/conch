@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -916,5 +917,36 @@ func TestCloudSettingsHiddenUntilEnabled(t *testing.T) {
 	t.Setenv("CONCH_CLOUD", "0")
 	if got := strings.Join(cloudFields(get(t, s, ts)), ","); got != "enabled" {
 		t.Fatalf("CONCH_CLOUD=0: [cloud] offers %q", got)
+	}
+}
+
+// [app] background offers conch's scenes, the board among them, then the
+// scene files of your own.
+func TestSchemaBackgroundOffersScenes(t *testing.T) {
+	values := func(c Choices) []string {
+		for _, s := range Schema(c) {
+			for _, f := range s.Fields {
+				if s.Key == "app" && f.Key == "background" {
+					var out []string
+					for _, o := range f.Options {
+						out = append(out, o.Value)
+					}
+					return out
+				}
+			}
+		}
+		t.Fatal("no app.background field")
+		return nil
+	}
+	want := []string{"", "reef", "pines", "lagoon", "stars", "board"}
+	if got := values(Choices{}); !slices.Equal(got, want) {
+		t.Fatalf("got %v", got)
+	}
+	if got := values(Choices{Scenes: []string{"bay", "dusk"}}); !slices.Equal(got, append(want, "bay", "dusk")) {
+		t.Fatalf("got %v", got)
+	}
+	// The app's own list is the same as the Go side's.
+	if !slices.Equal(want[1:], config.BuiltInScenes) {
+		t.Fatalf("config.BuiltInScenes %v", config.BuiltInScenes)
 	}
 }

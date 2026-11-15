@@ -6,19 +6,48 @@ import Foundation
 // draws it; everything here is decided without drawing, so it is tested.
 
 /// The scenes the app draws. Each has a day and a night, chosen by the
-/// theme (a light theme is day), as Meadow's sky is.
-public enum BackgroundScene: String, CaseIterable, Equatable, Sendable {
+/// theme (a light theme is day), as Meadow's sky is. A scene of your own
+/// is a file in $CONCH_HOME/scenes (UserScene), named by its file.
+public enum BackgroundScene: Hashable, Sendable {
     case none
     case reef
     case pines
     case lagoon
     case stars
+    /// A split-flap board of the window's agents, as departures.
+    case board
+    /// $CONCH_HOME/scenes/NAME.toml.
+    case mine(String)
 
-    /// A saved choice; anything else, an older build's or a typo, is none —
-    /// a window with no scene, never one somebody did not pick.
-    public init(setting: String?) {
+    /// The scenes conch draws itself, in the order Settings offers them.
+    public static let builtIn: [BackgroundScene] = [.none, .reef, .pines, .lagoon, .stars, .board]
+
+    /// A saved choice, among the built-in scenes and the names of your
+    /// own (`mine`); anything else, an older build's, a typo or a file
+    /// since removed, is none — a window with no scene, never one
+    /// somebody did not pick.
+    public init(setting: String?, mine: [String] = []) {
         let v = (setting ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-        self = BackgroundScene(rawValue: v) ?? .none
+        if let b = Self.builtIn.first(where: { $0.rawValue == v }) {
+            self = b
+        } else if mine.contains(v) {
+            self = .mine(v)
+        } else {
+            self = .none
+        }
+    }
+
+    /// Its name in config.toml.
+    public var rawValue: String {
+        switch self {
+        case .none: return "none"
+        case .reef: return "reef"
+        case .pines: return "pines"
+        case .lagoon: return "lagoon"
+        case .stars: return "stars"
+        case .board: return "board"
+        case .mine(let n): return n
+        }
     }
 
     public var label: String {
@@ -28,6 +57,8 @@ public enum BackgroundScene: String, CaseIterable, Equatable, Sendable {
         case .pines: return "Snowy pines"
         case .lagoon: return "Lagoon"
         case .stars: return "Starfield"
+        case .board: return "Departure board"
+        case .mine(let n): return n
         }
     }
 
@@ -46,6 +77,10 @@ public enum BackgroundScene: String, CaseIterable, Equatable, Sendable {
         case (.lagoon, false): return [RGB("#9BE4EC"), RGB("#55C4D2"), RGB("#3AAEBB")]
         case (.stars, true): return [RGB("#1D1F3D"), RGB("#0B0C1A"), RGB("#05060C")]
         case (.stars, false): return [RGB("#2B2F5A"), RGB("#7A6A9E"), RGB("#E8B4A0")]
+        // A board is a board, day or night.
+        case (.board, _): return [RGB("#121417"), RGB("#16191D"), RGB("#121417")]
+        // Yours are drawn from your file (UserScene).
+        case (.mine, _): return []
         }
     }
 
@@ -65,7 +100,7 @@ public enum BackgroundScene: String, CaseIterable, Equatable, Sendable {
     /// How many moving pieces it has: bubbles, flakes, stars.
     public var particles: Int {
         switch self {
-        case .none, .lagoon: return 0
+        case .none, .lagoon, .board, .mine: return 0
         case .reef: return 22
         case .pines: return 90
         case .stars: return 130
@@ -125,8 +160,8 @@ public struct SceneLook: Equatable, Sendable {
 
     /// Read from config.toml's [app]; what is missing or not understood is
     /// the default, as the Go side reads it.
-    public init(toml: String?) {
-        scene = BackgroundScene(setting: tomlSetting("app", "background", in: toml))
+    public init(toml: String?, mine: [String] = []) {
+        scene = BackgroundScene(setting: tomlSetting("app", "background", in: toml), mine: mine)
         // A whole number of percent, as Go reads it (an int).
         if let v = tomlSetting("app", "background_through", in: toml).flatMap(Int.init) {
             through = min(max(Double(v) / 100, 0), Self.throughMax)
@@ -137,7 +172,7 @@ public struct SceneLook: Equatable, Sendable {
         for (name, v) in tomlTable("app.project_backgrounds", in: toml) {
             // A typo is no choice at all, so the window's scene stands;
             // only "none" says no scene.
-            let s = BackgroundScene(setting: v)
+            let s = BackgroundScene(setting: v, mine: mine)
             if s != .none || v.trimmingCharacters(in: .whitespaces).lowercased() == "none" { projects[name] = s }
         }
     }
