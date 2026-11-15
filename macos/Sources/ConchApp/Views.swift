@@ -773,11 +773,30 @@ struct MainView: View {
         // [app] background: the scene behind everything, up under the
         // title bar too (SceneView.swift).
         .background {
-            if store.appLook.scene.on {
-                SceneView(scene: store.appLook.scene).ignoresSafeArea()
-            } else {
-                Theme.window
+            // The window's scene, or the project's in front of it
+            // ([app.project_backgrounds]), faded across when it changes.
+            let shown = store.appLook.scene.showing(project: store.sceneProject)
+            ZStack {
+                if shown.scene != .none {
+                    SceneView(scene: shown).id(shown.scene).transition(.opacity)
+                } else {
+                    Theme.window
+                }
             }
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.6), value: shown.scene)
+        }
+        // A pull request merged: fireworks over it all for a moment, and
+        // a note saying which.
+        .overlay {
+            ZStack {
+                if let c = store.celebration {
+                    MergeFireworks(celebration: c).transition(.opacity)
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.3), value: store.celebration)
         }
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar

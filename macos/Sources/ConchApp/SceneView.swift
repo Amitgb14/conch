@@ -337,3 +337,72 @@ enum SceneDraw {
         }
     }
 }
+
+/// Fireworks over the window for a merged pull request, and a note in the
+/// corner saying which. Under Reduce Motion, only the note.
+struct MergeFireworks: View {
+    @Environment(\.conchTheme) private var look
+    let celebration: Celebration
+    @State private var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
+    var body: some View {
+        let _ = look
+        ZStack(alignment: .bottomTrailing) {
+            if !reduceMotion {
+                let bursts = Fireworks.bursts(6, seed: UInt64(celebration.merged.number))
+                let colors = [Theme.accent, Theme.ok, Theme.warn, Theme.merged, SceneDraw.c("#FFD27A"), SceneDraw.c("#FF8FB1")]
+                TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+                    let t = tl.date.timeIntervalSince(celebration.at)
+                    Canvas { ctx, size in
+                        for (i, b) in bursts.enumerated() {
+                            guard let v = Fireworks.progress(b, at: t) else { continue }
+                            Self.burst(b, v: v, color: colors[i % colors.count], in: &ctx, size: size)
+                        }
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            HStack(spacing: 10) {
+                Text("Merged #\(celebration.merged.number)").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.ok)
+                Text("\(celebration.merged.branch) · \(celebration.merged.project)").font(.ui(size: 13)).foregroundStyle(Theme.text2).lineLimit(1)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background { Frost(color: Theme.chrome) }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+            .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+            .padding(.trailing, 18).padding(.bottom, 42)
+            .allowsHitTesting(false)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Merged pull request \(celebration.merged.number), \(celebration.merged.branch)")
+    }
+
+    /// One burst at v (0…1): sparks flying out from its middle and
+    /// fading, each a short streak behind its head.
+    static func burst(_ b: ScenePiece, v: Double, color: Color, in ctx: inout GraphicsContext, size: CGSize) {
+        let center = CGPoint(x: b.x * size.width, y: b.y * size.height)
+        let ease = 1 - pow(1 - v, 3)
+        let reach = 70 + 70 * b.size
+        let fade = max(0, 1 - v * v)
+        let rays = 18
+        for k in 0..<rays {
+            let a = Double(k) / Double(rays) * 2 * .pi + b.phase
+            let head = reach * ease, tail = max(0, head - 22)
+            let drop = v * v * 18 // they fall a little as they go
+            let p0 = CGPoint(x: center.x + cos(a) * tail, y: center.y + sin(a) * tail + drop)
+            let p1 = CGPoint(x: center.x + cos(a) * head, y: center.y + sin(a) * head + drop)
+            var path = Path()
+            path.move(to: p0)
+            path.addLine(to: p1)
+            ctx.stroke(path, with: .color(color.opacity(fade)), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            ctx.fill(Path(ellipseIn: CGRect(x: p1.x - 2, y: p1.y - 2, width: 4, height: 4)), with: .color(.white.opacity(fade * 0.9)))
+        }
+        // The flash where it opened.
+        if v < 0.25 {
+            let r = 10 + 30 * v
+            ctx.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+                     with: .radialGradient(Gradient(colors: [.white.opacity(0.8 * (1 - v * 4)), .clear]), center: center, startRadius: 0, endRadius: r))
+        }
+    }
+}

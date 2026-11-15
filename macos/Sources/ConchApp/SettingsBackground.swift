@@ -12,7 +12,7 @@ struct BackgroundCard: View {
     let fields: [SettingsField]
     @Environment(\.conchTheme) private var theme
 
-    static let keys = ["background", "background_through", "background_frost", "background_motion"]
+    static let keys = ["background", "background_through", "background_frost", "background_motion", "background_fireworks", "project_backgrounds"]
 
     var chosen: BackgroundScene { BackgroundScene(setting: model.form?.config["app"]?.object?["background"]?.string) }
 
@@ -35,6 +35,9 @@ struct BackgroundCard: View {
             ForEach(Array(fields.enumerated()), id: \.element.key) { _, f in
                 FieldRow(model: model, section: section, field: f)
             }
+        }
+        if let f = section.fields.first(where: { $0.key == "project_backgrounds" }) {
+            ProjectScenes(model: model, section: section, field: f)
         }
     }
 
@@ -72,5 +75,65 @@ struct BackgroundCard: View {
         .buttonStyle(.plain)
         .accessibilityLabel(s.label)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// [app.project_backgrounds]: each project a scene of its own, or the
+/// window's. Every project conch knows is listed, and any named in the
+/// file that it does not (another machine's, one since removed).
+struct ProjectScenes: View {
+    @ObservedObject var model: SettingsModel
+    let section: SettingsSection
+    let field: SettingsField
+    @Environment(\.conchTheme) private var theme
+
+    var chosen: [String: String] {
+        Dictionary((model.form?.mapEntries(section, field) ?? []).map { ($0.key, $0.value) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    var names: [String] {
+        var all = Set(chosen.keys)
+        for snap in model.store.snapshots.values { for p in snap.projects { all.insert(p.name) } }
+        return all.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    /// What the picker shows for a saved value: a typo is the window's
+    /// scene, as the window reads it.
+    static func choice(_ v: String?) -> String {
+        let s = BackgroundScene(setting: v)
+        if s != .none { return s.rawValue }
+        return v?.trimmingCharacters(in: .whitespaces).lowercased() == "none" ? "none" : ""
+    }
+
+    var body: some View {
+        let _ = theme
+        let set = chosen
+        SettingsCard(title: field.label) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("A project's window shows its own scene, and so does any window while one of its tabs is in front.")
+                    .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 8)
+                if names.isEmpty {
+                    Text("No projects yet.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 16).padding(.bottom, 12)
+                }
+                ForEach(names, id: \.self) { name in
+                    HStack(spacing: 10) {
+                        Text(name).font(.ui(size: 12.5, weight: .medium)).lineLimit(1).frame(width: 190, alignment: .leading)
+                        Picker("", selection: Binding(
+                            get: { Self.choice(set[name]) },
+                            set: { v in model.form?.setMapEntry(section, field, name, v.isEmpty ? nil : v) })) {
+                            Text("Same as the window").tag("")
+                            ForEach(BackgroundScene.allCases.filter { $0 != .none }, id: \.self) { s in Text(s.label).tag(s.rawValue) }
+                            Text("No scene").tag("none")
+                        }
+                        .labelsHidden().frame(width: 200)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 6)
+                }
+            }
+            .padding(.bottom, 6)
+        }
     }
 }
