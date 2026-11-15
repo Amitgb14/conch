@@ -311,6 +311,9 @@ type GitCfg struct {
 	// merge dialog has always ticked; it is the default there and what
 	// auto_merge does, so the two cannot disagree.
 	Squash bool `toml:"squash"`
+	// StaleDays is how long a local branch goes without a commit before
+	// conch branch prune and the app's Old branches call it old; 0 is 30.
+	StaleDays int `toml:"stale_days,omitempty"`
 }
 
 // VerifyCfg holds the command conch runs in a branch's worktree when its

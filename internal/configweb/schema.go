@@ -210,9 +210,11 @@ func Schema(c Choices) []Section {
 				{Key: "triage_agent", Label: "Triage agent", Kind: KindSelect, Options: reviewers, Help: "Who reads the issues; claude when empty."},
 				{Key: "triage_comment_only", Label: "Triage only comments", Kind: KindBool, Help: "Leave the labels to you."},
 			}},
-		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, and what a finished branch goes through on its way to the base.",
+		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, when a branch counts as old, and what a finished branch goes through on its way to the base.",
 			Fields: []Field{
 				{Key: "squash", Label: "Squash when merging", Kind: KindBool, Help: "One commit on the base instead of a merge commit."},
+				{Key: "stale_days", Label: "Old branch after (days)", Kind: KindInt, Min: intp(0), Placeholder: "30",
+					Help: "A local branch with no commit for this long is listed by conch branch prune and under Old branches; 0 is 30."},
 			}},
 		{ID: "brain", Key: "brain", Title: "Brain", Icon: "sparkles", Description: "The model behind ✦ Ask and agent summaries.",
 			Fields: []Field{

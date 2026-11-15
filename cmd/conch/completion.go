@@ -112,7 +112,7 @@ var compSubcommands = map[string][]compItem{
 	},
 	"branch": {
 		{"commit", "commit on this branch"}, {"push", "push it"}, {"pr", "open a pull request"},
-		{"merge", "merge it into its base"}, {"discard", "throw the branch away"},
+		{"merge", "merge it into its base"}, {"discard", "throw the branch away"}, {"prune", "delete old branches"},
 	},
 	"review":   {{"ls", "list comments"}, {"add", "comment on a file or line"}, {"rm", "remove a comment"}, {"send", "send them to the agent"}, {"reply", "answer a comment you were sent"}},
 	"worktree": {{"ls", "list worktrees"}, {"clean", "remove finished ones"}},

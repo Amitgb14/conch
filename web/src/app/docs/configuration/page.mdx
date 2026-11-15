@@ -72,6 +72,7 @@ command = ""     # also run for every alert, with it as JSON on stdin: ntfy, Sla
 
 [git]
 squash = true      # m → Merge puts one commit on the base rather than a merge commit (auto_merge is GitHub's, and follows the repository)
+stale_days = 30    # conch branch prune and the Mac app's Old branches call a branch with no commit for this long old
 
 [verify]
 commands = {}    # a project's check, by project ID: { r1a2b3c = "go test ./..." } — run with git's pager off

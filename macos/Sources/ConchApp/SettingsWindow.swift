@@ -566,7 +566,9 @@ struct SectionForm: View {
             case "git":
                 // Git's own, then Checks & autopilot: what a finished
                 // branch passes, its pull request and its merge.
-                if !fields.isEmpty { card("Merging", fields) }
+                let merging = rest(["stale_days"])
+                if !merging.isEmpty { card("Merging", merging) }
+                OldBranchesCard(model: model, section: section, fields: pick(["stale_days"]))
                 if let v = guest("verify") {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(v.title).font(.ui(size: 15, weight: .semibold))
@@ -957,7 +959,7 @@ struct ThemePreview: View {
 /// The Settings window, made once and brought forward again.
 @MainActor
 final class SettingsWindow {
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
     private let model: SettingsModel
     private var watch: [Any] = []
     private var look: AnyCancellable?
