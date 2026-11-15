@@ -171,14 +171,15 @@ func TestAutoResumeAfterACrash(t *testing.T) {
 	t.Cleanup(s.StopAndWait)
 
 	// They are resumed in order, so the last one there means every one
-	// before it was decided.
+	// before it was decided — there under its name, which it is given
+	// just after it starts.
 	deadline := time.Now().Add(20 * time.Second)
 	var panes []proto.PaneInfo
 	for {
 		panes = arPanes(s)
 		last := false
 		for _, p := range panes {
-			last = last || strings.Contains(strings.Join(p.Command, " "), "--resume s-web")
+			last = last || strings.Contains(strings.Join(p.Command, " "), "--resume s-web") && p.Name == "reviewer"
 		}
 		if last {
 			break
