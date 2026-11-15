@@ -20,6 +20,12 @@ import (
 // once, which is why adding one asks for a reload.
 func startServerWithAgents(t *testing.T, manifests map[string]string) (*client.Client, string) {
 	t.Helper()
+	// agent.status starts a login shell per agent, all at once — over two dozen
+	// now — and with the developer's own shell and
+	// profile that outran the test's deadline under a loaded suite. A plain
+	// sh and an empty home are what these tests are about anyway.
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("HOME", t.TempDir())
 	dir, err := os.MkdirTemp("", "conch")
 	if err != nil {
 		t.Fatal(err)

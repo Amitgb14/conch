@@ -111,6 +111,28 @@ type AppCfg struct {
 	// Sidebar "glass" lets the desktop through the sidebar, as Finder's;
 	// "" keeps them solid. Panes are always solid.
 	Sidebar string `toml:"sidebar,omitempty"`
+	// Background is a scene drawn behind the window: "reef", "pines",
+	// "lagoon" or "stars", by day under a light theme and by night under a
+	// dark one; "" is none. The frame is frosted over it, and panes let it
+	// through only as far as BackgroundThrough says.
+	Background string `toml:"background,omitempty"`
+	// BackgroundThrough is how much of the scene shows through a pane, in
+	// percent, 0 to 60; 0 keeps panes solid.
+	BackgroundThrough int `toml:"background_through,omitempty"`
+	// BackgroundFrost is how much of the frame's colour is laid over the
+	// scene: "off", "strong", or "" for light.
+	BackgroundFrost string `toml:"background_frost,omitempty"`
+	// BackgroundMotion "still" draws the scene without moving it. It is
+	// still anyway under macOS's Reduce Motion and in Low Power Mode.
+	BackgroundMotion string `toml:"background_motion,omitempty"`
+	// BackgroundFireworks plays fireworks over the scene for a moment
+	// when one of the window's pull requests merges. On unless false;
+	// nothing plays without a scene.
+	BackgroundFireworks *bool `toml:"background_fireworks,omitempty"`
+	// ProjectBackgrounds gives a project, by name, a scene of its own:
+	// its window shows it, and so does any window while one of its tabs is
+	// in front. "none" is no scene for that project.
+	ProjectBackgrounds map[string]string `toml:"project_backgrounds,omitempty"`
 	// Ports shows the TCP ports a pane's programs listen on in its header,
 	// a click opening one in the browser. On unless false.
 	Ports *bool `toml:"ports,omitempty"`
@@ -311,6 +333,9 @@ type GitCfg struct {
 	// merge dialog has always ticked; it is the default there and what
 	// auto_merge does, so the two cannot disagree.
 	Squash bool `toml:"squash"`
+	// StaleDays is how long a local branch goes without a commit before
+	// conch branch prune and the app's Old branches call it old; 0 is 30.
+	StaleDays int `toml:"stale_days,omitempty"`
 }
 
 // VerifyCfg holds the command conch runs in a branch's worktree when its
@@ -455,6 +480,11 @@ type AgentsCfg struct {
 	// --model, and types only into panes running an agent
 	// (internal/server/launchrule.go).
 	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
+	// NoAutoResume leaves the agents a server was running when it went —
+	// a reboot, a crash — for the person to resume (I in Sessions) rather
+	// than having the next server resume them by itself. A server stopped
+	// on purpose (conch server stop) never resumes them either way.
+	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.

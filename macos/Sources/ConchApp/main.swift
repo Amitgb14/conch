@@ -53,9 +53,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// [app]'s parts AppKit draws: the toolbar's height, option-space
     /// from anywhere.
     func applyAppLook(_ look: AppLook) {
-        for w in windows { w.window.toolbarStyle = look.compact ? .unifiedCompact : .unified }
+        for w in windows {
+            w.window.toolbarStyle = look.compact ? .unifiedCompact : .unified
+            // A scene shows behind the toolbar as Meadow's sky does.
+            w.window.titlebarAppearsTransparent = w.store.style.paintsTitleBar || look.scene.on
+        }
         #if GHOSTTY
         GhosttyRuntime.shared.setFontSize(look.fontSize)
+        GhosttyRuntime.shared.setBackgroundOpacity(look.scene.paneOpacity)
         #endif
         // SwiftTerm's panes — every pane without Ghostty, and any a Ghostty
         // build still draws with it — take it too, or ⌘+ said a size it
@@ -110,6 +115,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             main.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+        // -settings git: Settings opened at that page, as -open opens a
+        // pane — for a scripted look at one, which no key can reach in an
+        // app run with -background.
+        if let page = UserDefaults.standard.string(forKey: "settings") {
+            settings.show(section: page)
+            if UserDefaults.standard.bool(forKey: "background") { settings.window?.orderBack(nil) }
+        }
         store.connect()
         // Conch.app's own updates: once for the app, not for each window.
         AppUpdater.shared.start()
@@ -133,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             w?.window.backgroundColor = Theme.ns(t.chrome)
             self?.updateThemeMenu()
         }
-        s.onStyle = { [weak w] st in w?.window.titlebarAppearsTransparent = st.paintsTitleBar }
+        s.onStyle = { [weak w, weak s] st in w?.window.titlebarAppearsTransparent = st.paintsTitleBar || (s?.appLook.scene.on ?? false) }
         s.onAppLook = { [weak self] look in self?.applyAppLook(look) }
         s.onThemeList = { [weak self] in self?.fillThemeMenu() }
         s.onOpenSettings = { [weak self] in self?.settingsWindow?.show(section: $0) }

@@ -269,6 +269,7 @@ func (s *Server) Run() error {
 	s.ln = ln
 	s.mu.Unlock()
 	log.Printf("conch server %s listening on %s (pid %d)", proto.Version, s.sockPath, os.Getpid())
+	go s.autoResume()
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -456,7 +457,7 @@ var slowMethods = map[string]bool{
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
 	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true,
 	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
-	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
+	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodBranchStale: true, proto.MethodBranchPrune: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
@@ -517,7 +518,8 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 		return false
 	}
 	if msg.Method == proto.MethodServerStop && perr == nil { // refused (scope.go), it stays up
-		c.flush(replyWait) // the answer is out before the server goes
+		c.flush(replyWait)   // the answer is out before the server goes
+		s.runs.markStopped() // asked to stop: the next server offers its agents, it doesn't restart them
 		s.Stop()
 	}
 	if msg.Method == proto.MethodServerReload && perr == nil {
@@ -1603,6 +1605,20 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.cleanupWorktrees(cp)
+
+	case proto.MethodBranchStale:
+		sp, perr := decode[proto.BranchStaleParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.staleBranches(sp)
+
+	case proto.MethodBranchPrune:
+		bp, perr := decode[proto.BranchPruneParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.pruneBranches(bp)
 
 	case proto.MethodWorktreeFiles:
 		wp, perr := decode[proto.WorktreeFilesParams](msg)

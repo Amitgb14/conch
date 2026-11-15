@@ -203,3 +203,115 @@ func realPath(path string) string {
 	}
 	return filepath.Clean(path)
 }
+
+// staleDays is how old a branch's last commit is before branch.stale lists
+// it, when the caller names no age.
+const staleDays = 30
+
+// staleBranches lists a project's local branches with no commit in the
+// last days, oldest first, with what deleting each would lose. A branch
+// checked out somewhere is listed with where, since it goes with its
+// worktree rather than on its own.
+func (pm *projectManager) staleBranches(sp proto.BranchStaleParams) (proto.BranchStale, *proto.Error) {
+	days := sp.Days
+	if days <= 0 {
+		days = staleDays
+	}
+	out := proto.BranchStale{Days: days, Branches: []proto.StaleBranch{}}
+	p, perr := pm.gitProject(sp.ProjectID)
+	if perr != nil {
+		return out, perr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+	base := p.baseBranch(ctx)
+	branches, err := gitx.Branches(ctx, p.root, base)
+	if err != nil {
+		return out, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	checkedOut, perr := checkedOutBranches(ctx, p.root)
+	if perr != nil {
+		return out, perr
+	}
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	for i := len(branches) - 1; i >= 0; i-- { // Branches is newest first
+		b := branches[i]
+		if b.Committed.IsZero() || !b.Committed.Before(cutoff) {
+			continue
+		}
+		sb := proto.StaleBranch{Name: b.Name, Committed: b.Committed, Subject: b.Subject, Upstream: b.Upstream, Gone: b.Gone,
+			Base: b.Name == base, Worktree: checkedOut[b.Name]}
+		if !sb.Base {
+			sb.Merged = gitx.Merged(ctx, p.root, b.Name, base)
+			_, sb.Unmerged, _ = p.losses(ctx, base, b.Name, "")
+		}
+		sb.Suggested = !sb.Base && sb.Worktree == "" && sb.Unmerged == 0
+		out.Branches = append(out.Branches, sb)
+	}
+	return out, nil
+}
+
+// checkedOutBranches is where each branch is checked out, the main checkout
+// among them.
+func checkedOutBranches(ctx context.Context, root string) (map[string]string, *proto.Error) {
+	wts, err := gitx.Worktrees(ctx, root)
+	if err != nil {
+		return nil, proto.Errorf(proto.ErrBadRequest, "%v", err)
+	}
+	at := map[string]string{}
+	for _, wt := range wts {
+		if wt.Branch != "" {
+			at[wt.Branch] = wt.Path
+		}
+	}
+	return at, nil
+}
+
+// pruneBranches deletes the named local branches, each checked again first:
+// never the base, never one checked out, and never one whose commits would
+// be lost unless that one is forced.
+func (pm *projectManager) pruneBranches(bp proto.BranchPruneParams) (proto.BranchPruneResult, *proto.Error) {
+	var res proto.BranchPruneResult
+	p, perr := pm.gitProject(bp.ProjectID)
+	if perr != nil {
+		return res, perr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+	base := p.baseBranch(ctx)
+	checkedOut, perr := checkedOutBranches(ctx, p.root)
+	if perr != nil {
+		return res, perr
+	}
+	fail := func(name, format string, args ...any) {
+		res.Failed = append(res.Failed, proto.CleanupFailure{Path: name, Error: fmt.Sprintf(format, args...)})
+	}
+	for _, b := range bp.Branches {
+		if _, err := gitx.BranchHead(ctx, p.root, b.Name); err != nil || b.Name == "" || strings.HasPrefix(b.Name, "-") {
+			fail(b.Name, "no such branch")
+			continue
+		}
+		if b.Name == base {
+			fail(b.Name, "the base branch is never deleted")
+			continue
+		}
+		if at := checkedOut[b.Name]; at != "" {
+			fail(b.Name, "checked out in %s; remove that worktree instead", at)
+			continue
+		}
+		if _, commits, _ := p.losses(ctx, base, b.Name, ""); commits > 0 && !b.Force {
+			fail(b.Name, "would lose %s not merged or pushed", plural(commits, "commit"))
+			continue
+		}
+		if err := gitx.DeleteBranch(ctx, p.root, b.Name); err != nil {
+			fail(b.Name, "%v", err)
+			continue
+		}
+		res.Deleted = append(res.Deleted, b.Name)
+	}
+	pm.request(p)
+	if len(res.Deleted) > 0 {
+		log.Printf("project %s: deleted %d old branches", p.id, len(res.Deleted))
+	}
+	return res, nil
+}

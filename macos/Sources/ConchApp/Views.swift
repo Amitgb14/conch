@@ -721,7 +721,11 @@ struct MainView: View {
                     VStack(spacing: 0) {
                         // Tabs down a side ([app] tabs) leave a line saying
                         // which is on screen in the tab bar's place.
-                        if store.appLook.tabs == .top { TabBar(store: store) } else { CrumbBar(store: store) }
+                        Group {
+                            if store.appLook.tabs == .top { TabBar(store: store) } else { CrumbBar(store: store) }
+                        }
+                        // Over a scene, the tabs are frosted as the sidebar is.
+                        .background { if store.appLook.scene.on { Frost(color: Theme.chrome) } }
                         if store.connected, let tab = store.layout.current {
                             if tab.benchAgent != nil {
                                 // A workbench: its bar above, or IntelliJ's strips.
@@ -736,10 +740,11 @@ struct MainView: View {
                             Empty(store: store)
                         }
                     }
-                    .background(Theme.window)
+                    // The gaps between splits: the scene's, when there is one.
+                    .background(Theme.ground)
                     if store.appLook.tabs == .right {
                         Rectangle().fill(Theme.line).frame(width: 1)
-                        ScrollView { SideTabs(store: store).padding(8) }.frame(width: 230).background(Theme.side)
+                        ScrollView { SideTabs(store: store).padding(8) }.frame(width: 230).background(Frost(color: Theme.side))
                     }
                     if Theme.style.roster && AppStyle.celSideFits(width: size.width) { CelSide(store: store).background(Theme.window) }
                 }
@@ -765,12 +770,44 @@ struct MainView: View {
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
         .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
-        .background(Theme.window)
+        // [app] background: the scene behind everything, up under the
+        // title bar too (SceneView.swift).
+        .background {
+            // The window's scene, or the project's in front of it
+            // ([app.project_backgrounds]), faded across when it changes.
+            let shown = store.appLook.scene.showing(project: store.sceneProject)
+            ZStack {
+                if shown.scene != .none {
+                    SceneView(scene: shown).id(shown.scene).transition(.opacity)
+                } else {
+                    Theme.window
+                }
+            }
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.6), value: shown.scene)
+        }
+        // A pull request merged: fireworks over it all for a moment, and
+        // a note saying which.
+        .overlay {
+            ZStack {
+                if let c = store.celebration {
+                    MergeFireworks(celebration: c).transition(.opacity)
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.3), value: store.celebration)
+        }
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar
         // by its height — over the backgrounds that reach up there too.
         .overlay(alignment: .top) {
-            if Theme.meadow {
+            if store.appLook.scene.on {
+                // A scene shows behind the toolbar, frosted as the sidebar
+                // is; it takes the place of Meadow's sky.
+                GeometryReader { g in Frost(color: Theme.chrome).frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
+                    .allowsHitTesting(false)
+            } else if Theme.meadow {
                 GeometryReader { g in Sky().frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
                     .allowsHitTesting(false)
             } else if Theme.style.paintsTitleBar {
@@ -874,7 +911,10 @@ struct Sidebar: View {
         }
         .background {
             ZStack {
-                if Theme.meadow {
+                if Theme.scene.on {
+                    // [app] background: frosted over the scene.
+                    Frost(color: Theme.side)
+                } else if Theme.meadow {
                     // Warm paper, a shade deeper at the top.
                     LinearGradient(colors: [Theme.raise, Theme.side], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.4))
                 } else if store.appLook.glass {
@@ -2061,7 +2101,7 @@ struct PaneCard: View {
             }
             .padding(.horizontal, store.appLook.compact ? 8 : 10).frame(height: store.appLook.compact ? 22 : 30)
             .font(.ui(size: store.appLook.compact ? 11 : 12))
-            .background(Theme.ink ? Theme.window : Theme.paneHeader)
+            .background(Theme.ink ? Theme.window : Theme.paneHeader.opacity(max(Theme.scene.paneOpacity, 0.8)))
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
@@ -2079,7 +2119,9 @@ struct PaneCard: View {
                     }
                 }
         }
-        .background(Theme.window)
+        // As far as [app] background_through lets the scene in: solid
+        // unless a scene is on and through is set.
+        .background(Theme.paneFill)
         .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
         .modifier(CardFrame(focused: focused))
         .onTapGesture { store.focus(pane) }
@@ -2381,7 +2423,7 @@ struct StatusBar: View {
         }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
-        .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
+        .background { ZStack { Frost(color: Theme.side); if Theme.ink { Screentone() } } }
         .overlay(alignment: .top) {
             if Theme.meadow {
                 // A strip of grass the bar sits under.

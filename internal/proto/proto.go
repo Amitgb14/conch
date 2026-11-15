@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -257,6 +257,10 @@ const CapAgentAttach = "agent.attach.v1"
 // project's triage label read by an agent and labelled ready, needs-info
 // or too-big, with a comment saying why.
 const CapAutopilotTriage = "autopilot.triage.v1"
+
+// CapBranchPrune is branch.stale and branch.prune: local branches nobody
+// has committed to for a while, and deleting them.
+const CapBranchPrune = "branch.prune.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -627,6 +631,10 @@ const (
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
+	// Old branches: list the ones nobody has committed to for a while, and
+	// delete them (CapBranchPrune).
+	MethodBranchStale = "branch.stale"
+	MethodBranchPrune = "branch.prune"
 	// Moving a worktree to another machine (CapWorktreeMove).
 	MethodWorktreeDescribe = "worktree.describe"
 	MethodWorktreeHave     = "worktree.have"
@@ -1919,6 +1927,58 @@ type WorktreeCleanupResult struct {
 type CleanupFailure struct {
 	Path  string `json:"path"`
 	Error string `json:"error"`
+}
+
+// BranchStaleParams asks for a project's local branches whose last commit
+// is more than Days days old; 0 is 30.
+type BranchStaleParams struct {
+	ProjectID string `json:"project_id"`
+	Days      int    `json:"days,omitempty"`
+}
+
+// BranchStale is those branches, oldest first.
+type BranchStale struct {
+	Days     int           `json:"days"`
+	Branches []StaleBranch `json:"branches"`
+}
+
+// StaleBranch is an old local branch and what deleting it would lose.
+type StaleBranch struct {
+	Name      string    `json:"name"`
+	Committed time.Time `json:"committed"`
+	Subject   string    `json:"subject,omitempty"`
+	Upstream  string    `json:"upstream,omitempty"`
+	Base      bool      `json:"base,omitempty"` // the base branch, never deleted
+	// Worktree is where the branch is checked out: it goes with that
+	// worktree (worktree.cleanup), not on its own.
+	Worktree string `json:"worktree,omitempty"`
+	Merged   bool   `json:"merged,omitempty"` // the base has all of it
+	Gone     bool   `json:"gone,omitempty"`   // its upstream was deleted
+	// Unmerged counts its commits that neither the base nor its upstream
+	// has: what deleting it loses. A pushed branch loses nothing.
+	Unmerged int `json:"unmerged,omitempty"`
+	// Suggested means it can go without losing anything.
+	Suggested bool `json:"suggested,omitempty"`
+}
+
+// BranchPruneParams deletes local branches, each checked again first.
+type BranchPruneParams struct {
+	ProjectID string        `json:"project_id"`
+	Branches  []PruneBranch `json:"branches"`
+}
+
+// PruneBranch is one branch to delete; Force deletes it even when that
+// loses commits.
+type PruneBranch struct {
+	Name  string `json:"name"`
+	Force bool   `json:"force,omitempty"`
+}
+
+// BranchPruneResult says what was deleted, and what wasn't and why (the
+// failure's Path is the branch's name).
+type BranchPruneResult struct {
+	Deleted []string         `json:"deleted,omitempty"`
+	Failed  []CleanupFailure `json:"failed,omitempty"`
 }
 
 // ProjectFilesParams sets a project's local file patterns; Reset restores

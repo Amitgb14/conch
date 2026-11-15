@@ -30,7 +30,7 @@ final class AppWindow: NSObject, NSToolbarDelegate, NSWindowDelegate {
         // AppDelegate lets go of any other.
         window.isReleasedWhenClosed = false
         // Meadow paints its own sky behind the toolbar.
-        window.titlebarAppearsTransparent = store.style.paintsTitleBar
+        window.titlebarAppearsTransparent = store.style.paintsTitleBar || store.appLook.scene.on
         window.backgroundColor = Theme.ns(store.theme.chrome)
         window.minSize = NSSize(width: 760, height: 440)
         window.delegate = self

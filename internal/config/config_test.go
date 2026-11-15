@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -189,7 +190,7 @@ func TestAppSettings(t *testing.T) {
 	// A file from before [app]: the standard window, ports shown.
 	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[ui]\ntheme = \"nord\"\n"), 0o644)
 	got, err := Load()
-	if err != nil || got.App != (AppCfg{}) || !got.App.ShowsPorts() || !got.App.TakesPrefix() || !got.App.ShowsChat() {
+	if err != nil || !reflect.DeepEqual(got.App, AppCfg{}) || !got.App.ShowsPorts() || !got.App.TakesPrefix() || !got.App.ShowsChat() {
 		t.Fatalf("old file: %+v %v", got.App, err)
 	}
 	off := false
@@ -223,6 +224,56 @@ func TestAppSettings(t *testing.T) {
 	}
 	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
 	for _, k := range []string{"tabs =", "density =", "sidebar =", "ports =", "scratch_key =", "prefix_keys =", "chat ="} {
+		if strings.Contains(string(b), k) {
+			t.Fatalf("default config wrote %q:\n%s", k, b)
+		}
+	}
+}
+
+// [app] background and its settings round-trip as the app reads them
+// (macos ConchKit SceneLook), and leave nothing in a default file.
+func TestAppBackground(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	cfg := Default()
+	cfg.App = AppCfg{Background: "reef", BackgroundThrough: 24, BackgroundFrost: "strong", BackgroundMotion: "still"}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	for _, want := range []string{`background = "reef"`, "background_through = 24", `background_frost = "strong"`, `background_motion = "still"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("saved without %q:\n%s", want, b)
+		}
+	}
+	got, err := Load()
+	if err != nil || !reflect.DeepEqual(got.App, cfg.App) {
+		t.Fatalf("round trip: %+v %v", got.App, err)
+	}
+	// A project's own scene and fireworks off, after the window's keys:
+	// a table under [app] that Go and the app both read back.
+	off := false
+	cfg.App.BackgroundFireworks = &off
+	cfg.App.ProjectBackgrounds = map[string]string{"conch": "pines", "my.site": "none"}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
+	for _, want := range []string{"background_fireworks = false", "[app.project_backgrounds]", `conch = "pines"`, `"my.site" = "none"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("saved without %q:\n%s", want, b)
+		}
+	}
+	got, err = Load()
+	if err != nil || !reflect.DeepEqual(got.App, cfg.App) {
+		t.Fatalf("round trip: %+v %v", got.App, err)
+	}
+	if err := Save(Default()); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
+	// Zero numbers are written, as text_size's is; the choices are not.
+	for _, k := range []string{"background =", "background_frost =", "background_motion =", "background_fireworks", "project_backgrounds"} {
 		if strings.Contains(string(b), k) {
 			t.Fatalf("default config wrote %q:\n%s", k, b)
 		}

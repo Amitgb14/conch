@@ -222,6 +222,9 @@ final class Store: ObservableObject {
     /// The project this window shows alone ("machine|id"), for a window
     /// opened from a project's row; nil shows a workspace.
     @Published var projectScope: String?
+    /// A pull request of this window's that just merged, for the
+    /// fireworks over its scene (Store+Scene.swift); nil once they end.
+    @Published var celebration: Celebration?
     /// Its window closed for good: nothing is reached again.
     var windowClosed = false
     /// The clicks and keys it watches, taken away with its window.
@@ -954,6 +957,7 @@ final class Store: ObservableObject {
         if app != appLook {
             // Before the views redraw: the window's text is read at its size.
             Theme.textScale = app.textScale
+            Theme.scene = app.scene
             appLook = app
             onAppLook?(app)
         }
@@ -1738,6 +1742,7 @@ final class Store: ObservableObject {
                 // added): count it.
                 let before = snap.project(p.id)
                 if sessionsMayHaveChanged(old: before, new: p) { recountSessions(key(machine, p.id), after: before == nil ? 0 : SessionRecounts.settle) }
+                if let m = newlyMerged(old: before, new: p).first { celebrate(m, machine: machine, project: p) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }

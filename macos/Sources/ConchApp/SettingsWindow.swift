@@ -552,7 +552,10 @@ struct SectionForm: View {
                 if !themes.isEmpty { card("Theme", themes) }
                 card(nil, rest(["theme", "light_theme"]))
             case "app":
-                card(nil, rest(SettingsIconKeys))
+                card(nil, rest(SettingsIconKeys + BackgroundCard.keys))
+                if !pick(["background"]).isEmpty {
+                    BackgroundCard(model: model, section: section, fields: pick(Array(BackgroundCard.keys.dropFirst())))
+                }
             case "trackers":
                 if !model.trackersFailure.isEmpty {
                     Text(model.trackersFailure).font(.ui(size: 12)).foregroundStyle(Theme.warn)
@@ -566,7 +569,9 @@ struct SectionForm: View {
             case "git":
                 // Git's own, then Checks & autopilot: what a finished
                 // branch passes, its pull request and its merge.
-                if !fields.isEmpty { card("Merging", fields) }
+                let merging = rest(["stale_days"])
+                if !merging.isEmpty { card("Merging", merging) }
+                OldBranchesCard(model: model, section: section, fields: pick(["stale_days"]))
                 if let v = guest("verify") {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(v.title).font(.ui(size: 15, weight: .semibold))
@@ -648,7 +653,8 @@ struct SectionForm: View {
             }
             ForEach(nestedTables, id: \.key) { t in nestedCard(t) }
             if section.key != "verify" {
-                ForEach(maps, id: \.key) { m in
+                // A project's scene is drawn with the Background card.
+                ForEach(maps.filter { !(section.key == "app" && BackgroundCard.keys.contains($0.key)) }, id: \.key) { m in
                     MapList(model: model, section: section, field: m, offer: offer(section, m))
                 }
             }
@@ -957,7 +963,7 @@ struct ThemePreview: View {
 /// The Settings window, made once and brought forward again.
 @MainActor
 final class SettingsWindow {
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
     private let model: SettingsModel
     private var watch: [Any] = []
     private var look: AnyCancellable?
