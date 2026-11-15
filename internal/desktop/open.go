@@ -1,6 +1,7 @@
-// Package desktop is how conch hands something to the desktop it runs on:
-// which program opens a link. It is its own package because the TUI and
-// the commands both open links, and each had its own copy of the choice.
+// Package desktop is conch's side of the desktop: which program opens a
+// link on the desktop it runs on (the TUI and the commands both open
+// links, and each had its own copy of the choice), and the bridge that
+// desktop apps talk to (`conch desktop`, bridge.go).
 package desktop
 
 import (
