@@ -107,6 +107,12 @@ public struct SceneLook: Equatable, Sendable {
     public var frost: SceneFrost = .light
     /// Drawn still: [app] background_motion = "still".
     public var still = false
+    /// A project's own scene, by name ([app.project_backgrounds]); .none
+    /// there is no scene for that project.
+    public var projects: [String: BackgroundScene] = [:]
+    /// Fireworks when a pull request merges: on unless
+    /// background_fireworks = false.
+    public var fireworks = true
 
     public static let throughMax = 0.6
 
@@ -127,10 +133,33 @@ public struct SceneLook: Equatable, Sendable {
         }
         frost = SceneFrost(setting: tomlSetting("app", "background_frost", in: toml))
         still = tomlSetting("app", "background_motion", in: toml) == "still"
+        fireworks = tomlSetting("app", "background_fireworks", in: toml) != "false"
+        for (name, v) in tomlTable("app.project_backgrounds", in: toml) {
+            // A typo is no choice at all, so the window's scene stands;
+            // only "none" says no scene.
+            let s = BackgroundScene(setting: v)
+            if s != .none || v.trimmingCharacters(in: .whitespaces).lowercased() == "none" { projects[name] = s }
+        }
     }
 
-    /// Whether a scene is drawn at all.
-    public var on: Bool { scene != .none }
+    /// Whether a scene is drawn anywhere: the window's, or a project's.
+    /// The frame is frosted whenever one is, so that a window moving
+    /// between projects does not change its whole look.
+    public var on: Bool { scene != .none || projects.values.contains { $0 != .none } }
+
+    /// The scene for a window showing a project (by name): its own, or
+    /// the window's.
+    public func scene(for project: String?) -> BackgroundScene {
+        project.flatMap { projects[$0] } ?? scene
+    }
+
+    /// Just the scene drawn for that project, to hand to the drawing.
+    public func showing(project: String?) -> SceneLook {
+        var l = self
+        l.scene = scene(for: project)
+        l.projects = [:]
+        return l
+    }
 
     /// A pane's opacity: solid with no scene, whatever through says.
     public var paneOpacity: Double { on ? 1 - through : 1 }
@@ -138,7 +167,85 @@ public struct SceneLook: Equatable, Sendable {
     /// Whether it moves now: never when asked to be still, when macOS's
     /// Reduce Motion is on, or in Low Power Mode.
     public func moves(reduceMotion: Bool, lowPower: Bool) -> Bool {
-        on && !still && !reduceMotion && !lowPower
+        scene != .none && !still && !reduceMotion && !lowPower
+    }
+}
+
+/// A TOML table's keys and string values: [app.project_backgrounds], as
+/// Go writes it (a key quoted when it is not bare, `"my.site" = "reef"`).
+/// Empty when the table is missing.
+public func tomlTable(_ table: String, in toml: String?) -> [String: String] {
+    guard let toml else { return [:] }
+    var out: [String: String] = [:]
+    var inside = false
+    func unquote(_ v: Substring) -> String {
+        var v = v.trimmingCharacters(in: .whitespaces)
+        if v.hasPrefix("\""), let close = v.dropFirst().firstIndex(of: "\"") { return String(v[v.index(after: v.startIndex)..<close]) }
+        if v.hasPrefix("'"), let close = v.dropFirst().firstIndex(of: "'") { return String(v[v.index(after: v.startIndex)..<close]) }
+        if let hash = v.firstIndex(of: "#") { v = String(v[..<hash]).trimmingCharacters(in: .whitespaces) }
+        return v
+    }
+    for raw in toml.split(whereSeparator: \.isNewline) {
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        if line.hasPrefix("[") {
+            let head = line.split(separator: "]", maxSplits: 1).first.map { $0.dropFirst() } ?? ""
+            inside = head.trimmingCharacters(in: .whitespaces) == table && !line.hasPrefix("[[")
+            continue
+        }
+        guard inside, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
+        let k = unquote(line[..<eq]), v = unquote(line[line.index(after: eq)...])
+        if !k.isEmpty { out[k] = v }
+    }
+    return out
+}
+
+/// A pull request that merged between two readings of its project.
+public struct MergedPR: Equatable, Sendable {
+    public var project: String
+    public var branch: String
+    public var number: Int
+}
+
+/// The pull requests that were open in old and are merged in new: what
+/// the fireworks are for. Only a change seen happen counts — a project
+/// read for the first time, or a pull request first seen merged, is
+/// history, not news.
+public func newlyMerged(old: ProjectInfo?, new: ProjectInfo) -> [MergedPR] {
+    guard let old else { return [] }
+    let was = Dictionary((old.branches ?? []).compactMap { b in b.pr.map { (b.name, $0) } }, uniquingKeysWith: { a, _ in a })
+    return (new.branches ?? []).compactMap { b in
+        guard let pr = b.pr, pr.state?.uppercased() == "MERGED",
+              let before = was[b.name], before.number == pr.number,
+              before.state?.uppercased() == "OPEN" else { return nil }
+        return MergedPR(project: new.name, branch: b.name, number: pr.number)
+    }
+}
+
+/// Fireworks over the scene: where each burst is and how far it has
+/// gone, decided here so it is tested; SceneView.swift draws them.
+public enum Fireworks {
+    /// How long they play, in seconds; the note stays as long.
+    public static let duration = 4.0
+    /// How long one burst takes.
+    public static let burst = 1.4
+
+    /// The bursts: spread across 0.1…0.9, each in a slot of its own so
+    /// they do not bunch, down 0.15…0.55 (above the panes' middle), each
+    /// starting `phase` of the way through the show; the same every time
+    /// for a seed.
+    public static func bursts(_ n: Int, seed: UInt64) -> [ScenePiece] {
+        SceneMotion.pieces(n, seed: seed).enumerated().map { i, p in
+            let x = 0.1 + 0.8 * (Double(i) + 0.2 + 0.6 * p.x) / Double(n)
+            return ScenePiece(x: x, y: 0.15 + p.y * 0.4, size: 0.6 + p.size * 0.4, period: burst, phase: p.phase)
+        }
+    }
+
+    /// How far a burst is at t seconds since the merge: nil before it
+    /// starts and after it ends, else 0…1.
+    public static func progress(_ p: ScenePiece, at t: Double) -> Double? {
+        let start = p.phase * (duration - burst)
+        let v = (t - start) / burst
+        return v < 0 || v > 1 ? nil : v
     }
 }
 

@@ -653,7 +653,8 @@ struct SectionForm: View {
             }
             ForEach(nestedTables, id: \.key) { t in nestedCard(t) }
             if section.key != "verify" {
-                ForEach(maps, id: \.key) { m in
+                // A project's scene is drawn with the Background card.
+                ForEach(maps.filter { !(section.key == "app" && BackgroundCard.keys.contains($0.key)) }, id: \.key) { m in
                     MapList(model: model, section: section, field: m, offer: offer(section, m))
                 }
             }

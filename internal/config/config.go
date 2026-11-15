@@ -125,6 +125,14 @@ type AppCfg struct {
 	// BackgroundMotion "still" draws the scene without moving it. It is
 	// still anyway under macOS's Reduce Motion and in Low Power Mode.
 	BackgroundMotion string `toml:"background_motion,omitempty"`
+	// BackgroundFireworks plays fireworks over the scene for a moment
+	// when one of the window's pull requests merges. On unless false;
+	// nothing plays without a scene.
+	BackgroundFireworks *bool `toml:"background_fireworks,omitempty"`
+	// ProjectBackgrounds gives a project, by name, a scene of its own:
+	// its window shows it, and so does any window while one of its tabs is
+	// in front. "none" is no scene for that project.
+	ProjectBackgrounds map[string]string `toml:"project_backgrounds,omitempty"`
 	// Ports shows the TCP ports a pane's programs listen on in its header,
 	// a click opening one in the browser. On unless false.
 	Ports *bool `toml:"ports,omitempty"`
