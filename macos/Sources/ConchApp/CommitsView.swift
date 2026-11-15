@@ -61,6 +61,14 @@ final class CommitsModel: ObservableObject {
     /// the button says so until a later attempt shows up.
     @Published var rerunning: [Int64: Int] = [:]
     private var ciReads = Latest()
+    /// Branches rebased and not pushed (branch.rebased), by name.
+    @Published var rebases: [String: BranchRebase] = [:]
+    /// The rebase being reviewed in a sheet, with git range-diff's account.
+    @Published var reviewing: BranchRebase?
+    @Published var reviewError = ""
+    /// Branches whose rewrite is going up, or being undone.
+    @Published var pushing: Set<String> = []
+    private var rebaseReads = Latest()
     /// The graph's search: commits that do not match are dimmed, never
     /// taken out, so the lanes stay whole.
     @Published var query = ""
@@ -101,7 +109,7 @@ final class CommitsModel: ObservableObject {
     /// The agents' branches, most urgent first.
     var branches: [GraphBranch] {
         guard let p = projectInfo else { return [] }
-        return graphBranches(p, panes: store.snapshots[machine]?.panes ?? [])
+        return graphBranches(p, panes: store.snapshots[machine]?.panes ?? [], rebased: rebases)
     }
 
     /// The branch a commit is on and its entry in the side's list, if it
@@ -217,6 +225,103 @@ final class CommitsModel: ObservableObject {
         }
     }
 
+    var canRebased: Bool { store.connection(machine)?.hello?.capabilities?.contains("branch.rebased.v1") == true }
+
+    /// The agents' branches rebased and not pushed. An older server has no
+    /// such list, and the graph goes on without it.
+    func loadRebases() {
+        guard let c = store.connection(machine), canRebased else { return }
+        struct P: Encodable { var project_id: String }
+        let n = rebaseReads.next()
+        Task {
+            guard let r = try? await c.call("branch.rebased", P(project_id: project), as: BranchRebased.self),
+                  rebaseReads.isLatest(n) else { return }
+            rebases = Dictionary((r.rebases ?? []).map { ($0.branch, $0) }, uniquingKeysWith: { a, _ in a })
+            // A sheet open on a rebase that was pushed or undone elsewhere.
+            if let open = reviewing, rebases[open.branch]?.after != open.after { reviewing = nil }
+        }
+    }
+
+    /// Opens the review of a branch's rebase: what resolving changed.
+    func review(_ r: BranchRebase) {
+        guard let c = store.connection(machine) else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var diff: Bool }
+        reviewing = r
+        reviewError = ""
+        Task {
+            do {
+                let got = try await c.call("branch.rebased", P(project_id: project, branch: r.branch, diff: true), as: BranchRebased.self)
+                guard reviewing?.branch == r.branch else { return }
+                if let fresh = got.rebases?.first {
+                    reviewing = fresh
+                } else {
+                    reviewError = "\(r.branch) is no longer a rebase waiting to be pushed: it was pushed, undone or committed to since."
+                }
+            } catch {
+                guard reviewing?.branch == r.branch else { return }
+                reviewError = "Could not read the rebase: \(error)"
+            }
+        }
+    }
+
+    /// Pushes a rebased branch: over the old one the remote still has, and
+    /// only that, or a first push.
+    func pushRebase(_ r: BranchRebase) {
+        guard let c = store.connection(machine) else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var over: String? }
+        var over: String?
+        switch r.push {
+        case .fresh: over = nil
+        case .over(let h): over = h
+        case .moved(let h):
+            store.error = "Somebody pushed \(String(h.prefix(8))) to \(r.branch) since it was rebased; pushing would throw that away. Bring it in first."
+            return
+        }
+        pushing.insert(r.branch)
+        Task {
+            defer { pushing.remove(r.branch) }
+            do {
+                try await c.call("branch.push", P(project_id: project, branch: r.branch, over: over))
+                store.say("Pushed \(r.branch), rebased onto \(projectInfo?.base ?? "the base")")
+                if reviewing?.branch == r.branch { reviewing = nil }
+                rebases[r.branch] = nil
+                store.refreshProject(machine: machine, project: project)
+                loadRebases()
+            } catch {
+                store.error = "Could not push \(r.branch): \(error)"
+                loadRebases()
+            }
+        }
+    }
+
+    /// Puts a rebased branch back where it was, after asking: the rewrite
+    /// stays in git's reflog, but the agent's resolution leaves the branch.
+    func undoRebase(_ r: BranchRebase) {
+        guard let c = store.connection(machine) else { return }
+        let a = NSAlert()
+        a.messageText = "Undo the rebase of \(r.branch)?"
+        a.informativeText = "The branch goes back to \(String(r.before.prefix(8))), where it was before, and the conflict with \(projectInfo?.base ?? "the base") is back. "
+            + "The rebased commits stay in git's reflog (\(String(r.after.prefix(8)))). A worktree with uncommitted changes is not touched."
+        a.addButton(withTitle: "Undo the Rebase")
+        a.addButton(withTitle: "Cancel")
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var before: String; var after: String }
+        pushing.insert(r.branch)
+        Task {
+            defer { pushing.remove(r.branch) }
+            do {
+                try await c.call("branch.rebase_undo", P(project_id: project, branch: r.branch, before: r.before, after: r.after))
+                store.say("Put \(r.branch) back where it was before its rebase", .info)
+                if reviewing?.branch == r.branch { reviewing = nil }
+                rebases[r.branch] = nil
+                store.refreshProject(machine: machine, project: project)
+                load()
+            } catch {
+                store.error = "Could not undo the rebase: \(error)"
+            }
+        }
+    }
+
     func handToAgent(_ c: LogCommit) {
         store.handCommit(machine: machine, project: project, hash: c.hash, subject: c.subject)
     }
@@ -237,6 +342,7 @@ final class CommitsModel: ObservableObject {
         }
         struct Params: Encodable { var project_id: String; var limit: Int }
         loading = true
+        loadRebases()
         let n = reads.next()
         Task {
             do {
@@ -375,6 +481,9 @@ struct CommitsView: View {
         .background(Theme.window)
         .clipShape(RoundedRectangle(cornerRadius: embedded ? 0 : 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(embedded ? .clear : Theme.line))
+        .sheet(isPresented: Binding(get: { model.reviewing != nil }, set: { if !$0 { model.reviewing = nil } })) {
+            RebaseReviewSheet(model: model)
+        }
     }
 
     var graph: some View {
@@ -382,6 +491,7 @@ struct CommitsView: View {
             header
             Rectangle().fill(Theme.line).frame(height: 1)
             ConflictBanner(model: model)
+            RebasedBanner(model: model)
             if model.range != nil {
                 HStack(spacing: 8) {
                     Circle().fill(Theme.merged).frame(width: 7, height: 7)
@@ -719,6 +829,7 @@ struct CommitDetailPanel: View {
                     }
                     if model.range == nil {
                         if let b = model.branch(of: d.hash), b.state.conflicts { ConflictCard(model: model, branch: b) }
+                        if let b = model.branch(of: d.hash), let r = b.rebase { RebasedCard(model: model, branch: b, rebase: r) }
                         HStack(spacing: 8) {
                             if let c = model.rows.first(where: { $0.commit.hash == d.hash })?.commit {
                                 Button("Hand to an Agent…") { model.handToAgent(c) }
@@ -844,6 +955,7 @@ struct StateTag: View {
         case .willConflict: ("⚠ will conflict", Theme.warn)
         case .ciFailing: ("✕ CI failed", Theme.err)
         case .waiting: ("waiting for you", Theme.warn)
+        case .rebased: ("✓ rebased · not pushed", Theme.ok)
         default: nil
         }
     }
@@ -928,6 +1040,12 @@ struct BranchSideRow: View {
         .contextMenu {
             if branch.state.conflicts {
                 Button("Ask \(branch.agent?.displayName ?? "an Agent") to Resolve") { model.askToResolve(branch) }
+            }
+            if let r = branch.rebase {
+                Button("Review the Resolution…") { model.review(r) }
+                Button(r.push == .fresh ? "Push" : "Push (with Lease)") { model.pushRebase(r) }
+                    .disabled(model.pushing.contains(r.branch) || { if case .moved = r.push { return true } else { return false } }())
+                Button("Undo the Rebase…") { model.undoRebase(r) }
             }
             if branch.state == .ciFailing, model.canRerun {
                 Button("Re-run Failed Jobs") { model.rerun(branch: branch.name) }
