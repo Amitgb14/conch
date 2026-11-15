@@ -161,7 +161,7 @@ var guides = []string{
 	"page.mdx", "installation/page.mdx", "quick-start/page.mdx", "why/page.mdx",
 	"interface/page.mdx", "tasks/page.mdx", "agents/page.mdx", "agents-together/page.mdx",
 	"sessions/page.mdx", "remote-machines/page.mdx", "sandboxes/page.mdx",
-	"mac-app/page.mdx", "phone/page.mdx", "brain/page.mdx",
+	"mac-app/page.mdx", "mobile-preview/page.mdx", "phone/page.mdx", "brain/page.mdx",
 }
 
 const (

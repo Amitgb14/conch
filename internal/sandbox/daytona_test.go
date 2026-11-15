@@ -36,6 +36,10 @@ type fakeDaytona struct {
 	headers map[string]string // added to failure replies
 	access  string            // raw ssh-access reply
 	nextID  int
+	// slow holds the first reply to a call back this long, as a busy
+	// machine or network can; and served says how many have been answered.
+	slow   map[string]time.Duration
+	served map[string]int
 }
 
 type fakeBox struct {
@@ -45,7 +49,8 @@ type fakeBox struct {
 
 func newFakeDaytona(t *testing.T) (*fakeDaytona, *Daytona) {
 	t.Helper()
-	f := &fakeDaytona{t: t, boxes: map[string]*fakeBox{}, fail: map[string][]int{}, queries: map[string]string{}, bodies: map[string][]byte{}}
+	f := &fakeDaytona{t: t, boxes: map[string]*fakeBox{}, fail: map[string][]int{}, queries: map[string]string{}, bodies: map[string][]byte{},
+		slow: map[string]time.Duration{}, served: map[string]int{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k-secret")
@@ -77,6 +82,13 @@ func (f *fakeDaytona) called() []string {
 }
 
 func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	key := r.Method + " " + strings.TrimPrefix(r.URL.Path, "/api")
+	f.mu.Lock()
+	wait := f.slow[key]
+	delete(f.slow, key)
+	f.served[key]++
+	f.mu.Unlock()
+	time.Sleep(wait)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if got := r.Header.Get("Authorization"); got != "Bearer k-secret" {
@@ -85,7 +97,6 @@ func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api")
-	key := r.Method + " " + path
 	f.calls = append(f.calls, key)
 	f.queries[key] = r.URL.RawQuery
 	if r.Body != nil {
@@ -319,13 +330,31 @@ func TestDaytonaCreateWithoutAnID(t *testing.T) {
 	}
 }
 
+// A wait for a sandbox that never comes up ends with its context, and
+// says what the sandbox was doing. The context ends once the wait is under
+// way, not by the clock: a fixed 30ms ran out during Start's first look
+// on a busy machine, before there was any waiting to speak of (the slow
+// first reply here is that machine).
 func TestDaytonaWaitEndsWithItsContext(t *testing.T) {
 	f, d := newFakeDaytona(t)
 	f.add("stuck", StateCreating)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	f.slow["GET /sandbox/stuck"] = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(ctxFor(t))
 	defer cancel()
+	go func() {
+		for ctx.Err() == nil {
+			f.mu.Lock()
+			polled := f.served["GET /sandbox/stuck"] >= 3 // Start's look, then the wait's
+			f.mu.Unlock()
+			if polled {
+				cancel()
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
 	_, err := d.Start(ctx, "stuck")
-	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "it is creating") {
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "it is creating") {
 		t.Fatalf("err %v", err)
 	}
 }
