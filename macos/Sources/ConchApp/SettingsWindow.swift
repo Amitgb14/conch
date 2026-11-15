@@ -552,7 +552,10 @@ struct SectionForm: View {
                 if !themes.isEmpty { card("Theme", themes) }
                 card(nil, rest(["theme", "light_theme"]))
             case "app":
-                card(nil, rest(SettingsIconKeys))
+                card(nil, rest(SettingsIconKeys + BackgroundCard.keys))
+                if !pick(["background"]).isEmpty {
+                    BackgroundCard(model: model, section: section, fields: pick(Array(BackgroundCard.keys.dropFirst())))
+                }
             case "trackers":
                 if !model.trackersFailure.isEmpty {
                     Text(model.trackersFailure).font(.ui(size: 12)).foregroundStyle(Theme.warn)

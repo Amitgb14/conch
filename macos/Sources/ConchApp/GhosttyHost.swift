@@ -120,6 +120,19 @@ final class GhosttyRuntime {
     /// gives Ghostty.
     static var fontSize = AppLook.fontDefault
 
+    /// How opaque a pane's background is: below 1 while a scene is behind
+    /// the window and [app] background_through lets it in.
+    static var backgroundOpacity = 1.0
+
+    /// A new background opacity for every pane at once.
+    func setBackgroundOpacity(_ o: Double) {
+        guard o != Self.backgroundOpacity else { return }
+        Self.backgroundOpacity = o
+        guard let t = theme else { return } // not begun: the first config will carry it
+        theme = nil
+        apply(t)
+    }
+
     /// A new font size for every pane at once.
     func setFontSize(_ pt: Double) {
         guard pt != Self.fontSize else { return }
@@ -179,6 +192,7 @@ final class GhosttyRuntime {
         term = xterm-256color
         clipboard-read = deny
         mouse-hide-while-typing = true
+        background-opacity = \(String(format: "%.2f", backgroundOpacity))
         \(scrollKeys)
 
         """
