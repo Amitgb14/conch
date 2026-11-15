@@ -44,6 +44,15 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 		if b, known := branches[wt.Branch]; known {
 			sw.Gone, sw.Committed, sw.PR = b.Gone, b.Committed, b.PR
 		}
+		if !sw.Missing {
+			// Mid-rebase, git has detached HEAD; the rebase still names
+			// the branch, and the worktree is anything but finished.
+			op, rebasing := gitx.Operation(ctx, wt.Path)
+			sw.Operation = op
+			if wt.Branch == "" && rebasing != "" {
+				sw.Branch = rebasing
+			}
+		}
 		readable := true
 		if !sw.Missing {
 			sw.Panes = pm.s.panesIn(wt.Path)
@@ -66,6 +75,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 			note("folder gone")
 		}
 		switch {
+		case sw.Operation != "":
 		case wt.Branch == "":
 			note("detached")
 		case sw.Base:
@@ -82,7 +92,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 		if sw.Gone {
 			note("upstream deleted")
 		}
-		sw.Suggested = finished && readable && !sw.Base && !sw.Locked && !sw.Panes && sw.Uncommitted == 0 && sw.Unmerged == 0
+		sw.Suggested = finished && readable && sw.Operation == "" && !sw.Base && !sw.Locked && !sw.Panes && sw.Uncommitted == 0 && sw.Unmerged == 0
 		out.Worktrees = append(out.Worktrees, sw)
 	}
 	return out, nil
@@ -134,6 +144,10 @@ func (pm *projectManager) cleanupWorktrees(cp proto.WorktreeCleanupParams) (prot
 			continue
 		case pm.s.panesIn(wt.Path):
 			fail(item.Path, "panes are still running in it")
+			continue
+		}
+		if op := gitx.InProgress(ctx, wt.Path); op != "" && !item.Force {
+			fail(item.Path, "a %s is in progress in it; finish or abort it first", op)
 			continue
 		}
 		branch := wt.Branch
@@ -274,6 +288,11 @@ func checkedOutBranches(ctx context.Context, root string) (map[string]string, *p
 	for _, wt := range wts {
 		if wt.Branch != "" {
 			at[wt.Branch] = wt.Path
+		} else if wt.Detached && !wt.Prunable {
+			// A branch being rebased is as checked out as any other.
+			if b := gitx.RebasingBranch(ctx, wt.Path); b != "" {
+				at[b] = wt.Path
+			}
 		}
 	}
 	return at, nil

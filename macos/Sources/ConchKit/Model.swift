@@ -1209,8 +1209,20 @@ public struct BadgePart: Equatable, Sendable {
     }
 }
 
+/// What git left unfinished, in a word beside the branch (gitx.OperationWord).
+public func operationWord(_ op: String) -> String {
+    switch op {
+    case "rebase": return "rebasing"
+    case "merge": return "merging"
+    case "cherry-pick": return "cherry-picking"
+    case "revert": return "reverting"
+    case "am": return "applying patches"
+    default: return op
+    }
+}
+
 /// A branch row's badge, as the TUI's (view.go branchParts): its agents'
-/// state, worst first; conflicts or uncommitted changes; its pull request
+/// state, worst first; a rebase or merge in progress; conflicts or uncommitted changes; its pull request
 /// (merged, closed, draft, its checks); gone, or how far it is ahead of
 /// and behind the base (the base itself against its upstream).
 public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase: Bool, agents: [AgentState]) -> [BadgePart] {
@@ -1218,6 +1230,7 @@ public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase:
     if agents.contains(.blocked) { out.append(BadgePart("!", .warn)) }
     else if agents.contains(.working) { out.append(BadgePart("⠋", .work)) }
     else if agents.contains(.done) { out.append(BadgePart("✓", .ok)) }
+    if let op = w?.operation, !op.isEmpty { out.append(BadgePart(operationWord(op), .warn)) }
     if let st = w?.status {
         if let c = st.conflicts, c > 0 {
             out.append(BadgePart("⚠\(c)", .err))

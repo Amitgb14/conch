@@ -273,7 +273,7 @@ An agent [kept to its own work](#when-an-agent-runs-these-commands) may comment 
 
 | Command | Description |
 | --- | --- |
-| `conch worktree ls` | list the project's worktrees besides the main checkout, with why each looks finished and what removing it would lose |
+| `conch worktree ls` | list the project's worktrees besides the main checkout, with why each looks finished and what removing it would lose; one mid-rebase says `rebasing`, under the branch being rebased, and is removed only with `-force` |
 | `conch worktree clean [-y] [-force] [PATH\|BRANCH...]` | remove the worktrees that look finished and lose nothing, or the ones named, deleting their branches (never the base). Without `-y` it only prints what it would remove; `-force` allows losing work |
 
 Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#finishing-a-task).

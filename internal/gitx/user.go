@@ -105,16 +105,8 @@ func gitDir(ctx context.Context, dir string) (string, bool) {
 // rewriting, or "". git detaches HEAD while it works, so the worktree list
 // shows no branch there until the rebase ends.
 func RebasingBranch(ctx context.Context, dir string) string {
-	gd, ok := gitDir(ctx, dir)
-	if !ok {
-		return ""
-	}
-	for _, d := range []string{"rebase-merge", "rebase-apply"} {
-		if b, err := os.ReadFile(filepath.Join(gd, d, "head-name")); err == nil {
-			return strings.TrimPrefix(strings.TrimSpace(string(b)), "refs/heads/")
-		}
-	}
-	return ""
+	_, branch := Operation(ctx, dir)
+	return branch
 }
 
 // InProgress names the operation left unfinished in the checkout at dir —
@@ -122,28 +114,66 @@ func RebasingBranch(ctx context.Context, dir string) string {
 // none. Each worktree has its own, so a conflict in one doesn't show in
 // the others.
 func InProgress(ctx context.Context, dir string) string {
+	op, _ := Operation(ctx, dir)
+	return op
+}
+
+// OperationWord says what Operation found as a person reads it beside a
+// branch: "rebasing" for "rebase".
+func OperationWord(op string) string {
+	switch op {
+	case "rebase":
+		return "rebasing"
+	case "merge":
+		return "merging"
+	case "cherry-pick":
+		return "cherry-picking"
+	case "revert":
+		return "reverting"
+	case "am":
+		return "applying patches"
+	}
+	return op
+}
+
+// Operation is InProgress and, for a rebase, the branch it is rewriting,
+// read with one call to git. The branch is "" for anything but a rebase of
+// a branch: an am also keeps rebase-apply, and a rebase of a detached HEAD
+// writes "detached HEAD" where a branch's name would be.
+func Operation(ctx context.Context, dir string) (op, branch string) {
 	gd, ok := gitDir(ctx, dir)
 	if !ok {
-		return ""
+		return "", ""
 	}
 	has := func(name string) bool {
 		_, err := os.Stat(filepath.Join(gd, name))
 		return err == nil
 	}
+	headName := func(d string) string {
+		b, err := os.ReadFile(filepath.Join(gd, d, "head-name"))
+		if err != nil {
+			return ""
+		}
+		name, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "refs/heads/")
+		if !ok {
+			return ""
+		}
+		return name
+	}
 	switch {
 	case has("rebase-merge"):
-		return "rebase"
+		return "rebase", headName("rebase-merge")
 	case has("rebase-apply"):
 		if has("rebase-apply/applying") {
-			return "am"
+			return "am", ""
 		}
-		return "rebase"
+		return "rebase", headName("rebase-apply")
 	case has("MERGE_HEAD"):
-		return "merge"
+		return "merge", ""
 	case has("CHERRY_PICK_HEAD"):
-		return "cherry-pick"
+		return "cherry-pick", ""
 	case has("REVERT_HEAD"):
-		return "revert"
+		return "revert", ""
 	}
-	return ""
+	return "", ""
 }

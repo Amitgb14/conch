@@ -12,6 +12,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -470,6 +471,8 @@ func worktreeLabel(w proto.StaleWorktree) string {
 // why it looks finished.
 func worktreeState(w proto.StaleWorktree) string {
 	switch {
+	case w.Operation != "":
+		return gitx.OperationWord(w.Operation)
 	case w.Panes:
 		return "panes running"
 	case w.Locked:
