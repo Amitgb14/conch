@@ -53,6 +53,9 @@ public func commitOwners(_ commits: [LogCommit], base: String, remotes: Set<Stri
 public enum GraphBranchState: Equatable, Sendable {
     /// Its worktree stopped mid-rebase or merge with files to resolve.
     case conflicted(Int)
+    /// Rebased onto the base — a conflict resolved — and not pushed: the
+    /// remote still has the old commits.
+    case rebased
     /// Its agent is waiting for the person.
     case waiting
     /// Its pull request's checks failed.
@@ -68,12 +71,13 @@ public enum GraphBranchState: Equatable, Sendable {
     public var urgency: Int {
         switch self {
         case .conflicted: 0
-        case .waiting: 1
-        case .ciFailing: 2
-        case .willConflict: 3
-        case .working: 4
-        case .done: 5
-        case .idle: 6
+        case .rebased: 1
+        case .waiting: 2
+        case .ciFailing: 3
+        case .willConflict: 4
+        case .working: 5
+        case .done: 6
+        case .idle: 7
         }
     }
 
@@ -98,6 +102,8 @@ public struct GraphBranch: Equatable, Sendable {
     /// The files merging it into the base would conflict in.
     public var conflicts: [String]
     public var pr: PRInfo?
+    /// Its rebase not yet pushed (branch.rebased).
+    public var rebase: BranchRebase?
 
     /// Whether its worktree stopped mid-rebase or merge on a conflict.
     public var stopped: Bool {
@@ -109,7 +115,9 @@ public struct GraphBranch: Equatable, Sendable {
 /// The project's agent branches — every branch checked out in a worktree
 /// of its own, never the base or the main checkout — with the state each
 /// is in, most urgent first and otherwise as the worktrees are listed.
-public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo]) -> [GraphBranch] {
+/// Rebased is the server's list of branches rebased and not pushed, by
+/// name.
+public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo], rebased: [String: BranchRebase] = [:]) -> [GraphBranch] {
     let base = project.base ?? ""
     let mainBranches = Set((project.worktrees ?? []).filter { $0.main == true }.compactMap(\.branch))
     let info = Dictionary((project.branches ?? []).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
@@ -130,6 +138,8 @@ public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo]) -> [GraphBr
         let state: GraphBranchState
         if let n = w.status?.conflicts, n > 0 {
             state = .conflicted(n)
+        } else if rebased[name] != nil {
+            state = .rebased
         } else if agent?.agent?.state == .blocked {
             state = .waiting
         } else if pr?.checks == "fail" {
@@ -144,7 +154,7 @@ public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo]) -> [GraphBr
             state = .idle
         }
         out.append(GraphBranch(name: name, agent: agent, state: state, ahead: b?.baseAhead ?? 0, behind: b?.baseBehind ?? 0,
-                               conflicts: w.conflicts ?? [], pr: pr))
+                               conflicts: w.conflicts ?? [], pr: pr, rebase: rebased[name]))
     }
     return out.enumerated().sorted { ($0.element.state.urgency, $0.offset) < ($1.element.state.urgency, $1.offset) }.map(\.element)
 }

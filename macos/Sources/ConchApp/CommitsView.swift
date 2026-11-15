@@ -949,6 +949,7 @@ struct BranchSideRow: View {
     func describe(_ b: GraphBranch) -> (String, Color) {
         switch b.state {
         case .conflicted(let n): ("conflict · \(n) file\(n == 1 ? "" : "s")", Theme.err)
+        case .rebased: ("rebased · not pushed", Theme.ok)
         case .waiting: ("waiting for you", Theme.warn)
         case .ciFailing: ("CI failed", Theme.err)
         case .willConflict: ("will conflict", Theme.warn)
