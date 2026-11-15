@@ -155,7 +155,7 @@ import Testing
 
 // What ▶ Run types to put the app on the iPhone shown: each kind's own
 // way of building for an iOS simulator, for that simulator where it can be
-// named; nothing where conch knows no command (Xcode builds in Xcode).
+// named; nothing where conch knows no command.
 @Test func devCommandForTheDevice() {
     let d = MobileDevice(id: "U-1", name: "iPhone 17 Pro", platform: "ios", state: "booted")
     #expect(previewRunCommand(kind: "expo", device: d) == "npx expo start --ios")
@@ -163,7 +163,10 @@ import Testing
     #expect(previewRunCommand(kind: "flutter", device: d) == "flutter run -d U-1")
     #expect(previewRunCommand(kind: "flutter", device: nil) == "flutter run")
     #expect(previewRunCommand(kind: "react-native", device: nil) == "npx react-native run-ios")
-    #expect(previewRunCommand(kind: "xcode", device: d) == nil)
+    // Xcode: conch builds, installs and opens it, by the app's own conch.
+    #expect(previewRunCommand(kind: "xcode", device: d) == "conch preview run -device U-1")
+    #expect(previewRunCommand(kind: "xcode", device: nil, conch: "/Applications/Conch.app/Contents/Resources/conch") == "/Applications/Conch.app/Contents/Resources/conch preview run")
+    #expect(previewRunCommand(kind: "xcode", device: d, conch: "/Users/a b/conch") == "'/Users/a b/conch' preview run -device U-1")
     #expect(previewRunCommand(kind: "", device: d) == nil)
     #expect(previewRunCommand(kind: "android", device: d) == nil)
 }

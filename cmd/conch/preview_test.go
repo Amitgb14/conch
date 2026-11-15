@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,15 @@ func fakePreview(t *testing.T, answers map[string]string) (*[]string, *bytes.Buf
 				return nil, nil
 			},
 			Start: func(string, ...string) error { return nil },
+			Pipe: func(_ context.Context, w io.Writer, name string, args ...string) error {
+				line := strings.Join(append([]string{name}, args...), " ")
+				ran = append(ran, line)
+				if a, ok := answers[line]; ok && strings.HasPrefix(a, "ERR ") {
+					return errors.New(a[4:])
+				}
+				io.WriteString(w, answers[line]) //nolint:errcheck
+				return nil
+			},
 		}
 	}
 	return &ran, out
@@ -205,5 +215,51 @@ func TestPreviewToolsReadSettings(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[preview\n"), 0o644)
 	if previewTools() == nil {
 		t.Error("no tools")
+	}
+}
+
+// ▶ Run on an Xcode project: built for the simulator running, installed
+// and opened, the build shown as it goes and what was opened said last.
+func TestPreviewRunXcode(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "Conch.xcodeproj"), 0o755)
+	proj := filepath.Join(dir, "Conch.xcodeproj")
+	args := "-project " + proj + " -scheme Conch -configuration Debug -destination id=A1"
+	ran, out := fakePreview(t, map[string]string{
+		"xcrun simctl list devices available -j":            previewSims,
+		"xcrun xcodebuild -list -json -project " + proj:     `{"project":{"name":"Conch","schemes":["Conch","ConchKit"]}}`,
+		"xcrun xcodebuild " + args + " build":               "** BUILD SUCCEEDED **\n",
+		"xcrun xcodebuild -showBuildSettings -json " + args: `[{"target":"Conch","buildSettings":{"WRAPPER_EXTENSION":"app","TARGET_BUILD_DIR":"/dd","WRAPPER_NAME":"Conch.app","PRODUCT_BUNDLE_IDENTIFIER":"dev.conch.mobile"}}]`,
+	})
+	t.Chdir(dir)
+	if err := runPreview([]string{"run"}); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(*ran, "\n")
+	for _, w := range []string{"xcrun simctl install A1 /dd/Conch.app", "xcrun simctl launch --terminate-running-process A1 dev.conch.mobile"} {
+		if !strings.Contains(got, w) {
+			t.Errorf("never ran %q:\n%s", w, got)
+		}
+	}
+	if s := out.String(); !strings.Contains(s, "BUILD SUCCEEDED") || !strings.HasSuffix(s, "conch: Conch (dev.conch.mobile) is open on iPhone 16 Pro\n") {
+		t.Errorf("out: %q", s)
+	}
+
+	flutter := t.TempDir()
+	os.WriteFile(filepath.Join(flutter, "pubspec.yaml"), []byte("name: app"), 0o644)
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"run", "a", "b"}, "usage"},
+		{[]string{"run", filepath.Join(dir, "missing")}, "not a folder"},
+		{[]string{"run", t.TempDir()}, "holds no mobile app conch knows"},
+		{[]string{"run", flutter}, "holds a Flutter app; its own flutter run runs it"},
+		{[]string{"run", "-scheme", "Nope", dir}, `no scheme "Nope"`},
+		{[]string{"run", "-device", "Galaxy", dir}, `no device "Galaxy"`},
+	} {
+		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%q: %v, want %q", c.args, err, c.err)
+		}
 	}
 }

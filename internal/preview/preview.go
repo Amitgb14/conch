@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -65,6 +66,9 @@ type Tools struct {
 	// Start leaves one running (an emulator). Tests replace both.
 	Run   func(ctx context.Context, name string, args ...string) ([]byte, error)
 	Start func(name string, args ...string) error
+	// Pipe runs a program to its end with everything it prints sent to w
+	// as it prints it: a build somebody is watching in a terminal.
+	Pipe func(ctx context.Context, w io.Writer, name string, args ...string) error
 }
 
 // Options are the settings ([preview] in config.toml): where Xcode and
@@ -194,6 +198,15 @@ func FindWith(env []string, opt Options) *Tools {
 			return out, toolError(filepath.Base(name), stderr.String(), err)
 		}
 		return out, nil
+	}
+	t.Pipe = func(ctx context.Context, w io.Writer, name string, args ...string) error {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Env = env
+		cmd.Stdout, cmd.Stderr = w, w
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("%s: %w", filepath.Base(name), err)
+		}
+		return nil
 	}
 	t.Start = func(name string, args ...string) error {
 		cmd := exec.Command(name, args...)

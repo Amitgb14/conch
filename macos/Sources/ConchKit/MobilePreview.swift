@@ -128,12 +128,16 @@ public func phoneLayout(image: CGSize, box: CGSize, tablet: Bool = false) -> Pho
 
 /// What ▶ Run types to put a project's app on the simulator shown, by the
 /// kind `conch preview detect` said; nil where conch knows no command.
-public func previewRunCommand(kind: String, device: MobileDevice?) -> String? {
+/// An Xcode project has no dev server of its own, so conch builds,
+/// installs and opens it (`conch preview run`), named by the app's own
+/// conch so the shell's PATH does not decide which one.
+public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch") -> String? {
     let id = device?.id ?? ""
     switch kind {
     case "expo": return "npx expo start --ios"
     case "react-native": return "npx react-native run-ios" + (id.isEmpty ? "" : " --udid \(id)")
     case "flutter": return "flutter run" + (id.isEmpty ? "" : " -d \(id)")
+    case "xcode": return shellQuote(conch) + " preview run" + (id.isEmpty ? "" : " -device \(shellQuote(id))")
     default: return nil
     }
 }

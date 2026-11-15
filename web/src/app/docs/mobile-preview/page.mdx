@@ -14,7 +14,9 @@ Pick the simulator from the tab's menu; **Start** boots one that is shut down.
 
 Click the screen to tap it, type in the field below it, ○ for Home.
 
-**▶ Run** puts the app on the phone: `npx expo start --ios`, `react-native run-ios` or `flutter run`. In a workbench it runs in the workbench's terminal, so the phone shows that branch.
+**▶ Run** puts the app on the phone: `npx expo start --ios`, `react-native run-ios` or `flutter run`. For an Xcode project it is `conch preview run`, which builds the app for that simulator, installs it and opens it; press it again after a change, since an Xcode app does not reload by itself.
+
+In a workbench it runs in the workbench's terminal, so the phone shows that branch.
 
 **To agent** puts a screenshot in an agent's prompt. An agent can take one itself with [`conch preview shot`](/docs/cli#preview).
 

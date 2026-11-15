@@ -3,6 +3,7 @@ package preview
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -32,6 +33,15 @@ func (f *fake) tools(xcrun, adb, emulator, idb string) *Tools {
 		},
 		Start: func(name string, args ...string) error {
 			f.started = append(f.started, strings.Join(append([]string{name}, args...), " "))
+			return nil
+		},
+		Pipe: func(_ context.Context, w io.Writer, name string, args ...string) error {
+			line := strings.Join(append([]string{name}, args...), " ")
+			f.ran = append(f.ran, line)
+			io.WriteString(w, f.answers[line]) //nolint:errcheck
+			if msg, ok := f.fails[line]; ok {
+				return errors.New(msg)
+			}
 			return nil
 		},
 	}

@@ -23,7 +23,7 @@ import (
 // It is this computer's alone: the phones run where Xcode and the Android
 // SDK are, and no server is asked.
 
-const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | detect [DIR]"
+const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR]"
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.
@@ -135,6 +135,49 @@ func runPreview(args []string) error {
 			return err
 		}
 		return t.Type(ctx, d, strings.Join(fs.Args(), " "))
+	case "run":
+		fs := flag.NewFlagSet("preview run", flag.ContinueOnError)
+		dev := fs.String("device", "", "the simulator, by ID or name (default: the one running)")
+		scheme := fs.String("scheme", "", "the scheme to build (default: the project's own)")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if fs.NArg() > 1 {
+			return errors.New("usage: conch preview run [-device D] [-scheme S] [DIR]")
+		}
+		dir := "."
+		if fs.NArg() == 1 {
+			dir = fs.Arg(0)
+		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			return fmt.Errorf("%s is not a folder", dir)
+		}
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+		if p := preview.Detect(dir); p.Kind != "xcode" {
+			what := "no mobile app conch knows"
+			if p.Label != "" {
+				what = "a " + p.Label + " app"
+			}
+			if p.Dev != "" {
+				what += "; its own " + p.Dev + " runs it"
+			}
+			return fmt.Errorf("conch preview run builds Xcode projects, and %s holds %s", dir, what)
+		}
+		// A build takes minutes, not the two the other subcommands get.
+		bctx, bcancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer bcancel()
+		t, d, err := previewDevice(bctx, *dev, false)
+		if err != nil {
+			return err
+		}
+		app, err := t.XcodeRun(bctx, dir, d, *scheme, previewOut)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(previewOut, "conch: %s (%s) is open on %s\n", app.Scheme, app.BundleID, d.Name)
+		return nil
 	case "button":
 		fs := flag.NewFlagSet("preview button", flag.ContinueOnError)
 		dev := fs.String("device", "", "the device, by ID or name")

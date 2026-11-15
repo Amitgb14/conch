@@ -81,7 +81,7 @@ final class MobilePreviewModel: ObservableObject {
     }
 
     /// What ▶ Run types for the device shown, if conch knows one.
-    var runCommand: String? { previewRunCommand(kind: kindID, device: device) }
+    var runCommand: String? { previewRunCommand(kind: kindID, device: device, conch: conchBinary() ?? "conch") }
 
     /// Puts the app on the phone: the command typed into the workbench's
     /// own terminal when the phone is in one — the agent's checkout, so it

@@ -89,7 +89,8 @@ var compSubcommands = map[string][]compItem{
 	"preview": {
 		{"devices", "the simulators, emulators and phones here"}, {"boot", "start one"},
 		{"shot", "a picture of its screen"}, {"tap", "touch it"}, {"type", "type into it"},
-		{"button", "press home or back"}, {"detect", "what kind of mobile app a folder is"},
+		{"button", "press home or back"}, {"run", "build an Xcode app and open it"},
+		{"detect", "what kind of mobile app a folder is"},
 	},
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}},
 	"agent": {
