@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapWorktreeOperation,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapWorktreeOperation,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -266,6 +266,11 @@ const CapWorktreeOperation = "worktree.operation.v1"
 // CapBranchPrune is branch.stale and branch.prune: local branches nobody
 // has committed to for a while, and deleting them.
 const CapBranchPrune = "branch.prune.v1"
+
+// CapBranchPruneMerged is branch.stale's Merged: the branches the base
+// already has, whatever their age. An older server ignores the field and
+// answers with its old branches, which is not the same list.
+const CapBranchPruneMerged = "branch.prune.merged.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -1949,12 +1954,19 @@ type CleanupFailure struct {
 type BranchStaleParams struct {
 	ProjectID string `json:"project_id"`
 	Days      int    `json:"days,omitempty"`
+	// Merged asks instead for the branches the base already has — merged,
+	// squashed in, or merged on GitHub with the branch's commit — however
+	// recent (CapBranchPruneMerged). The base itself is never among them.
+	Merged bool `json:"merged,omitempty"`
 }
 
 // BranchStale is those branches, oldest first.
 type BranchStale struct {
 	Days     int           `json:"days"`
 	Branches []StaleBranch `json:"branches"`
+	// Merged says these are the merged branches, as asked; a server that
+	// does not know the question leaves it out.
+	Merged bool `json:"merged,omitempty"`
 }
 
 // StaleBranch is an old local branch and what deleting it would lose.
@@ -1967,7 +1979,7 @@ type StaleBranch struct {
 	// Worktree is where the branch is checked out: it goes with that
 	// worktree (worktree.cleanup), not on its own.
 	Worktree string `json:"worktree,omitempty"`
-	Merged   bool   `json:"merged,omitempty"` // the base has all of it
+	Merged   bool   `json:"merged,omitempty"` // the base has all of it, or its pull request merged with its commit
 	Gone     bool   `json:"gone,omitempty"`   // its upstream was deleted
 	// Unmerged counts its commits that neither the base nor its upstream
 	// has: what deleting it loses. A pushed branch loses nothing.

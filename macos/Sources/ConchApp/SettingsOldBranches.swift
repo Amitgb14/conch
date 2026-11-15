@@ -16,6 +16,7 @@ struct OldBranchesCard: View {
     @Environment(\.conchTheme) private var theme
 
     @State private var project = ""
+    @State private var which = OldBranches.Which.old
     @State private var found: BranchStale?
     @State private var ticked: Set<String> = []
     @State private var busy = false
@@ -42,7 +43,12 @@ struct OldBranchesCard: View {
                 FieldRow(model: model, section: section, field: f, first: i == 0)
             }
             VStack(alignment: .leading, spacing: 10) {
-                Text("Local branches with no commit in \(days) days. The base branch and branches checked out in a worktree are kept; one with commits that are not merged or pushed is ticked only by you.")
+                Picker("", selection: $which) {
+                    Text("Older than \(days) days").tag(OldBranches.Which.old)
+                    Text("Merged").tag(OldBranches.Which.merged)
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280)
+                Text(which.intro(days: days))
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     Picker("", selection: $project) {
@@ -50,7 +56,7 @@ struct OldBranchesCard: View {
                         ForEach(projects, id: \.key) { p in Text(p.label).tag(p.key) }
                     }
                     .labelsHidden().frame(maxWidth: 320, alignment: .leading)
-                    Button("Find Old Branches") { find() }.disabled(project.isEmpty || busy)
+                    Button(which.find) { find() }.disabled(project.isEmpty || busy)
                     if busy { ProgressView().controlSize(.small) }
                     Spacer()
                 }
@@ -59,7 +65,7 @@ struct OldBranchesCard: View {
                 }
                 if let f = found {
                     if f.branches.isEmpty {
-                        Text("No branch older than \(f.days) days.").font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
+                        Text(which.none(days: f.days)).font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
                     } else {
                         list(f.branches)
                     }
@@ -68,6 +74,7 @@ struct OldBranchesCard: View {
             .padding(.horizontal, 16).padding(.vertical, 12)
         }
         .onChange(of: project) { _, _ in found = nil; ticked = []; failure = "" }
+        .onChange(of: which) { _, _ in found = nil; ticked = []; failure = "" }
     }
 
     @ViewBuilder func list(_ branches: [StaleBranch]) -> some View {
@@ -112,8 +119,8 @@ struct OldBranchesCard: View {
             failure = "\(model.store.label(m)) is not connected."
             return nil
         }
-        guard c.hello?.capabilities?.contains(OldBranches.capability) == true else {
-            failure = "conch on \(model.store.label(m)) is from an older build: reload its server (conch server reload) to find old branches."
+        guard which.capabilities.allSatisfy({ c.hello?.capabilities?.contains($0) == true }) else {
+            failure = "conch on \(model.store.label(m)) is from an older build: reload its server (conch server reload) to find \(which == .old ? "old" : "merged") branches."
             return nil
         }
         return (c, pid)
@@ -122,12 +129,18 @@ struct OldBranchesCard: View {
     func find() {
         failure = ""
         guard let (c, pid) = connection() else { return }
-        struct P: Encodable { var project_id: String; var days: Int }
+        struct P: Encodable { var project_id: String; var days: Int; var merged: Bool? }
+        let asked = which
         busy = true
         Task {
             defer { busy = false }
             do {
-                let f = try await c.call("branch.stale", P(project_id: pid, days: days), as: BranchStale.self)
+                let f = try await c.call("branch.stale", P(project_id: pid, days: days, merged: asked == .merged ? true : nil), as: BranchStale.self)
+                guard asked == which else { return } // switched while it was asked
+                guard asked.answered(f) else {
+                    failure = "That server did not list merged branches: reload it (conch server reload)."
+                    return
+                }
                 found = f
                 ticked = OldBranches.initialTicks(f.branches)
             } catch {

@@ -41,6 +41,15 @@ public struct StaleBranch: Decodable, Equatable, Sendable, Identifiable {
 public struct BranchStale: Decodable, Equatable, Sendable {
     public var days: Int
     public var branches: [StaleBranch]
+    /// The merged branches, as asked (branch.prune.merged.v1); an older
+    /// server leaves it out and answers with its old ones.
+    public var merged: Bool?
+
+    public init(days: Int, branches: [StaleBranch], merged: Bool? = nil) {
+        self.days = days
+        self.branches = branches
+        self.merged = merged
+    }
 }
 
 /// branch.prune's answer; a failure's path is the branch's name.
@@ -56,6 +65,40 @@ public struct BranchPruneResult: Decodable, Equatable, Sendable {
 public enum OldBranches {
     /// The capability a machine's server needs for any of this.
     public static let capability = "branch.prune.v1"
+    /// And for the merged ones, whatever their age.
+    public static let mergedCapability = "branch.prune.merged.v1"
+
+    /// Which branches to find: those nobody has committed to for a while,
+    /// or those the base already has.
+    public enum Which: String, CaseIterable, Sendable {
+        case old
+        case merged
+
+        public var label: String { self == .old ? "Old" : "Merged" }
+
+        /// What a server needs to answer.
+        public var capabilities: [String] { self == .old ? [capability] : [capability, mergedCapability] }
+
+        /// What the card says it lists.
+        public func intro(days: Int) -> String {
+            switch self {
+            case .old:
+                return "Local branches with no commit in \(days) days. The base branch and branches checked out in a worktree are kept; one with commits that are not merged or pushed is ticked only by you."
+            case .merged:
+                return "Local branches the base already has, however recent: merged, squashed in, or merged on GitHub with their last commit. Branches checked out in a worktree are kept."
+            }
+        }
+
+        public var find: String { self == .old ? "Find Old Branches" : "Find Merged Branches" }
+
+        /// What an empty answer says.
+        public func none(days: Int) -> String { self == .old ? "No branch older than \(days) days." : "No merged branches." }
+
+        /// Whether an answer is the list asked for: an older server asked
+        /// for merged branches answers with old ones, never to be offered
+        /// as merged.
+        public func answered(_ f: BranchStale) -> Bool { self == .old || f.merged == true }
+    }
 
     /// A branch that may be ticked at all: never the base, never one
     /// checked out, since the server refuses both.

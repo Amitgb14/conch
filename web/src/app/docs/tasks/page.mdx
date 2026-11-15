@@ -45,7 +45,7 @@ From a shell: `conch branch commit | push | pr | merge | discard` ([CLI](/docs/c
 
 ### Old branches
 
-Branches with no commit in 30 days (`[git] stale_days`) that are merged or pushed.
+Branches untouched for 30 days (`[git] stale_days`) and merged or pushed; `-merged`: merged, any age.
 
 **How:** `conch branch prune` shows them, `-y` deletes. In the [Mac app](/docs/mac-app): **Settings → Git → Old branches**.
 
