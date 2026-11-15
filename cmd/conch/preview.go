@@ -23,7 +23,7 @@ import (
 // It is this computer's alone: the phones run where Xcode and the Android
 // SDK are, and no server is asked.
 
-const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR]"
+const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.
@@ -51,10 +51,26 @@ func runPreview(args []string) error {
 	case "devices", "ls":
 		return previewDevices(ctx, rest)
 	case "detect":
-		dir := "."
 		if len(rest) > 1 {
-			return errors.New("usage: conch preview detect [DIR]")
+			// Several folders at once, as Conch.app asks of every project
+			// and checkout: a line each, naming its folder, and a folder
+			// that is gone is said to be nothing rather than failing the rest.
+			enc := json.NewEncoder(previewOut)
+			for _, dir := range rest {
+				p := preview.Project{}
+				if st, err := os.Stat(dir); err == nil && st.IsDir() {
+					p = preview.Detect(dir)
+				}
+				if err := enc.Encode(struct {
+					Dir string `json:"dir"`
+					preview.Project
+				}{dir, p}); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
+		dir := "."
 		if len(rest) == 1 {
 			dir = rest[0]
 		}

@@ -50,8 +50,11 @@ public enum BenchLayout: String, CaseIterable, Equatable, Sendable {
     public var stripes: Bool { self == .jetbrains }
 
     /// The layouts offered: without the chat (chatEnabled), Chat First has
-    /// nothing to put first.
-    public static func offered(chat: Bool) -> [BenchLayout] { chat ? allCases : allCases.filter { $0 != .chat } }
+    /// nothing to put first; without a phone (a project that is no mobile
+    /// app, or another machine's), Mobile has nothing to put beside it.
+    public static func offered(chat: Bool, phone: Bool = true) -> [BenchLayout] {
+        allCases.filter { (chat || $0 != .chat) && (phone || $0 != .mobile) }
+    }
 
     /// The layout used for a choice: Chat First is IDE while the chat is off.
     public func shown(chat: Bool) -> BenchLayout { !chat && self == .chat ? .ide : self }

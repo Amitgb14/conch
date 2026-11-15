@@ -82,10 +82,19 @@ extension Store {
         }
     }
 
-    /// A workbench's phone: this Mac's projects have one, since the
-    /// simulators are this Mac's.
+    /// A workbench's phone: this Mac's projects that are mobile apps have
+    /// one, since the simulators are this Mac's.
     func benchPhone(_ machine: String, _ project: String) -> String? {
-        machine == "local" ? mobileKey(machine, project) : nil
+        machine == "local" && mobileProjectIDs.contains(project) ? mobileKey(machine, project) : nil
+    }
+
+    /// Whether the workbench on screen has a phone to offer the Mobile
+    /// layout for: one it holds, or one its project now has.
+    var benchHasPhone: Bool {
+        guard let parts = layout.benchParts(layout.active) else { return false }
+        if parts.phone != nil { return true }
+        guard let pid = pane(parts.agent)?.projectID else { return false }
+        return benchPhone(unkey(parts.agent).machine, pid) != nil
     }
 
     /// The workbench on screen in another layout; remembered for the next.
@@ -205,7 +214,7 @@ struct LayoutPicker: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(BenchLayout.offered(chat: store.offersChat), id: \.self) { l in
+            ForEach(BenchLayout.offered(chat: store.offersChat, phone: store.benchHasPhone), id: \.self) { l in
                 let on = l == current
                 Button { store.setBench(l) } label: {
                     Text(l.label).font(.ui(size: 11.5, weight: on ? .semibold : .regular))
@@ -246,7 +255,7 @@ struct ToolStripe: View {
                     if let phone = parts.phone { icon("iphone", "Mobile Preview", leaf: phone) }
                     Spacer()
                     Menu {
-                        ForEach(BenchLayout.offered(chat: store.offersChat), id: \.self) { l in
+                        ForEach(BenchLayout.offered(chat: store.offersChat, phone: store.benchHasPhone), id: \.self) { l in
                             Button((l == tab.bench ? "✓ " : "   ") + l.label) { store.setBench(l) }
                         }
                     } label: { Image(systemName: "rectangle.3.group").font(.system(size: 13)) }
