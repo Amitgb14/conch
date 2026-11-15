@@ -84,6 +84,9 @@ type Choices struct {
 	// ZshThemes are the Oh My Zsh themes installed here, offered for
 	// [shell] omz_theme; any other name can still be typed.
 	ZshThemes []string
+	// Scenes are the scene files of your own ($CONCH_HOME/scenes), offered
+	// for [app] background after the built-in ones.
+	Scenes []string
 }
 
 func opts(values ...string) []Option {
@@ -95,6 +98,16 @@ func opts(values ...string) []Option {
 }
 
 func intp(n int) *int { return &n }
+
+// sceneOptions is [app] background's choices: none, conch's scenes, then
+// the files of your own by name.
+func sceneOptions(mine []string) []Option {
+	out := []Option{{"", "No scene"}, {"reef", "Reef"}, {"pines", "Snowy pines"}, {"lagoon", "Lagoon"}, {"stars", "Starfield"}, {"board", "Departure board"}}
+	for _, n := range mine {
+		out = append(out, Option{n, n})
+	}
+	return out
+}
 
 // keyActions names every action a key after the prefix can do, for
 // [keys.bind]'s list to offer rather than have them typed from memory.
@@ -259,9 +272,8 @@ func Schema(c Choices) []Section {
 					Help: "Compact puts a pane's name in its border, closes the gaps between splits and shortens the toolbar."},
 				{Key: "sidebar", Label: "Sidebar", Kind: KindSelect, Options: []Option{{"", "Solid"}, {"glass", "Glass"}},
 					Help: "Glass lets the desktop through the sidebar, as Finder's does. Panes stay solid."},
-				{Key: "background", Label: "Background", Kind: KindSelect,
-					Options: []Option{{"", "No scene"}, {"reef", "Reef"}, {"pines", "Snowy pines"}, {"lagoon", "Lagoon"}, {"stars", "Starfield"}},
-					Help:    "A scene behind the window, by day under a light theme and by night under a dark one. The toolbar, sidebar and tabs are frosted over it."},
+				{Key: "background", Label: "Background", Kind: KindSelect, Options: sceneOptions(c.Scenes),
+					Help: "A scene behind the window, by day under a light theme and by night under a dark one. The toolbar, sidebar and tabs are frosted over it. Departure board lists the window's agents; your own are files in the scenes folder."},
 				{Key: "background_through", Label: "Scene through panes (%)", Kind: KindInt, Min: intp(0), Max: intp(60), Placeholder: "0",
 					Help: "How much of the scene shows through a pane, 0 to 60. 0 keeps terminals solid."},
 				{Key: "background_frost", Label: "Frost", Kind: KindSelect, Options: []Option{{"off", "Off"}, {"", "Light"}, {"strong", "Strong"}},
@@ -271,7 +283,7 @@ func Schema(c Choices) []Section {
 				{Key: "background_fireworks", Label: "Celebrate merges", Kind: KindBool, Default: true,
 					Help: "Fireworks over the scene for a moment when one of the window's pull requests merges. Under Reduce Motion, only the note."},
 				{Key: "project_backgrounds", Label: "A project's own scene", Kind: KindMap, KeyLabel: "Project", Placeholder: "pines",
-					Help: "reef, pines, lagoon, stars or none, by project name. Its window shows it, and so does any window while one of its tabs is in front."},
+					Help: "reef, pines, lagoon, stars, board, one of your own or none, by project name. Its window shows it, and so does any window while one of its tabs is in front."},
 				{Key: "ports", Label: "Ports in pane headers", Kind: KindBool, Default: true,
 					Help: "The ports a pane's programs listen on, a click opening one in the browser."},
 				{Key: "chat", Label: "Workbench chat", Kind: KindBool, Default: true,

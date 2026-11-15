@@ -225,6 +225,15 @@ final class Store: ObservableObject {
     /// A pull request of this window's that just merged, for the
     /// fireworks over its scene (Store+Scene.swift); nil once they end.
     @Published var celebration: Celebration?
+    /// Scenes of your own ($CONCH_HOME/scenes), and what is wrong with
+    /// the files that could not be used, read with config.toml.
+    @Published var myScenes: [UserScene] = []
+    @Published var sceneProblems: [String] = []
+    /// Moves on when a scene of yours, or its picture, changes: the scene
+    /// behind the window is drawn again.
+    @Published var sceneVersion = 0
+    private var shownScenes: [UserScene] = []
+    private var scenePictures = ""
     /// Its window closed for good: nothing is reached again.
     var windowClosed = false
     /// The clicks and keys it watches, taken away with its window.
@@ -272,6 +281,13 @@ final class Store: ObservableObject {
 
     /// config.toml as last read, by its modification time and size.
     private var configStamp = ""
+    /// config.toml's stamp and the scenes folder's: a scene file added,
+    /// edited or removed is read again as a change to the file is.
+    private var settingsStamp: String {
+        let dir = (conchDir as NSString).appendingPathComponent("scenes")
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).sorted()
+        return ([fileStamp(configFile)] + files.map { $0 + "@" + fileStamp((dir as NSString).appendingPathComponent($0)) }).joined(separator: "|")
+    }
     private var machinesStamp = ""
     private var machinesFile: String { (conchDir as NSString).appendingPathComponent("machines.json") }
     var configTimer: Timer?
@@ -356,7 +372,7 @@ final class Store: ObservableObject {
     /// theme chosen on the settings page, or in the TUI, shows here at
     /// once, not only when the window next comes forward.
     private func watchConfig() {
-        configStamp = fileStamp(configFile)
+        configStamp = settingsStamp
         machinesStamp = fileStamp(machinesFile)
         configTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -375,7 +391,7 @@ final class Store: ObservableObject {
                     self.machinesStamp = mnow
                     self.connect()
                 }
-                let now = fileStamp(self.configFile)
+                let now = self.settingsStamp
                 guard now != self.configStamp else { return }
                 self.configStamp = now
                 self.loadTheme()
@@ -952,7 +968,23 @@ final class Store: ObservableObject {
         if acts != actions { actions = acts }
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
-        let app = AppLook(toml: toml)
+        // Scenes of your own, read again each time as themes are: one
+        // added or changed is offered, and in use, without restarting.
+        let scenes = userScenes(in: (conchDir as NSString).appendingPathComponent("scenes"))
+        if scenes.scenes != myScenes {
+            Theme.userScenes = Dictionary(scenes.scenes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            myScenes = scenes.scenes
+        }
+        // A picture changed under the same name is drawn again too.
+        let pictures = scenes.scenes.flatMap { [$0.day.image, $0.night.image] }.compactMap { $0 }.map(fileStamp).joined()
+        if scenes.scenes != shownScenes || pictures != scenePictures {
+            shownScenes = scenes.scenes
+            scenePictures = pictures
+            sceneVersion += 1
+        }
+        if scenes.problems != sceneProblems { sceneProblems = scenes.problems }
+        var app = AppLook(toml: toml)
+        app.scene = SceneLook(toml: toml, mine: scenes.scenes.map(\.id))
         loadKeys(on: app.prefixKeys, stamp: toml ?? "")
         if app != appLook {
             // Before the views redraw: the window's text is read at its size.

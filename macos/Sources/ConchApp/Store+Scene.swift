@@ -30,6 +30,21 @@ extension Store {
         return pane(k)?.projectID.flatMap { snapshots[m]?.project($0)?.name }
     }
 
+    /// The agents this window shows, for the departure board: when each
+    /// started, which agent, its project and branch, and its state.
+    var departures: [Departure] {
+        var out: [Departure] = []
+        for (m, snap) in snapshots {
+            for p in snap.shown(in: ws, machine: m) where p.running {
+                guard let a = p.agent else { continue }
+                let project = p.projectID.flatMap { snap.project($0)?.name }
+                let to = [project, p.branch].compactMap { $0 }.joined(separator: "/")
+                out.append(Departure(time: p.created, agent: a.name, to: to.isEmpty ? p.name : to, state: a.state))
+            }
+        }
+        return out
+    }
+
     /// Fireworks over the scene for a pull request that merged, in a
     /// window with a scene that shows its project — unless
     /// background_fireworks is off. They end by themselves.

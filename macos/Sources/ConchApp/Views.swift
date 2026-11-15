@@ -778,7 +778,8 @@ struct MainView: View {
             let shown = store.appLook.scene.showing(project: store.sceneProject)
             ZStack {
                 if shown.scene != .none {
-                    SceneView(scene: shown).id(shown.scene).transition(.opacity)
+                    SceneView(scene: shown, departures: shown.scene == .board ? store.departures : [])
+                        .id("\(shown.scene.rawValue)#\(store.sceneVersion)").transition(.opacity)
                 } else {
                     Theme.window
                 }
