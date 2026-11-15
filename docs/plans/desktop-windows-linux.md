@@ -1,148 +1,158 @@
-# Evaluation: desktop support on Windows and Linux
+# Evaluation: Conch.app on Windows and Linux
 
-Status: evaluation (2026-11-15). One fix landed with it (links on WSL,
-below); everything else is a recommendation, not built.
+Status: evaluation (2026-11-15). Nothing of Conch.app is ported; one
+small fix for conch under WSL landed alongside (links, below).
 
-"Desktop" here means three things conch has on macOS today, and the
-answer is different for each:
-
-1. **The TUI and server** — the `conch` binary.
-2. **`conch app`** — conch in a terminal of its own, configured by conch,
-   with an entry in the desktop's applications (`cmd/conch/app.go`,
-   `appinstall.go`).
-3. **Conch.app** — the native window (`macos/`, Swift).
+The question is the desktop app — Conch.app, the native window in
+`macos/` — not the `conch` binary, which already runs on Linux and runs
+on Windows inside WSL 2.
 
 ## Summary
 
-| | Linux | Windows |
+- **Conch.app cannot be built for Linux or Windows as it is.** Its
+  interface (`ConchApp`, ~29k lines of Swift) is AppKit and SwiftUI from
+  top to bottom, and neither exists off Apple's platforms. A Linux or
+  Windows app is a **new front end**, not a port.
+- **What carries over is everything below the interface.** `ConchKit`
+  (~16k lines: protocol, socket and process clients, tree, layout,
+  search, git view model, windows) imports only Foundation, and the app
+  already treats conch as something it talks to over a stream and runs
+  in each pane (`conch attach`). That boundary is what makes a second
+  front end affordable.
+- **Windows needs no native conch.** The app already reaches other
+  machines through a process's stdin and stdout (`Connection(command:)`,
+  `conch machine bridge`), and `conch bridge` exposes the local server
+  the same way — so a Windows app can drive conch inside WSL with
+  `wsl.exe -d <distro> conch bridge` and run each pane as `wsl.exe -d
+  <distro> conch attach …`. That sidesteps porting ptys, hot reload and
+  process groups to Windows, which is the large part.
+- **Recommendation:** Linux first, Windows second, both only if there is
+  demand Conch.app's extras justify; until then `conch app` (Linux) and
+  WSL 2 + Windows Terminal (Windows) are the desktop story, and the docs
+  now say so. The first step either way is cheap and informative: build
+  and test `ConchKit` on Linux in CI.
+
+## What Conch.app is made of
+
+| Layer | Where | Portable? |
 | --- | --- | --- |
-| TUI + server | **Supported.** Released for amd64/arm64, CI runs the full race suite on Linux. | **Does not build.** Runs under WSL 2 as Linux. |
-| `conch app` | **Supported.** XDG desktop entry and icon under `$XDG_DATA_HOME`; ghostty, kitty, foot, alacritty. | Not applicable natively; under WSL 2 with WSLg it works as on Linux, but the entry lands in the WSL distribution, not the Start menu. |
-| Native window | **None.** Conch.app is AppKit/SwiftUI. | **None.** |
-| Recommended path | Keep `conch app`; consider a GTK window only if users ask for Conch.app's extras. | Document WSL 2 + Windows Terminal; make WSL a first-class Linux (this branch starts that). A native port is a large, separate project. |
+| Protocol, client, tree, layout, search, git model, windows | `ConchKit` (Foundation only; `CoreGraphics` in `SVGPath.swift`; `sockaddr_un` socket in `Connection.swift`) | **Mostly.** swift-corelibs-foundation on Linux and Windows; the socket needs Glibc / WinSock spellings, `SVGPath` a geometry type of its own. Untried. |
+| Terminal in each pane | `TerminalHost.swift` seam: `GhosttyHost.swift` (libghostty, Metal) or SwiftTerm's AppKit view | **No as written.** See below. |
+| Windows, sidebar, tabs, sheets, settings | `ConchApp`: AppKit + SwiftUI (≈50 files each) | **No.** |
+| Browser and media panes | `BrowserView`, `MediaView`: WebKit, PDFKit, AVKit | No; WebKitGTK / WebView2 instead |
+| System Monitor | `SystemMonitor.swift`: Swift Charts | No; draw it |
+| Notifications, Dock badge | `Notifier.swift`: UserNotifications | No; libnotify / Windows toasts |
+| Scratch layer hotkey | `Scratch.swift`: Carbon | No; per-desktop global shortcuts (and Wayland mostly forbids them) |
+| MCP tokens | `Keychain.swift` | No; libsecret / Windows Credential Manager |
+| Self-update | `AppUpdater.swift` + `conch app update` (bundle swap) | No; packaging-specific |
+| Server, agents, git, sessions | the `conch` binary | Linux: yes. Windows: through WSL |
+
+### The terminal is the deciding piece
+
+Each pane is a terminal emulator running `conch attach` (Ghostty's
+panes take `-raw` and draw the program's own output at the server's
+size). Off macOS:
+
+- **libghostty** is what makes the Mac app's panes good, but its
+  embedding API is used only by Ghostty's macOS app; Ghostty on Linux is
+  a GTK application written in Zig, not a library a Swift or C front end
+  embeds, and there is no Windows Ghostty. Embedding it on Linux means
+  tracking an unstable, unofficial path.
+- **SwiftTerm**'s emulator core builds on Linux, but its views are
+  AppKit and UIKit; a GTK or Windows view would be written from scratch.
+- **VTE** (GNOME's terminal widget) on Linux and **Windows Terminal's
+  control** or **xterm.js** in WebView2 on Windows are the mature
+  embeddable terminals. Each would run `conch attach` the non-raw way, so
+  the letterboxing and raw-stream work done for Ghostty
+  (`ConchKit/Window.swift`, `internal/pane/raw.go`) would be partly
+  re-done per terminal.
+
+### Choosing a toolkit
+
+Ruled out: Electron and Tauri — a web front end for the desktop has been
+turned down twice.
+
+| Option | Linux | Windows | Reuses ConchKit | Notes |
+| --- | --- | --- | --- | --- |
+| Swift + GTK 4 (e.g. Adwaita for Swift bindings) + VTE | yes | poor (GTK on Windows is second-class) | **yes, directly** | Closest to the Mac app's code; one language. Bindings are young. |
+| Swift + WinUI (via Swift/WinRT) | no | yes | yes | Swift on Windows is official; WinRT bindings are early. |
+| Go + GTK 4 (gotk4) + VTE | yes | poor | no — rewrite ConchKit in Go, though much of it mirrors `internal/proto` and `internal/tui` already | One language with conch; no Swift toolchain on Linux. |
+| Qt (C++ or Python) + qtermwidget | yes | yes | no | One codebase for both, at the cost of a third language and a full rewrite of ConchKit. |
+
+If both platforms are wanted with one codebase, Qt is the only option
+that covers both well, and it shares nothing with the Mac app. If
+Linux alone is wanted, Swift + GTK 4 reuses ConchKit and is the cheapest
+credible path.
 
 ## Linux
 
-What was checked:
+The binary is fully supported (released for amd64 and arm64; CI runs the
+race suite on Linux). `conch app install` already puts conch in the
+desktop's applications as an XDG entry that opens it in ghostty, kitty,
+foot or alacritty with conch's own configuration. What Linux lacks is
+only what is Conch.app's alone: the git tab's hunk staging and PR
+review, System Monitor window, scenes and departure board, ⌘K preview,
+several windows, side tabs, the scratch layer.
 
-- `GOOS=linux go build ./...` and `go vet` are clean; CI (`ci.yml`) runs
-  `make lint` and `go test -race` on Linux, so the whole server, pane and
-  TUI path is exercised there on every change.
-- Platform-specific parts all have a Linux side: socket peer credentials
-  (`internal/server/peer_linux.go`, `SO_PEERCRED`), worktree watching
-  (fsnotify/inotify, one descriptor for the lot, so not `budgeted()`),
-  system stats (`internal/sysstat/linux.go`, `/proc`), foreground process
-  (`internal/detect`), notifications (`notify-send`), sounds (`paplay`,
-  `canberra-gtk-play`, `aplay`), clipboard (OSC 52, then `wl-copy`,
-  `xclip`, `xsel`), links (`xdg-open`).
-- `conch app install` writes `conch.desktop` and an icon under
-  `~/.local/share` and refreshes the menu; it refuses to install when no
-  known terminal is found, and looks past `PATH` (snap, flatpak,
-  `~/.local/bin`) because a desktop entry runs with the session's `PATH`,
-  not the shell's.
+Plan, if pursued:
 
-Gaps, in order of likely value:
-
-1. **No native window.** Conch.app's extras — the git tab, System
-   Monitor window, departure board, ⌘K preview, several windows — are
-   macOS-only. The TUI covers the core (tree, tabs, diffs, sessions).
-2. **Terminals.** `conch app` knows four terminals. GNOME's and KDE's
-   default terminals (gnome-terminal/Console, Konsole) are what most
-   desktops have and cannot be started with *only* conch's configuration,
-   which is the point of `conch app`; WezTerm can (`--config-file`) and is
-   the obvious fifth if anyone asks.
-3. **Packaging.** No `.deb`/`.rpm`/AUR/Flatpak; the install script,
-   Homebrew and `go install` cover it. A Flatpak would be a poor fit
-   anyway: conch has to run the user's agents and shells outside a
-   sandbox.
-4. **Untested live:** `conch app` on a real GNOME/KDE session, and
-   Wayland vs X11 clipboard tools, are only covered by fakes.
-
-### A native Linux window, if wanted
-
-Conch.app splits into `ConchKit` (16k lines, `import Foundation` only,
-plus one `CoreGraphics` use in `SVGPath.swift` and a BSD-socket client in
-`Connection.swift`) and `ConchApp` (29k lines: AppKit, SwiftUI, WebKit,
-UserNotifications, Carbon). So:
-
-- `ConchKit` is close to portable to swift-corelibs-foundation on Linux:
-  the socket code uses `socket`/`sockaddr_un`, which Glibc has; the
-  `CoreGraphics` file needs a small geometry type of its own. Not tried —
-  no Swift toolchain on a Linux host here; that is the first step of any
-  port, and cheap.
-- `ConchApp` is not portable. A Linux window means a new UI: GTK 4 is the
-  natural host because Ghostty's own Linux app is GTK and libghostty would
-  give the same raw-pane drawing (`conch attach -raw`) the Mac app uses.
-  That is a second front end to maintain feature-for-feature.
-- Web technology for the window (Electron, Tauri) has been ruled out
-  twice and is not proposed again.
-
-Recommendation: don't start one now. `conch app` + the TUI is the Linux
-desktop; revisit when someone asks for a Conch.app-only feature on Linux,
-and start by building `ConchKit` and its tests on Linux in CI.
+1. Build `ConchKit` and run `ConchKitTests` on Linux in CI
+   (`swift test` in a swift:6 container). Fix the socket and `SVGPath`
+   spots. This alone says how much of the 16k lines really is portable.
+2. A GTK 4 shell: sidebar tree, tabs and splits, each pane a VTE running
+   `conch attach`, connections local and per machine exactly as the Mac
+   app makes them.
+3. Then features in the order people use them: git tab, sessions,
+   settings; the decorative ones (scenes, board) last or never.
+4. Ship as a tarball and `.deb`/`.rpm`; not Flatpak — the app must start
+   `conch` and agents outside a sandbox.
 
 ## Windows
 
-What was checked: `GOOS=windows go build ./...` fails at the first
-packages that use Unix calls (`internal/config/omzpreview.go`:
-`Setsid`, `syscall.Kill`; `internal/detect/process.go`: `TIOCGPGRP`),
-and every package above them fails with them. Past those leaves, about
-thirty files outside build tags use Unix-only APIs. What they stand for is
-what matters:
+The `conch` binary does not build for Windows (`GOOS=windows go build`
+fails first at `internal/config/omzpreview.go` and
+`internal/detect/process.go`; about thirty files use Unix calls), and
+porting it is the large job: ConPTY in place of `creack/pty`, no
+`syscall.Exec` for hot reload, no foreground process group, a peer pid
+for agent scoping (`peer_other.go` returns 0, which would leave every
+agent unscoped, silently), no ssh `ControlMaster`. And the agents conch
+drives mostly recommend WSL on Windows themselves.
 
-| Part | Unix mechanism | Windows equivalent | Effort |
-| --- | --- | --- | --- |
-| Panes (`internal/pane`) | `creack/pty` v1, a `select` read loop | ConPTY (`CreatePseudoConsole`); creack/pty v1 has none | Large: the core of conch |
-| Hot reload (`internal/server/reload.go`) | `syscall.Exec` keeping pty and listener fds | No exec-in-place; would need handle inheritance to a child and a handover protocol | Large |
-| Detect the foreground program (`internal/detect`) | `TIOCGPGRP` on the pty | None for ConPTY; walk the process tree from the shell | Medium, and less exact |
-| Agent scoping (`internal/server/scope.go`) | Socket peer pid (`SO_PEERCRED`/`LOCAL_PEERPID`) | `SIO_AF_UNIX_GETPEERPID` exists on AF_UNIX; `peer_other.go` today returns pid 0 | Medium — and **must** be done: pid 0 means every agent acts unscoped, silently |
-| Socket | unix socket | AF_UNIX works on Windows 10 1803+ and in Go | Small |
-| Session detach (`Setsid`, process groups, signals) | `Setsid`, `syscall.Kill(-pgid)` | Job objects, `GenerateConsoleCtrlEvent` | Medium |
-| Remote machines | OpenSSH with `ControlMaster` | Windows OpenSSH has no connection sharing | Medium: every probe, install and bridge opens a fresh connection |
-| Agents themselves | — | Claude Code, Codex and others run natively on Windows only in part; most document WSL | Out of conch's hands |
-| Desktop bits | `notify-send`, `xdg-open`, `pbcopy` | toast notifications, `start`, `clip.exe` | Small |
-| Native window | AppKit | WinUI/WPF, or libghostty when it gains Windows | Large, and a third front end |
+So a Windows Conch.app should run **natively on Windows against conch in
+WSL 2**:
 
-The agents row decides it: the agents conch
-drives are themselves most at home in WSL on Windows, and a native conch
-would be driving agents that the people using them already run under
-WSL. A native port is months of work on the pane and reload core —
-exactly the parts with the subtlest bugs on macOS (see "Panes on macOS",
-"Hot reload" and "One owner per pty" in AGENTS.md) — for a platform whose
-users mostly run the agents elsewhere.
+- server: `Connection(command: "wsl.exe", args: ["-d", distro, "conch",
+  "bridge"])` — the same process transport the Mac app uses for remote
+  machines;
+- panes: `wsl.exe -d <distro> conch attach <id>` in the embedded
+  terminal;
+- files, links and paths cross over with `wslpath`; projects should live
+  in the distribution's filesystem, since changes made under `/mnt/c`
+  from Windows are not seen by inotify.
 
-Recommendation: **support Windows through WSL 2, and make WSL a
-first-class Linux.** Concretely:
+Until then: Windows Terminal + WSL 2 is the supported setup (now on the
+installation page), and links opened by conch under WSL now reach
+Windows' browser (this branch: `internal/desktop`, `wslview` or
+`rundll32.exe url.dll,FileProtocolHandler`; before, `xdg-open` with no
+browser behind it opened nothing).
 
-1. *Done here:* links open in Windows' browser under WSL
-   (`internal/desktop`): `wslview` when wslu is installed, else
-   `rundll32.exe url.dll,FileProtocolHandler`, else `xdg-open`. Before,
-   both the TUI and the commands ran `xdg-open`, which on WSL is usually
-   there with no browser behind it, so nothing opened.
-2. *Docs:* the installation page now says Windows means WSL 2 from
-   Windows Terminal.
-3. *Next, small:* desktop notifications under WSL (`notify-send` is
-   rarely there; a PowerShell toast through `powershell.exe` is), and a
-   `conch doctor` check that says when conch is in WSL 1 (no proper ptys
-   for some programs, slow file access on `/mnt/c`) or when a project
-   lives under `/mnt/c`, where fsnotify sees no changes made from Windows.
-4. *Next, medium:* `conch app install` under WSL could write a Windows
-   Start-menu shortcut that runs `wt.exe wsl.exe -d <distro> conch`
-   (Windows Terminal with a conch profile), the Windows counterpart of
-   the XDG entry. Windows Terminal honours OSC 52, so copying already works.
-5. *Guard against drift:* if a native Windows build is ever started,
-   begin by making `GOOS=windows go build ./...` pass with stubs and add
-   it to CI, and fix `peer_other.go` before anything else — an unscoped
-   agent is the one failure here that is silent.
+## Effort, roughly
 
-Clipboard under WSL was left as it is on purpose: OSC 52 already reaches
-Windows Terminal's clipboard, and `clip.exe` mangles anything beyond
-ASCII unless it is converted to UTF-16 first.
+| Step | Size |
+| --- | --- |
+| ConchKit on Linux in CI | days |
+| Linux GTK app with tree, tabs, splits, panes, sessions | weeks |
+| Linux parity with today's Conch.app | months, and a second front end to keep in step on every feature |
+| Windows app against WSL | similar to Linux once a toolkit is chosen; less if Qt was chosen for both |
+| Native Windows conch | months on the pane and reload core; not recommended |
+
+The ongoing cost matters more than the first build: every Conch.app
+feature (the AGENTS.md map lists dozens) would need doing two or three
+times. That argues for keeping new desktop features in `ConchKit` and the
+server wherever possible, whatever is decided.
 
 ## Not tested
 
-Nothing here was run on a real Windows machine or under real WSL; the WSL
-choices are tested with a fake host (`internal/desktop/open_test.go`).
-Row candidates for `docs/testing/end-to-end.md`: a link opened from the
-TUI under WSL 2 with and without wslu; `conch app install` on GNOME and
-KDE under Wayland and X11.
+Nothing here was built or run on Linux Swift or Windows. The WSL link
+choice is tested with a fake host (`internal/desktop/open_test.go`);
+end-to-end rows 9.178–9.179 cover the real thing.
