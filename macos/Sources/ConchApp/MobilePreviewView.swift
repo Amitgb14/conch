@@ -42,11 +42,13 @@ final class MobilePreviewModel: ObservableObject {
         // never meets half a picture.
         shotPath = dir.appendingPathComponent("live-\(abs(key.hashValue)).png").path
         reload()
-        detect()
     }
 
     var device: MobileDevice? { previewChoice(devices, chosen: chosen) }
     var projectPath: String? { store.snapshots[machine]?.project(project)?.path }
+    /// Where the app is: the project's folder, or the checkout that holds
+    /// it when only a branch does so far.
+    var appPath: String? { store.mobileDir(project: project) ?? projectPath }
     var projectName: String { store.snapshots[machine]?.project(project)?.name ?? project }
 
     private func conch(_ args: [String]) async throws -> Data {
@@ -54,8 +56,10 @@ final class MobilePreviewModel: ObservableObject {
         return try await runConch(b, args)
     }
 
-    /// Lists the devices again: after a boot, or when asked.
+    /// Lists the devices again: after a boot, or when asked; and what the
+    /// app is again, since the checkout holding it may have changed.
     func reload() {
+        detect()
         Task {
             do {
                 let l = previewShown(try JSONDecoder().decode(MobileDeviceList.self, from: try await conch(["preview", "devices", "-json"])))
@@ -70,7 +74,7 @@ final class MobilePreviewModel: ObservableObject {
     }
 
     private func detect() {
-        guard let p = projectPath else { return }
+        guard let p = appPath else { return }
         struct Detected: Decodable { var kind: String?; var label: String? }
         Task {
             if let d = try? JSONDecoder().decode(Detected.self, from: try await conch(["preview", "detect", p])) {
@@ -99,7 +103,7 @@ final class MobilePreviewModel: ObservableObject {
             }
             return
         }
-        guard let dir = projectPath else { return }
+        guard let dir = appPath else { return }
         struct Create: Encodable { var name: String; var cwd: String; var command: [String] }
         Task {
             do {

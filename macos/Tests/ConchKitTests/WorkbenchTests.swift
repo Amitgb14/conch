@@ -452,6 +452,10 @@ private let parts = BenchParts(files: filesKey("local", "pr1"), shell: "local|p9
     }
     #expect(BenchLayout.offered(chat: false) == [.ide, .agent, .jetbrains, .mobile])
     #expect(BenchLayout.offered(chat: true) == BenchLayout.allCases)
+    // A workbench with no phone (no mobile app, or another machine's) has
+    // no Mobile layout to offer.
+    #expect(BenchLayout.offered(chat: true, phone: false) == [.ide, .chat, .agent, .jetbrains])
+    #expect(BenchLayout.offered(chat: false, phone: false) == [.ide, .agent, .jetbrains])
     #expect(BenchLayout.chat.shown(chat: false) == .ide && BenchLayout.chat.shown(chat: true) == .chat)
 
     var layout = Layout()
