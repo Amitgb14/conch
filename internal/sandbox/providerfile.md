@@ -107,5 +107,30 @@ them then refuses the file rather than misreading it.
   sandbox itself, `host = "{reply.droplet.networks.v4[type=public].ip_address}"`
   reaches a sandbox at its own address.
 
+## Format 3
+
+**Headers**, for an API that needs more than the key on a request. A file
+that has any starts with `format = 3`. `headers` at the top (before the
+first `[table]`) go with every call; `headers` under a call go with that
+call, laid over the top ones by name, and one set to `""` there leaves
+the top one out of that call.
+
+```toml
+format = 3
+headers = { Idempotency-Key = "{uuid}" }   # a new value for every request
+
+[delete]
+call = "DELETE /sandboxes/{id}"
+headers = { X-Confirm-Delete = "{id}" }
+```
+
+A header value may use `{uuid}` (new for each request), `{id}` and
+`{name}`. Conch knows `{name}` only on create and `[ssh.access]`. A
+header whose placeholder has nothing to put there is left out. The key
+goes only in `auth_header`, so a header may not carry `{key}` or reuse
+that header's name. Conch sets `Host`, `Content-Type`, `Content-Length`,
+`Accept`, `Transfer-Encoding` and `Connection` itself, so a file may not
+name them.
+
 Check it with `conch sandbox provider check -offline ./provider.toml`, and
 fix what it reports until it reports nothing.
