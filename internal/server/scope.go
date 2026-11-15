@@ -103,7 +103,7 @@ const (
 // read, and what an agent starts is its own.
 var scoped = map[string]scopeKind{
 	proto.MethodPaneClose: scopePane, proto.MethodPaneSendText: scopePane, proto.MethodPaneSendKeys: scopePane,
-	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
+	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane, proto.MethodPaneTeam: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
 	proto.MethodAgentPrompt:    scopePane,
 	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
@@ -120,7 +120,7 @@ var scoped = map[string]scopeKind{
 
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodProjectGitInit: scopeProjID,
-	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
+	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject, proto.MethodBranchPrune: scopeProject,
 	proto.MethodBranchCommit: scopeProject, proto.MethodBranchStage: scopeProject, proto.MethodBranchReview: scopeProject, proto.MethodBranchPush: scopeProject, proto.MethodBranchPR: scopeProject,
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 	// Running CI again spends the project's Actions minutes.
@@ -418,7 +418,7 @@ var verbs = map[string]string{
 	proto.MethodFSMkdir: "make folders over the ssh login of", proto.MethodFSUpload: "copy files over the ssh login of",
 	proto.MethodFSDownload: "copy files over the ssh login of", proto.MethodPaneCreate: "run a command over the ssh login of",
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
-	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
+	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename", proto.MethodPaneTeam: "put in a team",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
 	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
@@ -427,7 +427,7 @@ var verbs = map[string]string{
 	proto.MethodCloudAgentRegister: "register a cloud agent with",
 	proto.MethodProjectGitInit:     "make a git repository of",
 	proto.MethodProjectRemove:      "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
-	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
+	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchPrune: "delete old branches of", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:        "run git",

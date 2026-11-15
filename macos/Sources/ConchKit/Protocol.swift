@@ -117,6 +117,9 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var agent: AgentStatus?
     public var title: String?
     public var customName: Bool?
+    /// The team it was put in by hand (pane.team.v1), "-" for none on
+    /// purpose; nil leaves it to config.toml's [[teams]] rules (Teams.swift).
+    public var team: String?
     public var projectID: String?
     public var branch: String?
     /// The program's process on its machine.
@@ -144,7 +147,7 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var listening: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"
@@ -197,8 +200,13 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     /// The files merging the branch into the base would conflict in,
     /// tried without merging (git 2.38 and later).
     public var conflicts: [String]?
+    /// What git left unfinished here: "rebase", "merge", "cherry-pick",
+    /// "revert" or "am". Mid-rebase, branch is the branch being rebased,
+    /// though git has detached HEAD (worktree.operation.v1).
+    public var operation: String?
     /// The branch a rebase left unfinished here is rewriting: git detaches
-    /// HEAD meanwhile, so branch is nil. nil from an older server.
+    /// HEAD meanwhile. A server with worktree.operation.v1 names it as
+    /// branch too; an older one leaves branch nil. nil from older still.
     public var rebasing: String?
     /// The agent asked to resolve the branch's conflict, while it is
     /// there (branch.resolving.v1). nil from an older server.

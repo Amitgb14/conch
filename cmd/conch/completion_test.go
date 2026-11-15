@@ -96,7 +96,7 @@ func TestCompletionCandidates(t *testing.T) {
 		{[]string{"sandbox", "-provider", "boat"}, "s", []string{"start", "stop", "ssh", "snapshot", "snapshots"}},
 		{[]string{"sandbox", "-provider", "boat", "ls"}, "", nil},
 		// A flag's value is not a subcommand: still choosing after `branch`.
-		{[]string{"branch", "-cwd", "/x"}, "p", []string{"push", "pr"}},
+		{[]string{"branch", "-cwd", "/x"}, "p", []string{"push", "pr", "prune"}},
 		{[]string{"branch", "pr", "-title", "x"}, "", nil},
 		{[]string{"branch", "push", "-rebase"}, "", nil},
 		{[]string{"branch"}, "-", nil}, // flags: the command's -h says them

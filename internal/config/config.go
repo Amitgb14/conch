@@ -32,6 +32,7 @@ type Config struct {
 	Cloud   CloudCfg   `toml:"cloud"`
 	// Trackers are where tickets come from besides GitHub (trackers.go).
 	Trackers TrackersCfg `toml:"trackers"`
+	Preview  PreviewCfg  `toml:"preview"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
@@ -40,6 +41,9 @@ type Config struct {
 	// that matches deciding (permissions.go). After Actions for the same
 	// reason.
 	Permissions []PermissionRule `toml:"permissions,omitempty"`
+	// Teams group agents by what they work on — backend, UI, a report —
+	// across projects and branches (teams.go). After the plain tables too.
+	Teams []Team `toml:"teams,omitempty"`
 }
 
 // WebCfg is the phone gateway, conch web. URL is the address phones open —
@@ -52,6 +56,15 @@ type WebCfg struct {
 	// from any network without Tailscale: wss://relay.example.com, one
 	// `conch relay` serves. "" is none.
 	Relay string `toml:"relay,omitempty"`
+}
+
+// PreviewCfg is where the phones of a mobile preview come from (conch
+// preview, Conch.app's Mobile Preview): Xcode for the iOS simulators and
+// the Android SDK for emulators. "" finds each by itself — Xcode in
+// /Applications even when xcode-select points at the Command Line Tools.
+type PreviewCfg struct {
+	Xcode      string `toml:"xcode,omitempty"`
+	AndroidSDK string `toml:"android_sdk,omitempty"`
 }
 
 // CloudCfg is Conch Cloud. API is the control plane to sign in to: ""
@@ -111,6 +124,28 @@ type AppCfg struct {
 	// Sidebar "glass" lets the desktop through the sidebar, as Finder's;
 	// "" keeps them solid. Panes are always solid.
 	Sidebar string `toml:"sidebar,omitempty"`
+	// Background is a scene drawn behind the window: "reef", "pines",
+	// "lagoon" or "stars", by day under a light theme and by night under a
+	// dark one; "" is none. The frame is frosted over it, and panes let it
+	// through only as far as BackgroundThrough says.
+	Background string `toml:"background,omitempty"`
+	// BackgroundThrough is how much of the scene shows through a pane, in
+	// percent, 0 to 60; 0 keeps panes solid.
+	BackgroundThrough int `toml:"background_through,omitempty"`
+	// BackgroundFrost is how much of the frame's colour is laid over the
+	// scene: "off", "strong", or "" for light.
+	BackgroundFrost string `toml:"background_frost,omitempty"`
+	// BackgroundMotion "still" draws the scene without moving it. It is
+	// still anyway under macOS's Reduce Motion and in Low Power Mode.
+	BackgroundMotion string `toml:"background_motion,omitempty"`
+	// BackgroundFireworks plays fireworks over the scene for a moment
+	// when one of the window's pull requests merges. On unless false;
+	// nothing plays without a scene.
+	BackgroundFireworks *bool `toml:"background_fireworks,omitempty"`
+	// ProjectBackgrounds gives a project, by name, a scene of its own:
+	// its window shows it, and so does any window while one of its tabs is
+	// in front. "none" is no scene for that project.
+	ProjectBackgrounds map[string]string `toml:"project_backgrounds,omitempty"`
 	// Ports shows the TCP ports a pane's programs listen on in its header,
 	// a click opening one in the browser. On unless false.
 	Ports *bool `toml:"ports,omitempty"`
@@ -311,6 +346,9 @@ type GitCfg struct {
 	// merge dialog has always ticked; it is the default there and what
 	// auto_merge does, so the two cannot disagree.
 	Squash bool `toml:"squash"`
+	// StaleDays is how long a local branch goes without a commit before
+	// conch branch prune and the app's Old branches call it old; 0 is 30.
+	StaleDays int `toml:"stale_days,omitempty"`
 }
 
 // VerifyCfg holds the command conch runs in a branch's worktree when its
@@ -455,6 +493,11 @@ type AgentsCfg struct {
 	// --model, and types only into panes running an agent
 	// (internal/server/launchrule.go).
 	UnrestrictedLaunch bool `toml:"unrestricted_launch,omitempty"`
+	// NoAutoResume leaves the agents a server was running when it went —
+	// a reboot, a crash — for the person to resume (I in Sessions) rather
+	// than having the next server resume them by itself. A server stopped
+	// on purpose (conch server stop) never resumes them either way.
+	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.

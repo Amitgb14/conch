@@ -6,12 +6,25 @@ public struct AgentAvailability: Decodable, Equatable, Sendable {
     public var label: String?
     public var installed: Bool
     public var tier: String?
+    /// What its --version said; none when it is missing or did not say.
+    public var version: String?
+    /// conch has no installer for it (a manifest that names none); none
+    /// from a server too old to say, which installs every agent it lists.
+    public var noInstaller: Bool?
 
-    public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case name, label, installed, tier, version
+        case noInstaller = "no_installer"
+    }
+
+    public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil,
+                version: String? = nil, noInstaller: Bool? = nil) {
         self.name = name
         self.label = label
         self.installed = installed
         self.tier = tier
+        self.version = version
+        self.noInstaller = noInstaller
     }
 
     /// What a menu calls it: its label (Claude Code), else its name.
@@ -28,6 +41,13 @@ public enum CheckOutThen: Equatable, Sendable { case nothing, agent, terminal }
 public enum RowAction: Equatable, Sendable {
     case open
     case rename(pane: String)
+    /// Puts a pane in a team by hand: a name, "-" for none whatever the
+    /// rules say, "" to leave it to the rules again (pane.team.v1).
+    case setTeam(pane: String, team: String)
+    /// Asks a new team's name, and puts the pane in it.
+    case newTeam(pane: String)
+    /// Shows panes side by side in a tab of their own, named.
+    case showTogether(panes: [String], name: String)
     case prompt(pane: String)
     /// The agent's branch in one tab: its files, a terminal, its chat and
     /// its own terminal, arranged by the workbench layout.
@@ -102,6 +122,8 @@ public enum RowAction: Equatable, Sendable {
     case saveHost(pane: String)
     /// What the agents load in a checkout (the TUI's i), in a tab.
     case agentSetup(project: String, dir: String)
+    /// The project's app on a phone simulator beside its agents, in a tab.
+    case mobilePreview(project: String)
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
@@ -216,15 +238,18 @@ extension Snapshot {
     /// folders is ui.json's (loadFolders) and savedHosts this computer's,
     /// for what goes in a folder and where it is now. offerCloud is
     /// whether Conch Cloud is enabled (cloudEnabled), for Move to it.
+    /// mobile is the IDs of this machine's projects that are mobile apps.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
-                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false) -> [RowMenuItem] {
+                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false,
+                     mobile: Set<String> = [], teams: [AgentTeam] = [], canTeam: Bool = false) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
             guard let p = pane(unkey(k).id) else { return [] }
             let agent = p.agent != nil
             out = [RowMenuItem("Open", .open), RowMenuItem("Rename…", .rename(pane: k))]
+            if agent && canTeam { out.append(teamMenu(p, key: k, teams: teams)) }
             if agent && p.running {
                 out.append(RowMenuItem(p.agent?.state == .blocked ? "Prompt… (It Is Waiting for an Answer)" : "Prompt…", .prompt(pane: k)))
                 out.append(RowMenuItem("Open Workbench", .workbench(pane: k)))
@@ -305,6 +330,9 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
             if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
+            // Simulators and emulators are this Mac's own, and only a project
+            // that is a mobile app (mobileProjects) has anything to show on one.
+            if machine == "local", mobile.contains(unkey(pk).id) { out.append(RowMenuItem("Mobile Preview", .mobilePreview(project: pk))) }
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Open in New Window", .openWindow(project: pk))]
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]
@@ -351,6 +379,16 @@ extension Snapshot {
             out += projects.map { RowMenuItem("New Task in \($0.name)…", .newTask(project: key(machine, $0.id))) }
             if canGroup && projects.count > 1 { out += [.divider, RowMenuItem("New Project Group…", .newGroup(machine: machine))] }
             if !projects.isEmpty { out += [.divider, RowMenuItem("Collapse All Projects", .collapseProjects(machine: machine))] }
+        case .team(let pk, let name):
+            // A team's agents in a project: a message to them, or all of
+            // them at once in a tab.
+            let keys = node.agentKeys
+            guard !keys.isEmpty else { return [] }
+            let title = name.isEmpty ? "No team" : name
+            var items = [RowMenuItem("Show Side by Side", .showTogether(panes: keys, name: "\(title) · \(project(unkey(pk).id)?.name ?? "")"))]
+            let scope = BroadcastScope.panes(machine: machine, keys: keys)
+            if machineOnline && hasRunning(scope) { items.append(RowMenuItem("Broadcast to \(name.isEmpty ? "These Agents" : "This Team")…", .broadcast(scope))) }
+            return items
         case .section(let name):
             // A project's Agents or Terminals: a message to those alone.
             guard machineOnline, name == "Agents" || name == "Terminals", node.id.hasPrefix("s:") else { return [] }
@@ -423,6 +461,18 @@ extension Snapshot {
 extension Snapshot {
     /// Move to Folder ▸: the section's folders, the one it is in ticked,
     /// out of them when it is in one, and a new folder for it.
+    /// An agent's Team ▸: the teams, the one it is in ticked; a new one;
+    /// none; and, for one put in a team by hand, back to the rules.
+    func teamMenu(_ p: PaneInfo, key k: String, teams: [AgentTeam]) -> RowMenuItem {
+        let now = teamFor(teams, set: p.team, project: p.projectID.flatMap { project($0)?.name }, branch: p.branch)
+        var kids = teamNames(teams, panes: panes).map { RowMenuItem(($0 == now ? "✓ " : "") + $0, .setTeam(pane: k, team: $0)) }
+        if !kids.isEmpty { kids.append(.divider) }
+        kids.append(RowMenuItem("New Team…", .newTeam(pane: k)))
+        if now != nil { kids.append(RowMenuItem("No Team", .setTeam(pane: k, team: AgentTeam.none))) }
+        if let set = p.team, !set.isEmpty { kids.append(RowMenuItem("By Rule", .setTeam(pane: k, team: ""))) }
+        return RowMenuItem("Team", .divider, children: kids)
+    }
+
     func folderMenu(_ item: FolderItem, machine: String, section: FolderSection, folders: [String: [Folder]], panes: [PaneInfo]) -> RowMenuItem {
         let fs = folders[folderKey(machine: machine, section: section)] ?? []
         let now = currentFolder(item, machine: machine, section: section, folders: fs)
@@ -563,7 +613,16 @@ extension TreeNode {
         case .branch(let pk, _, _): return unkey(pk).machine
         case .section: return unkey(String(id.dropFirst(2).split(separator: ":").first ?? "")).machine
         case .cliSection(let m, _), .folder(let m, _, _), .group(let m, _), .groupTask(let m, _, _): return m
+        case .team(let pk, _): return unkey(pk).machine
         }
+    }
+
+    /// Every agent's pane under this row, helpers included, in order.
+    public var agentKeys: [String] {
+        var out: [String] = []
+        if case .agent(let k) = kind { out.append(k) }
+        for c in children ?? [] { out += c.agentKeys }
+        return out
     }
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/keymap"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
@@ -393,6 +394,9 @@ func (m Model) branchParts(r row) (string, lipgloss.Style, string, lipgloss.Styl
 	// Agents working on this branch, worst state first.
 	if g, style, ok := m.branchAgentGlyph(r.machine, proj.ID, r.branch); ok {
 		parts = append(parts, style.Render(g))
+	}
+	if wt != nil && wt.Operation != "" {
+		parts = append(parts, styleWarn.Render(gitx.OperationWord(wt.Operation)))
 	}
 	if wt != nil && wt.Status != nil {
 		switch {
@@ -1003,8 +1007,11 @@ func (m Model) projectLines(mid string, proj proto.ProjectInfo, w int) []string 
 		lines = append(lines, "", styleBold.Render("Worktrees")+styleMuted.Render(fmt.Sprintf("  %d", len(proj.Worktrees))))
 		for _, wt := range proj.Worktrees {
 			name := wt.Branch
-			if wt.Detached {
+			if wt.Detached && wt.Branch == "" {
 				name = "(detached " + wt.Head[:min(7, len(wt.Head))] + ")"
+			}
+			if wt.Operation != "" {
+				name += " · " + gitx.OperationWord(wt.Operation)
 			}
 			state := styleMuted.Render("clean")
 			if wt.Status != nil && !wt.Status.Clean() {

@@ -51,6 +51,11 @@ final class Store: ObservableObject {
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
+    /// Every agent each machine reports, installed or not, for Settings →
+    /// Agents; nil for a machine not asked yet or that could not say.
+    @Published var agentStatus: [String: [AgentAvailability]] = [:]
+    /// The agents whose installer is running, key(machine, agent).
+    @Published var installingAgents: Set<String> = []
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
     /// Counts the autopilot's notes from each machine, so a feed showing
@@ -225,6 +230,18 @@ final class Store: ObservableObject {
     /// The project this window shows alone ("machine|id"), for a window
     /// opened from a project's row; nil shows a workspace.
     @Published var projectScope: String?
+    /// A pull request of this window's that just merged, for the
+    /// fireworks over its scene (Store+Scene.swift); nil once they end.
+    @Published var celebration: Celebration?
+    /// Scenes of your own ($CONCH_HOME/scenes), and what is wrong with
+    /// the files that could not be used, read with config.toml.
+    @Published var myScenes: [UserScene] = []
+    @Published var sceneProblems: [String] = []
+    /// Moves on when a scene of yours, or its picture, changes: the scene
+    /// behind the window is drawn again.
+    @Published var sceneVersion = 0
+    private var shownScenes: [UserScene] = []
+    private var scenePictures = ""
     /// Its window closed for good: nothing is reached again.
     var windowClosed = false
     /// The clicks and keys it watches, taken away with its window.
@@ -272,6 +289,13 @@ final class Store: ObservableObject {
 
     /// config.toml as last read, by its modification time and size.
     private var configStamp = ""
+    /// config.toml's stamp and the scenes folder's: a scene file added,
+    /// edited or removed is read again as a change to the file is.
+    private var settingsStamp: String {
+        let dir = (conchDir as NSString).appendingPathComponent("scenes")
+        let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []).sorted()
+        return ([fileStamp(configFile)] + files.map { $0 + "@" + fileStamp((dir as NSString).appendingPathComponent($0)) }).joined(separator: "|")
+    }
     private var machinesStamp = ""
     private var machinesFile: String { (conchDir as NSString).appendingPathComponent("machines.json") }
     var configTimer: Timer?
@@ -356,7 +380,7 @@ final class Store: ObservableObject {
     /// theme chosen on the settings page, or in the TUI, shows here at
     /// once, not only when the window next comes forward.
     private func watchConfig() {
-        configStamp = fileStamp(configFile)
+        configStamp = settingsStamp
         machinesStamp = fileStamp(machinesFile)
         configTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -375,7 +399,7 @@ final class Store: ObservableObject {
                     self.machinesStamp = mnow
                     self.connect()
                 }
-                let now = fileStamp(self.configFile)
+                let now = self.settingsStamp
                 guard now != self.configStamp else { return }
                 self.configStamp = now
                 self.loadTheme()
@@ -436,7 +460,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) ?? parseMobileKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -556,7 +580,7 @@ final class Store: ObservableObject {
     var tree: [TreeNode] {
         shownMachines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
-                                                            savedHosts: savedHosts, folders: folders)
+                                                            savedHosts: savedHosts, folders: folders, teams: teams)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -950,13 +974,32 @@ final class Store: ObservableObject {
         }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
+        let ts = parseTeams(toml: toml ?? "")
+        if ts != teams { teams = ts }
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
-        let app = AppLook(toml: toml)
+        // Scenes of your own, read again each time as themes are: one
+        // added or changed is offered, and in use, without restarting.
+        let scenes = userScenes(in: (conchDir as NSString).appendingPathComponent("scenes"))
+        if scenes.scenes != myScenes {
+            Theme.userScenes = Dictionary(scenes.scenes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            myScenes = scenes.scenes
+        }
+        // A picture changed under the same name is drawn again too.
+        let pictures = scenes.scenes.flatMap { [$0.day.image, $0.night.image] }.compactMap { $0 }.map(fileStamp).joined()
+        if scenes.scenes != shownScenes || pictures != scenePictures {
+            shownScenes = scenes.scenes
+            scenePictures = pictures
+            sceneVersion += 1
+        }
+        if scenes.problems != sceneProblems { sceneProblems = scenes.problems }
+        var app = AppLook(toml: toml)
+        app.scene = SceneLook(toml: toml, mine: scenes.scenes.map(\.id))
         loadKeys(on: app.prefixKeys, stamp: toml ?? "")
         if app != appLook {
             // Before the views redraw: the window's text is read at its size.
             Theme.textScale = app.textScale
+            Theme.scene = app.scene
             appLook = app
             onAppLook?(app)
         }
@@ -1294,9 +1337,11 @@ final class Store: ObservableObject {
                 if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
             }
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
+            if machine == "local" { detectMobile(projects.projects.flatMap(mobileDirs), force: true) }
             countSessions(machine)
             if let a = try? await c.call("agent.status", as: AgentStatusList.self) {
                 agents[machine] = (a.agents ?? []).filter(\.installed)
+                agentStatus[machine] = a.agents ?? []
             }
             // The tabs the TUI is showing here, once a launch: the window
             // opens on the same work, with nothing given the keyboard.
@@ -1322,7 +1367,7 @@ final class Store: ObservableObject {
             if primary, let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) ?? parseMobileKey(o) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else if let t = parseTaskKey(o) {
                     if t.machine == machine { openTask(t.machine, t.group, t.branch) } // a task's page
@@ -1743,6 +1788,9 @@ final class Store: ObservableObject {
                 // added): count it.
                 let before = snap.project(p.id)
                 if sessionsMayHaveChanged(old: before, new: p) { recountSessions(key(machine, p.id), after: before == nil ? 0 : SessionRecounts.settle) }
+                if let m = newlyMerged(old: before, new: p).first { celebrate(m, machine: machine, project: p) }
+                // A checkout added or taken away: what the project is may have changed.
+                if machine == "local", before.map(mobileDirs) != mobileDirs(p) { detectMobile(mobileDirs(p), force: true) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
@@ -1774,6 +1822,8 @@ final class Store: ObservableObject {
                 var paths: [String]?
             }
             if let ch = try? dec.decode(Changed.self, from: data) {
+                // Files written where no app was found yet: one may be being made.
+                if machine == "local", !ch.worktree.isEmpty, (mobileKinds[ch.worktree] ?? "").isEmpty { detectMobile([ch.worktree]) }
                 for (k, v) in changeViews where v.machine == machine && v.project == ch.project_id && isShown(k) {
                     v.written(ch.paths ?? [], worktree: ch.worktree)
                 }
@@ -2185,6 +2235,59 @@ final class Store: ObservableObject {
         return m
     }
 
+    /// What kind of mobile app each of this Mac's project folders holds
+    /// (`conch preview detect`), "" for none: which projects are offered
+    /// the Mobile Preview and a workbench's phone. Asked when this Mac's
+    /// server is reached, when a project's checkouts change, and when files
+    /// are written in a checkout not yet known to be one — an agent making
+    /// the app is how a project becomes one.
+    @Published var mobileKinds: [String: String] = [:]
+    private var mobileAsked: [String: Date] = [:]
+
+    /// This Mac's projects that are mobile apps.
+    var mobileProjectIDs: Set<String> { mobileProjects(snapshots["local"]?.projects ?? [], kinds: mobileKinds) }
+
+    /// The folder of a project the app is in: its own when it holds one,
+    /// else the first checkout that does.
+    func mobileDir(project pid: String) -> String? {
+        guard let p = snapshots["local"]?.project(pid) else { return nil }
+        return mobileDirs(p).first { !(mobileKinds[$0] ?? "").isEmpty }
+    }
+
+    /// Asks conch what the folders hold, at most once every few seconds a
+    /// folder unless forced (a project's checkouts changed).
+    func detectMobile(_ dirs: [String], force: Bool = false) {
+        let now = Date()
+        let ask = dirs.filter { force || now.timeIntervalSince(mobileAsked[$0] ?? .distantPast) > 5 }
+        guard !ask.isEmpty, let b = binary else { return }
+        for d in ask { mobileAsked[d] = now }
+        Task {
+            // Two or more folders, so the answer is a line each with its folder.
+            let args = ["preview", "detect"] + ask + (ask.count == 1 ? ask : [])
+            guard let out = try? await runConch(b, args) else { return }
+            let got = parseDetected(out)
+            if got.contains(where: { mobileKinds[$0.key] != $0.value }) { mobileKinds.merge(got) { $1 } }
+        }
+    }
+
+    private var mobileViews: [String: MobilePreviewModel] = [:]
+    func mobilePreview(for k: String) -> MobilePreviewModel {
+        if let m = mobileViews[k] { return m }
+        let m = MobilePreviewModel(key: k, store: self)
+        mobileViews[k] = m
+        return m
+    }
+
+    /// A project's app on a simulator, in a tab beside its agents; a tab
+    /// opened again lists the devices again.
+    func openMobilePreview(project pk: String) {
+        let (m, pid) = unkey(pk)
+        let k = mobileKey(m, pid)
+        mobileViews[k]?.reload()
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     private(set) var browserViews: [String: BrowserModel] = [:]
     private var blankBrowsers = 0
 
@@ -2581,7 +2684,8 @@ final class Store: ObservableObject {
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
-                           offerCloud: offersCloud)
+                           offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [],
+                           teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2605,6 +2709,8 @@ final class Store: ObservableObject {
 
     /// config.toml's [[actions]], read with the theme.
     @Published private(set) var actions: [CustomAction] = []
+    /// config.toml's [[teams]] (Teams.swift), read with it.
+    @Published private(set) var teams: [AgentTeam] = []
     /// Panes an action with keep runs in: left open when they exit, so
     /// what the command printed can be read.
     private var keptPanes: Set<String> = []
@@ -2663,6 +2769,9 @@ final class Store: ObservableObject {
         switch a {
         case .open, .divider: activate(node)
         case .rename(let k): renamePane(k)
+        case .setTeam(let k, let t): setTeam(k, t)
+        case .newTeam(let k): newTeam(k)
+        case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)
         case .workbench(let k): openWorkbench(k)
         case .close(let k): closePane(k)
@@ -2705,6 +2814,7 @@ final class Store: ObservableObject {
         case .connectHost(let h): connectSaved(h)
         case .sandbox(let m, let verb): sandbox(m, verb)
         case .cloud(let m, let verb): cloudVerb(m, verb)
+        case .mobilePreview(let pk): openMobilePreview(project: pk)
         case .agentSetup(let pk, let dir):
             let (m, pid) = unkey(pk)
             let k = setupKey(m, pid, dir: dir)
@@ -3123,7 +3233,7 @@ final class Store: ObservableObject {
         // Seen installed at connect: nothing to ask.
         if agents[machine]?.contains(where: { $0.name == agent }) == true { return true }
         let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
-        if let status { agents[machine] = status.filter(\.installed) }
+        if let status { agents[machine] = status.filter(\.installed); agentStatus[machine] = status }
         let canInstall = c.hello?.capabilities?.contains("agent.install.v1") == true
         switch agentReadiness(agent, status: status, canInstall: canInstall, machineName: label(machine)) {
         case .start: return true
@@ -3141,6 +3251,41 @@ final class Store: ObservableObject {
         } catch {
             say("\(what) failed: \(error)", .err)
             return false
+        }
+    }
+
+    /// Asks machine again which agents it has, for Settings → Agents.
+    func checkAgents(on machine: String) {
+        guard let c = conns[machine] else { return }
+        Task {
+            guard let a = try? await c.call("agent.status", as: AgentStatusList.self) else { return }
+            agents[machine] = (a.agents ?? []).filter(\.installed)
+            agentStatus[machine] = a.agents ?? []
+        }
+    }
+
+    /// Whether machine's server installs agents (agent.install.v1).
+    func installsAgents(on machine: String) -> Bool {
+        conns[machine]?.hello?.capabilities?.contains("agent.install.v1") == true
+    }
+
+    /// Installs agent on machine from Settings: the status bar says so, and
+    /// its terminal opens only when the installer failed.
+    func install(agent: String, on machine: String) {
+        guard let c = conns[machine] else { return }
+        let k = key(machine, agent)
+        guard !installingAgents.contains(k) else { return }
+        let title = agentStatus[machine]?.first { $0.name == agent }?.title ?? agent
+        let what = agentInstallJob(title, machineName: label(machine))
+        installingAgents.insert(k)
+        Task {
+            defer { installingAgents.remove(k) }
+            do {
+                try await running(what) { try await installAgent(agent, title: title, on: machine, c) }
+                say("\(title) installed on \(label(machine))")
+            } catch {
+                say("\(what) failed: \(error)", .err)
+            }
         }
     }
 
@@ -3169,7 +3314,7 @@ final class Store: ObservableObject {
             try await Task.sleep(nanoseconds: 500_000_000)
         }
         let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
-        if let status { agents[machine] = status.filter(\.installed) }
+        if let status { agents[machine] = status.filter(\.installed); agentStatus[machine] = status }
         // A machine that could not be asked is taken at the installer's word.
         let found = status?.first { $0.name == agent }?.installed ?? true
         if let why = agentInstallProblem(title, exitCode: code, found: found) {
@@ -3248,7 +3393,7 @@ final class Store: ObservableObject {
         if (d.issue ?? 0) > 0 || !d.ticket.isEmpty || !taskWhenArgs(d.when).isEmpty {
             guard let b = binary, let dir = snapshots[m]?.project(pr)?.path else { return }
             taskDraft = nil
-            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when))
+            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when, team: d.team))
             job(d.when.isEmpty ? "Starting the task" : "Scheduling the task") {
                 let out = String(decoding: try await runConch(b, args), as: UTF8.self)
                 let said = out.split(separator: "\n").last.map(String.init) ?? ""
@@ -3275,6 +3420,7 @@ final class Store: ObservableObject {
                 joinWorkspace(machine: m, pane: p)
                 layout.open(key(m, p.id))
                 focusTerminal()
+                if !d.team.isEmpty { setTeam(key(m, p.id), d.team) }
             } catch {
                 self.error = "Could not start the task: \(error)"
             }
@@ -3391,7 +3537,7 @@ final class Store: ObservableObject {
     }
 
     /// A line of text from a small dialog, or nil when cancelled.
-    private func ask(_ title: String, info: String, value: String, button: String) -> String? {
+    func ask(_ title: String, info: String, value: String, button: String) -> String? {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = info
@@ -3568,6 +3714,8 @@ struct TaskDraft: Identifiable {
     /// and how to name it in the sheet.
     var base = ""
     var baseLabel = ""
+    /// The team it joins: a name, "-" for none, "" for its rules'.
+    var team = ""
 }
 
 private struct PaneRefParams: Encodable { var id: String }

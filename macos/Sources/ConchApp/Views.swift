@@ -721,7 +721,11 @@ struct MainView: View {
                     VStack(spacing: 0) {
                         // Tabs down a side ([app] tabs) leave a line saying
                         // which is on screen in the tab bar's place.
-                        if store.appLook.tabs == .top { TabBar(store: store) } else { CrumbBar(store: store) }
+                        Group {
+                            if store.appLook.tabs == .top { TabBar(store: store) } else { CrumbBar(store: store) }
+                        }
+                        // Over a scene, the tabs are frosted as the sidebar is.
+                        .background { if store.appLook.scene.on { Frost(color: Theme.chrome) } }
                         if store.connected, let tab = store.layout.current {
                             if tab.benchAgent != nil {
                                 // A workbench: its bar above, or IntelliJ's strips.
@@ -736,10 +740,11 @@ struct MainView: View {
                             Empty(store: store)
                         }
                     }
-                    .background(Theme.window)
+                    // The gaps between splits: the scene's, when there is one.
+                    .background(Theme.ground)
                     if store.appLook.tabs == .right {
                         Rectangle().fill(Theme.line).frame(width: 1)
-                        ScrollView { SideTabs(store: store).padding(8) }.frame(width: 230).background(Theme.side)
+                        ScrollView { SideTabs(store: store).padding(8) }.frame(width: 230).background(Frost(color: Theme.side))
                     }
                     if Theme.style.roster && AppStyle.celSideFits(width: size.width) { CelSide(store: store).background(Theme.window) }
                 }
@@ -765,12 +770,45 @@ struct MainView: View {
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
         .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
-        .background(Theme.window)
+        // [app] background: the scene behind everything, up under the
+        // title bar too (SceneView.swift).
+        .background {
+            // The window's scene, or the project's in front of it
+            // ([app.project_backgrounds]), faded across when it changes.
+            let shown = store.appLook.scene.showing(project: store.sceneProject)
+            ZStack {
+                if shown.scene != .none {
+                    SceneView(scene: shown, departures: shown.scene == .board ? store.departures : [])
+                        .id("\(shown.scene.rawValue)#\(store.sceneVersion)").transition(.opacity)
+                } else {
+                    Theme.window
+                }
+            }
+            .ignoresSafeArea()
+            .animation(.easeInOut(duration: 0.6), value: shown.scene)
+        }
+        // A pull request merged: fireworks over it all for a moment, and
+        // a note saying which.
+        .overlay {
+            ZStack {
+                if let c = store.celebration {
+                    MergeFireworks(celebration: c).transition(.opacity)
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.3), value: store.celebration)
+        }
         // Meadow paints the title bar itself: a sky behind the toolbar's
         // controls (AppKit's, so drawn over it), lifted into the title bar
         // by its height — over the backgrounds that reach up there too.
         .overlay(alignment: .top) {
-            if Theme.meadow {
+            if store.appLook.scene.on {
+                // A scene shows behind the toolbar, frosted as the sidebar
+                // is; it takes the place of Meadow's sky.
+                GeometryReader { g in Frost(color: Theme.chrome).frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
+                    .allowsHitTesting(false)
+            } else if Theme.meadow {
                 GeometryReader { g in Sky().frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
                     .allowsHitTesting(false)
             } else if Theme.style.paintsTitleBar {
@@ -874,7 +912,10 @@ struct Sidebar: View {
         }
         .background {
             ZStack {
-                if Theme.meadow {
+                if Theme.scene.on {
+                    // [app] background: frosted over the scene.
+                    Frost(color: Theme.side)
+                } else if Theme.meadow {
                     // Warm paper, a shade deeper at the top.
                     LinearGradient(colors: [Theme.raise, Theme.side], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.4))
                 } else if store.appLook.glass {
@@ -1008,11 +1049,15 @@ struct NodeView: View {
     }
 
     /// What dragging this row carries, for a folder to take: a pane outside
-    /// every project, or a saved host. nil for a row that goes in none.
+    /// every project, or a saved host; an agent in a project goes to a
+    /// team of its project instead. nil for a row that goes in none.
     var dragID: String? {
         switch node.kind {
         case .agent(let k), .terminal(let k):
-            guard let p = store.pane(k), p.projectID == nil || store.snapshots[unkey(k).machine]?.project(p.projectID!) == nil else { return nil }
+            guard let p = store.pane(k) else { return nil }
+            if let pr = p.projectID, store.snapshots[unkey(k).machine]?.project(pr) != nil {
+                return p.agent != nil ? "team:" + k : nil
+            }
             return k
         case .savedHost(let h): return "host:" + h
         // A project dropped on another groups them, on a group joins it.
@@ -1103,6 +1148,12 @@ struct NodeView: View {
             TreeIcon(open ? "folder-open" : "folder", look: store.appLook, color: Theme.text2, size: 12)
         case .group: TreeIcon("layout-grid", look: store.appLook)
         case .groupTask: TreeIcon("git-branch", look: store.appLook, color: Theme.text2, size: 12)
+        case .team(_, let name):
+            // Its colour, as the tabs and the status bar give it.
+            RoundedRectangle(cornerRadius: 3)
+                .fill(name.isEmpty ? Color.clear : Theme.color(store.teamColor(name)))
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(name.isEmpty ? Theme.muted : Color.clear, style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
+                .frame(width: 10, height: 10).frame(width: 14)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -1341,7 +1392,7 @@ struct FolderDragDrop: ViewModifier {
 
     var target: Bool {
         switch node.kind {
-        case .folder, .cliSection, .group, .project: return true
+        case .folder, .cliSection, .group, .project, .team: return true
         default: return false
         }
     }
@@ -1519,6 +1570,16 @@ struct TaskSheet: View {
                 .frame(maxWidth: 240)
                 if project?.git != false {
                     TextField("Branch (conch names one)", text: $draft.branch).frame(maxWidth: 260)
+                }
+                // Which team it joins: its rules' by default, said by name.
+                if !store.teams.isEmpty, taskWhenArgs(draft.when).isEmpty {
+                    let ruled = teamFor(store.teams, set: nil, project: project?.name, branch: draft.branch)
+                    Picker("Team", selection: $draft.team) {
+                        Text(ruled.map { "By rule: \($0)" } ?? "By rule: none").tag("")
+                        ForEach(store.teams.map(\.name), id: \.self) { Text($0).tag($0) }
+                        Text("No team").tag(AgentTeam.none)
+                    }
+                    .frame(maxWidth: 220)
                 }
             }
             HStack(spacing: 12) {
@@ -1734,6 +1795,7 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let p = parseMobileKey(tab.focused) { return "Preview · " + project(p.machine, p.project) }
         if let t = parseTaskKey(tab.focused) { return "\(t.branch) · \(t.group)" }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
@@ -1767,6 +1829,8 @@ struct TabButton: View {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
                     LucideIcon(browserIcon, color: Theme.accent, size: 12)
+                } else if parseMobileKey(tab.focused) != nil {
+                    LucideIcon("smartphone", color: Theme.accent, size: 12)
                 } else if parseTaskKey(tab.focused) != nil {
                     LucideIcon("layout-grid", color: Theme.accent, size: 12)
                 } else if changes == nil {
@@ -1902,6 +1966,8 @@ struct SplitArea: View {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
                 BrowserView(model: store.browser(for: id)).id(id)
+            } else if parseMobileKey(id) != nil {
+                MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
             } else if parseTaskKey(id) != nil {
                 TaskPageView(store: store, key: id).id(id)
             } else if parseChatKey(id) != nil {
@@ -2065,7 +2131,7 @@ struct PaneCard: View {
             }
             .padding(.horizontal, store.appLook.compact ? 8 : 10).frame(height: store.appLook.compact ? 22 : 30)
             .font(.ui(size: store.appLook.compact ? 11 : 12))
-            .background(Theme.ink ? Theme.window : Theme.paneHeader)
+            .background(Theme.ink ? Theme.window : Theme.paneHeader.opacity(max(Theme.scene.paneOpacity, 0.8)))
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
@@ -2083,7 +2149,9 @@ struct PaneCard: View {
                     }
                 }
         }
-        .background(Theme.window)
+        // As far as [app] background_through lets the scene in: solid
+        // unless a scene is on and through is set.
+        .background(Theme.paneFill)
         .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
         .modifier(CardFrame(focused: focused))
         .onTapGesture { store.focus(pane) }
@@ -2385,7 +2453,7 @@ struct StatusBar: View {
         }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
-        .background { ZStack { Theme.side; if Theme.ink { Screentone() } } }
+        .background { ZStack { Frost(color: Theme.side); if Theme.ink { Screentone() } } }
         .overlay(alignment: .top) {
             if Theme.meadow {
                 // A strip of grass the bar sits under.

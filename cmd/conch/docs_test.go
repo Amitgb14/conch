@@ -161,7 +161,7 @@ var guides = []string{
 	"page.mdx", "installation/page.mdx", "quick-start/page.mdx", "why/page.mdx",
 	"interface/page.mdx", "tasks/page.mdx", "agents/page.mdx", "agents-together/page.mdx",
 	"sessions/page.mdx", "remote-machines/page.mdx", "sandboxes/page.mdx",
-	"mac-app/page.mdx", "phone/page.mdx", "brain/page.mdx",
+	"mac-app/page.mdx", "mobile-preview/page.mdx", "phone/page.mdx", "brain/page.mdx",
 }
 
 const (
@@ -322,5 +322,45 @@ func TestDocsHideCloud(t *testing.T) {
 			line := strings.Count(src[:m[0]], "\n") + 1
 			t.Errorf("%s:%d names Conch Cloud", f, line)
 		}
+	}
+}
+
+// TestDocsWhatsNew: the introduction's "What's new" names what 0.2.1 added —
+// more agents, several accounts, tickets, the backlog taken by itself, the
+// System Monitor — each linking to the section that says how to use it, and
+// those sections exist (TestDocsLinksResolve checks the anchors).
+func TestDocsWhatsNew(t *testing.T) {
+	intro, err := os.ReadFile("../../web/src/app/docs/page.mdx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(intro), "## What's new")
+	if i < 0 {
+		t.Fatal(`the introduction has no "## What's new"`)
+	}
+	news := string(intro)[i:]
+	if j := strings.Index(news[3:], "\n## "); j >= 0 {
+		news = news[:j+3]
+	}
+	for _, href := range []string{
+		"/docs/agents#supported-agents",
+		"/docs/agents#several-accounts",
+		"/docs/tasks#tickets",
+		"/docs/tasks#the-backlog-by-itself",
+		"/docs/mac-app#system-monitor",
+		"/docs/mac-app#tickets",
+	} {
+		if !strings.Contains(news, `href="`+href+`"`) {
+			t.Errorf("What's new does not link to %s", href)
+		}
+	}
+	agents, err := os.ReadFile("../../web/src/app/docs/agents/page.mdx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Several accounts is a how-to: numbered steps, not only a block of commands.
+	acc := string(agents)[strings.Index(string(agents), "## Several accounts"):]
+	if !regexp.MustCompile(`(?m)^1\. `).MatchString(acc) || !regexp.MustCompile(`(?m)^3\. `).MatchString(acc) {
+		t.Error("Several accounts should say how to use it in numbered steps")
 	}
 }

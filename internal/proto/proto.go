@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -283,6 +283,23 @@ const CapAgentAttach = "agent.attach.v1"
 // or too-big, with a comment saying why.
 const CapAutopilotTriage = "autopilot.triage.v1"
 
+// CapWorktreeOperation is WorktreeInfo.Operation, and a worktree mid-rebase
+// carrying the branch being rebased as its Branch: git detaches HEAD until
+// the rebase ends, and the agents in it showed under no branch.
+const CapWorktreeOperation = "worktree.operation.v1"
+
+// CapBranchPrune is branch.stale and branch.prune: local branches nobody
+// has committed to for a while, and deleting them.
+const CapBranchPrune = "branch.prune.v1"
+
+// CapBranchPruneMerged is branch.stale's Merged: the branches the base
+// already has, whatever their age. An older server ignores the field and
+// answers with its old branches, which is not the same list.
+const CapBranchPruneMerged = "branch.prune.merged.v1"
+
+// CapPaneTeam is pane.team and PaneInfo.Team: agents grouped by team.
+const CapPaneTeam = "pane.team.v1"
+
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
 const CapAutopilotIntake = "autopilot.intake.v1"
@@ -457,16 +474,18 @@ const CapPaneSSH = "pane.ssh.v1"
 
 // Methods.
 const (
-	MethodHello           = "hello"
-	MethodPing            = "ping"
-	MethodServerStop      = "server.stop"
-	MethodServerReload    = "server.reload"
-	MethodPaneList        = "pane.list"
-	MethodPaneCreate      = "pane.create"
-	MethodPaneClose       = "pane.close"
-	MethodPaneResize      = "pane.resize"
-	MethodPaneSendText    = "pane.send_text"
-	MethodPaneSendKeys    = "pane.send_keys"
+	MethodHello        = "hello"
+	MethodPing         = "ping"
+	MethodServerStop   = "server.stop"
+	MethodServerReload = "server.reload"
+	MethodPaneList     = "pane.list"
+	MethodPaneCreate   = "pane.create"
+	MethodPaneClose    = "pane.close"
+	MethodPaneResize   = "pane.resize"
+	MethodPaneSendText = "pane.send_text"
+	MethodPaneSendKeys = "pane.send_keys"
+	// MethodPaneTeam puts a pane in a team by hand (CapPaneTeam).
+	MethodPaneTeam        = "pane.team"
 	MethodPaneRead        = "pane.read"
 	MethodPaneSubscribe   = "pane.subscribe"
 	MethodPaneUnsubscribe = "pane.unsubscribe"
@@ -666,6 +685,10 @@ const (
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
+	// Old branches: list the ones nobody has committed to for a while, and
+	// delete them (CapBranchPrune).
+	MethodBranchStale = "branch.stale"
+	MethodBranchPrune = "branch.prune"
 	// Moving a worktree to another machine (CapWorktreeMove).
 	MethodWorktreeDescribe = "worktree.describe"
 	MethodWorktreeHave     = "worktree.have"
@@ -828,6 +851,10 @@ type PaneInfo struct {
 	// Account is the account its agent was started on, "" for the agent's
 	// own (CapAccounts).
 	Account string `json:"account,omitempty"`
+	// Team is the team the pane was put in by hand (CapPaneTeam), "-" for
+	// kept out of every team; "" leaves it to config.toml's [[teams]]
+	// rules (config.TeamFor), which clients apply.
+	Team string `json:"team,omitempty"`
 	// Title is the terminal title with decoration (spinners, the agent's
 	// default title) stripped; agents set it to a summary of their task.
 	Title string `json:"title,omitempty"`
@@ -901,6 +928,13 @@ func IsPaneID(ref string) bool {
 		}
 	}
 	return true
+}
+
+// PaneTeamParams puts a pane in a team: a name, "-" for no team whatever
+// the rules say, or "" to leave it to the rules again.
+type PaneTeamParams struct {
+	ID   string `json:"id"`
+	Team string `json:"team"`
 }
 
 // PaneRenameParams renames a pane; an empty name restores the default.
@@ -1005,9 +1039,15 @@ type WorktreeInfo struct {
 	// servers, and Conflicts where git is older than 2.38.
 	Overlaps  []Overlap `json:"overlaps,omitempty"`
 	Conflicts []string  `json:"conflicts,omitempty"`
+	// Operation is what git left unfinished here: "rebase", "merge",
+	// "cherry-pick", "revert" or "am". Mid-rebase, Branch is the branch
+	// being rebased while Detached stays true, since HEAD is: a client
+	// shows the checkout under that branch. Absent from older servers
+	// (CapWorktreeOperation).
+	Operation string `json:"operation,omitempty"`
 	// Rebasing is the branch a rebase left unfinished in this checkout is
-	// rewriting: git detaches HEAD while it works, so Branch is empty and
-	// this says whose conflict it is. Absent from older servers.
+	// rewriting, which Branch also names (CapWorktreeOperation): git
+	// detaches HEAD while it works. Absent from older servers.
 	Rebasing string `json:"rebasing,omitempty"`
 	// Resolve is the agent asked to resolve the branch's conflict with
 	// the base, while that conflict is there (CapBranchResolving).
@@ -2112,6 +2152,10 @@ type StaleWorktree struct {
 	// Suggested means it can go without losing anything.
 	Reasons   []string `json:"reasons,omitempty"`
 	Suggested bool     `json:"suggested,omitempty"`
+	// Operation is what git left unfinished in it ("rebase", "merge"…), as
+	// in WorktreeInfo: such a worktree is never suggested, and mid-rebase
+	// Branch is the branch being rebased (CapWorktreeOperation).
+	Operation string `json:"operation,omitempty"`
 }
 
 // WorktreeCleanupParams removes linked worktrees, deleting their branches
@@ -2138,6 +2182,65 @@ type WorktreeCleanupResult struct {
 type CleanupFailure struct {
 	Path  string `json:"path"`
 	Error string `json:"error"`
+}
+
+// BranchStaleParams asks for a project's local branches whose last commit
+// is more than Days days old; 0 is 30.
+type BranchStaleParams struct {
+	ProjectID string `json:"project_id"`
+	Days      int    `json:"days,omitempty"`
+	// Merged asks instead for the branches the base already has — merged,
+	// squashed in, or merged on GitHub with the branch's commit — however
+	// recent (CapBranchPruneMerged). The base itself is never among them.
+	Merged bool `json:"merged,omitempty"`
+}
+
+// BranchStale is those branches, oldest first.
+type BranchStale struct {
+	Days     int           `json:"days"`
+	Branches []StaleBranch `json:"branches"`
+	// Merged says these are the merged branches, as asked; a server that
+	// does not know the question leaves it out.
+	Merged bool `json:"merged,omitempty"`
+}
+
+// StaleBranch is an old local branch and what deleting it would lose.
+type StaleBranch struct {
+	Name      string    `json:"name"`
+	Committed time.Time `json:"committed"`
+	Subject   string    `json:"subject,omitempty"`
+	Upstream  string    `json:"upstream,omitempty"`
+	Base      bool      `json:"base,omitempty"` // the base branch, never deleted
+	// Worktree is where the branch is checked out: it goes with that
+	// worktree (worktree.cleanup), not on its own.
+	Worktree string `json:"worktree,omitempty"`
+	Merged   bool   `json:"merged,omitempty"` // the base has all of it, or its pull request merged with its commit
+	Gone     bool   `json:"gone,omitempty"`   // its upstream was deleted
+	// Unmerged counts its commits that neither the base nor its upstream
+	// has: what deleting it loses. A pushed branch loses nothing.
+	Unmerged int `json:"unmerged,omitempty"`
+	// Suggested means it can go without losing anything.
+	Suggested bool `json:"suggested,omitempty"`
+}
+
+// BranchPruneParams deletes local branches, each checked again first.
+type BranchPruneParams struct {
+	ProjectID string        `json:"project_id"`
+	Branches  []PruneBranch `json:"branches"`
+}
+
+// PruneBranch is one branch to delete; Force deletes it even when that
+// loses commits.
+type PruneBranch struct {
+	Name  string `json:"name"`
+	Force bool   `json:"force,omitempty"`
+}
+
+// BranchPruneResult says what was deleted, and what wasn't and why (the
+// failure's Path is the branch's name).
+type BranchPruneResult struct {
+	Deleted []string         `json:"deleted,omitempty"`
+	Failed  []CleanupFailure `json:"failed,omitempty"`
 }
 
 // ProjectFilesParams sets a project's local file patterns; Reset restores

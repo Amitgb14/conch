@@ -19,6 +19,8 @@ Conch.app shows the TUI's agents and terminals in a native macOS window; closing
   <Feature icon="workbench" title="Workbench" href="#workbench">An agent's files, terminal and chat in one tab.</Feature>
   <Feature icon="browser" title="Browser tabs" href="#browser-tabs">A dev server's page beside the agents.</Feature>
   <Feature icon="git" title="Commits" href="#commits">The project's commit graph.</Feature>
+  <Feature icon="tickets" title="Tickets" href="#tickets">Every ticket, and what conch is doing about it.</Feature>
+  <Feature icon="monitor" title="System Monitor" href="#system-monitor">The whole machine, on any machine.</Feature>
 </FeatureGrid>
 
 ## The window
@@ -27,13 +29,15 @@ The sidebar is conch's tree; tabs and splits work as in the TUI.
 
 **Windows:** `⌥⌘N`, or **Open in New Window** on a workspace or project.
 
+**Background:** a scene, or [your own](/docs/configuration#scenes-of-your-own): **Settings → Mac app → Background**.
+
 **How:** click a row to open it, right-click for its menu. ⌘. finds the next waiting agent, ⌃⌘S hides the sidebar.
+
+**Teams:** right-click an agent → **Team**, or drag it to a [team](/docs/configuration#teams).
 
 ## Settings
 
-conch's settings, including **Skills & MCP Servers**.
-
-**How:** ⚙ in the status bar, or ⌘,. **View → Theme** and **View → Style** change the look.
+**How:** ⚙ in the status bar, or ⌘,. **View → Theme** and **View → Style** change the look. **Agents** installs agents.
 
 <Shot name="desktop-settings" alt="Conch.app's Settings panel with its sections down the left" caption="Settings, in the app." />
 
@@ -47,7 +51,7 @@ The status bar shows each agent's plan use.
 
 ## Panes drawn by Ghostty
 
-Each pane runs [`conch attach`](/docs/cli#attach), drawn by Ghostty. A pane sized by another window is letterboxed.
+Panes are drawn by Ghostty; one sized by another window is letterboxed.
 
 **How:** **Take it**, or type, to size it here.
 
@@ -59,9 +63,9 @@ A shell floating over the splits.
 
 ## A branch's changes
 
-A branch opens in a tab: **Overview · Changes · Graph**. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** on a line leaves a note.
+A branch opens in a tab. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** leaves a note.
 
-**How:** ⋯ holds **Push**, **Merge…**, **Open Pull Request** and **Delete Branch…**; a branch's menu has **Check Out…** for one with no worktree.
+**How:** ⋯ holds **Push**, **Merge…**, **Open Pull Request** and **Delete Branch…**.
 
 <Shot
   name="desktop-git"
@@ -89,7 +93,7 @@ Each waiting agent is a card under **Needs you**, its choices as buttons.
 
 ## Files and sessions
 
-**Files** opens the checkout in an editor; **Sessions** lists saved conversations to search and resume.
+**Files** edits the checkout; **Sessions** resumes saved conversations.
 
 | Keys | |
 | --- | --- |
@@ -109,7 +113,7 @@ Each waiting agent is a card under **Needs you**, its choices as buttons.
 
 An agent's files, a terminal and its chat in one tab.
 
-**How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘4 pick a layout.
+**How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘5 pick a layout.
 
 **The chat:** attach files with ⇧⌘A. Off: `[app] chat = false`.
 
@@ -133,17 +137,19 @@ History, agents' branches, conflicts (resolving, review, push), **CI**, **Autopi
 
 ## Starting agents and tasks
 
-A task gives an agent a prompt on a branch of its own.
-
 **How:** **File → New Task…** (⌘N), **File → Start Agent** (⇧⌘N), **Add Project…** (⌘O).
-
-A plain folder is offered **Initialize Git** first.
 
 ## System Monitor
 
-The whole machine — CPU, memory, disk and its heaviest processes — on any machine conch reaches. It only shows.
+CPU, memory, disk and the heaviest processes, on any machine conch reaches.
 
 **How:** `⌥⌘M`, or the expand icon on the `▁▃▆` monitor.
+
+## Tickets
+
+Every project's issues and tickets, by **Mine**, **Ready for conch**, **Needs info** and **conch is on it**.
+
+**How:** `⇧⌘I`. Setting up Linear or Jira: [Tickets](/docs/tasks#tickets).
 
 ## Keys
 

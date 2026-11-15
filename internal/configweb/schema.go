@@ -84,6 +84,9 @@ type Choices struct {
 	// ZshThemes are the Oh My Zsh themes installed here, offered for
 	// [shell] omz_theme; any other name can still be typed.
 	ZshThemes []string
+	// Scenes are the scene files of your own ($CONCH_HOME/scenes), offered
+	// for [app] background after the built-in ones.
+	Scenes []string
 }
 
 func opts(values ...string) []Option {
@@ -95,6 +98,16 @@ func opts(values ...string) []Option {
 }
 
 func intp(n int) *int { return &n }
+
+// sceneOptions is [app] background's choices: none, conch's scenes, then
+// the files of your own by name.
+func sceneOptions(mine []string) []Option {
+	out := []Option{{"", "No scene"}, {"reef", "Reef"}, {"pines", "Snowy pines"}, {"lagoon", "Lagoon"}, {"stars", "Starfield"}, {"board", "Departure board"}}
+	for _, n := range mine {
+		out = append(out, Option{n, n})
+	}
+	return out
+}
 
 // keyActions names every action a key after the prefix can do, for
 // [keys.bind]'s list to offer rather than have them typed from memory.
@@ -188,6 +201,8 @@ func Schema(c Choices) []Section {
 					Options: []Option{{"", "On: answer by them"}, {config.PermissionsDryRun, "Dry run: only record"}, {config.PermissionsOff, "Off"}}},
 				{Key: "unrestricted_launch", Label: "Let agents start agents however they like", Kind: KindBool,
 					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else, and types only into agents, never a shell. On: any command, environment and flags, a helper that asks nobody before it acts among them, and typing into shells."},
+				{Key: "no_auto_resume", Label: "Don't resume agents after a restart", Kind: KindBool,
+					Help: "Off: after a reboot or a crash, the agents that were running come back by themselves, each on its own conversation. On: they wait in Sessions for I. conch server stop never brings them back."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
@@ -208,9 +223,11 @@ func Schema(c Choices) []Section {
 				{Key: "triage_agent", Label: "Triage agent", Kind: KindSelect, Options: reviewers, Help: "Who reads the issues; claude when empty."},
 				{Key: "triage_comment_only", Label: "Triage only comments", Kind: KindBool, Help: "Leave the labels to you."},
 			}},
-		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, and what a finished branch goes through on its way to the base.",
+		{ID: "git", Key: "git", Title: "Git", Icon: "git-merge", Description: "How conch merges, when a branch counts as old, and what a finished branch goes through on its way to the base.",
 			Fields: []Field{
 				{Key: "squash", Label: "Squash when merging", Kind: KindBool, Help: "One commit on the base instead of a merge commit."},
+				{Key: "stale_days", Label: "Old branch after (days)", Kind: KindInt, Min: intp(0), Placeholder: "30",
+					Help: "A local branch with no commit for this long is listed by conch branch prune and under Old branches; 0 is 30."},
 			}},
 		{ID: "brain", Key: "brain", Title: "Brain", Icon: "sparkles", Description: "The model behind ✦ Ask and agent summaries.",
 			Fields: []Field{
@@ -246,6 +263,13 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
+		{ID: "preview", Key: "preview", Title: "Mobile preview", Icon: "tablet-smartphone", Description: "The phone simulators Conch.app's Mobile Preview and conch preview show your app on.",
+			Fields: []Field{
+				{Key: "xcode", Label: "Xcode", Kind: KindString, Placeholder: "found by itself: /Applications/Xcode.app",
+					Help: "Where the iPhone and iPad simulators come from: Xcode.app, or its Contents/Developer folder. Empty finds Xcode in Applications, even when xcode-select points at the Command Line Tools, which have no simulators."},
+				{Key: "android_sdk", Label: "Android SDK", Kind: KindString, Placeholder: "found by itself: ~/Library/Android/sdk",
+					Help: "For conch preview's Android emulators and phones. Empty looks in ANDROID_HOME and where Android Studio installs it."},
+			}},
 		cloudSection(c.Cloud),
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{
@@ -255,6 +279,18 @@ func Schema(c Choices) []Section {
 					Help: "Compact puts a pane's name in its border, closes the gaps between splits and shortens the toolbar."},
 				{Key: "sidebar", Label: "Sidebar", Kind: KindSelect, Options: []Option{{"", "Solid"}, {"glass", "Glass"}},
 					Help: "Glass lets the desktop through the sidebar, as Finder's does. Panes stay solid."},
+				{Key: "background", Label: "Background", Kind: KindSelect, Options: sceneOptions(c.Scenes),
+					Help: "A scene behind the window, by day under a light theme and by night under a dark one. The toolbar, sidebar and tabs are frosted over it. Departure board lists the window's agents; your own are files in the scenes folder."},
+				{Key: "background_through", Label: "Scene through panes (%)", Kind: KindInt, Min: intp(0), Max: intp(60), Placeholder: "0",
+					Help: "How much of the scene shows through a pane, 0 to 60. 0 keeps terminals solid."},
+				{Key: "background_frost", Label: "Frost", Kind: KindSelect, Options: []Option{{"off", "Off"}, {"", "Light"}, {"strong", "Strong"}},
+					Help: "How much of the window's own colour is laid over the scene behind the toolbar, sidebar and tabs."},
+				{Key: "background_motion", Label: "Motion", Kind: KindSelect, Options: []Option{{"", "Moves"}, {"still", "Still"}},
+					Help: "The scene is always still when Reduce Motion is on in macOS, and in Low Power Mode."},
+				{Key: "background_fireworks", Label: "Celebrate merges", Kind: KindBool, Default: true,
+					Help: "Fireworks over the scene for a moment when one of the window's pull requests merges. Under Reduce Motion, only the note."},
+				{Key: "project_backgrounds", Label: "A project's own scene", Kind: KindMap, KeyLabel: "Project", Placeholder: "pines",
+					Help: "reef, pines, lagoon, stars, board, one of your own or none, by project name. Its window shows it, and so does any window while one of its tabs is in front."},
 				{Key: "ports", Label: "Ports in pane headers", Kind: KindBool, Default: true,
 					Help: "The ports a pane's programs listen on, a click opening one in the browser."},
 				{Key: "chat", Label: "Workbench chat", Kind: KindBool, Default: true,
@@ -308,6 +344,15 @@ func Schema(c Choices) []Section {
 					{Key: "run", Label: "Command", Kind: KindText, Placeholder: "go test ./...", Help: "Whatever sh -lc takes. CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE are set."},
 					{Key: "on", Label: "Offered on", Kind: KindList, Options: opts(config.ActionPlaces...), Help: "None is every kind of row."},
 					{Key: "keep", Label: "Keep the terminal open after", Kind: KindBool, Default: true},
+				}},
+			}},
+		{ID: "teams", Key: "", Title: "Teams", Icon: "users", Description: "Group agents by what they work on. A new agent joins the first team whose project or branch matches; one put in a team by hand stays there.",
+			Fields: []Field{
+				{Key: "teams", Label: "Teams", Kind: KindTables, Fields: []Field{
+					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "Backend"},
+					{Key: "color", Label: "Colour", Kind: KindSelect, Options: append([]Option{{Value: "", Label: "By its place"}}, opts(config.TeamColors...)...)},
+					{Key: "projects", Label: "Projects", Kind: KindList, Help: "Project names whose agents join it."},
+					{Key: "branches", Label: "Branches", Kind: KindList, Help: "Branch patterns, * for anything: ui/*, *-redesign."},
 				}},
 			}},
 		{ID: "permissions", Key: "", Title: "Permission rules", Icon: "lock", Description: "Answer an agent's tool requests by rule; the first that matches decides.",

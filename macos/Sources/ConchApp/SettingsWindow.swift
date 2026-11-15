@@ -223,14 +223,18 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     /// The theme on screen, a preview included.
     @ObservedObject var look: ShownTheme
+    /// For [app] background: the window's scene behind Settings too.
+    @ObservedObject var store: Store
     @State private var query = ""
     @FocusState private var searching: Bool
 
     var schema: [SettingsSection] { model.form?.payload.schema ?? [] }
 
     var body: some View {
+        let scene = store.appLook.scene
         HStack(spacing: 0) {
             sidebar.frame(width: 248)
+                .background { if scene.on { Frost(color: Theme.side) } }
             Rectangle().fill(Theme.line).frame(width: 1)
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -256,10 +260,19 @@ struct SettingsView: View {
                 if let t = model.toast { SettingsToast(text: t).padding(18).transition(.move(edge: .top).combined(with: .opacity)) }
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: model.toast)
-            .background(Theme.window)
+            // Frosted over the scene as the main window's frame is; the
+            // cards on it keep their own colour, so their text reads.
+            .background { if scene.on { Frost(color: Theme.window) } else { Theme.window } }
         }
         .frame(minWidth: 900, minHeight: 600)
-        .background(Theme.window)
+        .background {
+            let shown = scene.showing(project: nil)
+            if shown.scene != .none {
+                SceneView(scene: shown).ignoresSafeArea()
+            } else {
+                Theme.window
+            }
+        }
         .preferredColorScheme(look.theme.light ? .light : .dark)
         // A new theme repaints every view that reads this, in place: not
         // .id, as the main window does, which would make the window anew —
@@ -552,7 +565,10 @@ struct SectionForm: View {
                 if !themes.isEmpty { card("Theme", themes) }
                 card(nil, rest(["theme", "light_theme"]))
             case "app":
-                card(nil, rest(SettingsIconKeys))
+                card(nil, rest(SettingsIconKeys + BackgroundCard.keys))
+                if !pick(["background"]).isEmpty {
+                    BackgroundCard(model: model, section: section, fields: pick(Array(BackgroundCard.keys.dropFirst())))
+                }
             case "trackers":
                 if !model.trackersFailure.isEmpty {
                     Text(model.trackersFailure).font(.ui(size: 12)).foregroundStyle(Theme.warn)
@@ -566,7 +582,9 @@ struct SectionForm: View {
             case "git":
                 // Git's own, then Checks & autopilot: what a finished
                 // branch passes, its pull request and its merge.
-                if !fields.isEmpty { card("Merging", fields) }
+                let merging = rest(["stale_days"])
+                if !merging.isEmpty { card("Merging", merging) }
+                OldBranchesCard(model: model, section: section, fields: pick(["stale_days"]))
                 if let v = guest("verify") {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(v.title).font(.ui(size: 15, weight: .semibold))
@@ -599,6 +617,7 @@ struct SectionForm: View {
                 }
             case "agents":
                 card(nil, fields)
+                InstalledAgentsCard(store: model.store)
                 Button { model.section = SettingsNav.skills } label: {
                     HStack(spacing: 12) {
                         LucideIcon(SettingsNav.skillsIcon, color: Theme.accent, size: 16)
@@ -648,7 +667,8 @@ struct SectionForm: View {
             }
             ForEach(nestedTables, id: \.key) { t in nestedCard(t) }
             if section.key != "verify" {
-                ForEach(maps, id: \.key) { m in
+                // A project's scene is drawn with the Background card.
+                ForEach(maps.filter { !(section.key == "app" && BackgroundCard.keys.contains($0.key)) }, id: \.key) { m in
                     MapList(model: model, section: section, field: m, offer: offer(section, m))
                 }
             }
@@ -752,7 +772,11 @@ struct FieldRow: View {
         case .segments:
             Segments(options: options, value: choice)
         case .menu(let agents):
-            RichMenu(options: options, value: choice, agents: agents)
+            if agents {
+                AgentMenu(store: model.store, options: options, value: choice)
+            } else {
+                RichMenu(options: options, value: choice)
+            }
         case .stepper(let step):
             StepperField(value: num, step: step, field: field, fallback: Double(field.placeholder ?? "") ?? 0)
         case .slider(let lo, let hi, let step, let unit):
@@ -957,7 +981,7 @@ struct ThemePreview: View {
 /// The Settings window, made once and brought forward again.
 @MainActor
 final class SettingsWindow {
-    private var window: NSWindow?
+    private(set) var window: NSWindow?
     private let model: SettingsModel
     private var watch: [Any] = []
     private var look: AnyCancellable?
@@ -973,7 +997,7 @@ final class SettingsWindow {
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
             w.title = "conch Settings"
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look))
+            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look, store: model.store))
             look = model.store.look.$theme.sink { [weak w] t in
                 w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
                 w?.backgroundColor = Theme.ns(t.chrome)

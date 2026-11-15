@@ -94,6 +94,9 @@ type entry struct {
 	// conversation lives in its account's folder, so an agent is never
 	// moved to another.
 	account string
+	// team is the team the pane was put in by hand (pane.team), "" for
+	// none: its clients apply config.toml's rules to that.
+	team string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -115,6 +118,7 @@ func (e *entry) info() proto.PaneInfo {
 	info.Monitor, info.Alert = e.monitor.info()
 	info.LastActive = e.lastActive
 	info.Account = e.account
+	info.Team = e.team
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {

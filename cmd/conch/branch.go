@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -24,8 +26,16 @@ const branchUsage = `Usage:
   conch branch merge  [-cwd DIR] [-branch B] [-no-squash] [-m MESSAGE]
   conch branch discard [-cwd DIR] [-branch B] [-force] [-n]
   conch branch fix-ci [-cwd DIR] [-branch B] [-agent A]
+  conch branch prune  [-cwd DIR] [-days N | -merged] [-y] [-force] [BRANCH...]
 
-Without -branch, the branch checked out in DIR (the current directory) is used.`
+Without -branch, the branch checked out in DIR (the current directory) is used.
+
+prune deletes local branches with no commit in the last N days (30), or the
+ones named among them; with -merged, every branch the base already has —
+merged, squashed in, or merged on GitHub with its commit — however recent. Without -y it only prints what it would delete. It
+keeps the base branch, a branch checked out in a worktree (conch worktree
+clean removes those), and — without -force — one with commits neither
+merged nor pushed.`
 
 const worktreeUsage = `Usage:
   conch worktree ls    [-cwd DIR]
@@ -150,6 +160,8 @@ func runBranch(args []string) error {
 		return branchDiscard(args)
 	case "fix-ci":
 		return branchFixCI(args)
+	case "prune":
+		return branchPrune(args)
 	case "help", "-h", "--help":
 		fmt.Print(branchUsage + "\n")
 		return nil
@@ -459,6 +471,8 @@ func worktreeLabel(w proto.StaleWorktree) string {
 // why it looks finished.
 func worktreeState(w proto.StaleWorktree) string {
 	switch {
+	case w.Operation != "":
+		return gitx.OperationWord(w.Operation)
 	case w.Panes:
 		return "panes running"
 	case w.Locked:
@@ -538,4 +552,146 @@ func worktreeClean(args []string) error {
 		fmt.Fprintf(os.Stderr, "kept %s: %s\n", filepath.Base(f.Path), f.Error)
 	}
 	return fmt.Errorf("%d worktree%s could not be removed", len(res.Failed), plural(len(res.Failed)))
+}
+
+// branchPrune lists the project's local branches nobody has committed to
+// in -days days and deletes those that lose nothing, as worktree clean does
+// for worktrees: a dry run unless -y.
+func branchPrune(args []string) error {
+	fs := flag.NewFlagSet("branch prune", flag.ContinueOnError)
+	cwd := fs.String("cwd", "", "a directory in the project (default: current)")
+	days := fs.Int("days", 0, "how many days without a commit makes a branch old (default: [git] stale_days, else 30)")
+	yes := fs.Bool("y", false, "delete them, rather than only printing what would go")
+	force := fs.Bool("force", false, "delete even when that loses commits not merged or pushed")
+	merged := fs.Bool("merged", false, "the branches the base already has, whatever their age, rather than the old ones")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *days < 0 {
+		return errors.New("-days must be at least 1")
+	}
+	if *merged && *days > 0 {
+		return errors.New("-merged takes branches of any age; leave -days out")
+	}
+	if *days == 0 {
+		if cfg, err := config.Load(); err == nil {
+			*days = cfg.Git.StaleDays // 0 still: the server's 30
+		}
+	}
+	if err := checkDir(*cwd); err != nil {
+		return err
+	}
+	c, err := connect(true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	need := []string{proto.CapBranchPrune, "project.resolve.v1"}
+	if *merged {
+		need = append(need, proto.CapBranchPruneMerged)
+	}
+	if missing := c.MissingCapabilities(need); len(missing) > 0 {
+		return fmt.Errorf("the conch server (pid %d) is from an older build without %s; reload it with `conch server reload`", c.Server.PID, strings.Join(missing, ", "))
+	}
+	at, err := place(c, *cwd)
+	if err != nil {
+		return err
+	}
+	var stale proto.BranchStale
+	if err := callFor(c, proto.MethodBranchStale, proto.BranchStaleParams{ProjectID: at.ProjectID, Days: *days, Merged: *merged}, &stale, harvestWait); err != nil {
+		return err
+	}
+	// An older server answers with its old branches, which merged or not
+	// are not the list asked for: never delete from it.
+	if *merged && !stale.Merged {
+		return errors.New("the conch server did not list merged branches; reload it with `conch server reload`")
+	}
+	which := fmt.Sprintf("older than %d days", stale.Days)
+	if *merged {
+		which = "merged"
+	}
+	wanted := map[string]bool{}
+	for _, b := range fs.Args() {
+		wanted[b] = true
+	}
+	found := map[string]bool{}
+	var del []proto.PruneBranch
+	for _, b := range stale.Branches {
+		if len(wanted) > 0 && !wanted[b.Name] {
+			continue
+		}
+		found[b.Name] = true
+		age := ago(b.Committed)
+		switch {
+		case b.Base:
+			fmt.Printf("keeping %s (%s): the base branch\n", b.Name, age)
+			continue
+		case b.Worktree != "":
+			fmt.Printf("keeping %s (%s): checked out in %s; conch worktree clean removes it with its worktree\n", b.Name, age, b.Worktree)
+			continue
+		case b.Unmerged > 0 && !*force:
+			fmt.Printf("keeping %s (%s): %d commit%s not merged or pushed (-force to delete it anyway)\n", b.Name, age, b.Unmerged, plural(b.Unmerged))
+			continue
+		}
+		del = append(del, proto.PruneBranch{Name: b.Name, Force: *force})
+		what := "would delete"
+		if *yes {
+			what = "deleting"
+		}
+		fmt.Printf("%s %s (%s, %s)\n", what, b.Name, age, pruneWhy(b))
+	}
+	for b := range wanted {
+		if !found[b] {
+			fmt.Printf("keeping %s: not a local branch %s\n", b, which)
+		}
+	}
+	if len(del) == 0 {
+		fmt.Printf("no branches to delete (none %s that lose nothing)\n", which)
+		return nil
+	}
+	if !*yes {
+		fmt.Printf("%d to delete; run again with -y\n", len(del))
+		return nil
+	}
+	var res proto.BranchPruneResult
+	if err := callFor(c, proto.MethodBranchPrune, proto.BranchPruneParams{ProjectID: at.ProjectID, Branches: del}, &res, harvestWait); err != nil {
+		return err
+	}
+	fmt.Printf("deleted %d branch%s\n", len(res.Deleted), pluralES(len(res.Deleted)))
+	if len(res.Failed) == 0 {
+		return nil
+	}
+	for _, f := range res.Failed {
+		fmt.Fprintf(os.Stderr, "kept %s: %s\n", f.Path, f.Error)
+	}
+	return fmt.Errorf("%d branch%s could not be deleted", len(res.Failed), pluralES(len(res.Failed)))
+}
+
+// pruneWhy is why deleting an old branch loses nothing.
+func pruneWhy(b proto.StaleBranch) string {
+	switch {
+	case b.Merged:
+		return "merged"
+	case b.Unmerged > 0:
+		return fmt.Sprintf("%d commit%s lost", b.Unmerged, plural(b.Unmerged))
+	case b.Upstream != "" && !b.Gone:
+		return "pushed to " + b.Upstream
+	}
+	return "nothing of its own"
+}
+
+func pluralES(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
+}
+
+// ago says how long ago t was in days, the unit -days is in.
+func ago(t time.Time) string {
+	d := int(time.Since(t).Hours() / 24)
+	if d == 1 {
+		return "1 day ago"
+	}
+	return fmt.Sprintf("%d days ago", d)
 }

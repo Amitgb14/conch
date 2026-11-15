@@ -902,8 +902,15 @@ func (p *project) load() proto.ProjectInfo {
 	checkedOut := map[string]string{}
 	for _, wt := range wts {
 		wi := proto.WorktreeInfo{Path: wt.Path, Branch: wt.Branch, Head: wt.Head, Detached: wt.Detached, Main: wt.Main}
-		if wt.Detached {
-			wi.Rebasing = gitx.RebasingBranch(ctx, wt.Path)
+		if !wt.Prunable {
+			// git detaches HEAD while it rebases, so the list names no
+			// branch; the rebase itself still does.
+			op, rebasing := gitx.Operation(ctx, wt.Path)
+			wi.Operation = op
+			if wt.Detached && rebasing != "" {
+				wi.Branch = rebasing
+				wi.Rebasing = rebasing
+			}
 		}
 		if st, err := gitx.WorktreeStatus(ctx, wt.Path); err == nil {
 			wi.Status = &proto.GitStatus{
@@ -912,8 +919,8 @@ func (p *project) load() proto.ProjectInfo {
 			}
 		}
 		info.Worktrees = append(info.Worktrees, wi)
-		if wt.Branch != "" {
-			checkedOut[wt.Branch] = wt.Path
+		if wi.Branch != "" {
+			checkedOut[wi.Branch] = wt.Path
 		}
 	}
 

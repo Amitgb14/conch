@@ -151,3 +151,23 @@ func history() -> [LogCommit] {
     #expect(RepoFormat(objects: "sha1", refs: "files").label == "SHA-1 · files")
     #expect(RepoFormat(objects: nil, refs: nil).label == "")
 }
+
+// A server with worktree.operation.v1 names the branch being rebased as
+// the worktree's branch too, and its panes are on it: still stopped, even
+// with no file left in conflict (an exec or a break stopped it).
+@Test func graphBranchMidRebaseFromANewerServer() throws {
+    let project = try conchDecoder().decode(ProjectInfo.self, from: Data(#"""
+    {"id":"r1","name":"conch","path":"/p","base":"master",
+     "worktrees":[{"path":"/p","branch":"master","main":true},
+                  {"path":"/w/a","branch":"stopped","rebasing":"stopped","operation":"rebase","detached":true,"status":{"files":0}},
+                  {"path":"/w/b","branch":"merging","operation":"merge"}]}
+    """#.utf8))
+    let panes = try conchDecoder().decode([PaneInfo].self, from: Data(#"""
+    [{"id":"p1","name":"a","state":"running","project_id":"r1","branch":"stopped","cwd":"/w/a","agent":{"name":"codex","state":"working"}}]
+    """#.utf8))
+    let by = Dictionary(uniqueKeysWithValues: graphBranches(project, panes: panes).map { ($0.name, $0) })
+    #expect(by["stopped"]?.stopped == true)
+    #expect(by["stopped"]?.agent?.id == "p1")
+    #expect(by["merging"]?.stopped == false)
+    #expect(branchWorktree(project, "stopped")?.path == "/w/a")
+}

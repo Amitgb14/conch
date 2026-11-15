@@ -36,6 +36,9 @@ public struct AppLook: Equatable, Sendable {
     /// sections with, which the window's sidebar follows too.
     public var iconSet: SettingsIconSet = .lucide
     public var iconStyle: SettingsIconStyle = .plain
+    /// [app] background and the settings beside it: a scene behind the
+    /// window (Backgrounds.swift).
+    public var scene = SceneLook()
 
     public static let textRange = 0.8...1.6
     public static let fontRange = 9.0...28.0
@@ -84,6 +87,7 @@ public struct AppLook: Equatable, Sendable {
         }
         iconSet = SettingsIconSet(rawValue: tomlSetting("app", "icons", in: toml) ?? "") ?? .lucide
         iconStyle = SettingsIconStyle(rawValue: tomlSetting("app", "icon_style", in: toml) ?? "") ?? .plain
+        scene = SceneLook(toml: toml)
     }
 }
 
@@ -109,6 +113,7 @@ public func machine(ofKey k: String) -> String {
     if let f = parseFilesKey(k) { return f.machine }
     if let s = parseSetupKey(k) { return s.machine }
     if parseBrowserKey(k) != nil { return "local" } // a page is shown on this computer
+    if let p = parseMobileKey(k) { return p.machine }
     if let t = parseTaskKey(k) { return t.machine }
     return unkey(k).machine
 }
@@ -314,5 +319,6 @@ public func treeRow(forTab k: String) -> String? {
     if let s = parseSessionsKey(k) { return "s:\(key(s.machine, s.project)):sessions" }
     if let c = parseCommitsKey(k) { return "p:\(key(c.machine, c.project))" }
     if let s = parseSetupKey(k) { return "p:\(key(s.machine, s.project))" }
+    if let p = parseMobileKey(k) { return "p:\(key(p.machine, p.project))" }
     return "pane:" + k
 }

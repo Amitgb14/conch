@@ -17,10 +17,12 @@ public enum BroadcastScope: Equatable, Sendable {
     case section(project: String, agents: Bool)
     /// A machine's panes in no project.
     case cli(String)
+    /// These panes (key(machine, id)) on a machine: a team's agents.
+    case panes(machine: String, keys: [String])
 
     public var machine: String {
         switch self {
-        case .machine(let m), .cli(let m): return m
+        case .machine(let m), .cli(let m), .panes(let m, _): return m
         case .project(let pk), .section(let pk, _): return unkey(pk).machine
         }
     }
@@ -50,6 +52,8 @@ extension Snapshot {
         case .section(let pk, let agents):
             panes = panes.filter { $0.projectID == unkey(pk).id && ($0.agent != nil) == agents }
             terminalsTicked = !agents
+        case .panes(_, let keys):
+            panes = panes.filter { keys.contains(key(m, $0.id)) }
         }
         let targets = panes.map { p in
             BroadcastTarget(key: key(m, p.id), name: p.displayName, agent: p.agent?.name, waiting: p.agent?.state == .blocked,

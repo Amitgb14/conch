@@ -167,7 +167,9 @@ public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo], rebased: [S
         let agent = branchAgent(branchAgents(panes, project: project.id, branch: name) + inFolder, handedTo: nil)
         let pr = b?.pr.flatMap { ($0.state ?? "OPEN") == "OPEN" ? $0 : nil }
         let stoppedFiles = max(w.status?.conflicts ?? 0, 0)
-        let midRebase = w.rebasing != nil && w.branch == nil
+        // An older server leaves branch nil mid-rebase; a newer one names
+        // it as branch too, and says operation.
+        let midRebase = (w.rebasing != nil && (w.branch == nil || w.branch == w.rebasing)) || w.operation == "rebase"
         let stopped = stoppedFiles > 0 || midRebase
         let conflicting = stopped || !(w.conflicts ?? []).isEmpty
         // The agent at its conflict: the one asked, while its pane is

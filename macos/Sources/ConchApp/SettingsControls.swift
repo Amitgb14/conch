@@ -139,6 +139,8 @@ struct RichMenu: View {
     let options: [SettingsOption]
     @Binding var value: String
     var agents = false
+    /// A word after an option's name, by value: "not installed".
+    var notes: [String: String] = [:]
     var placeholder = "Choose…"
     /// Its width; nil fills what it is given (a side panel).
     var width: CGFloat? = 240
@@ -199,8 +201,9 @@ struct RichMenu: View {
                             } label: {
                                 HStack(spacing: 10) {
                                     mark(o.value)
-                                    Text(o.label).font(.ui(size: 12.5)).foregroundStyle(Theme.text)
+                                    Text(o.label).font(.ui(size: 12.5)).foregroundStyle(notes[o.value] == nil ? Theme.text : Theme.text2)
                                     Spacer()
+                                    if let n = notes[o.value] { Text(n).font(.ui(size: 11.5)).foregroundStyle(Theme.muted) }
                                     if o.value == value { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent) }
                                 }
                                 .padding(.horizontal, 8).frame(height: agents ? 34 : 28)
