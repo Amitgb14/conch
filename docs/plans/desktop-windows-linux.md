@@ -1,8 +1,10 @@
 # Plan: Conch desktop app on Linux and Windows
 
-Status: plan and design (2026-11-15). Not built, apart from phase 0.
-Decided: each OS gets its own native app; Electron and Tauri stay out.
-Open decisions are listed at the end.
+Status: plan and design (2026-11-15). Target: the next release.
+Phases 0 and 1 are built (the bridge is `internal/desktop` and `conch
+desktop`); the Linux and Windows apps are being started on branches of
+their own. Decided: each OS gets its own native app; Electron and Tauri
+stay out. Open decisions are listed at the end.
 
 ## Goal
 
@@ -166,7 +168,7 @@ on Windows especially, where no embeddable terminal is official.
 | # | What | Done when |
 | --- | --- | --- |
 | 0 | This plan; links under WSL open in Windows' browser (`internal/desktop`) | merged with this branch |
-| 1 | `conch desktop`: hello, snapshot, patch, notify, attach, and the pane/tab intents, over `internal/fleet`; contract test; a tiny text client to drive it | a script can watch the tree change and open panes through it |
+| 1 | `conch desktop`: hello, snapshot, patch, notify, and the intents pane.new, pane.close and pane.attach, over `internal/fleet`; contract test (`TestBridgeContract`). **Built.** Tab and layout intents wait on open decision 3 | a script can watch the tree change and open panes through it |
 | 2 | Linux app MVP: tree, tabs and splits, VTE panes, answering a waiting agent, notifications, install | daily use on Linux without the TUI |
 | 3 | Windows app MVP against WSL: the same, with the installer | the same on Windows 11 |
 | 4 | Parity in order of use: git tab (hunks, commits, reviews), sessions, tasks, System Monitor; scenes last or never | each feature moved into the bridge first, then drawn |
