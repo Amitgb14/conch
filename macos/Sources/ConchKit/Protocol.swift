@@ -117,6 +117,9 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var agent: AgentStatus?
     public var title: String?
     public var customName: Bool?
+    /// The team it was put in by hand (pane.team.v1), "-" for none on
+    /// purpose; nil leaves it to config.toml's [[teams]] rules (Teams.swift).
+    public var team: String?
     public var projectID: String?
     public var branch: String?
     /// The program's process on its machine.
@@ -144,7 +147,7 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var listening: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

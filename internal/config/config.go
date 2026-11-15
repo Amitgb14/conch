@@ -41,6 +41,9 @@ type Config struct {
 	// that matches deciding (permissions.go). After Actions for the same
 	// reason.
 	Permissions []PermissionRule `toml:"permissions,omitempty"`
+	// Teams group agents by what they work on — backend, UI, a report —
+	// across projects and branches (teams.go). After the plain tables too.
+	Teams []Team `toml:"teams,omitempty"`
 }
 
 // WebCfg is the phone gateway, conch web. URL is the address phones open —

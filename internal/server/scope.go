@@ -103,7 +103,7 @@ const (
 // read, and what an agent starts is its own.
 var scoped = map[string]scopeKind{
 	proto.MethodPaneClose: scopePane, proto.MethodPaneSendText: scopePane, proto.MethodPaneSendKeys: scopePane,
-	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane,
+	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane, proto.MethodPaneTeam: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
 	proto.MethodAgentPrompt:    scopePane,
 	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
@@ -416,7 +416,7 @@ var verbs = map[string]string{
 	proto.MethodFSMkdir: "make folders over the ssh login of", proto.MethodFSUpload: "copy files over the ssh login of",
 	proto.MethodFSDownload: "copy files over the ssh login of", proto.MethodPaneCreate: "run a command over the ssh login of",
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
-	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename",
+	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename", proto.MethodPaneTeam: "put in a team",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
 	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",

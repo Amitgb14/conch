@@ -181,6 +181,21 @@ public struct Layout: Equatable, Sendable {
         active = tabs.count - 1
     }
 
+    /// Puts panes side by side in a tab of their own, named, taken from
+    /// wherever they are (a pane is shown in one place): a team's agents.
+    /// Nothing happens for none.
+    public mutating func gather(_ panes: [String], name: String?) {
+        var keys: [String] = []
+        for p in panes where !keys.contains(p) { keys.append(p) }
+        guard let root = SplitNode.arranged(keys) else { return }
+        for p in keys { close(p) }
+        var tab = Tab(pane: keys[0])
+        tab.root = root
+        if let name, !name.isEmpty { tab.name = name }
+        tabs.append(tab)
+        active = tabs.count - 1
+    }
+
     /// Puts a new pane beside the focused one. With no tab yet it is a tab.
     public mutating func split(_ axis: SplitNode.Axis, with new: String) {
         guard let t = current else {

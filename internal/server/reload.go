@@ -61,6 +61,9 @@ type reloadPane struct {
 	// Account the agent was started on (accounts.go); absent from older
 	// state files, whose agents were all on their own.
 	Account string `json:"account,omitempty"`
+	// Team the pane was put in by hand (pane.team); absent from older
+	// state files, from before teams.
+	Team string `json:"team,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -149,6 +152,7 @@ func (s *Server) reload(bin string) {
 		rp.MonitorArmed = e.monitor.armed
 		rp.CreatedBy = e.lineage
 		rp.Account = e.account
+		rp.Team = e.team
 		rp.Subagents, rp.SubagentSession = e.subagents.list, e.subagents.session
 		e.mu.Unlock()
 		if e.transcript != nil {
@@ -223,6 +227,7 @@ func (s *Server) adopt(st *reloadState) {
 		e.monitor.alert, e.monitor.armed, e.monitor.lastOut = rp.Alert, rp.MonitorArmed, time.Now()
 		e.lineage = rp.CreatedBy
 		e.account = rp.Account
+		e.team = rp.Team
 		e.subagents = subagents{list: rp.Subagents, session: rp.SubagentSession}
 		if rp.Transcript != "" {
 			e.transcript = usage.NewTranscript(rp.Transcript)
