@@ -3086,7 +3086,8 @@ final class Store: ObservableObject {
 
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
     /// of its own, as the TUI's c and n do.
-    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?, prompt: String? = nil) {
+    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?, prompt: String? = nil,
+                 started: ((PaneInfo) -> Void)? = nil) {
         guard let c = conns[machine] else { return }
         struct Create: Encodable {
             var agent: String?
@@ -3106,6 +3107,7 @@ final class Store: ObservableObject {
                 joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))
                 focusTerminal()
+                started?(p)
             } catch {
                 self.error = "Could not start \(agent ?? "a terminal"): \(error)"
             }
@@ -3316,15 +3318,32 @@ final class Store: ObservableObject {
                 do {
                     try await c.call("agent.prompt", Params(id: a.id, text: text))
                     self.say("Asked \(a.displayName) to resolve \(branch.name)")
+                    self.noteResolving(machine: machine, project: project, branch: branch.name, pane: a.id)
                 } catch { self.error = "\(error)" }
             }
             return
         }
-        guard let path = pr.worktrees?.first(where: { $0.branch == branch.name })?.path else {
+        guard let path = branchWorktree(pr, branch.name)?.path else {
             error = "\(branch.name) has no worktree to start an agent in"
             return
         }
-        newPane(machine: machine, cwd: path, inProject: true, agent: start ?? startable(on: machine).first?.name, prompt: text)
+        newPane(machine: machine, cwd: path, inProject: true, agent: start ?? startable(on: machine).first?.name, prompt: text) { p in
+            self.noteResolving(machine: machine, project: project, branch: branch.name, pane: p.id)
+        }
+    }
+
+    /// Tells the server which agent is resolving branch's conflict, so the
+    /// graph says it is at it — in every client, and after the autopilot
+    /// looks. An older server keeps no asks: the graph then goes by an
+    /// agent working in the stopped worktree.
+    func noteResolving(machine: String, project: String, branch: String, pane: String) {
+        guard let c = conns[machine], c.hello?.capabilities?.contains("branch.resolving.v1") == true else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var pane_id: String }
+        Task {
+            do { try await c.call("branch.resolving", P(project_id: project, branch: branch, pane_id: pane)) } catch {
+                NSLog("conch: saying %@ resolves %@: %@", pane, branch, "\(error)")
+            }
+        }
     }
 
     /// Opens the task sheet to hand a commit to an agent: a new branch

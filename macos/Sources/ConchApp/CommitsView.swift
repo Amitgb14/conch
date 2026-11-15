@@ -125,6 +125,12 @@ final class CommitsModel: ObservableObject {
         store.askToResolve(machine: machine, project: project, branch: b, start: start)
     }
 
+    /// Brings the agent resolving b's conflict forward.
+    func showResolver(_ b: GraphBranch) {
+        guard let p = b.resolver, p.running else { return }
+        store.open(ConchKit.key(machine, p.id))
+    }
+
     var canAutopilot: Bool { store.connection(machine)?.hello?.capabilities?.contains("autopilot.v1") == true }
     var canActivity: Bool { store.connection(machine)?.hello?.capabilities?.contains("autopilot.activity.v1") == true }
 
@@ -964,6 +970,9 @@ struct StateTag: View {
         case .ciFailing: ("✕ CI failed", Theme.err)
         case .waiting: ("waiting for you", Theme.warn)
         case .rebased: ("✓ rebased", Theme.ok)
+        case .resolving: ("resolving", Theme.work)
+        case .resolveWaiting: ("resolving · needs you", Theme.warn)
+        case .resolveStopped: ("✕ resolve stopped", Theme.err)
         default: nil
         }
     }
@@ -1046,8 +1055,11 @@ struct BranchSideRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { toggle(on) }
         .contextMenu {
-            if branch.state.conflicts {
-                Button("Ask \(branch.agent?.displayName ?? "an Agent") to Resolve") { model.askToResolve(branch) }
+            if branch.state == .resolving || branch.state == .resolveWaiting, let r = branch.resolver {
+                Button("Show \(resolverName(branch) ?? r.displayName)") { model.showResolver(branch) }
+            } else if branch.state.conflicts {
+                let again = { if case .resolveStopped = branch.state { return " Again" } else { return "" } }()
+                Button("Ask \(branch.agent?.displayName ?? "an Agent") to Resolve" + again) { model.askToResolve(branch) }
             }
             if let r = branch.rebase {
                 Button("Review the Resolution…") { model.review(r) }
@@ -1079,6 +1091,9 @@ struct BranchSideRow: View {
         case .waiting: ("waiting for you", Theme.warn)
         case .ciFailing: ("CI failed", Theme.err)
         case .willConflict: ("will conflict", Theme.warn)
+        case .resolving: ("resolving", Theme.work)
+        case .resolveWaiting: ("needs you", Theme.warn)
+        case .resolveStopped: ("stopped resolving", Theme.err)
         case .working: ("working", Theme.work)
         case .done: ("done", Theme.ok)
         case .idle: ("idle", Theme.muted)
@@ -1088,7 +1103,8 @@ struct BranchSideRow: View {
 
 /// Above the graph when a branch's rebase or merge stopped on conflicts:
 /// what stopped, and the agent to ask — the branch's own, or another one
-/// started in its worktree.
+/// started in its worktree. Once one is asked, how that is going: at it,
+/// waiting on the person, or stopped with the conflict still there.
 struct ConflictBanner: View {
     /// Read so this is drawn again when the theme changes (ThemeLook).
     @Environment(\.conchTheme) private var look
@@ -1096,24 +1112,57 @@ struct ConflictBanner: View {
 
     var body: some View {
         let _ = look
-        if let b = model.branches.first(where: \.stopped) {
-            let n: Int = { if case .conflicted(let n) = b.state { return n } else { return 0 } }()
+        if let b = conflictBannerBranch(model.branches) {
+            let base = model.projectInfo?.base ?? "the base"
+            let tone = resolveTone(b.state)
             HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.err)
+                if b.state == .resolving {
+                    ProgressView().controlSize(.small).frame(width: 16)
+                } else {
+                    Image(systemName: b.state == .resolveWaiting ? "hand.raised.fill" : "exclamationmark.triangle.fill").foregroundStyle(tone)
+                }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("\(b.name) stopped on a conflict with \(model.projectInfo?.base ?? "the base")").font(.ui(size: 12.5, weight: .semibold))
-                    Text("\(n) file\(n == 1 ? "" : "s") to resolve in its worktree. Nothing has been pushed.")
-                        .font(.ui(size: 11.5)).foregroundStyle(Theme.text2)
+                    Text(b.state.resolution ? resolveHeadline(b, base: base) : "\(b.name) stopped on a conflict with \(base)")
+                        .font(.ui(size: 12.5, weight: .semibold)).lineLimit(2)
+                    Text(b.state.resolution ? resolveDetail(b) + "." : stoppedDetail(b))
+                        .font(.ui(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(2)
                 }
                 Spacer(minLength: 8)
-                ResolveButton(model: model, branch: b)
+                switch b.state {
+                case .resolving, .resolveWaiting:
+                    if let r = b.resolver, r.running {
+                        Button(b.state == .resolveWaiting ? "Answer \(resolverName(b) ?? r.displayName)…" : "Show \(resolverName(b) ?? r.displayName)") {
+                            model.showResolver(b)
+                        }
+                        .controlSize(.small).tint(Theme.accentDeep)
+                        .help("Opens the agent's pane")
+                    }
+                default:
+                    ResolveButton(model: model, branch: b)
+                }
                 Button("View Changes") { model.store.openChanges(project: key(model.machine, model.project), branch: b.name) }
                     .controlSize(.small)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(Theme.err.opacity(0.12))
-            .overlay(alignment: .bottom) { Rectangle().fill(Theme.err.opacity(0.35)).frame(height: 1) }
+            .background(tone.opacity(0.12))
+            .overlay(alignment: .bottom) { Rectangle().fill(tone.opacity(0.35)).frame(height: 1) }
+            .accessibilityElement(children: .contain)
         }
+    }
+
+    func stoppedDetail(_ b: GraphBranch) -> String {
+        let n = b.stoppedFiles
+        return "\(n) file\(n == 1 ? "" : "s") to resolve in its worktree. Nothing has been pushed."
+    }
+}
+
+/// The colour of a conflict in each state: an agent at it is work in
+/// hand, one asking is the person's, stuck is an error.
+@MainActor func resolveTone(_ s: GraphBranchState) -> Color {
+    switch s {
+    case .resolving: Theme.work
+    case .resolveWaiting, .willConflict: Theme.warn
+    default: Theme.err
     }
 }
 
@@ -1135,7 +1184,8 @@ struct ResolveButton: View {
                 ForEach(startable, id: \.name) { a in Button(a.title) { model.askToResolve(branch, start: a.name) } }
             }
         } label: {
-            Text(who.map { "Ask \($0) to resolve" } ?? "Ask an agent to resolve")
+            let again = { if case .resolveStopped = branch.state { return " again" } else { return "" } }()
+            Text((who.map { "Ask \($0) to resolve" } ?? "Ask an agent to resolve") + again)
         } primaryAction: {
             if branch.agent != nil {
                 model.askToResolve(branch)
@@ -1159,12 +1209,14 @@ struct ConflictCard: View {
     var body: some View {
         let _ = look
         let stopped = branch.stopped
-        let tone = stopped ? Theme.err : Theme.warn
+        let resolution = branch.state.resolution
+        let tone = resolution ? resolveTone(branch.state) : stopped ? Theme.err : Theme.warn
         let base = model.projectInfo?.base ?? "the base"
         VStack(alignment: .leading, spacing: 6) {
-            Text(stopped ? "Stopped on a conflict with \(base)" : "Will conflict with \(base)")
-                .font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(tone)
-            Text(stopped ? "The rebase or merge in \(branch.name)'s worktree is waiting for these files to be resolved."
+            Text(resolution ? resolveHeadline(branch, base: base) : stopped ? "Stopped on a conflict with \(base)" : "Will conflict with \(base)")
+                .font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(tone).fixedSize(horizontal: false, vertical: true)
+            Text(resolution ? resolveDetail(branch) + "."
+                 : stopped ? "The rebase or merge in \(branch.name)'s worktree is waiting for these files to be resolved."
                  : "\(base) changed the same lines as \(branch.name). Nothing has moved yet: git merge-tree tried it.")
                 .font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             ForEach(branch.conflicts.prefix(6), id: \.self) { f in
@@ -1173,7 +1225,11 @@ struct ConflictCard: View {
             if branch.conflicts.count > 6 {
                 Text("and \(branch.conflicts.count - 6) more").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             }
-            ResolveButton(model: model, branch: branch)
+            if (branch.state == .resolving || branch.state == .resolveWaiting), let r = branch.resolver, r.running {
+                Button("Show \(resolverName(branch) ?? r.displayName)") { model.showResolver(branch) }.controlSize(.small)
+            } else {
+                ResolveButton(model: model, branch: branch)
+            }
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(tone.opacity(0.10)))

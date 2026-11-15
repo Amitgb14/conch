@@ -39,7 +39,7 @@ struct RebasedBanner: View {
     var body: some View {
         let _ = look
         let bs = model.branches
-        if !bs.contains(where: \.stopped), let b = bs.first(where: { $0.rebase != nil }), let r = b.rebase {
+        if conflictBannerBranch(bs) == nil, let b = bs.first(where: { $0.rebase != nil }), let r = b.rebase {
             let base = model.projectInfo?.base ?? "the base"
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.ok)

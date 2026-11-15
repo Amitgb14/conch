@@ -86,11 +86,13 @@ func history() -> [LogCommit] {
      {"id":"p4","name":"other","state":"running","project_id":"r2","branch":"quiet","agent":{"name":"claude","state":"working"}}]
     """#.utf8))
     let bs = graphBranches(project, panes: panes)
-    #expect(bs.map(\.name) == ["stopped", "asking", "red", "forecast", "busy", "quiet"])
+    // stopped's agent is at its conflict, so it waits behind the rest.
+    #expect(bs.map(\.name) == ["asking", "red", "forecast", "stopped", "busy", "quiet"])
     let by = Dictionary(uniqueKeysWithValues: bs.map { ($0.name, $0) })
     // Mid-rebase git names no branch: the worktree says which it is
     // rewriting, and its agent is found by the folder it works in.
-    #expect(by["stopped"]?.state == .conflicted(2))
+    // Its agent working there: resolving it.
+    #expect(by["stopped"]?.state == .resolving)
     #expect(by["stopped"]?.agent?.id == "p1")
     #expect(by["stopped"]?.stopped == true && by["red"]?.stopped == false)
     #expect(by["red"]?.state == .ciFailing && by["red"]?.ahead == 2 && by["red"]?.behind == 1)

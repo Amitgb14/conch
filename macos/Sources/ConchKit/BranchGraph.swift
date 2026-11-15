@@ -53,6 +53,11 @@ public func commitOwners(_ commits: [LogCommit], base: String, remotes: Set<Stri
 public enum GraphBranchState: Equatable, Sendable {
     /// Its worktree stopped mid-rebase or merge with files to resolve.
     case conflicted(Int)
+    /// The agent asked to resolve its conflict stopped, the conflict still
+    /// there — or ended, its pane gone.
+    case resolveStopped(ended: Bool)
+    /// The agent asked to resolve its conflict is waiting for the person.
+    case resolveWaiting
     /// Rebased onto the base — a conflict resolved — and not pushed: the
     /// remote still has the old commits.
     case rebased
@@ -63,6 +68,8 @@ public enum GraphBranchState: Equatable, Sendable {
     /// Merging it into the base would conflict (git merge-tree), though
     /// nothing has moved yet.
     case willConflict
+    /// An agent is resolving its conflict with the base.
+    case resolving
     case working
     case done
     case idle
@@ -71,20 +78,33 @@ public enum GraphBranchState: Equatable, Sendable {
     public var urgency: Int {
         switch self {
         case .conflicted: 0
-        case .rebased: 1
-        case .waiting: 2
-        case .ciFailing: 3
-        case .willConflict: 4
-        case .working: 5
-        case .done: 6
-        case .idle: 7
+        case .resolveStopped: 1
+        case .resolveWaiting: 2
+        case .rebased: 3
+        case .waiting: 4
+        case .ciFailing: 5
+        case .willConflict: 6
+        case .resolving: 7
+        case .working: 8
+        case .done: 9
+        case .idle: 10
         }
     }
 
-    /// Whether an agent should be asked to resolve a conflict.
+    /// Whether the branch conflicts with the base: stuck, coming, or in
+    /// an agent's hands.
     public var conflicts: Bool {
         switch self {
-        case .conflicted, .willConflict: true
+        case .conflicted, .willConflict, .resolving, .resolveWaiting, .resolveStopped: true
+        default: false
+        }
+    }
+
+    /// Whether an agent is, or was, asked to resolve it: the banner and
+    /// card say how that is going rather than offer to ask.
+    public var resolution: Bool {
+        switch self {
+        case .resolving, .resolveWaiting, .resolveStopped: true
         default: false
         }
     }
@@ -104,20 +124,31 @@ public struct GraphBranch: Equatable, Sendable {
     public var pr: PRInfo?
     /// Its rebase not yet pushed (branch.rebased).
     public var rebase: BranchRebase?
+    /// The files its worktree, stopped mid-rebase or merge, still has to
+    /// resolve.
+    public var stoppedFiles: Int = 0
+    /// A rebase is unfinished in its worktree.
+    public var midRebase: Bool = false
+    /// Who was asked to resolve its conflict (branch.resolving), and that
+    /// agent's pane while it is there — or, from a server that keeps no
+    /// asks, the agent working in a worktree stopped mid-rebase.
+    public var ask: ResolveAsk?
+    public var resolver: PaneInfo?
 
     /// Whether its worktree stopped mid-rebase or merge on a conflict.
-    public var stopped: Bool {
-        if case .conflicted = state { return true }
-        return false
-    }
+    public var stopped: Bool { stoppedFiles > 0 || midRebase }
 }
+
+/// How long an agent just asked has to start before not working means it
+/// stopped.
+public let resolveStartGrace: TimeInterval = 30
 
 /// The project's agent branches — every branch checked out in a worktree
 /// of its own, never the base or the main checkout — with the state each
 /// is in, most urgent first and otherwise as the worktrees are listed.
 /// Rebased is the server's list of branches rebased and not pushed, by
 /// name.
-public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo], rebased: [String: BranchRebase] = [:]) -> [GraphBranch] {
+public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo], rebased: [String: BranchRebase] = [:], now: Date = Date()) -> [GraphBranch] {
     let base = project.base ?? ""
     let mainBranches = Set((project.worktrees ?? []).filter { $0.main == true }.compactMap(\.branch))
     let info = Dictionary((project.branches ?? []).map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
@@ -135,9 +166,36 @@ public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo], rebased: [S
         }
         let agent = branchAgent(branchAgents(panes, project: project.id, branch: name) + inFolder, handedTo: nil)
         let pr = b?.pr.flatMap { ($0.state ?? "OPEN") == "OPEN" ? $0 : nil }
+        let stoppedFiles = max(w.status?.conflicts ?? 0, 0)
+        let midRebase = w.rebasing != nil && w.branch == nil
+        let stopped = stoppedFiles > 0 || midRebase
+        let conflicting = stopped || !(w.conflicts ?? []).isEmpty
+        // The agent at its conflict: the one asked, while its pane is
+        // there; else, from a server keeping no asks, one busy in a
+        // worktree stopped mid-rebase — nothing else is done there.
+        var resolver: PaneInfo?
+        var resolve: GraphBranchState?
+        if let ask = w.resolve, conflicting {
+            let p = panes.first { $0.id == ask.pane }
+            resolver = p
+            if let p, p.running, p.agent?.state == .working {
+                resolve = .resolving
+            } else if let p, p.running, p.agent?.state == .blocked {
+                resolve = .resolveWaiting
+            } else if let p, p.running, let at = ask.at, now.timeIntervalSince(at) < resolveStartGrace {
+                resolve = .resolving
+            } else {
+                resolve = .resolveStopped(ended: !(p?.running ?? false))
+            }
+        } else if w.resolve == nil, stopped, let a = agent, a.agent?.state == .working || a.agent?.state == .blocked {
+            resolver = a
+            resolve = a.agent?.state == .working ? .resolving : .resolveWaiting
+        }
         let state: GraphBranchState
-        if let n = w.status?.conflicts, n > 0 {
-            state = .conflicted(n)
+        if let resolve {
+            state = resolve
+        } else if stoppedFiles > 0 {
+            state = .conflicted(stoppedFiles)
         } else if rebased[name] != nil {
             state = .rebased
         } else if agent?.agent?.state == .blocked {
@@ -154,7 +212,8 @@ public func graphBranches(_ project: ProjectInfo, panes: [PaneInfo], rebased: [S
             state = .idle
         }
         out.append(GraphBranch(name: name, agent: agent, state: state, ahead: b?.baseAhead ?? 0, behind: b?.baseBehind ?? 0,
-                               conflicts: w.conflicts ?? [], pr: pr, rebase: rebased[name]))
+                               conflicts: w.conflicts ?? [], pr: pr, rebase: rebased[name], stoppedFiles: stoppedFiles,
+                               midRebase: midRebase, ask: conflicting ? w.resolve : nil, resolver: resolver))
     }
     return out.enumerated().sorted { ($0.element.state.urgency, $0.offset) < ($1.element.state.urgency, $1.offset) }.map(\.element)
 }
@@ -212,4 +271,59 @@ public struct RepoFormat: Decodable, Equatable, Sendable {
         let hash = o == "sha256" ? "SHA-256" : o == "sha1" ? "SHA-1" : o
         return refs.map { "\(hash) · \($0)" } ?? hash
     }
+}
+
+/// The agent resolving a branch's conflict, by name: "Claude".
+public func resolverName(_ b: GraphBranch) -> String? {
+    guard let p = b.resolver else { return nil }
+    return p.agent?.name.capitalized ?? p.displayName
+}
+
+/// The banner's line on a branch whose conflict is in an agent's hands.
+public func resolveHeadline(_ b: GraphBranch, base: String) -> String {
+    let who = resolverName(b) ?? "The agent"
+    switch b.state {
+    case .resolving: return "\(who) is resolving the conflict with \(base)"
+    case .resolveWaiting: return "\(who) is waiting on you while resolving \(b.name)"
+    case .resolveStopped(ended: true): return "The agent asked to resolve \(b.name) has ended; it still conflicts with \(base)"
+    case .resolveStopped(ended: false): return "\(who) stopped; \(b.name) still conflicts with \(base)"
+    default: return "\(b.name) conflicts with \(base)"
+    }
+}
+
+/// How far it is and who asked when: "2 of 3 files left · you asked 4m
+/// ago".
+public func resolveDetail(_ b: GraphBranch, now: Date = Date()) -> String {
+    var parts: [String] = []
+    let asked = b.ask?.files?.count ?? 0
+    if b.stoppedFiles > 0 {
+        let n = b.stoppedFiles
+        parts.append(asked >= n ? "\(n) of \(asked) files left" : "\(n) file\(n == 1 ? "" : "s") left")
+    } else if b.midRebase {
+        parts.append("files resolved, the rebase not finished")
+    } else {
+        parts.append("not rebased yet")
+    }
+    if let ask = b.ask, let at = ask.at {
+        let who = ask.by == "autopilot" ? "the autopilot" : "you"
+        parts.append("\(who) asked \(agoText(at, now: now))")
+    }
+    return parts.joined(separator: " · ")
+}
+
+
+/// The branch the conflict banner is about: one stopped on a conflict, or
+/// whose conflict is in an agent's hands — the most urgent, as the list is
+/// sorted. nil when there is none, and the rebased banner may show.
+public func conflictBannerBranch(_ bs: [GraphBranch]) -> GraphBranch? {
+    bs.first { b in
+        if case .conflicted = b.state { return true }
+        return b.state.resolution
+    }
+}
+
+/// Where branch is checked out — mid-rebase too, when git names no
+/// branch and the server says which one the rebase rewrites.
+public func branchWorktree(_ project: ProjectInfo, _ branch: String) -> WorktreeInfo? {
+    (project.worktrees ?? []).first { $0.branch == branch } ?? (project.worktrees ?? []).first { $0.branch == nil && $0.rebasing == branch }
 }
