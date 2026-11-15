@@ -223,14 +223,18 @@ struct SettingsView: View {
     @ObservedObject var model: SettingsModel
     /// The theme on screen, a preview included.
     @ObservedObject var look: ShownTheme
+    /// For [app] background: the window's scene behind Settings too.
+    @ObservedObject var store: Store
     @State private var query = ""
     @FocusState private var searching: Bool
 
     var schema: [SettingsSection] { model.form?.payload.schema ?? [] }
 
     var body: some View {
+        let scene = store.appLook.scene
         HStack(spacing: 0) {
             sidebar.frame(width: 248)
+                .background { if scene.on { Frost(color: Theme.side) } }
             Rectangle().fill(Theme.line).frame(width: 1)
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -256,10 +260,19 @@ struct SettingsView: View {
                 if let t = model.toast { SettingsToast(text: t).padding(18).transition(.move(edge: .top).combined(with: .opacity)) }
             }
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: model.toast)
-            .background(Theme.window)
+            // Frosted over the scene as the main window's frame is; the
+            // cards on it keep their own colour, so their text reads.
+            .background { if scene.on { Frost(color: Theme.window) } else { Theme.window } }
         }
         .frame(minWidth: 900, minHeight: 600)
-        .background(Theme.window)
+        .background {
+            let shown = scene.showing(project: nil)
+            if shown.scene != .none {
+                SceneView(scene: shown).ignoresSafeArea()
+            } else {
+                Theme.window
+            }
+        }
         .preferredColorScheme(look.theme.light ? .light : .dark)
         // A new theme repaints every view that reads this, in place: not
         // .id, as the main window does, which would make the window anew —
@@ -984,7 +997,7 @@ final class SettingsWindow {
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
             w.title = "conch Settings"
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look))
+            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look, store: model.store))
             look = model.store.look.$theme.sink { [weak w] t in
                 w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
                 w?.backgroundColor = Theme.ns(t.chrome)
