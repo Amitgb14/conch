@@ -1125,7 +1125,7 @@ function rowNode(runs) {
     const span = document.createElement("span")
     span.textContent = run.text
     let fg = run.fg, bg = run.bg
-    if (run.inverse) [fg, bg] = [bg || "#1a1918", fg || "#e8e6df"]
+    if (run.inverse) [fg, bg] = [bg || "#141416", fg || "#e6e6e8"]
     if (fg) span.style.color = fg
     if (bg) span.style.backgroundColor = bg
     if (run.bold) span.style.fontWeight = "700"
