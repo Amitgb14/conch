@@ -110,6 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             main.window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+        // -settings git: Settings opened at that page, as -open opens a
+        // pane — for a scripted look at one, which no key can reach in an
+        // app run with -background.
+        if let page = UserDefaults.standard.string(forKey: "settings") {
+            settings.show(section: page)
+            if UserDefaults.standard.bool(forKey: "background") { settings.window?.orderBack(nil) }
+        }
         store.connect()
         // Conch.app's own updates: once for the app, not for each window.
         AppUpdater.shared.start()

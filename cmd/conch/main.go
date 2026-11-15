@@ -198,6 +198,9 @@ Usage:
   conch branch push [-rebase] | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
+  conch branch prune [-days N] [-y] [-force]
+                                delete local branches with no commit in N days (30) that
+                                lose nothing; a dry run without -y
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
                                 in its worktree with it), as f in the review queue
   conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...

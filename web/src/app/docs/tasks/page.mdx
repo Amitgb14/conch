@@ -2,7 +2,7 @@ export const metadata = { title: "Tasks and worktrees", description: "One branch
 
 # Tasks and worktrees
 
-How to give each agent its own branch and worktree, finish its work, and set those worktrees up.
+Each agent on its own branch and worktree: starting, finishing and setting them up.
 
 <TaskFlow />
 
@@ -43,6 +43,12 @@ From a shell: `conch branch commit | push | pr | merge | discard` ([CLI](/docs/c
 
 **How:** finished ones come ticked; `space` ticks others, `a` toggles the finished ones, `enter` reviews, `y` confirms. From a shell: `conch worktree ls | clean`.
 
+### Old branches
+
+Branches with no commit in 30 days (`[git] stale_days`) that are merged or pushed.
+
+**How:** `conch branch prune` shows them, `-y` deletes. In the [Mac app](/docs/mac-app): **Settings → Git → Old branches**.
+
 ## Several attempts at one task
 
 Try one prompt several times, each attempt on its own branch, and keep the best.
@@ -52,7 +58,7 @@ conch task -agent claude,codex "Add a health check endpoint"   # one each
 conch task -n 3 "Fix the flaky login test"                     # three, same agent
 ```
 
-In the task dialog, fill **Agent** with a list and **Attempts** with a number.
+In the task dialog: **Agent** takes a list, **Attempts** a number.
 
 <Callout type="note">Three attempts use three times the plan window.</Callout>
 
@@ -123,7 +129,7 @@ conch project files ID -none        # none
 
 ## Setup and ports in worktrees
 
-A **setup command** runs in every new worktree, in a terminal named `setup` beside the agent.
+A **setup command** runs in every new worktree, beside the agent.
 
 **How:** `F` on a project, or:
 

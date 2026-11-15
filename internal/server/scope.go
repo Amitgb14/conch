@@ -120,7 +120,7 @@ var scoped = map[string]scopeKind{
 
 	proto.MethodProjectRemove:  scopeProjID,
 	proto.MethodProjectGitInit: scopeProjID,
-	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject,
+	proto.MethodWorktreeRemove: scopeProject, proto.MethodWorktreeCleanup: scopeProject, proto.MethodBranchPrune: scopeProject,
 	proto.MethodBranchCommit: scopeProject, proto.MethodBranchStage: scopeProject, proto.MethodBranchReview: scopeProject, proto.MethodBranchPush: scopeProject, proto.MethodBranchPR: scopeProject,
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 
@@ -425,7 +425,7 @@ var verbs = map[string]string{
 	proto.MethodCloudAgentRegister: "register a cloud agent with",
 	proto.MethodProjectGitInit:     "make a git repository of",
 	proto.MethodProjectRemove:      "remove a project", proto.MethodWorktreeRemove: "remove a worktree",
-	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
+	proto.MethodWorktreeCleanup: "clean up worktrees", proto.MethodBranchPrune: "delete old branches of", proto.MethodBranchCommit: "commit", proto.MethodBranchStage: "stage changes on", proto.MethodBranchReview: "review the pull request of",
 	proto.MethodBranchPush: "push", proto.MethodBranchPR: "open a pull request",
 	proto.MethodBranchMerge: "merge", proto.MethodBranchPRMerge: "merge a pull request", proto.MethodBranchDiscard: "discard a branch",
 	proto.MethodBranchGit:    "run git",

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -68,6 +69,33 @@ func a4Harvest(t *testing.T) (*a4Server, string, *a4Var[map[string]proto.Message
 				{Path: filepath.Join(root, "api.worktrees", "busy"), Branch: "busy", Panes: true},
 				{Path: filepath.Join(root, "api.worktrees", "loose"), Reasons: []string{"detached"}, Suggested: true},
 			}}, nil
+		case proto.MethodBranchStale:
+			var p proto.BranchStaleParams
+			json.Unmarshal(msg.Params, &p)
+			days := p.Days
+			if days == 0 {
+				days = 30
+			}
+			long := func(d int) time.Time { return time.Now().Add(-time.Duration(d) * 24 * time.Hour) }
+			return proto.BranchStale{Days: days, Branches: []proto.StaleBranch{
+				{Name: "main", Committed: long(120), Base: true, Worktree: root},
+				{Name: "old-merged", Committed: long(90), Merged: true, Suggested: true},
+				{Name: "old-wip", Committed: long(60), Unmerged: 2},
+				{Name: "feat", Committed: long(50), Worktree: wt},
+				{Name: "old-pushed", Committed: long(40), Upstream: "origin/old-pushed", Suggested: true},
+			}}, nil
+		case proto.MethodBranchPrune:
+			var p proto.BranchPruneParams
+			json.Unmarshal(msg.Params, &p)
+			res := proto.BranchPruneResult{}
+			for _, b := range p.Branches {
+				if b.Name == "old-pushed" {
+					res.Failed = append(res.Failed, proto.CleanupFailure{Path: b.Name, Error: "would lose 1 commit not merged or pushed"})
+					continue
+				}
+				res.Deleted = append(res.Deleted, b.Name)
+			}
+			return res, nil
 		case proto.MethodWorktreeCleanup:
 			var p proto.WorktreeCleanupParams
 			json.Unmarshal(msg.Params, &p)
@@ -605,5 +633,64 @@ func TestBranchFixCI(t *testing.T) {
 	})
 	if _, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci"}) }); err == nil || !strings.Contains(err.Error(), "predates reading CI logs") {
 		t.Fatalf("old server: %v", err)
+	}
+}
+
+// TestBranchPruneCommand: conch branch prune is a dry run until -y, keeps
+// the base, a checked-out branch and one that loses commits (until
+// -force), passes -days on, narrows to the branches named, and says which
+// the server refused.
+func TestBranchPruneCommand(t *testing.T) {
+	_, wt, seen := a4Harvest(t)
+	t.Chdir(wt)
+
+	out, _, err := a4Out(t, func() error { return runBranch([]string{"prune"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"keeping main (120 days ago): the base branch",
+		"would delete old-merged (90 days ago, merged)",
+		"keeping old-wip (60 days ago): 2 commits not merged or pushed (-force",
+		"keeping feat (50 days ago): checked out in " + wt + "; conch worktree clean",
+		"would delete old-pushed (40 days ago, pushed to origin/old-pushed)",
+		"2 to delete; run again with -y",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run lacks %q:\n%s", want, out)
+		}
+	}
+	if _, called := seen.Get()[proto.MethodBranchPrune]; called {
+		t.Fatal("a dry run deleted")
+	}
+
+	out, errOut, err := a4Out(t, func() error { return runBranch([]string{"prune", "-y", "-days", "45"}) })
+	if err == nil || !strings.Contains(err.Error(), "1 branch could not be deleted") {
+		t.Fatalf("a refusal is an error: %v", err)
+	}
+	if !strings.Contains(out, "deleted 1 branch\n") || !strings.Contains(errOut, "kept old-pushed: would lose 1 commit") {
+		t.Fatalf("out %q err %q", out, errOut)
+	}
+	var sp proto.BranchStaleParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchStale].Params, &sp)
+	if sp.Days != 45 || sp.ProjectID != "api" {
+		t.Fatalf("stale asked with %+v", sp)
+	}
+
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"prune", "-y", "-force", "old-wip", "fresh"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bp proto.BranchPruneParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchPrune].Params, &bp)
+	if len(bp.Branches) != 1 || bp.Branches[0].Name != "old-wip" || !bp.Branches[0].Force {
+		t.Fatalf("named and forced: %+v", bp)
+	}
+	if !strings.Contains(out, "keeping fresh: not a local branch older than 30 days") || !strings.Contains(out, "deleted 1 branch") {
+		t.Fatalf("named: %s", out)
+	}
+
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-days", "-3"}) }); err == nil {
+		t.Fatal("a negative age should be refused")
 	}
 }
