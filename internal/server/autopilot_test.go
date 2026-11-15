@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -839,6 +840,16 @@ func TestAutopilotResolveAsksTheAgent(t *testing.T) {
 	}
 	if apGit(t, origin, "rev-parse", "api/model") != pushed {
 		t.Fatal("pushed before the agent resolved it")
+	}
+	// Said on the branch's worktree, so a client shows the agent at it.
+	var ask *proto.ResolveAsk
+	for _, w := range p.snapshot().Worktrees {
+		if w.Path == wt {
+			ask = w.Resolve
+		}
+	}
+	if ask == nil || ask.Pane != e.p.ID() || ask.By != "autopilot" || !slices.Equal(ask.Files, []string{"model.go"}) {
+		t.Errorf("ask: %+v", ask)
 	}
 	a5WaitFor(t, "the request submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
 

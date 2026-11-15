@@ -182,6 +182,9 @@ type project struct {
 	prOpen       map[string]bool
 	baseOwed     map[string]bool
 	baseFetching bool
+	// asks are the agents asked to resolve a branch's conflict, by
+	// branch (resolving.go).
+	asks map[string]resolveAsk
 }
 
 type catalog struct {
@@ -631,6 +634,7 @@ func (pm *projectManager) apply(p *project, info proto.ProjectInfo, stamp string
 	}
 	p.gen++
 	p.applyPRs(&info)
+	p.applyAsks(&info, time.Now(), true)
 	old := p.info
 	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
 	info.Setup = old.Setup

@@ -268,6 +268,9 @@ func (s *Server) askToResolve(p *project, branch string, rw rewrite, files []str
 		note(fmt.Sprintf("%s conflicts with %s, and asking %s to resolve it failed: %s", branch, rw.Base, agent.DisplayName(), perr.Message), true)
 		return
 	}
+	ask := newAsk(ctx, p, branch, wt.Path, agent.ID, "autopilot")
+	ask.Files = files // what the rebase onto the remote's base stopped on
+	s.projects.noteResolveAsk(p, branch, ask)
 	note(fmt.Sprintf("%s conflicts with %s in %s: asked %s to resolve it", branch, rw.Base, strings.Join(files, ", "), agent.DisplayName()), false)
 }
 

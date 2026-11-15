@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -243,6 +243,12 @@ const CapCIRerun = "ci.rerun.v1"
 // resolving its conflicts changed — then pushed over the old branch with
 // a lease (BranchPushParams.Over) or undone.
 const CapBranchRebased = "branch.rebased.v1"
+
+// CapBranchResolving is branch.resolving and WorktreeInfo.Resolve: which
+// agent was asked to resolve a branch's conflict with the base — by the
+// person or the autopilot — kept while the conflict is there, so a client
+// can say the agent is at it rather than that the branch is stuck.
+const CapBranchResolving = "branch.resolving.v1"
 
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
@@ -654,6 +660,9 @@ const (
 	// rebases, and MethodBranchRebaseUndo puts one back (CapBranchRebased).
 	MethodBranchRebased    = "branch.rebased"
 	MethodBranchRebaseUndo = "branch.rebase_undo"
+	// MethodBranchResolving says which agent was asked to resolve a
+	// branch's conflict, or that nobody is any more (CapBranchResolving).
+	MethodBranchResolving = "branch.resolving"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -1000,6 +1009,19 @@ type WorktreeInfo struct {
 	// rewriting: git detaches HEAD while it works, so Branch is empty and
 	// this says whose conflict it is. Absent from older servers.
 	Rebasing string `json:"rebasing,omitempty"`
+	// Resolve is the agent asked to resolve the branch's conflict with
+	// the base, while that conflict is there (CapBranchResolving).
+	Resolve *ResolveAsk `json:"resolve,omitempty"`
+}
+
+// ResolveAsk is an agent asked to resolve a branch's conflict: its pane,
+// who asked ("autopilot", or empty for the person), when, and the files
+// that conflicted then.
+type ResolveAsk struct {
+	Pane  string    `json:"pane"`
+	By    string    `json:"by,omitempty"`
+	At    time.Time `json:"at"`
+	Files []string  `json:"files,omitempty"`
 }
 
 // Overlap is another branch's checkout touching the same files.
@@ -1825,6 +1847,14 @@ type BranchRebaseUndoParams struct {
 	Branch    string `json:"branch"`
 	Before    string `json:"before"`
 	After     string `json:"after"`
+}
+
+// BranchResolvingParams names the agent (its pane) asked to resolve
+// Branch's conflict; an empty PaneID says nobody is any more.
+type BranchResolvingParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	PaneID    string `json:"pane_id,omitempty"`
 }
 
 // BranchPushResult says what a push did: Took counts the commits a rebase
