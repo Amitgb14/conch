@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapCIStats, CapCIRerun, CapAutopilotActivity,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -237,6 +237,12 @@ const CapCIStats = "ci.stats.v1"
 // CapCIRerun is ci.rerun: a failed run's failed jobs run again, through
 // gh on the machine the project is on.
 const CapCIRerun = "ci.rerun.v1"
+
+// CapBranchRebased is branch.rebased and branch.rebase_undo: a branch's
+// newest rebase read back — each commit before and after, and what
+// resolving its conflicts changed — then pushed over the old branch with
+// a lease (BranchPushParams.Over) or undone.
+const CapBranchRebased = "branch.rebased.v1"
 
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
@@ -644,6 +650,10 @@ const (
 	MethodCIStats           = "ci.stats"
 	// MethodCIRerun runs a failed run's failed jobs again (CapCIRerun).
 	MethodCIRerun = "ci.rerun"
+	// MethodBranchRebased reads back the agents' branches' newest
+	// rebases, and MethodBranchRebaseUndo puts one back (CapBranchRebased).
+	MethodBranchRebased    = "branch.rebased"
+	MethodBranchRebaseUndo = "branch.rebase_undo"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -1756,10 +1766,65 @@ type BranchRef struct {
 // of takes the remote's commits first and puts the branch's own on top;
 // without it such a push comes back as ErrPushRejected. It is a BranchRef
 // with a field added, so an older server reads it as one.
+//
+// Over is the commit the remote is expected to have for the branch: the
+// push replaces it, and only it (--force-with-lease), which is how a
+// rebased branch goes up over the one it rewrote (CapBranchRebased). An
+// older server ignores it, and a plain push of a rewrite is rejected.
 type BranchPushParams struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
 	Rebase    bool   `json:"rebase,omitempty"`
+	Over      string `json:"over,omitempty"`
+}
+
+// BranchRebasedParams asks for the newest rebase of each branch checked
+// out in the project — or of Branch alone — that has not been pushed
+// yet. Diff adds git range-diff's account of what changed.
+type BranchRebasedParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch,omitempty"`
+	Diff      bool   `json:"diff,omitempty"`
+}
+
+// BranchRebased lists the branches rebased and not pushed since.
+type BranchRebased struct {
+	Rebases []BranchRebase `json:"rebases"`
+}
+
+// BranchRebase is a branch's newest rebase: its tip before and after,
+// the commit it went onto, when, and each commit's fate. Remote is the
+// commit the remote has for the branch as the checkout last saw it, ""
+// when it was never pushed: Before means the push replaces the old
+// branch, anything else that somebody pushed since.
+type BranchRebase struct {
+	Branch  string          `json:"branch"`
+	Before  string          `json:"before"`
+	After   string          `json:"after"`
+	Onto    string          `json:"onto"`
+	At      time.Time       `json:"at,omitempty"`
+	Commits []RebasedCommit `json:"commits,omitempty"`
+	Remote  string          `json:"remote,omitempty"`
+	Diff    string          `json:"diff,omitempty"`
+}
+
+// RebasedCommit is one commit before (Old) and after (New), short
+// hashes; Change is "same", "changed" (a conflict was resolved in it),
+// "dropped" or "added".
+type RebasedCommit struct {
+	Old     string `json:"old,omitempty"`
+	New     string `json:"new,omitempty"`
+	Subject string `json:"subject"`
+	Change  string `json:"change"`
+}
+
+// BranchRebaseUndoParams puts Branch back at Before, if it is still at
+// After.
+type BranchRebaseUndoParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Before    string `json:"before"`
+	After     string `json:"after"`
 }
 
 // BranchPushResult says what a push did: Took counts the commits a rebase
