@@ -1502,6 +1502,10 @@ struct TaskSheet: View {
             Text([project?.name ?? "", m == "local" ? "" : store.label(m)].filter { !$0.isEmpty }.joined(separator: " · ")
                  + (project?.git == false ? " — not a git repository yet: Start asks whether to make it one" : " — on a branch and worktree of its own"))
                 .font(.ui(size: 12)).foregroundStyle(.secondary)
+            if !draft.base.isEmpty {
+                Text("Starts from \(draft.baseLabel.isEmpty ? String(draft.base.prefix(8)) : draft.baseLabel)")
+                    .font(.ui(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }
             TextEditor(text: $draft.prompt)
                 .font(.ui(size: 13)).frame(minHeight: 120)
                 .scrollContentBackground(.hidden).padding(6)
