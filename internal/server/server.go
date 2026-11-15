@@ -1021,6 +1021,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.projects.changes(cp)
 
+	case proto.MethodAutopilotActivity:
+		ap, perr := decode[proto.AutopilotActivityParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.autopilotActivity(ap), nil
+
 	case proto.MethodCIStats:
 		sp, perr := decode[proto.CIStatsParams](msg)
 		if perr != nil {

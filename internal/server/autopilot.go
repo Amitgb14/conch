@@ -40,6 +40,8 @@ const autopilotTick = 5 * time.Second
 
 type autopilot struct {
 	file string
+	// activity is every note made, kept across restarts.
+	activity *activityLog
 
 	mu      sync.Mutex
 	saved   autopilotFile
@@ -158,7 +160,7 @@ func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
 		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{},
 		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{}, reship: map[string]bool{},
-		gateMemo: map[string]gateResult{}, said: map[string]string{}}
+		gateMemo: map[string]gateResult{}, said: map[string]string{}, activity: loadActivity(configDir)}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -537,7 +539,7 @@ func (a *autopilot) checked(key, head string, passed bool) {
 // note tells every client what the autopilot did, and the log.
 func (s *Server) autopilotNote(n proto.AutopilotNote) {
 	log.Printf("autopilot: %s %s: %s", n.ProjectID, n.Branch, n.Text)
-	s.broadcast(proto.EventAutopilotNote, n)
+	s.broadcast(proto.EventAutopilotNote, s.autopilot.activity.add(n))
 }
 
 // autopilotPrompt is a message from the autopilot to an agent.
@@ -656,6 +658,10 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 	if s.autopilot.policy().AutoFix <= 0 {
 		return
 	}
+	kind := proto.ActivityCheck
+	if what == "CI" {
+		kind = proto.ActivityCI
+	}
 	agent := s.freeAgent(projectID, branch)
 	if agent == nil {
 		if waiting := s.busyAgent(projectID, branch); waiting != nil && what == "CI" {
@@ -667,7 +673,7 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 			s.autopilot.saveLocked()
 			s.autopilot.mu.Unlock()
 			if !already {
-				s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+				s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: kind,
 					Text: fmt.Sprintf("CI failed on %s; it goes to %s once it is free", branch, waiting.DisplayName())})
 			}
 		}
@@ -676,7 +682,7 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 	ci := what == "CI"
 	ok, capped, limit := s.autopilot.takeFix(key, ci)
 	if capped {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, Kind: kind,
 			Text: fmt.Sprintf("%s failed on %s again; auto_fix tried %d times, so it's yours now", what, branch, limit)})
 	}
 	if !ok {
@@ -692,11 +698,11 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 		}
 		if err != nil {
 			s.autopilot.giveBack(key, ci)
-			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
+			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, Kind: kind,
 				Text: fmt.Sprintf("%s failed on %s, and could not go to %s: %v", what, branch, agent.DisplayName(), err)})
 			return
 		}
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: kind,
 			Text: fmt.Sprintf("%s failed on %s: sent it to %s to fix", what, branch, agent.DisplayName())})
 	}()
 }
@@ -843,7 +849,7 @@ func (s *Server) autopilotMerge(key string) {
 				a.saveLocked()
 			}
 			a.mu.Unlock()
-			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: proto.ActivityMerge,
 				Text: fmt.Sprintf("%s is green but not merged: %s", branch, why)})
 		}
 		return
@@ -866,11 +872,11 @@ func (s *Server) autopilotMerge(key string) {
 		a.saveLocked()
 		a.mu.Unlock()
 		if perr != nil {
-			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
+			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, Kind: proto.ActivityMerge,
 				Text: fmt.Sprintf("#%d is green but GitHub would not merge it: %s", pr.Number, perr.Message)})
 			return
 		}
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Merged: true,
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Merged: true, Kind: proto.ActivityMerge,
 			Text: fmt.Sprintf("merged #%d on GitHub (%s), green", pr.Number, res.Method)})
 	}()
 }
