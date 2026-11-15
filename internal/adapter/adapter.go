@@ -268,6 +268,12 @@ func (a *cliAgent) Command(shell, args string) []string {
 
 var versionRe = regexp.MustCompile(`\d+\.\d+(\.\d+)?[0-9A-Za-z.+-]*`)
 
+// versionOf finds the version in a --version line, without the full stop
+// or dash of the sentence it ends ("GitHub Copilot CLI 1.0.112.").
+func versionOf(line string) string {
+	return strings.TrimRight(versionRe.FindString(line), ".+-")
+}
+
 // Detect implements Adapter.
 func (a *cliAgent) Detect(ctx context.Context, shell string) Availability {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -282,7 +288,7 @@ func (a *cliAgent) Detect(ctx context.Context, shell string) Availability {
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	av := Availability{Installed: true, Path: strings.TrimSpace(lines[0])}
 	if len(lines) > 1 {
-		av.Version = versionRe.FindString(lines[len(lines)-1])
+		av.Version = versionOf(lines[len(lines)-1])
 	}
 	return av
 }

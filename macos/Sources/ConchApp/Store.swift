@@ -51,6 +51,11 @@ final class Store: ObservableObject {
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
+    /// Every agent each machine reports, installed or not, for Settings →
+    /// Agents; nil for a machine not asked yet or that could not say.
+    @Published var agentStatus: [String: [AgentAvailability]] = [:]
+    /// The agents whose installer is running, key(machine, agent).
+    @Published var installingAgents: Set<String> = []
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
     /// The machines whose TUI tabs this launch has taken in.
@@ -1330,6 +1335,7 @@ final class Store: ObservableObject {
             countSessions(machine)
             if let a = try? await c.call("agent.status", as: AgentStatusList.self) {
                 agents[machine] = (a.agents ?? []).filter(\.installed)
+                agentStatus[machine] = a.agents ?? []
             }
             // The tabs the TUI is showing here, once a launch: the window
             // opens on the same work, with nothing given the keyboard.
@@ -3152,7 +3158,7 @@ final class Store: ObservableObject {
         // Seen installed at connect: nothing to ask.
         if agents[machine]?.contains(where: { $0.name == agent }) == true { return true }
         let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
-        if let status { agents[machine] = status.filter(\.installed) }
+        if let status { agents[machine] = status.filter(\.installed); agentStatus[machine] = status }
         let canInstall = c.hello?.capabilities?.contains("agent.install.v1") == true
         switch agentReadiness(agent, status: status, canInstall: canInstall, machineName: label(machine)) {
         case .start: return true
@@ -3170,6 +3176,41 @@ final class Store: ObservableObject {
         } catch {
             say("\(what) failed: \(error)", .err)
             return false
+        }
+    }
+
+    /// Asks machine again which agents it has, for Settings → Agents.
+    func checkAgents(on machine: String) {
+        guard let c = conns[machine] else { return }
+        Task {
+            guard let a = try? await c.call("agent.status", as: AgentStatusList.self) else { return }
+            agents[machine] = (a.agents ?? []).filter(\.installed)
+            agentStatus[machine] = a.agents ?? []
+        }
+    }
+
+    /// Whether machine's server installs agents (agent.install.v1).
+    func installsAgents(on machine: String) -> Bool {
+        conns[machine]?.hello?.capabilities?.contains("agent.install.v1") == true
+    }
+
+    /// Installs agent on machine from Settings: the status bar says so, and
+    /// its terminal opens only when the installer failed.
+    func install(agent: String, on machine: String) {
+        guard let c = conns[machine] else { return }
+        let k = key(machine, agent)
+        guard !installingAgents.contains(k) else { return }
+        let title = agentStatus[machine]?.first { $0.name == agent }?.title ?? agent
+        let what = agentInstallJob(title, machineName: label(machine))
+        installingAgents.insert(k)
+        Task {
+            defer { installingAgents.remove(k) }
+            do {
+                try await running(what) { try await installAgent(agent, title: title, on: machine, c) }
+                say("\(title) installed on \(label(machine))")
+            } catch {
+                say("\(what) failed: \(error)", .err)
+            }
         }
     }
 
@@ -3198,7 +3239,7 @@ final class Store: ObservableObject {
             try await Task.sleep(nanoseconds: 500_000_000)
         }
         let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
-        if let status { agents[machine] = status.filter(\.installed) }
+        if let status { agents[machine] = status.filter(\.installed); agentStatus[machine] = status }
         // A machine that could not be asked is taken at the installer's word.
         let found = status?.first { $0.name == agent }?.installed ?? true
         if let why = agentInstallProblem(title, exitCode: code, found: found) {

@@ -46,3 +46,68 @@ public func agentInstallProblem(_ title: String, exitCode: Int, found: Bool) -> 
     }
     return nil
 }
+
+// Settings → Agents: every agent a machine reports, and installing the
+// ones it lacks from there rather than only on the way to starting one.
+
+/// How one agent stands on a machine.
+public enum InstalledAgentState: Equatable, Sendable {
+    /// There, at this version ("" when it did not say).
+    case installed(String)
+    /// Not there, and Install puts it there.
+    case missing
+    /// Its installer is running now.
+    case installing
+    /// Not there, and conch has no installer for it.
+    case noInstaller
+    /// Not there, and this machine's server predates installing agents.
+    case unavailable
+}
+
+/// One row of the Installed agents card.
+public struct InstalledAgentRow: Equatable, Sendable, Identifiable {
+    public var name: String
+    public var title: String
+    public var state: InstalledAgentState
+    /// A line under its name: the tier it is in, or why there is no Install.
+    public var note: String?
+    public var id: String { name }
+}
+
+/// The card's rows, in the order the machine listed them. installing names
+/// the agents whose installer is running on it; canInstall is whether its
+/// server has agent.install.v1.
+public func installedAgentRows(_ status: [AgentAvailability], installing: Set<String>, canInstall: Bool) -> [InstalledAgentRow] {
+    status.map { a in
+        var note: String? = a.tier == "runs here" ? "conch runs it; its sessions are not read" : nil
+        let state: InstalledAgentState
+        if a.installed {
+            state = .installed(a.version ?? "")
+        } else if installing.contains(a.name) {
+            state = .installing
+        } else if a.noInstaller == true {
+            state = .noInstaller
+            note = "conch has no installer for it"
+        } else if !canInstall {
+            state = .unavailable
+        } else {
+            state = .missing
+        }
+        return InstalledAgentRow(name: a.name, title: a.title, state: state, note: note)
+    }
+}
+
+/// What a machine's tab says: how many of the agents it lists it has.
+public func installedAgentsSummary(_ status: [AgentAvailability]?) -> String {
+    guard let status else { return "unknown" }
+    if status.isEmpty { return "none known" }
+    return "\(status.filter(\.installed).count) of \(status.count)"
+}
+
+/// What the Default agent menu says after each agent this machine lacks;
+/// nothing while it is not known.
+public func agentMenuNotes(_ status: [AgentAvailability]?) -> [String: String] {
+    var notes: [String: String] = [:]
+    for a in status ?? [] where !a.installed { notes[a.name] = "not installed" }
+    return notes
+}
