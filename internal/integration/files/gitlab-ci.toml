@@ -1,0 +1,39 @@
+# GitLab CI on gitlab.com: the branch's newest failed pipeline at the
+# pull request's head, its failed jobs, and each one's log.
+kind = "ci"
+name = "gitlab-ci"
+label = "GitLab CI"
+api = "https://gitlab.com/api/v4"
+key_env = "GITLAB_TOKEN"
+auth_header = "PRIVATE-TOKEN"
+auth_value = "{key}"
+docs = "https://docs.gitlab.com/api/pipelines/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+note = "A personal access token with read_api. A self-managed GitLab needs a copy of this file with its own api."
+
+[detect]
+files = [".gitlab-ci.yml"]
+remotes = ["gitlab.com"]
+
+[project]
+id = "{path_escaped}"
+
+[failed_log]
+workflow = "pipeline {pipeline.id}"
+url = "{pipeline.web_url}"
+
+[[failed_log.steps]]
+as = "pipeline"
+call = "GET /projects/{project}/pipelines?ref={branch}&sha={head}&status=failed&per_page=1"
+pick = "0"
+
+[[failed_log.steps]]
+as = "jobs"
+call = "GET /projects/{project}/pipelines/{pipeline.id}/jobs?scope[]=failed&per_page=100"
+pick = "[*]"
+
+[[failed_log.steps]]
+each = "jobs"
+call = "GET /projects/{project}/jobs/{item.id}/trace"
+text = true

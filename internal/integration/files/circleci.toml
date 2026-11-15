@@ -1,0 +1,51 @@
+# CircleCI: a branch's newest pipeline, its failed workflow and job, and
+# what the job's failed steps printed. CircleCI's v2 API has no job log,
+# so the steps come from v1.1, and each step's output from a presigned
+# URL it hands back — fetched without the key.
+kind = "ci"
+name = "circleci"
+label = "CircleCI"
+api = "https://circleci.com/api"
+key_env = "CIRCLECI_TOKEN"
+auth_header = "Circle-Token"
+auth_value = "{key}"
+follow = ["circle-production-action-output.s3.amazonaws.com"]
+docs = "https://circleci.com/docs/api/v2/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+note = "A personal API token (User Settings → Personal API Tokens). A project set up through the CircleCI GitHub App is named circleci/ORG-ID/PROJECT-ID rather than gh/OWNER/REPO, which this file does not yet read."
+
+[detect]
+files = [".circleci/config.yml", ".circleci/config.yaml"]
+
+[project]
+id = "gh/{path}"
+
+[failed_log]
+workflow = "{workflow.name}"
+url = "https://app.circleci.com/pipelines/github/{path}/{pipeline.number}/workflows/{workflow.id}"
+
+[[failed_log.steps]]
+as = "pipeline"
+call = "GET /v2/project/{project}/pipeline?branch={branch}"
+pick = "items[vcs/revision={head}]"
+
+[[failed_log.steps]]
+as = "workflow"
+call = "GET /v2/pipeline/{pipeline.id}/workflow"
+pick = "items[status=failed]"
+
+[[failed_log.steps]]
+as = "job"
+call = "GET /v2/workflow/{workflow.id}/job"
+pick = "items[status=failed]"
+
+[[failed_log.steps]]
+as = "outputs"
+call = "GET /v1.1/project/{project}/{job.job_number}"
+pick = "steps[*].actions[*status=failed].output_url"
+
+[[failed_log.steps]]
+each = "outputs"
+fetch = "{item}"
+lines = "message"
