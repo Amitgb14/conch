@@ -209,15 +209,16 @@ func realPath(path string) string {
 const staleDays = 30
 
 // staleBranches lists a project's local branches with no commit in the
-// last days, oldest first, with what deleting each would lose. A branch
-// checked out somewhere is listed with where, since it goes with its
-// worktree rather than on its own.
+// last days, oldest first, with what deleting each would lose — or, asked
+// for Merged, every branch the base already has, whatever its age. A
+// branch checked out somewhere is listed with where, since it goes with
+// its worktree rather than on its own.
 func (pm *projectManager) staleBranches(sp proto.BranchStaleParams) (proto.BranchStale, *proto.Error) {
 	days := sp.Days
 	if days <= 0 {
 		days = staleDays
 	}
-	out := proto.BranchStale{Days: days, Branches: []proto.StaleBranch{}}
+	out := proto.BranchStale{Days: days, Branches: []proto.StaleBranch{}, Merged: sp.Merged}
 	p, perr := pm.gitProject(sp.ProjectID)
 	if perr != nil {
 		return out, perr
@@ -236,14 +237,25 @@ func (pm *projectManager) staleBranches(sp proto.BranchStaleParams) (proto.Branc
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	for i := len(branches) - 1; i >= 0; i-- { // Branches is newest first
 		b := branches[i]
-		if b.Committed.IsZero() || !b.Committed.Before(cutoff) {
+		switch {
+		case sp.Merged && b.Name == base:
+			continue
+		case !sp.Merged && (b.Committed.IsZero() || !b.Committed.Before(cutoff)):
 			continue
 		}
 		sb := proto.StaleBranch{Name: b.Name, Committed: b.Committed, Subject: b.Subject, Upstream: b.Upstream, Gone: b.Gone,
 			Base: b.Name == base, Worktree: checkedOut[b.Name]}
 		if !sb.Base {
-			sb.Merged = gitx.Merged(ctx, p.root, b.Name, base)
+			// A pull request merged with this very commit is merged too,
+			// though a squash or rebase on GitHub left nothing here to see.
 			_, sb.Unmerged, _ = p.losses(ctx, base, b.Name, "")
+			sb.Merged = gitx.Merged(ctx, p.root, b.Name, base) ||
+				(sb.Unmerged == 0 && p.mergedPR(ctx, b.Name))
+		}
+		// Merged, it is the base's already and loses nothing; a branch
+		// merely pushed is not merged.
+		if sp.Merged && (!sb.Merged || sb.Unmerged > 0) {
+			continue
 		}
 		sb.Suggested = !sb.Base && sb.Worktree == "" && sb.Unmerged == 0
 		out.Branches = append(out.Branches, sb)
