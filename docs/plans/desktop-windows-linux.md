@@ -155,4 +155,4 @@ server wherever possible, whatever is decided.
 
 Nothing here was built or run on Linux Swift or Windows. The WSL link
 choice is tested with a fake host (`internal/desktop/open_test.go`);
-end-to-end rows 9.178–9.179 cover the real thing.
+end-to-end rows 9.183–9.184 cover the real thing.
