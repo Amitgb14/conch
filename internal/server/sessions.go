@@ -25,6 +25,8 @@ type agentRun struct {
 	Agent   string    `json:"agent"`
 	Dir     string    `json:"dir"`
 	Session string    `json:"session,omitempty"` // when the agent reported it (Claude's hooks)
+	Account string    `json:"account,omitempty"` // which of the agent's accounts: it resumes there and nowhere else
+	Name    string    `json:"name,omitempty"`    // the pane's, which other agents address it by
 	Started time.Time `json:"started"`
 	Seen    time.Time `json:"seen"`
 }
@@ -37,15 +39,25 @@ type runLog struct {
 	mu          sync.Mutex
 	active      map[string]agentRun // by pane id
 	interrupted []agentRun
+	// fresh are the runs the previous server was in the middle of when it
+	// went without being asked to — a reboot, a crash, a kill — which this
+	// one resumes by itself (autoResume). stopped is that server having
+	// been asked to stop: what it ran is offered, not restarted.
+	fresh   []agentRun
+	stopped bool
 }
 
 type runLogFile struct {
 	Active      []agentRun `json:"active"`
 	Interrupted []agentRun `json:"interrupted"`
+	// Stopped says the server writing this was stopped on purpose
+	// (conch server stop), so its active runs are not resumed by the next.
+	Stopped bool `json:"stopped,omitempty"`
 }
 
 // loadRunLog reads the log. Runs still marked active belong to a server that
-// is gone: they become interrupted.
+// is gone: they become interrupted, and — unless that server was stopped on
+// purpose — fresh, for this one to resume.
 func loadRunLog(configDir string, keepActive bool) *runLog {
 	l := &runLog{path: filepath.Join(configDir, "agent-runs.json"), active: map[string]agentRun{}}
 	b, err := os.ReadFile(l.path)
@@ -68,6 +80,13 @@ func loadRunLog(configDir string, keepActive bool) *runLog {
 			l.interrupted = append(l.interrupted, r)
 		}
 	}
+	if !f.Stopped {
+		for _, r := range f.Active {
+			if time.Since(r.Seen) < keepInterrupted {
+				l.fresh = append(l.fresh, r)
+			}
+		}
+	}
 	if len(f.Active) > 0 {
 		log.Printf("%d agent(s) were running when the previous server stopped", len(f.Active))
 	}
@@ -76,7 +95,7 @@ func loadRunLog(configDir string, keepActive bool) *runLog {
 }
 
 func (l *runLog) saveLocked() {
-	f := runLogFile{Active: []agentRun{}, Interrupted: l.interrupted}
+	f := runLogFile{Active: []agentRun{}, Interrupted: l.interrupted, Stopped: l.stopped}
 	for _, r := range l.active {
 		f.Active = append(f.Active, r)
 	}
@@ -104,11 +123,11 @@ func (l *runLog) note(info proto.PaneInfo, dir string, created time.Time) {
 		}
 		return
 	}
-	next := agentRun{Pane: info.ID, Agent: info.Agent.Name, Dir: dir, Session: info.Agent.SessionID, Started: created, Seen: time.Now()}
+	next := agentRun{Pane: info.ID, Agent: info.Agent.Name, Dir: dir, Session: info.Agent.SessionID, Account: info.Account, Name: info.Name, Started: created, Seen: time.Now()}
 	if next.Session == "" && cur.Agent == next.Agent {
 		next.Session = cur.Session
 	}
-	if had && cur.Agent == next.Agent && cur.Session == next.Session && cur.Dir == next.Dir && time.Since(cur.Seen) < time.Minute {
+	if had && cur.Agent == next.Agent && cur.Session == next.Session && cur.Dir == next.Dir && cur.Account == next.Account && cur.Name == next.Name && time.Since(cur.Seen) < time.Minute {
 		return
 	}
 	l.active[info.ID] = next
@@ -138,6 +157,24 @@ func (l *runLog) resolve(agent, id, dir string) {
 	}
 	l.interrupted = kept
 	l.saveLocked()
+}
+
+// markStopped records that this server was asked to stop, so the next one
+// offers its agents for resuming rather than starting them again.
+func (l *runLog) markStopped() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.stopped = true
+	l.saveLocked()
+}
+
+// takeFresh hands over the runs to resume by themselves, once.
+func (l *runLog) takeFresh() []agentRun {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	fresh := l.fresh
+	l.fresh = nil
+	return fresh
 }
 
 func (l *runLog) interruptedRuns() []agentRun {
