@@ -44,6 +44,16 @@ final class CommitsModel: ObservableObject {
     @Published var owners: [String: String] = [:]
     /// A branch picked in the side's list: the rest of the graph dims.
     @Published var focusOn: String?
+    /// The CI panel in place of the commit's, and what it shows.
+    @Published var showCI = false
+    @Published var ci: CIStats?
+    @Published var ciDays = 14
+    @Published var ciError = ""
+    @Published var ciLoading = false
+    /// Runs asked to start again, by run id, with the attempt that failed:
+    /// the button says so until a later attempt shows up.
+    @Published var rerunning: [Int64: Int] = [:]
+    private var ciReads = Latest()
     /// The graph's search: commits that do not match are dimmed, never
     /// taken out, so the lanes stay whole.
     @Published var query = ""
@@ -97,6 +107,67 @@ final class CommitsModel: ObservableObject {
     /// of the agent named.
     func askToResolve(_ b: GraphBranch, start: String? = nil) {
         store.askToResolve(machine: machine, project: project, branch: b, start: start)
+    }
+
+    var canCI: Bool { store.connection(machine)?.hello?.capabilities?.contains("ci.stats.v1") == true }
+    var canRerun: Bool { store.connection(machine)?.hello?.capabilities?.contains("ci.rerun.v1") == true }
+
+    /// The project's CI over ciDays. A busy repository's job times arrive
+    /// a few dozen runs at a time, so while the server says some are still
+    /// to read it is asked again, a few times.
+    func loadCI(again: Int = 0) {
+        guard let c = store.connection(machine) else { return }
+        guard canCI else {
+            ciError = "conch on \(store.label(machine)) is older than this app and can't add up CI: reload its server."
+            return
+        }
+        struct P: Encodable { var project_id: String; var days: Int }
+        ciLoading = true
+        let n = ciReads.next()
+        let days = ciDays
+        Task {
+            do {
+                let s = try await c.call("ci.stats", P(project_id: project, days: days), as: CIStats.self)
+                guard ciReads.isLatest(n) else { return }
+                ci = s
+                ciError = ""
+                ciLoading = false
+                if s.jobsPending > 0 && again < 4 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    if ciReads.isLatest(n) && showCI { loadCI(again: again + 1) }
+                }
+            } catch {
+                guard ciReads.isLatest(n) else { return }
+                ciLoading = false
+                ciError = "\(error)"
+            }
+        }
+    }
+
+    /// Runs a failed run's failed jobs again — the run named, or a branch's
+    /// newest failed one — and reads CI again once GitHub has it.
+    func rerun(run: Int64? = nil, attempt: Int = 1, branch: String? = nil) {
+        guard let c = store.connection(machine) else { return }
+        guard canRerun else {
+            store.error = "conch on \(store.label(machine)) is too old to re-run CI: reload its server"
+            return
+        }
+        struct P: Encodable { var project_id: String; var run_id: Int64?; var branch: String? }
+        struct R: Decodable { var run_id: Int64 }
+        if let run { rerunning[run] = attempt }
+        Task {
+            do {
+                let r = try await c.call("ci.rerun", P(project_id: project, run_id: run, branch: branch), as: R.self)
+                if run == nil { rerunning[r.run_id] = attempt }
+                store.say("Running the failed jobs again" + (branch.map { " on \($0)" } ?? ""))
+                store.refreshProject(machine: machine, project: project)
+                try? await Task.sleep(for: .seconds(4))
+                if showCI { loadCI() }
+            } catch {
+                if let run { rerunning[run] = nil }
+                store.error = "Could not re-run CI: \(error)"
+            }
+        }
     }
 
     func handToAgent(_ c: LogCommit) {
@@ -237,12 +308,16 @@ struct CommitsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if showBranches {
+            // The CI panel takes the room the branch list had.
+            if showBranches && !model.showCI {
                 BranchSide(model: model, store: store).frame(minWidth: 180, idealWidth: 228, maxWidth: 228)
                 Rectangle().fill(Theme.line).frame(width: 1)
             }
             graph.frame(minWidth: 320)
-            if model.selected != nil {
+            if model.showCI {
+                Rectangle().fill(Theme.line).frame(width: 1)
+                CIPanel(model: model).frame(minWidth: 300, idealWidth: 380, maxWidth: 380)
+            } else if model.selected != nil {
                 Rectangle().fill(Theme.line).frame(width: 1)
                 CommitDetailPanel(model: model, store: store).frame(minWidth: 260, idealWidth: 340, maxWidth: 340)
             }
@@ -301,11 +376,13 @@ struct CommitsView: View {
     var header: some View {
         let name = store.snapshots[model.machine]?.project(model.project)?.name ?? model.project
         return HStack(spacing: 10) {
-            Button { showBranches.toggle() } label: {
-                LucideIcon("panel-left", color: showBranches ? Theme.accent : Theme.muted, size: 13).padding(3).contentShape(Rectangle())
+            if !model.showCI {
+                Button { showBranches.toggle() } label: {
+                    LucideIcon("panel-left", color: showBranches ? Theme.accent : Theme.muted, size: 13).padding(3).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).help(showBranches ? "Hide the agents' branches" : "Show the agents' branches")
+                .accessibilityLabel(showBranches ? "Hide the agents' branches" : "Show the agents' branches")
             }
-            .buttonStyle(.plain).help(showBranches ? "Hide the agents' branches" : "Show the agents' branches")
-            .accessibilityLabel(showBranches ? "Hide the agents' branches" : "Show the agents' branches")
             LucideIcon("git-commit-horizontal", color: Theme.accent, size: 14)
             Text("Commits").font(.ui(size: 13, weight: .semibold)).fixedSize()
             Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(1).layoutPriority(-1)
@@ -332,6 +409,24 @@ struct CommitsView: View {
             // is narrow, and the search and refresh need the room.
             if model.selected == nil {
                 Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).layoutPriority(-2)
+            }
+            if model.canCI {
+                Button {
+                    model.showCI.toggle()
+                    if model.showCI { model.loadCI() }
+                } label: {
+                    HStack(spacing: 4) {
+                        LucideIcon("zap", color: model.showCI ? Theme.accent : Theme.muted, size: 11)
+                        Text("CI").font(.ui(size: 11.5, weight: .semibold)).foregroundStyle(model.showCI ? Theme.accent : Theme.text2)
+                    }
+                    .padding(.horizontal, 7).frame(height: 22)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(model.showCI ? Theme.accent.opacity(0.16) : .clear))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(model.showCI ? Theme.accent.opacity(0.5) : Theme.line))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).fixedSize()
+                .help(model.showCI ? "Back to the commit" : "The project's CI: pass rate, run times, slow and flaky jobs, failures to run again")
+                .accessibilityLabel(model.showCI ? "Hide CI" : "Show CI")
             }
             Button { model.refresh() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).fixedSize().help("Read the history again, and its pull requests from GitHub")
         }
@@ -402,6 +497,9 @@ struct CommitRow: View {
             Button("Copy Hash") { copy(c.hash) }
             Button("Copy Subject") { copy(c.subject) }
             Button("Hand to an Agent…") { model.handToAgent(c) }
+            if let o = owner, o.state == .ciFailing, tip, model.canRerun {
+                Button("Re-run Failed Jobs") { model.rerun(branch: o.name) }
+            }
             if let o = owner, o.state.conflicts {
                 Button("Ask \(o.agent?.displayName ?? "an Agent") to Resolve") { model.askToResolve(o) }
             }
@@ -763,6 +861,9 @@ struct BranchSideRow: View {
         .contextMenu {
             if branch.state.conflicts {
                 Button("Ask \(branch.agent?.displayName ?? "an Agent") to Resolve") { model.askToResolve(branch) }
+            }
+            if branch.state == .ciFailing, model.canRerun {
+                Button("Re-run Failed Jobs") { model.rerun(branch: branch.name) }
             }
             Button("View Changes") { model.store.openChanges(project: key(model.machine, model.project), branch: branch.name) }
         }
