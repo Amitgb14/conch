@@ -27,6 +27,8 @@ public struct LogResult: Decodable, Sendable {
     public var more: Bool?
     /// The repository's remotes; nil from an older server.
     public var remotes: [String]?
+    /// How the repository stores itself; nil from an older server.
+    public var format: RepoFormat?
 }
 
 /// A project's commit graph tab's key in the layout:
