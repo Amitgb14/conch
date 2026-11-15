@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>conch Integrations — mocks</title>
+<style>
+  :root {
+    --bg: #15191E; --panel: #1B2026; --raised: #222830; --sel: #2D333B;
+    --fg: #C9D1D9; --muted: #8B949E; --border: #444C56; --line: #2E353D;
+    --accent: #0F7B8A; --ui: #2AA5B5; --ok: #3FB950; --warn: #D29922; --err: #F85149; --work: #58A6FF;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0E1114; color: var(--fg); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", sans-serif; }
+  h1 { font-size: 22px; margin: 32px 40px 4px; }
+  .lede { margin: 0 40px 28px; color: var(--muted); max-width: 920px; }
+  section.mock { margin: 0 40px 56px; }
+  section.mock > h2 { font-size: 15px; margin: 0 0 4px; }
+  section.mock > p.why { color: var(--muted); margin: 0 0 12px; max-width: 920px; }
+  .win { width: 1180px; border: 1px solid #000; border-radius: 10px; overflow: hidden; background: var(--bg); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .titlebar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .dots span { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; }
+  .dots span:nth-child(1) { background: #FF5F57; } .dots span:nth-child(2) { background: #FEBC2E; } .dots span:nth-child(3) { background: #28C840; }
+  .titlebar .t { flex: 1; text-align: center; color: var(--muted); font-weight: 600; }
+  .body { display: flex; min-height: 600px; }
+  .side { width: 220px; background: var(--panel); border-right: 1px solid var(--line); padding: 12px 8px; }
+  .side .grp { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin: 14px 10px 6px; }
+  .side .it { display: flex; justify-content: space-between; padding: 5px 10px; border-radius: 6px; color: var(--fg); }
+  .side .it.on { background: var(--sel); }
+  .side .it .n { color: var(--muted); font-size: 11px; }
+  .main { flex: 1; padding: 18px 22px; }
+  .search { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+  .search input { flex: 1; background: var(--raised); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; color: var(--fg); font: inherit; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .chip.on { border-color: var(--ui); color: var(--ui); }
+  .chip.ok { border-color: rgba(63,185,80,.5); color: var(--ok); }
+  .chip.warn { border-color: rgba(210,153,34,.5); color: var(--warn); }
+  .chip.err { border-color: rgba(248,81,73,.5); color: var(--err); }
+  .chip.work { border-color: rgba(88,166,255,.5); color: var(--work); }
+  .banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; background: rgba(42,165,181,.08); border: 1px solid rgba(42,165,181,.35); margin-bottom: 16px; }
+  .banner b { color: var(--ui); }
+  .banner .sp { flex: 1; }
+  .btn { display: inline-block; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--fg); font-weight: 500; white-space: nowrap; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.danger { color: var(--err); }
+  .btn.small { padding: 2px 9px; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .card .top { display: flex; gap: 10px; align-items: center; }
+  .logo { width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; font-weight: 700; color: #fff; flex: none; }
+  .card .name { font-weight: 600; }
+  .card .kind { color: var(--muted); font-size: 11px; }
+  .card .desc { color: var(--muted); min-height: 38px; }
+  .card .foot { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; margin-top: auto; }
+  .card .foot .sp { flex: 1; }
+  .sectionh { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 10px; }
+  .sectionh h3 { margin: 0; font-size: 13px; }
+  .sectionh .n { color: var(--muted); font-size: 12px; }
+  .detail { display: flex; gap: 22px; }
+  .detail .left { flex: 1; }
+  .detail .right { width: 300px; display: flex; flex-direction: column; gap: 12px; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px; }
+  .box h4 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .feat { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  .feat:first-of-type { border-top: 0; }
+  .feat .m { width: 18px; flex: none; }
+  .feat .w { flex: 1; } .feat .s { color: var(--muted); font-size: 12px; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); } .muted { color: var(--muted); } .ui { color: var(--ui); } .work { color: var(--work); }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 12px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  code, .mono { font-family: "SF Mono", Menlo, monospace; font-size: 12px; }
+  pre.toml { background: #0F1317; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 0; font: 12px/1.5 "SF Mono", Menlo, monospace; color: var(--fg); overflow: hidden; }
+  pre.toml .c { color: #6E7681; } pre.toml .k { color: var(--work); } pre.toml .s { color: #A5D6FF; } pre.toml .h { color: var(--ui); }
+  .sheetwrap { position: relative; }
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: start center; padding-top: 70px; }
+  .sheet { width: 560px; background: var(--raised); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+  .sheet h3 { margin: 0 0 4px; font-size: 15px; }
+  .step { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .step .num { width: 22px; height: 22px; border-radius: 50%; background: var(--sel); display: grid; place-items: center; font-size: 11px; flex: none; }
+  .step .num.done { background: var(--ok); color: #0E1114; }
+  .field { background: #0F1317; border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; font-family: "SF Mono", Menlo, monospace; font-size: 12px; margin-top: 6px; color: var(--muted); }
+  .host { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .sp { flex: 1; }
+  .tree { width: 290px; background: var(--panel); border-right: 1px solid var(--line); padding: 10px 6px; font-size: 13px; }
+  .tree .r { padding: 4px 10px; border-radius: 5px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .tree .r.sel { background: var(--sel); }
+  .tree .ind1 { padding-left: 24px; } .tree .ind2 { padding-left: 40px; }
+  .term { flex: 1; background: #101418; padding: 14px 16px; font: 12.5px/1.55 "SF Mono", Menlo, monospace; white-space: pre; color: var(--fg); }
+  .tui { width: 1180px; background: #101418; border: 1px solid #000; border-radius: 10px; padding: 14px 18px; font: 12.5px/1.6 "SF Mono", Menlo, monospace; white-space: pre; color: var(--fg); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .tui .hl { background: var(--sel); }
+  .pill { display: inline-block; padding: 0 6px; border-radius: 4px; background: var(--sel); }
+  .note { margin-top: 10px; color: var(--muted); font-size: 12px; max-width: 1180px; }
+  .toc { margin: 0 40px 30px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .toc a { color: var(--ui); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Integrations for conch — mocks</h1>
+<p class="lede">One place to browse and install what conch talks to: code hosts, CI, ticket trackers, sandboxes, notifications. Each integration is a <b>provider file</b> — a description, never code — from a registry anyone can add to, checked by a hash, holding your key in the Keychain. Built-ins (GitHub, GitHub Actions, Linear, Jira) are listed the same way so there is one model. Conch.app first; the TUI and CLI get the same data.</p>
+
+<div class="toc">
+  <a href="#m1">1 · Browse</a><a href="#m2">2 · An integration's page</a><a href="#m3">3 · Install and connect</a><a href="#m4">4 · Detected in a project</a><a href="#m5">5 · Project's integrations</a><a href="#m6">6 · Using it: a CircleCI failure</a><a href="#m7">7 · Not listed: adapt one</a><a href="#m8">8 · TUI and CLI</a><a href="#m9">9 · The provider file</a>
+</div>
+
+<!-- 1 BROWSE -->
+<section class="mock" id="m1">
+  <h2>1 · Browse — Settings → Integrations (also ⌘K “Integrations”)</h2>
+  <p class="why">Kinds down the side, each with what is installed. Cards say what the integration does in conch, whether a maintainer has checked it live, and whether it is built in. A project's own detections lead.</p>
+  <div class="win">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">Integrations</div></div>
+    <div class="body">
+      <div class="side">
+        <div class="it on"><span>Discover</span></div>
+        <div class="it"><span>Installed</span><span class="n">6</span></div>
+        <div class="it"><span>Updates</span><span class="n" style="color:var(--ui)">1</span></div>
+        <div class="grp">Kinds</div>
+        <div class="it"><span>Code hosts</span><span class="n">1 / 5</span></div>
+        <div class="it"><span>CI</span><span class="n">1 / 7</span></div>
+        <div class="it"><span>Ticket trackers</span><span class="n">3 / 9</span></div>
+        <div class="it"><span>Sandboxes</span><span class="n">1 / 8</span></div>
+        <div class="it"><span>Notifications</span><span class="n">0 / 4</span></div>
+        <div class="grp">Registry</div>
+        <div class="it"><span>conch-integrations</span></div>
+        <div class="it"><span class="muted">+ Add a registry…</span></div>
+        <div class="grp">Make one</div>
+        <div class="it"><span class="ui">✦ Adapt from API docs…</span></div>
+      </div>
+      <div class="main">
+        <div class="search"><input value="" placeholder="Search integrations — circleci, gitlab, shortcut…"><span class="chip on">All</span><span class="chip">Verified</span><span class="chip">Built in</span><span class="chip">Community</span></div>
+        <div class="banner"><span style="font-size:16px">◎</span><div><b>Found in your projects:</b> <span class="mono">ceph</span> builds on CircleCI (<span class="mono">.circleci/config.yml</span>), <span class="mono">pdp-web</span> is on GitLab (<span class="mono">gitlab.com</span> remote).</div><span class="sp"></span><span class="btn small">Show both</span></div>
+
+        <div class="sectionh"><h3>CI</h3><span class="n">failed logs to agents, re-runs, the CI panel</span></div>
+        <div class="grid">
+          <div class="card"><div class="top"><div class="logo" style="background:#24292F">⚙</div><div><div class="name">GitHub Actions</div><div class="kind">CI · built in</div></div></div><div class="desc">Failed steps' logs to the branch's agent, re-run failed jobs, the CI panel's history.</div><div class="foot"><span class="chip ok">✓ installed</span><span class="chip">built in</span><span class="sp"></span></div></div>
+          <div class="card" style="border-color:rgba(42,165,181,.5)"><div class="top"><div class="logo" style="background:#343434">◐</div><div><div class="name">CircleCI</div><div class="kind">CI · conch-integrations</div></div></div><div class="desc">A failed job's output to the agent, re-run from failed, pipelines for a branch. Used in <b>ceph</b>.</div><div class="foot"><span class="chip ok">✓ verified 3 d ago</span><span class="chip">token</span><span class="sp"></span><span class="btn primary small">Install</span></div></div>
+          <div class="card"><div class="top"><div class="logo" style="background:#FC6D26">◆</div><div><div class="name">GitLab CI</div><div class="kind">CI · conch-integrations</div></div></div><div class="desc">Pipelines and jobs for a merge request, a job's trace, retry. Pairs with the GitLab code host.</div><div class="foot"><span class="chip ok">✓ verified 9 d ago</span><span class="chip">token</span><span class="sp"></span><span class="btn small">Install</span></div></div>
+          <div class="card"><div class="top"><div class="logo" style="background:#14CC80">▶</div><div><div class="name">Buildkite</div><div class="kind">CI · community</div></div></div><div class="desc">Builds for a commit, a job's log, rebuild. Adapted from Buildkite's REST docs by codex.</div><div class="foot"><span class="chip warn">not checked live</span><span class="chip">token</span><span class="sp"></span><span class="btn small">Install</span></div></div>
+          <div class="card"><div class="top"><div class="logo" style="background:#D33833">J</div><div><div class="name">Jenkins</div><div class="kind">CI · community</div></div></div><div class="desc">Builds by branch on your own Jenkins; console text of a failed build; replay.</div><div class="foot"><span class="chip ok">✓ verified 21 d ago</span><span class="chip">user + token</span><span class="sp"></span><span class="btn small">Install</span></div></div>
+          <div class="card"><div class="top"><div class="logo" style="background:#0052CC">⚑</div><div><div class="name">Bitbucket Pipelines</div><div class="kind">CI · conch-integrations</div></div></div><div class="desc">Pipelines for a branch, a failed step's log, re-run. Pairs with Bitbucket.</div><div class="foot"><span class="chip ok">✓ verified 5 d ago</span><span class="chip">API token</span><span class="sp"></span><span class="btn small">Install</span></div></div>
+        </div>
+
+        <div class="sectionh"><h3>Code hosts</h3><span class="n">pull requests, checks, merge, review comments</span></div>
+        <div class="grid">
+          <div class="card"><div class="top"><div class="logo" style="background:#24292F">◉</div><div><div class="name">GitHub</div><div class="kind">Code host · built in, through gh</div></div></div><div class="desc">Pull requests, checks, merge, reviews, issues. Signed in as <b>Amitgb14</b>.</div><div class="foot"><span class="chip ok">✓ installed</span><span class="chip">gh login</span></div></div>
+          <div class="card"><div class="top"><div class="logo" style="background:#FC6D26">◆</div><div><div class="name">GitLab</div><div class="kind">Code host · conch-integrations</div></div></div><div class="desc">Merge requests: open, pipelines, approve, merge, threads. gitlab.com or your own. Used in <b>pdp-web</b>.</div><div class="foot"><span class="chip ok">✓ verified 2 d ago</span><span class="chip">token</span><span class="sp"></span><span class="btn small">Install</span></div></div>
+          <div class="card"><div class="top"><div class="logo" style="background:#0052CC">⚑</div><div><div class="name">Bitbucket Cloud</div><div class="kind">Code host · conch-integrations</div></div></div><div class="desc">Pull requests, build statuses, merge, comments.</div><div class="foot"><span class="chip ok">✓ verified 5 d ago</span><span class="chip">API token</span><span class="sp"></span><span class="btn small">Install</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 DETAIL -->
+<section class="mock" id="m2">
+  <h2>2 · An integration's page</h2>
+  <p class="why">Before installing, say what it changes in conch (and what it cannot do), every host your key goes to, the access it needs, who wrote it and when it last worked for somebody.</p>
+  <div class="win">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">Integrations › CI › CircleCI</div></div>
+    <div class="body">
+      <div class="main">
+        <div class="row" style="gap:14px;margin-bottom:14px">
+          <div class="logo" style="background:#343434;width:52px;height:52px;font-size:22px">◐</div>
+          <div><div style="font-size:18px;font-weight:600">CircleCI</div><div class="muted">CI · from conch-integrations · <span class="mono">circleci.toml</span> v4 · format 1</div></div>
+          <span class="sp"></span><span class="chip ok">✓ verified 3 d ago with conch 0.2.1 (12 pipelines read)</span><span class="btn primary">Install</span>
+        </div>
+        <div class="detail">
+          <div class="left">
+            <div class="box">
+              <h4>What it does in conch</h4>
+              <div class="feat"><span class="m ok">✓</span><div class="w">A failed job's output goes to the branch's agent<div class="s">The autopilot's <span class="mono">auto_fix</span>, <span class="mono">conch branch fix-ci</span>, and the branch menu's Send CI Failure</div></div></div>
+              <div class="feat"><span class="m ok">✓</span><div class="w">Re-run a failed workflow<div class="s">The commit graph's Re-run failed jobs, and the branch menu</div></div></div>
+              <div class="feat"><span class="m ok">✓</span><div class="w">Pipelines for a branch and commit<div class="s">Which run a red check came from, its link and duration</div></div></div>
+              <div class="feat"><span class="m warn">◐</span><div class="w">CI panel statistics<div class="s">Durations and pass rate; queue time is not in CircleCI's API</div></div></div>
+              <div class="feat"><span class="m muted">—</span><div class="w">Checks on the pull request<div class="s">Already there: CircleCI reports to GitHub, and conch reads GitHub's checks</div></div></div>
+            </div>
+            <div class="box" style="margin-top:12px">
+              <h4>Setting it up</h4>
+              <div class="muted">CircleCI → User Settings → Personal API Tokens → Create. conch keeps it in your Keychain, never in a file. Read access is enough except for re-runs.</div>
+            </div>
+          </div>
+          <div class="right">
+            <div class="box"><h4>Your key goes to</h4>
+              <div class="host"><span class="ok">●</span><span class="mono">circleci.com</span><span class="sp"></span><span class="muted">API</span></div>
+              <div class="muted" style="font-size:12px;margin-top:6px">Nowhere else. If an update adds a host, conch asks again before using it.</div>
+            </div>
+            <div class="box"><h4>Access</h4>
+              <div class="kv"><div>reads</div><div>pipelines, jobs, job output</div><div>writes</div><div>re-run a workflow</div><div>runs</div><div>no programs — HTTP only</div></div>
+            </div>
+            <div class="box"><h4>About</h4>
+              <div class="kv"><div>written by</div><div>claude, from circleci.com/docs/api/v2</div><div>reviewed</div><div>@amitgb14 · PR #31</div><div>installs</div><div>214</div><div>sha256</div><div class="mono">9f2c…41ab</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 INSTALL -->
+<section class="mock" id="m3">
+  <h2>3 · Install and connect</h2>
+  <p class="why">Three steps in one sheet: agree to the hosts, give the key, prove it works with one read-only call. Then pick which projects use it — suggested from what conch found.</p>
+  <div class="win sheetwrap">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">Integrations › CI › CircleCI</div></div>
+    <div class="body" style="min-height:520px"><div class="main"></div></div>
+    <div class="scrim"><div class="sheet">
+      <h3>Install CircleCI</h3>
+      <div class="muted" style="margin-bottom:8px">From conch-integrations · checked against its sha256</div>
+      <div class="step"><div class="num done">✓</div><div class="w" style="flex:1">Your CircleCI key will be sent to <span class="mono">circleci.com</span> only.</div></div>
+      <div class="step"><div class="num done">✓</div><div style="flex:1">Personal API token<div class="field">••••••••••••••••••••••••••••••a91c</div><div class="row" style="margin-top:6px"><span class="chip">🔑 Keychain</span><span class="muted" style="font-size:12px">or read it from <span class="mono">$CIRCLECI_TOKEN</span></span></div></div></div>
+      <div class="step"><div class="num done">✓</div><div style="flex:1">Checked: read <b>12 pipelines</b> of <span class="mono">gh/ceph/ceph</span> as <b>amitghadge</b>.</div></div>
+      <div class="step"><div class="num">4</div><div style="flex:1">Use it for
+        <div class="row" style="margin-top:6px"><span class="chip on">☑ ceph — .circleci/config.yml</span><span class="chip">☐ conch</span><span class="chip">☐ cachemind</span></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">A project uses every CI it has: GitHub Actions stays on for conch.</div></div></div>
+      <div class="row" style="margin-top:12px"><span class="sp"></span><span class="btn">Cancel</span><span class="btn primary">Install</span></div>
+    </div></div>
+  </div>
+</section>
+
+<!-- 4 DETECTED -->
+<section class="mock" id="m4">
+  <h2>4 · Detected where you work</h2>
+  <p class="why">conch already reads each project's files and remote. When a red check comes from a service nothing installed can read, say so on the branch, with the one action that fixes it — instead of today's “the failing check is another service's”.</p>
+  <div class="win">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">conch — ceph</div></div>
+    <div class="body" style="min-height:330px">
+      <div class="tree">
+        <div class="r muted">▾ local</div>
+        <div class="r ind1">▾ ceph</div>
+        <div class="r ind2"><span class="ok">●</span> main <span class="sp"></span><span class="muted">⇡2⇣2</span></div>
+        <div class="r ind2 sel"><span class="ui">◇</span> rgw-lc-fix <span class="sp"></span><span class="err">#412✗</span> <span class="muted">↑3</span></div>
+        <div class="r ind2"><span class="ui">◇</span> backup-before-review-fixes</div>
+        <div class="r ind1 muted">▸ conch</div>
+      </div>
+      <div class="main">
+        <div style="font-weight:600;margin-bottom:6px">rgw-lc-fix · #412 · checks failing</div>
+        <div class="box" style="border-color:rgba(210,153,34,.45)">
+          <div class="row"><span class="warn">⚠</span><div style="flex:1"><b>ci/circleci: build-and-test</b> failed — conch can't read CircleCI yet, so Claude wasn't sent the log.</div></div>
+          <div class="row" style="margin-top:10px"><span class="btn primary small">Install CircleCI…</span><span class="btn small">Open in CircleCI</span><span class="sp"></span><span class="muted" style="font-size:12px">Found <span class="mono">.circleci/config.yml</span></span></div>
+        </div>
+        <div class="box" style="margin-top:12px">
+          <div class="row"><span class="ok">✓</span> continuous-integration/jenkins — passed <span class="sp"></span><span class="muted">no integration needed to see it</span></div>
+          <div class="row"><span class="err">✗</span> ci/circleci: build-and-test — failed 4m ago <span class="sp"></span><span class="muted">circleci.com</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 PROJECT -->
+<section class="mock" id="m5">
+  <h2>5 · A project's integrations</h2>
+  <p class="why">Right-click a project → Integrations. What it is hosted on, which CI and tracker it uses, each with its state; overrides go to <span class="mono">.conch/integrations.toml</span> only if you ask (so a team can share it), otherwise the app's preferences.</p>
+  <div class="win">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">ceph — Integrations</div></div>
+    <div class="body" style="min-height:300px"><div class="main">
+      <div class="box">
+        <div class="feat"><span class="m">◉</span><div class="w"><b>Code host</b> · GitHub (ceph/ceph)<div class="s">from the remote origin · gh signed in as Amitgb14</div></div><span class="chip ok">connected</span></div>
+        <div class="feat"><span class="m">⚙</span><div class="w"><b>CI</b> · CircleCI, GitHub Actions<div class="s">CircleCI from .circleci/config.yml · Actions from .github/workflows</div></div><span class="chip ok">connected</span><span class="chip ok">connected</span></div>
+        <div class="feat"><span class="m">⚑</span><div class="w"><b>Tickets</b> · Jira (RGW)<div class="s">chosen in Settings · tracker.ceph.com</div></div><span class="chip err">key expired</span><span class="btn small">Reconnect…</span></div>
+        <div class="feat"><span class="m">▣</span><div class="w"><b>Sandboxes</b> · Daytona<div class="s">for tasks run off this Mac</div></div><span class="chip ok">connected</span></div>
+        <div class="feat"><span class="m">✉</span><div class="w"><b>Notifications</b> · none<div class="s">Slack, Discord, ntfy…</div></div><span class="btn small">Browse…</span></div>
+      </div>
+      <div class="row" style="margin-top:12px"><span class="chip">☐ Save in .conch/integrations.toml for the team</span><span class="sp"></span><span class="btn">Done</span></div>
+    </div></div>
+  </div>
+</section>
+
+<!-- 6 IN USE -->
+<section class="mock" id="m6">
+  <h2>6 · In use: a CircleCI failure handled like an Actions one</h2>
+  <p class="why">Nothing new to learn after installing: the commit graph's CI square, the autopilot feed and the agent's prompt read the same as for GitHub Actions; the source is named.</p>
+  <div class="win">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">ceph — Commit Graph · Autopilot</div></div>
+    <div class="body" style="min-height:300px"><div class="main">
+      <div class="box">
+        <div class="feat"><span class="m err">✗</span><div class="w">CI failed on <b>rgw-lc-fix</b> — CircleCI · workflow <span class="mono">build-and-test</span> · job <span class="mono">unittest-rgw</span><div class="s">14:02 · read 212 lines of the failed step “make check” from circleci.com</div></div></div>
+        <div class="feat"><span class="m work">→</span><div class="w">Sent to Claude (p569) — auto_fix 1 of 2<div class="s">14:02 · “CI failed on CircleCI: unittest-rgw. The failed step's output: …”</div></div></div>
+        <div class="feat"><span class="m ok">✓</span><div class="w">Claude pushed 1 commit; CircleCI re-ran<div class="s">14:19 · pipeline 8812 passed in 11m</div></div></div>
+        <div class="feat"><span class="m ok">⇢</span><div class="w">Merged #412 — every check green<div class="s">14:31 · squash · auto_merge</div></div></div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- 7 ADAPT -->
+<section class="mock" id="m7">
+  <h2>7 · Not listed? Adapt one with an agent</h2>
+  <p class="why">The sandbox way, for every kind: an agent reads the service's API docs and writes the provider file in a pane of its own; conch checks it offline, then live with your key, then offers to publish it to the registry as a pull request. Your key never reaches the agent.</p>
+  <div class="win">
+    <div class="titlebar"><div class="dots"><span></span><span></span><span></span></div><div class="t">Adapt an integration</div></div>
+    <div class="body" style="min-height:360px">
+      <div class="main" style="max-width:470px">
+        <div class="box">
+          <h4>New integration</h4>
+          <div class="kv" style="grid-template-columns:90px 1fr;font-size:13px;gap:8px 10px">
+            <div>Kind</div><div><span class="chip on">CI</span> <span class="chip">Code host</span> <span class="chip">Tickets</span> <span class="chip">Sandbox</span> <span class="chip">Notify</span></div>
+            <div>Service</div><div><span class="field" style="display:inline-block;margin:0">Semaphore</span></div>
+            <div>API docs</div><div><span class="field" style="display:inline-block;margin:0">docs.semaphoreci.com/reference/api-v1alpha</span></div>
+            <div>Agent</div><div><span class="chip on">Claude</span> <span class="chip">Codex</span></div>
+          </div>
+          <div class="row" style="margin-top:12px"><span class="sp"></span><span class="btn primary">✦ Adapt</span></div>
+        </div>
+        <div class="box" style="margin-top:12px">
+          <div class="feat"><span class="m ok">✓</span><div class="w">Drafted <span class="mono">semaphore.toml</span><div class="s">runs, failed_log, rerun; no stats endpoint (said in note)</div></div></div>
+          <div class="feat"><span class="m ok">✓</span><div class="w">Offline check: 0 problems</div></div>
+          <div class="feat"><span class="m work">●</span><div class="w">Live check with your key…<div class="s">listing pipelines of cachemind</div></div></div>
+          <div class="feat"><span class="m muted">○</span><div class="w">Publish to conch-integrations<div class="s">a pull request, with the live check's result</div></div></div>
+        </div>
+      </div>
+      <div class="term" style="border-left:1px solid var(--line)"><span class="muted">adapt semaphore · claude</span>
+
+⏺ Read docs.semaphoreci.com/reference/api-v1alpha
+⏺ The CI contract needs: <span class="ui">runs</span>, <span class="ui">failed_log</span>, <span class="ui">rerun</span>
+   GET  /api/v1alpha/pipelines?project_id&amp;branch_name → runs
+   GET  /api/v1alpha/jobs/{id}/logs                     → failed_log
+   POST /api/v1alpha/pipelines/{id}/partial_rebuild    → rerun
+⏺ Write(semaphore.toml)
+⏺ Bash(conch integration check -offline semaphore.toml)
+  <span class="ok">ok: semaphore (ci), 3 of 4 operations, hosts: *.semaphoreci.com</span>
+
+Done. stats is left out: Semaphore has no endpoint for
+durations across runs; noted in the file.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 TUI + CLI -->
+<section class="mock" id="m8">
+  <h2>8 · TUI and CLI — the same registry</h2>
+  <p class="why">In the TUI, settings (<span class="mono">,</span>) → Integrations lists kinds and entries; <span class="mono">enter</span> shows the page, <span class="mono">i</span> installs and asks for the key in a prompt that never echoes it. The CLI is what scripts and agents use.</p>
+  <div class="tui">  <b>Integrations</b>  <span class="muted">· conch-integrations · 33 listed · 6 installed · 1 update</span>
+
+  <span class="muted">CI</span>
+  <span class="ok">✓</span> GitHub Actions          <span class="muted">built in</span>
+<span class="hl">  <span class="ui">○</span> CircleCI                <span class="ok">verified 3d</span>   <span class="muted">used by ceph (.circleci/config.yml)</span>     </span>
+  <span class="ui">○</span> GitLab CI               <span class="ok">verified 9d</span>
+  <span class="ui">○</span> Buildkite               <span class="warn">not checked</span>
+  <span class="muted">Code hosts</span>
+  <span class="ok">✓</span> GitHub                  <span class="muted">built in · gh as Amitgb14</span>
+  <span class="ui">○</span> GitLab                  <span class="ok">verified 2d</span>   <span class="muted">used by pdp-web (gitlab.com)</span>
+  <span class="muted">Ticket trackers</span>
+  <span class="ok">✓</span> GitHub Issues  <span class="ok">✓</span> Linear  <span class="err">✓ Jira · key expired</span>
+
+  <span class="muted">enter page · i install · u update · x remove · / search · a adapt one with an agent</span></div>
+  <div class="tui" style="margin-top:12px"><span class="muted">$</span> conch integration search ci
+CircleCI      ci    verified 3d   circleci.com
+GitLab CI     ci    verified 9d   gitlab.com (or your own)
+Buildkite     ci    not checked   api.buildkite.com
+<span class="muted">$</span> conch integration install circleci
+circleci sends your key to circleci.com only. Go on? [y/N] y
+CircleCI personal API token (kept in the Keychain): ••••••••
+checked: read 12 pipelines as amitghadge
+installed circleci 4 (ci) · used by ceph
+<span class="muted">$</span> conch integration ls
+NAME        KIND     VERSION  SOURCE              STATE
+github      host     -        built in            gh as Amitgb14
+actions     ci       -        built in            ok
+circleci    ci       4        conch-integrations  ok
+jira        tickets  -        built in            key expired</div>
+</section>
+
+<!-- 9 FILE -->
+<section class="mock" id="m9">
+  <h2>9 · What an integration is: a provider file</h2>
+  <p class="why">Same shape as today's sandbox files: calls, where the answer is in the reply, a contract per kind. conch's code owns what is done with the answers; the file only says where they are.</p>
+  <div style="display:flex;gap:14px;width:1180px">
+<pre class="toml" style="flex:1"><span class="k">kind</span> = <span class="s">"ci"</span>                 <span class="c"># the contract it fills</span>
+<span class="k">name</span> = <span class="s">"circleci"</span>
+<span class="k">label</span> = <span class="s">"CircleCI"</span>
+<span class="k">format</span> = <span class="s">1</span>
+<span class="k">api</span> = <span class="s">"https://circleci.com/api/v2"</span>
+<span class="k">auth_header</span> = <span class="s">"Circle-Token"</span>
+<span class="k">auth_value</span> = <span class="s">"{key}"</span>
+<span class="k">key_env</span> = <span class="s">"CIRCLECI_TOKEN"</span>
+<span class="k">docs</span> = <span class="s">"https://circleci.com/docs/api/v2"</span>
+
+<span class="h">[detect]</span>                     <span class="c"># suggests it for a project</span>
+<span class="k">files</span> = [<span class="s">".circleci/config.yml"</span>]
+<span class="k">checks</span> = [<span class="s">"ci/circleci*"</span>]      <span class="c"># a check's name or link</span>
+
+<span class="h">[project]</span>                    <span class="c"># the remote → the project slug</span>
+<span class="k">slug</span> = <span class="s">"gh/{owner}/{repo}"</span></pre>
+<pre class="toml" style="flex:1"><span class="h">[runs]</span>                       <span class="c"># runs of a branch, newest first</span>
+<span class="k">call</span> = <span class="s">"GET /project/{slug}/pipeline?branch={branch}"</span>
+<span class="k">items</span> = <span class="s">"items"</span>
+<span class="k">id</span> = <span class="s">"id"</span>;  <span class="k">commit</span> = <span class="s">"vcs.revision"</span>
+<span class="k">url</span> = <span class="s">"https://app.circleci.com/pipelines/{slug}/{reply.number}"</span>
+
+<span class="h">[failed_log]</span>                 <span class="c"># a failed run → its output, in steps</span>
+<span class="k">steps</span> = [
+  { <span class="k">call</span> = <span class="s">"GET /pipeline/{id}/workflow"</span>, <span class="k">pick</span> = <span class="s">"items[status=failed]"</span> },
+  { <span class="k">call</span> = <span class="s">"GET /workflow/{reply.id}/job"</span>, <span class="k">pick</span> = <span class="s">"items[status=failed]"</span> },
+  <span class="c"># no log in v2: v1.1's build, then each failed step's output_url</span>
+  { <span class="k">call</span> = <span class="s">"GET /api/v1.1/project/{slug}/{reply.job_number}"</span>,
+    <span class="k">follow</span> = <span class="s">"steps[*].actions[status=failed].output_url"</span>, <span class="k">text</span> = <span class="s">"[*].message"</span> },
+]
+
+<span class="h">[rerun]</span>
+<span class="k">call</span> = <span class="s">"POST /workflow/{workflow}/rerun"</span>
+<span class="k">body</span> = { <span class="k">from_failed</span> = <span class="s">true</span> }
+
+<span class="h">[states]</span>                     <span class="c"># theirs → conch's pass fail pending</span>
+<span class="k">success</span> = <span class="s">"pass"</span>; <span class="k">failed</span> = <span class="s">"fail"</span>; <span class="k">running</span> = <span class="s">"pending"</span></pre>
+  </div>
+  <p class="note">Illustrative. CircleCI's v2 API has no job log; the log comes from v1.1's build and each failed step's presigned <span class="mono">output_url</span> (which CircleCI calls unsupported), hence <span class="mono">follow</span> — a built-in operation, not a script. The presigned host is outside <span class="mono">api</span>, so it is listed and fetched without the key. A code host's contract (pull requests, checks, merge, comments) is far larger than CI's, which is why the plan puts GitLab and Bitbucket last and lets them be backed by their CLI (glab) where that is cheaper and safer than a data file.</p>
+</section>
+
+</body>
+</html>
