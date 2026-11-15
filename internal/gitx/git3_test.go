@@ -219,3 +219,20 @@ func TestBundleObjectFormat(t *testing.T) {
 		t.Errorf("missing: %q", got)
 	}
 }
+
+// A git older than 2.45 does not know --show-ref-format, and rev-parse
+// prints an option it does not know back as if it were an argument,
+// exiting 0 (Apple's git 2.39 does): that is no refs backend.
+func TestRefsAnswer(t *testing.T) {
+	for in, want := range map[string]string{
+		"reftable\n":          "reftable",
+		"files\n":             "files",
+		"--show-ref-format\n": "",
+		"":                    "",
+		"  \n":                "",
+	} {
+		if got := refsAnswer(in); got != want {
+			t.Errorf("refsAnswer(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

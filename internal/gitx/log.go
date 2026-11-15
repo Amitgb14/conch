@@ -119,9 +119,19 @@ func Format(ctx context.Context, dir string) RepoFormat {
 	}
 	f := RepoFormat{Objects: strings.TrimSpace(string(out)), Refs: "files"}
 	if out, err := run(ctx, dir, "rev-parse", "--show-ref-format"); err == nil {
-		if r := strings.TrimSpace(string(out)); r != "" {
+		if r := refsAnswer(string(out)); r != "" {
 			f.Refs = r
 		}
 	}
 	return f
+}
+
+// refsAnswer is rev-parse --show-ref-format's answer, or "" for none: a
+// git that does not know the option prints it back, and exits 0.
+func refsAnswer(out string) string {
+	r := strings.TrimSpace(out)
+	if strings.HasPrefix(r, "-") {
+		return ""
+	}
+	return r
 }
