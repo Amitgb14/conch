@@ -575,7 +575,7 @@ struct CommitsView: View {
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
             // Said until a commit is picked: with its panel open the graph
             // is narrow, and the search and refresh need the room.
-            if model.selected == nil {
+            if model.selected == nil && !model.sidePanel {
                 Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).layoutPriority(-2)
             }
             if model.canAutopilot {
