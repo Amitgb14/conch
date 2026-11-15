@@ -93,6 +93,7 @@ func SettingsChoices(agents []string) configweb.Choices {
 	if home, err := os.UserHomeDir(); err == nil {
 		c.ZshThemes, _ = config.OMZThemes(config.OMZDir(home))
 	}
+	c.Scenes = config.UserScenes(config.ScenesDir())
 	return c
 }
 

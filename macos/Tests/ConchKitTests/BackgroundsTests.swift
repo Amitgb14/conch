@@ -61,7 +61,7 @@ import Testing
     }
 
     @Test func everySceneHasADayAndANight() {
-        for s in BackgroundScene.allCases where s != .none {
+        for s in BackgroundScene.builtIn where s != .none && s != .board {
             #expect(s.sky(night: true).count == 3 && s.sky(night: false).count == 3)
             #expect(s.sky(night: true) != s.sky(night: false))
             // Night is the darker of the two at the top of the sky.

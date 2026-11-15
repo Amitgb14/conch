@@ -22,6 +22,7 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `agents/claude.toml` | optional override of Claude's [screen rules](/docs/agents#how-the-state-is-decided) |
 | `config.toml` | your settings |
 | `themes/NAME.toml` | [themes of your own](#themes-of-your-own), one a file |
+| `scenes/NAME.toml` | Conch.app's [scenes of your own](#scenes-of-your-own), one a file, with any pictures beside them |
 
 ## Environment variables
 
@@ -151,7 +152,7 @@ price_disk_gib_hour = 0  # 0 shows running time without a cost
 tabs = ""              # "" above the panes, "left" in the sidebar grouped by machine, "right"
 density = ""           # "compact": a pane's header shrinks, splits close up, a shorter toolbar
 sidebar = ""           # "glass": the desktop through the sidebar, as Finder's
-background = ""        # a scene behind the window: "reef", "pines", "lagoon" or "stars"
+background = ""        # a scene behind the window: "reef", "pines", "lagoon", "stars", "board" or your own
 background_through = 0 # how much of it shows through panes, in percent, 0 to 60
 background_frost = ""  # "off", "" (light) or "strong": the frame's colour over the scene
 background_motion = "" # "still" draws it without moving
@@ -286,6 +287,25 @@ light = false                    # Conch.app's: draw it as a light window (else 
 
 Colours are `#rrggbb`. A file that does not read, a colour written any other way, a key that is not one of these, a `based_on` that is no built-in theme, or a file named like a built-in theme is left out, and said where the themes are listed (the TUI's **Colours**, the app's **Your Themes**). A new or changed file is read the next time those lists open. `[ui] accent` still goes over whichever theme is in use.
 
+## Scenes of your own
+
+Conch.app draws a scene of your own behind its window the way it draws its own: a file in `~/.config/conch/scenes/`, named for the scene (`bay.toml` is `background = "bay"`). The file only describes a scene — colours, a picture, which pieces move — and runs nothing, so a scene somebody hands you can do nothing but look like something. It is offered after the built-in scenes in **Settings → Mac app → Background**, which also has **Open Scenes Folder**.
+
+```toml
+# ~/.config/conch/scenes/bay.toml
+name = "The bay"                     # what Settings calls it; the file's name if left out
+sky = "#FFB37A #F07A5A #5A3A6A"      # by day, top to bottom: 1 to 4 colours in one string
+night_sky = "#1A1030 #0A0818"        # under a dark theme; the day's if left out
+ground = "#2A1A2A"                   # a band along the bottom; none if left out
+night_ground = "#0A0A10"
+image = "bay.jpg"                    # a picture beside this file, filling the window
+night_image = "bay-night.jpg"
+pieces = "snow"                      # "bubbles", "snow" or "stars"; none if left out
+count = 60                           # how many, 1 to 200
+```
+
+A scene needs a `sky` or an `image`. A picture is a png, jpg, heic, tiff, gif or webp file in the scenes folder itself, named alone (no path), of 25 MB at most. A file that does not read, a key that is not one of these, or a file named like a built-in scene is left out, and said under the scenes in Settings. A new or changed file, or picture, is read within a second.
+
 ## `[web]`
 
 The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Web** in the TUI.
@@ -307,7 +327,7 @@ How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, 
 | `tabs` | `""` | where the tabs go: `""` above the panes, `"left"` in the sidebar above the tree, grouped under each machine, `"right"` in a column of their own |
 | `density` | `""` | `"compact"`: a pane's header shrinks, the gaps between splits close up and the toolbar is shorter |
 | `sidebar` | `""` | `"glass"`: the desktop shows through the sidebar, as Finder's does. Panes stay solid |
-| `background` | `""` | a scene drawn behind the window: `"reef"`, `"pines"`, `"lagoon"` or `"stars"`, by day under a light theme and by night under a dark one. The toolbar, sidebar, tabs and status bar are frosted over it. Chosen in **Settings → Mac app → Background** |
+| `background` | `""` | a scene drawn behind the window: `"reef"`, `"pines"`, `"lagoon"`, `"stars"`, `"board"` (a split-flap departure board of the window's agents) or [one of your own](#scenes-of-your-own), by day under a light theme and by night under a dark one. The toolbar, sidebar, tabs and status bar are frosted over it. Chosen in **Settings → Mac app → Background** |
 | `background_through` | `0` | how much of the scene shows through a pane, in percent, 0 to 60; `0` keeps terminals solid |
 | `background_frost` | `""` | how much of the frame's own colour is laid over the scene: `"off"`, `""` light, `"strong"` |
 | `background_motion` | `""` | `"still"` draws the scene without moving it. It is still anyway under macOS's Reduce Motion, in Low Power Mode, and while the app is hidden |

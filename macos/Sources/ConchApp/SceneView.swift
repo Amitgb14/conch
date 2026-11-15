@@ -11,6 +11,8 @@ import SwiftUI
 extension Theme {
     /// The scene behind the window, from [app] (Store.appLook).
     static var scene = SceneLook()
+    /// Scenes of your own, by name ($CONCH_HOME/scenes), read by Store.
+    nonisolated(unsafe) static var userScenes: [String: UserScene] = [:]
     /// Night for a scene: a dark theme.
     static var sceneNight: Bool { !current.light }
     /// What fills the space between the window's surfaces: the theme's
@@ -47,6 +49,8 @@ struct Frost: View {
 struct SceneView: View {
     @Environment(\.conchTheme) private var look
     let scene: SceneLook
+    /// The window's agents, for the departure board.
+    var departures: [Departure] = []
     @State private var visible = NSApp.occlusionState.contains(.visible)
     @State private var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -54,11 +58,20 @@ struct SceneView: View {
     var moves: Bool { visible && scene.moves(reduceMotion: reduceMotion, lowPower: lowPower) }
 
     var body: some View {
+        if scene.scene == .board {
+            BoardView(departures: departures, still: scene.still)
+        } else {
+            drawn
+        }
+    }
+
+    @ViewBuilder var drawn: some View {
         let _ = look
         let night = Theme.sceneNight
         let s = scene.scene
-        let pieces = SceneMotion.pieces(s.particles, seed: 7)
-        let moving = moves
+        let pieces = SceneMotion.pieces(SceneDraw.particles(s), seed: 7)
+        // A scene of yours with nothing moving in it is drawn once.
+        let moving = moves && SceneDraw.animates(s)
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { tl in
             // Still is one frame of it, the same every time.
             let t = moving ? tl.date.timeIntervalSinceReferenceDate : 6
@@ -101,6 +114,93 @@ enum SceneDraw {
         case .pines: pines(night: night, pieces: pieces, t: t, &ctx, size)
         case .lagoon: lagoon(night: night, t: t, &ctx, size)
         case .stars: stars(night: night, pieces: pieces, t: t, &ctx, size)
+        case .mine(let id): mine(Theme.userScenes[id], night: night, pieces: pieces, t: t, &ctx, size)
+        case .board, .none: break // the board is BoardView's
+        }
+    }
+
+    /// Whether anything in it moves: a scene of yours only with pieces;
+    /// the board turns its flaps by itself (BoardView).
+    static func animates(_ s: BackgroundScene) -> Bool {
+        switch s {
+        case .none, .board: return false
+        case .mine: return particles(s) > 0
+        default: return true
+        }
+    }
+
+    /// How many pieces a scene moves: a scene of yours says its own.
+    static func particles(_ s: BackgroundScene) -> Int {
+        if case .mine(let id) = s { return Theme.userScenes[id]?.particles ?? 0 }
+        return s.particles
+    }
+
+    // MARK: pieces, shared
+
+    static func bubbles(_ pieces: [ScenePiece], t: Double, _ ctx: inout GraphicsContext, _ size: CGSize) {
+        for p in pieces {
+            let d = 4 + p.size * 12
+            let x = (p.x + SceneMotion.sway(p, at: t, by: 0.008)) * size.width
+            let y = SceneMotion.rise(p, at: t) * size.height
+            let circle = Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d))
+            ctx.fill(circle, with: .color(c("#C8FAFF", 0.12)))
+            ctx.stroke(circle, with: .color(c("#C8FAFF", 0.6)), lineWidth: 1)
+        }
+    }
+
+    static func snow(_ pieces: [ScenePiece], night: Bool, t: Double, _ ctx: inout GraphicsContext, _ size: CGSize) {
+        let flake = night ? c("#FFFFFF", 0.9) : c("#FFFFFF", 1)
+        for p in pieces {
+            let d = 2 + p.size * 4
+            let x = (p.x + SceneMotion.progress(p, at: t) * 0.04 + SceneMotion.sway(p, at: t, by: 0.006)) * size.width
+            let y = SceneMotion.fall(p, at: t) * size.height
+            var g = ctx
+            g.opacity = 0.4 + p.size * 0.6
+            g.fill(Path(ellipseIn: CGRect(x: x, y: y, width: d, height: d)), with: .color(flake))
+        }
+    }
+
+    static func twinkle(_ pieces: [ScenePiece], night: Bool, t: Double, _ ctx: inout GraphicsContext, _ size: CGSize) {
+        // By day (a dusk) only the brightest show, in the upper sky.
+        for p in pieces where night || (p.size > 0.55 && p.y < 0.55) {
+            let d = 1 + p.size * 2.2
+            var g = ctx
+            g.opacity = SceneMotion.twinkle(p, at: t) * (night ? 1 : 0.7)
+            g.fill(Path(ellipseIn: CGRect(x: p.x * size.width, y: p.y * size.height, width: d, height: d)), with: .color(.white))
+        }
+    }
+
+    // MARK: yours
+
+    /// A scene of your own: its picture filling the window, or its sky;
+    /// its ground along the bottom; its pieces.
+    static func mine(_ u: UserScene?, night: Bool, pieces: [ScenePiece], t: Double, _ ctx: inout GraphicsContext, _ size: CGSize) {
+        guard let u else { return }
+        let look = u.look(night: night)
+        let r = CGRect(origin: .zero, size: size)
+        let sky = look.sky.map { c($0) }
+        ctx.fill(Path(r), with: .linearGradient(Gradient(colors: sky.count == 1 ? sky + sky : sky), startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+        if let path = look.image, let img = SceneImages.image(path) {
+            // Filling the window, cut to it, as a desktop picture is.
+            let k = max(size.width / max(img.size.width, 1), size.height / max(img.size.height, 1))
+            let w = img.size.width * k, h = img.size.height * k
+            ctx.draw(Image(nsImage: img).resizable(), in: CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h))
+        }
+        if let g = look.ground {
+            let w = size.width, h = size.height
+            var band = Path()
+            band.move(to: CGPoint(x: 0, y: h))
+            band.addLine(to: CGPoint(x: 0, y: h - 44))
+            band.addQuadCurve(to: CGPoint(x: w * 0.55, y: h - 40), control: CGPoint(x: w * 0.28, y: h - 70))
+            band.addQuadCurve(to: CGPoint(x: w, y: h - 48), control: CGPoint(x: w * 0.8, y: h - 20))
+            band.addLine(to: CGPoint(x: w, y: h))
+            band.closeSubpath()
+            ctx.fill(band, with: .color(c(g)))
+        }
+        switch u.pieces {
+        case .bubbles: bubbles(pieces, t: t, &ctx, size)
+        case .snow: snow(pieces, night: night, t: t, &ctx, size)
+        case .stars: twinkle(pieces, night: night, t: t, &ctx, size)
         case .none: break
         }
     }
@@ -122,14 +222,7 @@ enum SceneDraw {
                                                startPoint: .zero, endPoint: CGPoint(x: 0, y: h * 1.2)))
         }
         // Bubbles rising.
-        for p in pieces {
-            let d = 4 + p.size * 12
-            let x = (p.x + SceneMotion.sway(p, at: t, by: 0.008)) * w
-            let y = SceneMotion.rise(p, at: t) * h
-            let circle = Path(ellipseIn: CGRect(x: x - d / 2, y: y - d / 2, width: d, height: d))
-            ctx.fill(circle, with: .color(c("#C8FAFF", 0.12)))
-            ctx.stroke(circle, with: .color(c("#C8FAFF", 0.6)), lineWidth: 1)
-        }
+        bubbles(pieces, t: t, &ctx, size)
         // Two fish, one each way.
         fish(&ctx, x: SceneMotion.cross(at: t, period: 38) * w, y: h * 0.28, length: 64, body: c("#F2A65A"), tail: c("#E0884A"), left: false)
         fish(&ctx, x: (1 - SceneMotion.cross(at: t, period: 52, offset: 0.4)) * w, y: h * 0.6, length: 42, body: c("#7FDBCA"), tail: c("#5CC4B0"), left: true)
@@ -221,15 +314,7 @@ enum SceneDraw {
             tree(&ctx, x: w * x, base: h - 18, tall: tall, color: front)
         }
         // Snow falling, drifting a little as it goes.
-        let flake = night ? c("#FFFFFF", 0.9) : c("#FFFFFF", 1)
-        for p in pieces {
-            let d = 2 + p.size * 4
-            let x = (p.x + SceneMotion.progress(p, at: t) * 0.04 + SceneMotion.sway(p, at: t, by: 0.006)) * w
-            let y = SceneMotion.fall(p, at: t) * h
-            var g = ctx
-            g.opacity = 0.4 + p.size * 0.6
-            g.fill(Path(ellipseIn: CGRect(x: x, y: y, width: d, height: d)), with: .color(flake))
-        }
+        SceneDraw.snow(pieces, night: night, t: t, &ctx, size)
     }
 
     static func tree(_ ctx: inout GraphicsContext, x: Double, base: Double, tall: Double, color: Color) {
@@ -317,13 +402,7 @@ enum SceneDraw {
         band.fill(Path(ellipseIn: CGRect(x: -bw, y: -bw, width: bw * 2, height: bw * 2)),
                   with: .radialGradient(Gradient(colors: [c("#C4A7E7", night ? 0.22 : 0.14), c("#C4A7E7", night ? 0.08 : 0.05), c("#C4A7E7", 0)]),
                                         center: .zero, startRadius: 0, endRadius: bw))
-        // By day (a dusk) only the brightest show, in the upper sky.
-        for p in pieces where night || (p.size > 0.55 && p.y < 0.55) {
-            let d = 1 + p.size * 2.2
-            var g = ctx
-            g.opacity = SceneMotion.twinkle(p, at: t) * (night ? 1 : 0.7)
-            g.fill(Path(ellipseIn: CGRect(x: p.x * w, y: p.y * h, width: d, height: d)), with: .color(.white))
-        }
+        twinkle(pieces, night: night, t: t, &ctx, size)
         // A shooting star now and then: one in every eleven seconds, a second long.
         let cycle = (t / 11).truncatingRemainder(dividingBy: 1)
         if cycle < 0.12 {
@@ -403,6 +482,139 @@ struct MergeFireworks: View {
             let r = 10 + 30 * v
             ctx.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
                      with: .radialGradient(Gradient(colors: [.white.opacity(0.8 * (1 - v * 4)), .clear]), center: center, startRadius: 0, endRadius: r))
+        }
+    }
+}
+
+/// Pictures for scenes of your own, read once and again only when the
+/// file changes.
+enum SceneImages {
+    nonisolated(unsafe) static var cache: [String: (stamp: Date?, image: NSImage)] = [:]
+
+    static func image(_ path: String) -> NSImage? {
+        let stamp = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        if let c = cache[path], c.stamp == stamp { return c.image }
+        guard let img = NSImage(contentsOfFile: path) else { return nil }
+        cache[path] = (stamp, img)
+        return img
+    }
+}
+
+/// The departure board: the window's agents as departures on split
+/// flaps, which turn when a row changes and are still otherwise — so it
+/// costs nothing while nobody's state moves.
+struct BoardView: View {
+    let departures: [Departure]
+    var still = false
+    @State private var flap = SplitFlap(width: 0, rows: 0)
+    @State private var turning = false
+    @State private var reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
+    struct Fit: Equatable { var lines: [String]; var cols: Int; var rows: Int }
+
+    static let cell = CGSize(width: 22, height: 32)
+    static let gap: CGFloat = 3
+    static let margin: CGFloat = 36
+    /// Above the rows: DEPARTURES and the column names.
+    static let top: CGFloat = 96
+
+    static func fit(_ size: CGSize, _ ds: [Departure]) -> Fit {
+        let cols = max(Int((size.width - margin * 2) / (cell.width + gap)), 12)
+        let rows = max(Int((size.height - top - margin) / (cell.height + gap * 2)), 1)
+        return Fit(lines: departureRows(ds, width: cols, rows: rows), cols: cols, rows: rows)
+    }
+
+    var body: some View {
+        GeometryReader { g in
+            let fit = Self.fit(g.size, departures)
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !turning)) { tl in
+                let t = tl.date.timeIntervalSinceReferenceDate
+                let shown = flap.width == fit.cols && flap.rows == fit.rows ? flap.shown(at: t) : fit.lines
+                Canvas { ctx, size in BoardView.draw(shown, cols: fit.cols, in: &ctx, size: size) }
+            }
+            .onAppear { take(fit, first: true) }
+            .onChange(of: fit) { _, f in take(f, first: false) }
+        }
+        .drawingGroup()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)) { _ in
+            reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+    }
+
+    /// New rows: turned to, or set at once when still, on first sight
+    /// and when the board changes size.
+    func take(_ f: Fit, first: Bool) {
+        if flap.width != f.cols || flap.rows != f.rows {
+            flap = SplitFlap(width: f.cols, rows: f.rows)
+            flap.set(f.lines)
+            return
+        }
+        if first || still || reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled {
+            flap.set(f.lines)
+            return
+        }
+        let now = Date().timeIntervalSinceReferenceDate
+        flap.show(f.lines, at: now)
+        guard flap.turning(at: now) else { return }
+        turning = true
+        let end = flap.settles
+        DispatchQueue.main.asyncAfter(deadline: .now() + (end - now) + 0.1) {
+            if !flap.turning(at: Date().timeIntervalSinceReferenceDate) { turning = false }
+        }
+    }
+
+    static func draw(_ lines: [String], cols: Int, in ctx: inout GraphicsContext, size: CGSize) {
+        let c = { (hex: String, a: Double) in SceneDraw.c(hex, a) }
+        ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(c("#121417", 1)))
+        // The board's slats.
+        var y: CGFloat = 0
+        while y < size.height {
+            ctx.fill(Path(CGRect(x: 0, y: y + 9, width: size.width, height: 2)), with: .color(c("#1C2026", 1)))
+            y += 11
+        }
+        let amber = c("#F5C76B", 1)
+        ctx.draw(Text("DEPARTURES").font(.system(size: 26, weight: .bold, design: .monospaced)).foregroundStyle(amber),
+                 at: CGPoint(x: margin, y: 40), anchor: .leading)
+        let step = cell.width + gap
+        for (s, col) in [("TIME", 0), ("AGENT", 6), ("TO", 15), ("STATUS", max(cols - 9, 15))] {
+            ctx.draw(Text(s).font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(c("#8A939E", 1)),
+                     at: CGPoint(x: margin + CGFloat(col) * step, y: 76), anchor: .leading)
+        }
+        // Each letter once a frame, drawn wherever it is.
+        var letters: [Character: GraphicsContext.ResolvedText] = [:]
+        var warm: [Character: GraphicsContext.ResolvedText] = [:]
+        let font = Font.system(size: 20, weight: .semibold, design: .monospaced)
+        for (r, line) in lines.enumerated() {
+            let top = Self.top + CGFloat(r) * (cell.height + gap * 2)
+            // The status, at the end, in amber; one that needs you in red.
+            let needs = line.hasSuffix("NEEDS YOU")
+            for (i, ch) in line.enumerated() where i < cols {
+                let x = margin + CGFloat(i) * step
+                let box = CGRect(x: x, y: top, width: cell.width, height: cell.height)
+                ctx.fill(Path(roundedRect: box, cornerRadius: 3), with: .color(c("#1E2329", 1)))
+                ctx.fill(Path(CGRect(x: x, y: box.midY - 0.5, width: cell.width, height: 1)), with: .color(c("#0B0D10", 1)))
+                guard ch != " " else { continue }
+                let status = i >= cols - 9
+                let text: GraphicsContext.ResolvedText
+                if status {
+                    if needs {
+                        text = ctx.resolve(Text(String(ch)).font(font).foregroundStyle(c("#FF7B72", 1)))
+                    } else if let t = warm[ch] {
+                        text = t
+                    } else {
+                        text = ctx.resolve(Text(String(ch)).font(font).foregroundStyle(amber))
+                        warm[ch] = text
+                    }
+                } else if let t = letters[ch] {
+                    text = t
+                } else {
+                    text = ctx.resolve(Text(String(ch)).font(font).foregroundStyle(c("#EDEFF2", 1)))
+                    letters[ch] = text
+                }
+                ctx.draw(text, at: CGPoint(x: box.midX, y: box.midY), anchor: .center)
+            }
         }
     }
 }
