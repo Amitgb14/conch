@@ -111,6 +111,20 @@ type AppCfg struct {
 	// Sidebar "glass" lets the desktop through the sidebar, as Finder's;
 	// "" keeps them solid. Panes are always solid.
 	Sidebar string `toml:"sidebar,omitempty"`
+	// Background is a scene drawn behind the window: "reef", "pines",
+	// "lagoon" or "stars", by day under a light theme and by night under a
+	// dark one; "" is none. The frame is frosted over it, and panes let it
+	// through only as far as BackgroundThrough says.
+	Background string `toml:"background,omitempty"`
+	// BackgroundThrough is how much of the scene shows through a pane, in
+	// percent, 0 to 60; 0 keeps panes solid.
+	BackgroundThrough int `toml:"background_through,omitempty"`
+	// BackgroundFrost is how much of the frame's colour is laid over the
+	// scene: "off", "strong", or "" for light.
+	BackgroundFrost string `toml:"background_frost,omitempty"`
+	// BackgroundMotion "still" draws the scene without moving it. It is
+	// still anyway under macOS's Reduce Motion and in Low Power Mode.
+	BackgroundMotion string `toml:"background_motion,omitempty"`
 	// Ports shows the TCP ports a pane's programs listen on in its header,
 	// a click opening one in the browser. On unless false.
 	Ports *bool `toml:"ports,omitempty"`

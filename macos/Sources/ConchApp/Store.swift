@@ -954,6 +954,7 @@ final class Store: ObservableObject {
         if app != appLook {
             // Before the views redraw: the window's text is read at its size.
             Theme.textScale = app.textScale
+            Theme.scene = app.scene
             appLook = app
             onAppLook?(app)
         }

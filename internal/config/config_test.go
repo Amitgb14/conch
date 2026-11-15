@@ -229,6 +229,38 @@ func TestAppSettings(t *testing.T) {
 	}
 }
 
+// [app] background and its settings round-trip as the app reads them
+// (macos ConchKit SceneLook), and leave nothing in a default file.
+func TestAppBackground(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	cfg := Default()
+	cfg.App = AppCfg{Background: "reef", BackgroundThrough: 24, BackgroundFrost: "strong", BackgroundMotion: "still"}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	for _, want := range []string{`background = "reef"`, "background_through = 24", `background_frost = "strong"`, `background_motion = "still"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("saved without %q:\n%s", want, b)
+		}
+	}
+	got, err := Load()
+	if err != nil || got.App != cfg.App {
+		t.Fatalf("round trip: %+v %v", got.App, err)
+	}
+	if err := Save(Default()); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = os.ReadFile(filepath.Join(home, "config.toml"))
+	// Zero numbers are written, as text_size's is; the choices are not.
+	for _, k := range []string{"background =", "background_frost =", "background_motion ="} {
+		if strings.Contains(string(b), k) {
+			t.Fatalf("default config wrote %q:\n%s", k, b)
+		}
+	}
+}
+
 // The window's text size and the terminal's font size: absent is the
 // default, a value out of range is kept to it, and both survive a save —
 // written by the app's own keys as bare numbers, which Go must read.

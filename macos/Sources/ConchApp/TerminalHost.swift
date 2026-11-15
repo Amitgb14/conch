@@ -309,7 +309,7 @@ struct TerminalHost: NSViewRepresentable {
         box.onTake = { [weak terminal] in terminal?.take() }
         box.wantsLayer = true
         box.layer?.masksToBounds = true
-        box.layer?.backgroundColor = Theme.terminal.cgColor
+        box.layer?.backgroundColor = Theme.paneTerminal.cgColor
         terminal.paneSize = paneSize
         mount(in: box)
         return box
@@ -375,7 +375,7 @@ final class DropBox: NSView {
         let r = place?(fill) ?? fill
         for v in subviews where v.frame != r { v.frame = r }
         let lettered = r != fill
-        layer?.backgroundColor = lettered ? Self.dots.cgColor : Theme.terminal.cgColor
+        layer?.backgroundColor = lettered ? Self.dots.cgColor : Theme.paneTerminal.cgColor
         if lettered {
             if edge.superlayer == nil { layer?.addSublayer(edge) }
             let path = CGMutablePath()
