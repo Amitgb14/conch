@@ -127,15 +127,9 @@ A web page in a tab beside the agents.
 
 ## Commits
 
-The project's history as a graph, with the agents' branches beside it.
+The project's history, its agents' branches and their conflicts.
 
 **How:** **Commit Graph** on a project's or branch's menu.
-
-- **Agents on branches** lists every branch an agent works on, the most urgent first: stopped on a conflict, waiting for you, CI failed, a conflict coming (git merge-tree tried merging it into the base), working, done. Click one to dim the rest of the graph.
-- Each commit says which agent made it. A branch's newest commit carries its state, and a pull request's checks show as small squares on the commit they ran on.
-- **Ask … to resolve** — on the banner when a branch stops on a conflict, and in the commit panel when one is coming — sends the branch's agent the conflicting files and asks it to resolve them and run the tests. Its menu starts another agent in the branch's worktree instead. Nothing is pushed.
-- **Hand to an Agent…** on a commit opens the task sheet with a new branch starting at that commit.
-- The header says how the repository is stored: **Git 3 · SHA-256 · reftable** for one made the way git 3 makes new repositories.
 
 ## Starting agents and tasks
 
