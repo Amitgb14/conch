@@ -300,7 +300,9 @@ final class CommitsModel: ObservableObject {
         guard let c = store.connection(machine) else { return }
         let a = NSAlert()
         a.messageText = "Undo the rebase of \(r.branch)?"
-        a.informativeText = "The branch goes back to \(String(r.before.prefix(8))), where it was before, and the conflict with \(projectInfo?.base ?? "the base") is back. "
+        let base = projectInfo?.base ?? "the base"
+        a.informativeText = "The branch goes back to \(String(r.before.prefix(8))), where it was before"
+            + (r.changed > 0 ? ", and its conflict with \(base) is back. " : ", behind \(base) again. ")
             + "The rebased commits stay in git's reflog (\(String(r.after.prefix(8)))). A worktree with uncommitted changes is not touched."
         a.addButton(withTitle: "Undo the Rebase")
         a.addButton(withTitle: "Cancel")
@@ -315,6 +317,9 @@ final class CommitsModel: ObservableObject {
                 if reviewing?.branch == r.branch { reviewing = nil }
                 rebases[r.branch] = nil
                 store.refreshProject(machine: machine, project: project)
+                // The commit picked was the rewrite, gone from the graph now:
+                // the branch's own tip, where it is back to, instead.
+                focusBranch = r.branch
                 load()
             } catch {
                 store.error = "Could not undo the rebase: \(error)"
@@ -360,7 +365,8 @@ final class CommitsModel: ObservableObject {
                 if let b = focusBranch {
                     focusBranch = nil
                     if let hit = rows.first(where: { CommitRef.parse($0.commit.refs, remotes: remotes ?? ["origin", "upstream"]).contains { $0.name == b } }) {
-                        selected = hit.commit.hash
+                        // Picked as a click would, so its panel reads it too.
+                        pick(hit.commit.hash, shift: false)
                         reveal += 1
                     }
                 }
@@ -547,7 +553,9 @@ struct CommitsView: View {
             Text("Commits").font(.ui(size: 13, weight: .semibold)).fixedSize()
             Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(1).layoutPriority(-1)
             Text(model.more ? "newest \(model.count)" : "\(model.count)").font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize()
-            if let f = model.format, !f.label.isEmpty {
+            // Left out while a panel takes the right side: the graph is
+            // narrow then, and the search, panels and refresh need the room.
+            if let f = model.format, !f.label.isEmpty, model.selected == nil, !model.sidePanel {
                 Text(f.git3 ? "Git 3 · \(f.label)" : f.label)
                     .font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(f.git3 ? Theme.accent : Theme.muted)
                     .padding(.horizontal, 7).padding(.vertical, 2)
@@ -955,7 +963,7 @@ struct StateTag: View {
         case .willConflict: ("⚠ will conflict", Theme.warn)
         case .ciFailing: ("✕ CI failed", Theme.err)
         case .waiting: ("waiting for you", Theme.warn)
-        case .rebased: ("✓ rebased · not pushed", Theme.ok)
+        case .rebased: ("✓ rebased", Theme.ok)
         default: nil
         }
     }
@@ -1067,7 +1075,7 @@ struct BranchSideRow: View {
     func describe(_ b: GraphBranch) -> (String, Color) {
         switch b.state {
         case .conflicted(let n): ("conflict · \(n) file\(n == 1 ? "" : "s")", Theme.err)
-        case .rebased: ("rebased · not pushed", Theme.ok)
+        case .rebased: ("rebased", Theme.ok)
         case .waiting: ("waiting for you", Theme.warn)
         case .ciFailing: ("CI failed", Theme.err)
         case .willConflict: ("will conflict", Theme.warn)

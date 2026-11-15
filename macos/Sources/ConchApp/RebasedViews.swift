@@ -174,6 +174,9 @@ struct RebaseReviewSheet: View {
                 }
                 .padding(16)
                 Rectangle().fill(Theme.line).frame(height: 1)
+                // Scrolling both ways centres what is smaller than the view;
+                // the diff starts at the top left, as text does.
+                GeometryReader { geo in
                 ScrollView([.vertical, .horizontal]) {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if !model.reviewError.isEmpty {
@@ -185,7 +188,8 @@ struct RebaseReviewSheet: View {
                         }
                     }
                     .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minWidth: geo.size.width, minHeight: geo.size.height, alignment: .topLeading)
+                }
                 }
                 .background(Theme.side)
                 Rectangle().fill(Theme.line).frame(height: 1)
