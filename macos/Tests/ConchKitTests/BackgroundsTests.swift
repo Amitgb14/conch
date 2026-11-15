@@ -198,4 +198,17 @@ import Testing
             #expect(start + Fireworks.burst <= Fireworks.duration)
         }
     }
+
+    // A terminal shows the scene by exactly `through`: only the terminal
+    // paints its background, not the box and the card under it as well.
+    @Test func throughIsWhatAPaneLetsIn() {
+        for t in [0.1, 0.24, 0.3, 0.6] {
+            let l = SceneLook(scene: .pines, through: t)
+            #expect(abs((1 - l.paneCoverage) - t) < 1e-9)
+            #expect(l.underTerminal == 0)
+        }
+        // Solid panes, and no scene: everything paints, nothing shows.
+        #expect(SceneLook(scene: .pines, through: 0).underTerminal == 1 && SceneLook(scene: .pines).paneCoverage == 1)
+        #expect(SceneLook(scene: .none, through: 0.4).underTerminal == 1 && SceneLook(scene: .none, through: 0.4).paneCoverage == 1)
+    }
 }
