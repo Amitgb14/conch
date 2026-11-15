@@ -1093,7 +1093,7 @@ struct BranchSideRow: View {
         case .willConflict: ("will conflict", Theme.warn)
         case .resolving: ("resolving", Theme.work)
         case .resolveWaiting: ("needs you", Theme.warn)
-        case .resolveStopped: ("stopped resolving", Theme.err)
+        case .resolveStopped: ("stopped", Theme.err)
         case .working: ("working", Theme.work)
         case .done: ("done", Theme.ok)
         case .idle: ("idle", Theme.muted)
@@ -1137,6 +1137,7 @@ struct ConflictBanner: View {
                         .controlSize(.small).tint(Theme.accentDeep)
                         .help("Opens the agent's pane")
                     }
+                    AnotherAgentButton(model: model, branch: b)
                 default:
                     ResolveButton(model: model, branch: b)
                 }
@@ -1147,6 +1148,16 @@ struct ConflictBanner: View {
             .background(tone.opacity(0.12))
             .overlay(alignment: .bottom) { Rectangle().fill(tone.opacity(0.35)).frame(height: 1) }
             .accessibilityElement(children: .contain)
+            // Nothing else changes when an agent just asked has not started
+            // in time (resolveStartGrace), or as "asked 4m ago" ages: look
+            // again every few seconds while an agent has it.
+            .task(id: b.state.resolution ? b.name : "") {
+                guard b.state.resolution else { return }
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(5))
+                    model.objectWillChange.send()
+                }
+            }
         }
     }
 
@@ -1198,6 +1209,30 @@ struct ResolveButton: View {
     }
 }
 
+/// While one agent is resolving a conflict: hand it to another, started
+/// in the branch's worktree with the same request. The first keeps
+/// running — two agents in one checkout should not both be editing, so
+/// the menu says so.
+struct AnotherAgentButton: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: CommitsModel
+    let branch: GraphBranch
+
+    var body: some View {
+        let _ = look
+        let startable = model.store.startable(on: model.machine)
+        let who = resolverName(branch) ?? "the agent at it"
+        Menu("Another agent") {
+            Section("Start one in its worktree; \(who) keeps running") {
+                ForEach(startable, id: \.name) { a in Button(a.title) { model.askToResolve(branch, start: a.name) } }
+            }
+        }
+        .menuStyle(.borderedButton).fixedSize().controlSize(.small)
+        .disabled(startable.isEmpty)
+        .help("Asks a new agent, in the branch's worktree, to resolve the conflict instead. Stop \(who) first if it is still changing files.")
+    }
+}
+
 /// The side panel's word on a branch that conflicts with the base: the
 /// files, and an agent to ask.
 struct ConflictCard: View {
@@ -1226,7 +1261,10 @@ struct ConflictCard: View {
                 Text("and \(branch.conflicts.count - 6) more").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             }
             if (branch.state == .resolving || branch.state == .resolveWaiting), let r = branch.resolver, r.running {
-                Button("Show \(resolverName(branch) ?? r.displayName)") { model.showResolver(branch) }.controlSize(.small)
+                HStack(spacing: 6) {
+                    Button("Show \(resolverName(branch) ?? r.displayName)") { model.showResolver(branch) }.controlSize(.small)
+                    AnotherAgentButton(model: model, branch: branch)
+                }
             } else {
                 ResolveButton(model: model, branch: branch)
             }

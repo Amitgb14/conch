@@ -285,7 +285,7 @@ public func resolveHeadline(_ b: GraphBranch, base: String) -> String {
     switch b.state {
     case .resolving: return "\(who) is resolving the conflict with \(base)"
     case .resolveWaiting: return "\(who) is waiting on you while resolving \(b.name)"
-    case .resolveStopped(ended: true): return "The agent asked to resolve \(b.name) has ended; it still conflicts with \(base)"
+    case .resolveStopped(ended: true): return "The agent resolving \(b.name) ended; it still conflicts with \(base)"
     case .resolveStopped(ended: false): return "\(who) stopped; \(b.name) still conflicts with \(base)"
     default: return "\(b.name) conflicts with \(base)"
     }
@@ -298,7 +298,7 @@ public func resolveDetail(_ b: GraphBranch, now: Date = Date()) -> String {
     let asked = b.ask?.files?.count ?? 0
     if b.stoppedFiles > 0 {
         let n = b.stoppedFiles
-        parts.append(asked >= n ? "\(n) of \(asked) files left" : "\(n) file\(n == 1 ? "" : "s") left")
+        parts.append(asked > n ? "\(n) of \(asked) files left" : "\(n) file\(n == 1 ? "" : "s") left")
     } else if b.midRebase {
         parts.append("files resolved, the rebase not finished")
     } else {
@@ -306,7 +306,8 @@ public func resolveDetail(_ b: GraphBranch, now: Date = Date()) -> String {
     }
     if let ask = b.ask, let at = ask.at {
         let who = ask.by == "autopilot" ? "the autopilot" : "you"
-        parts.append("\(who) asked \(agoText(at, now: now))")
+        let ago = agoText(at, now: now)
+        parts.append("\(who) asked \(ago == "now" ? "just now" : ago)")
     }
     return parts.joined(separator: " · ")
 }

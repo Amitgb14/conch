@@ -94,7 +94,7 @@ private func pane(_ id: String, _ state: String, running: Bool = true) -> String
     let s = try resolving(stopped, panes: "[\(pane("p9", "done"))]")[0]
     #expect(resolveHeadline(s, base: "main") == "Claude stopped; feat still conflicts with main")
     let e = try resolving(stopped, panes: "[]")[0]
-    #expect(resolveHeadline(e, base: "main") == "The agent asked to resolve feat has ended; it still conflicts with main")
+    #expect(resolveHeadline(e, base: "main") == "The agent resolving feat ended; it still conflicts with main")
     let coming = #"{"path":"/w/feat","branch":"feat","conflicts":["a.go"],"resolve":{"pane":"p9","by":"autopilot","at":"2027-01-15T07:00:00Z"}}"#
     let a = try resolving(coming, panes: "[\(pane("p9", "working"))]")[0]
     #expect(resolveDetail(a, now: Date(timeIntervalSince1970: 1_800_000_100)) == "not rebased yet · the autopilot asked 1h ago")
@@ -122,4 +122,11 @@ private func pane(_ id: String, _ state: String, running: Bool = true) -> String
     #expect(branchWorktree(p, "feat")?.path == "/w/feat")
     #expect(branchWorktree(p, "b")?.path == "/w/b")
     #expect(branchWorktree(p, "nope") == nil)
+}
+
+// One file asked, one left: not "1 of 1"; and asked a moment ago.
+@Test func resolvingWordsJustAsked() throws {
+    let one = #"{"path":"/w/feat","rebasing":"feat","status":{"files":1,"conflicts":1},"resolve":{"pane":"p9","at":"2027-01-15T08:00:00Z","files":["a.go"]}}"#
+    let b = try resolving(one, panes: "[\(pane("p9", "working"))]")[0]
+    #expect(resolveDetail(b, now: Date(timeIntervalSince1970: 1_800_000_020)) == "1 file left · you asked just now")
 }
