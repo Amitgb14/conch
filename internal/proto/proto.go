@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapCIStats, CapCIRerun,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -224,6 +224,15 @@ const CapWorktreeSetup = "worktree.setup.v1"
 // CapBranchCILog is branch.ci_log: what a branch's failed CI run printed,
 // read through gh on the machine the branch is on, for handing to its agent.
 const CapBranchCILog = "branch.ci_log.v1"
+
+// CapCIStats is ci.stats: a project's GitHub Actions history over a
+// period of days, added up for the CI panel — pass rate, run and queue
+// times, runs per day, each job's time, flaky jobs, failures to re-run.
+const CapCIStats = "ci.stats.v1"
+
+// CapCIRerun is ci.rerun: a failed run's failed jobs run again, through
+// gh on the machine the project is on.
+const CapCIRerun = "ci.rerun.v1"
 
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
@@ -624,6 +633,10 @@ const (
 	// MethodBranchCILog is the log of the failed steps of a branch's
 	// newest failed GitHub Actions run (CapBranchCILog).
 	MethodBranchCILog = "branch.ci_log"
+	// MethodCIStats adds up a project's GitHub Actions runs (CapCIStats).
+	MethodCIStats = "ci.stats"
+	// MethodCIRerun runs a failed run's failed jobs again (CapCIRerun).
+	MethodCIRerun = "ci.rerun"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -1835,6 +1848,95 @@ type BranchDiscardParams struct {
 	Branch    string `json:"branch"`
 	DryRun    bool   `json:"dry_run,omitempty"`
 	Force     bool   `json:"force,omitempty"`
+}
+
+// CIStatsParams asks for a project's CI over the last Days days, today
+// included (14 when 0, 90 at most).
+type CIStatsParams struct {
+	ProjectID string `json:"project_id"`
+	Days      int    `json:"days,omitempty"`
+}
+
+// CIStats is a project's GitHub Actions over a period of whole days, and
+// the same number of days before it for comparison. Seconds are medians.
+type CIStats struct {
+	Days int `json:"days"`
+	// Finished runs that passed or failed (a cancelled one is neither).
+	Runs       int `json:"runs"`
+	Passed     int `json:"passed"`
+	Failed     int `json:"failed"`
+	PrevRuns   int `json:"prev_runs"`
+	PrevPassed int `json:"prev_passed"`
+	// A run's time from start to finish, and its wait in the queue.
+	MedianSeconds     int `json:"median_seconds"`
+	PrevMedianSeconds int `json:"prev_median_seconds"`
+	QueueSeconds      int `json:"queue_seconds"`
+	// From a failed run to the next passing run of the same workflow on
+	// the same branch, and how many times a branch went from red to green.
+	RedToGreenSeconds int `json:"red_to_green_seconds"`
+	RedToGreenCount   int `json:"red_to_green_count"`
+	// One a day, oldest first, today last.
+	Daily []CIDay `json:"daily"`
+	// Each job, the slowest first.
+	Jobs []CIJob `json:"jobs,omitempty"`
+	// Jobs that failed and passed with nothing changed, and runs that
+	// passed only on a later attempt.
+	Flaky []CIFlaky `json:"flaky,omitempty"`
+	// Each workflow's newest run on each branch, where it failed.
+	Failing []CIRun `json:"failing,omitempty"`
+	// JobsPending is how many of the period's runs have not had their jobs
+	// read yet: a few dozen are read per call, so asking again fills in
+	// the job times.
+	JobsPending int `json:"jobs_pending,omitempty"`
+}
+
+// CIDay is a day's finished runs; Date is YYYY-MM-DD where the server is.
+type CIDay struct {
+	Date   string `json:"date"`
+	Passed int    `json:"passed"`
+	Failed int    `json:"failed"`
+}
+
+// CIJob is one job over the period.
+type CIJob struct {
+	Name          string `json:"name"`
+	Runs          int    `json:"runs"`
+	Failed        int    `json:"failed"`
+	MedianSeconds int    `json:"median_seconds"`
+	P90Seconds    int    `json:"p90_seconds"`
+}
+
+// CIFlaky is a job, or a whole run, that failed and passed without a change.
+type CIFlaky struct {
+	Name  string    `json:"name"`
+	Times int       `json:"times"`
+	How   string    `json:"how"`
+	Last  time.Time `json:"last"`
+}
+
+// CIRun is one workflow run.
+type CIRun struct {
+	ID         int64     `json:"id"`
+	Workflow   string    `json:"workflow"`
+	Branch     string    `json:"branch,omitempty"`
+	Sha        string    `json:"sha,omitempty"`
+	Conclusion string    `json:"conclusion,omitempty"`
+	Attempt    int       `json:"attempt,omitempty"`
+	URL        string    `json:"url,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+// CIRerunParams names the run whose failed jobs to run again, or a branch
+// whose newest failed run (at its pull request's head) it is.
+type CIRerunParams struct {
+	ProjectID string `json:"project_id"`
+	RunID     int64  `json:"run_id,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+}
+
+// CIRerunResult is the run started again.
+type CIRerunResult struct {
+	RunID int64 `json:"run_id"`
 }
 
 // BranchCILogParams names the branch whose failed CI run to read.

@@ -166,7 +166,10 @@ type project struct {
 	// is older than info and is not applied (refresh).
 	gen uint64
 
-	prs        map[string]proto.PRInfo // by head branch
+	prs map[string]proto.PRInfo // by head branch
+	// ciJobs are finished Actions runs' jobs, by run and attempt, read
+	// for the CI panel: they never change, so each is asked for once.
+	ciJobs     map[ciRunKey][]ghx.Job
 	prStatus   string
 	prAt       time.Time // last fetch
 	prNext     time.Time // no fetch before this (after errors)
