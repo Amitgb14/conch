@@ -97,10 +97,43 @@ import Testing
 @Test func projectMenuOffersMobilePreviewOnThisMac() {
     let s = fixture()
     let here = projects(s.tree(machine: "local"))[0]
-    #expect(s.menu(for: here, machine: "local").contains { $0.action == .mobilePreview(project: key("local", "r1")) })
+    let isPreview: (RowMenuItem) -> Bool = { if case .mobilePreview = $0.action { return true }; return false }
+    #expect(s.menu(for: here, machine: "local", mobile: ["r1"]).contains { $0.action == .mobilePreview(project: key("local", "r1")) })
+    // A project that is no mobile app, or not yet known to be one, has none.
+    #expect(!s.menu(for: here, machine: "local").contains(where: isPreview))
+    #expect(!s.menu(for: here, machine: "local", mobile: ["other"]).contains(where: isPreview))
     // The simulators are this Mac's: another machine's project has none.
     let there = projects(s.tree(machine: "box"))[0]
-    #expect(!s.menu(for: there, machine: "box").contains { if case .mobilePreview = $0.action { return true }; return false })
+    #expect(!s.menu(for: there, machine: "box", mobile: [unkey(there.id).id, "r1"]).contains(where: isPreview))
+}
+
+// Which projects are mobile apps: any folder of theirs, the root or a
+// checkout — the app may so far be only on an agent's branch.
+@Test func mobileProjectsByAnyFolder() {
+    var onBranch = ProjectInfo(id: "r1", name: "app", path: "/w/app", worktrees: [
+        WorktreeInfo(path: "/w/app", branch: "main", main: true), WorktreeInfo(path: "/w/app.worktrees/ios", branch: "ios")])
+    onBranch.git = true
+    let plain = ProjectInfo(id: "r2", name: "api", path: "/w/api")
+    let atRoot = ProjectInfo(id: "r3", name: "web", path: "/w/web")
+    #expect(mobileDirs(onBranch) == ["/w/app", "/w/app.worktrees/ios"])
+    #expect(mobileDirs(ProjectInfo(id: "x", name: "x", path: "")) == [])
+    let kinds = ["/w/app": "", "/w/app.worktrees/ios": "xcode", "/w/api": "", "/w/web": "expo"]
+    #expect(mobileProjects([onBranch, plain, atRoot], kinds: kinds) == ["r1", "r3"])
+    // Not asked yet is not a mobile app.
+    #expect(mobileProjects([onBranch, plain, atRoot], kinds: [:]).isEmpty)
+}
+
+@Test func parseDetectedLines() {
+    let out = """
+    {"dir":"/w/app.worktrees/ios","kind":"xcode","label":"Xcode","platforms":["ios"]}
+    {"dir":"/w/api","kind":"","label":""}
+    not json
+    {"kind":"expo"}
+    {"dir":"/w/web","kind":"expo","label":"Expo · React Native","dev":"npx expo start"}
+
+    """
+    #expect(parseDetected(Data(out.utf8)) == ["/w/app.worktrees/ios": "xcode", "/w/api": "", "/w/web": "expo"])
+    #expect(parseDetected(Data()) == [:])
 }
 
 // The tab shows iOS simulators alone: Android's devices and what went

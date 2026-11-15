@@ -162,3 +162,30 @@ public let previewRefreshInterval: Double = 0.35
 public func previewArgs(_ verb: String, device: String, _ rest: [String] = []) -> [String] {
     ["preview", verb, "-device", device] + rest
 }
+
+/// The folders that say whether a project is a mobile app: its own and
+/// every checkout's, since the app may so far be only on the branch an
+/// agent is making it on.
+public func mobileDirs(_ p: ProjectInfo) -> [String] {
+    var seen = Set<String>()
+    return ([p.path] + (p.worktrees ?? []).map(\.path)).filter { !$0.isEmpty && seen.insert($0).inserted }
+}
+
+/// What `conch preview detect DIR DIR…` said, a JSON line a folder: the
+/// kind of mobile app each holds, "" for none. A line that does not read
+/// is left out, so it is asked again rather than taken as no app.
+public func parseDetected(_ data: Data) -> [String: String] {
+    struct Line: Decodable { var dir: String; var kind: String? }
+    var out: [String: String] = [:]
+    for l in data.split(separator: UInt8(ascii: "\n")) {
+        if let d = try? JSONDecoder().decode(Line.self, from: Data(l)), !d.dir.isEmpty { out[d.dir] = d.kind ?? "" }
+    }
+    return out
+}
+
+/// The projects that are mobile apps, by what each folder was found to
+/// hold: one is when any of its folders is. Only these are offered the
+/// Mobile Preview, the workbench's phone and its Mobile layout.
+public func mobileProjects(_ projects: [ProjectInfo], kinds: [String: String]) -> Set<String> {
+    Set(projects.filter { p in mobileDirs(p).contains { !(kinds[$0] ?? "").isEmpty } }.map(\.id))
+}

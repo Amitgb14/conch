@@ -231,9 +231,11 @@ extension Snapshot {
     /// folders is ui.json's (loadFolders) and savedHosts this computer's,
     /// for what goes in a folder and where it is now. offerCloud is
     /// whether Conch Cloud is enabled (cloudEnabled), for Move to it.
+    /// mobile is the IDs of this machine's projects that are mobile apps.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
-                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false) -> [RowMenuItem] {
+                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false,
+                     mobile: Set<String> = []) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -320,8 +322,9 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
             if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
-            // Simulators and emulators are this Mac's own.
-            if machine == "local" { out.append(RowMenuItem("Mobile Preview", .mobilePreview(project: pk))) }
+            // Simulators and emulators are this Mac's own, and only a project
+            // that is a mobile app (mobileProjects) has anything to show on one.
+            if machine == "local", mobile.contains(unkey(pk).id) { out.append(RowMenuItem("Mobile Preview", .mobilePreview(project: pk))) }
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Open in New Window", .openWindow(project: pk))]
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]

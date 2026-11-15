@@ -147,7 +147,6 @@ func TestPreviewShotTapTypeButton(t *testing.T) {
 		{[]string{"boot", ""}, "which device"},
 		{[]string{"warp"}, "unknown preview subcommand"},
 		{nil, "usage"},
-		{[]string{"detect", "a", "b"}, "usage"},
 		{[]string{"detect", filepath.Join(dir, "missing")}, "not a folder"},
 	} {
 		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
@@ -260,6 +259,33 @@ func TestPreviewRunXcode(t *testing.T) {
 	} {
 		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
 			t.Errorf("%q: %v, want %q", c.args, err, c.err)
+		}
+	}
+}
+
+// Several folders at once: a line each, its folder named, and a folder
+// that is not there is nothing rather than an error for the others.
+func TestPreviewDetectMany(t *testing.T) {
+	_, out := fakePreview(t, nil)
+	ios, flutter, plain := t.TempDir(), t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(ios, "App.xcodeproj"), 0o755)
+	os.WriteFile(filepath.Join(flutter, "pubspec.yaml"), []byte("name: app"), 0o644)
+	gone := filepath.Join(plain, "gone")
+	if err := runPreview([]string{"detect", ios, flutter, plain, gone}); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	want := map[string]string{ios: "xcode", flutter: "flutter", plain: "", gone: ""}
+	if len(lines) != len(want) {
+		t.Fatalf("%d lines: %q", len(lines), out.String())
+	}
+	for _, l := range lines {
+		var p struct{ Dir, Kind string }
+		if err := json.Unmarshal([]byte(l), &p); err != nil {
+			t.Fatal(err)
+		}
+		if k, ok := want[p.Dir]; !ok || k != p.Kind {
+			t.Errorf("%s: %q", p.Dir, p.Kind)
 		}
 	}
 }

@@ -1332,6 +1332,7 @@ final class Store: ObservableObject {
                 if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
             }
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
+            if machine == "local" { detectMobile(projects.projects.flatMap(mobileDirs), force: true) }
             countSessions(machine)
             if let a = try? await c.call("agent.status", as: AgentStatusList.self) {
                 agents[machine] = (a.agents ?? []).filter(\.installed)
@@ -1781,6 +1782,8 @@ final class Store: ObservableObject {
                 let before = snap.project(p.id)
                 if sessionsMayHaveChanged(old: before, new: p) { recountSessions(key(machine, p.id), after: before == nil ? 0 : SessionRecounts.settle) }
                 if let m = newlyMerged(old: before, new: p).first { celebrate(m, machine: machine, project: p) }
+                // A checkout added or taken away: what the project is may have changed.
+                if machine == "local", before.map(mobileDirs) != mobileDirs(p) { detectMobile(mobileDirs(p), force: true) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
@@ -1812,6 +1815,8 @@ final class Store: ObservableObject {
                 var paths: [String]?
             }
             if let ch = try? dec.decode(Changed.self, from: data) {
+                // Files written where no app was found yet: one may be being made.
+                if machine == "local", !ch.worktree.isEmpty, (mobileKinds[ch.worktree] ?? "").isEmpty { detectMobile([ch.worktree]) }
                 for (k, v) in changeViews where v.machine == machine && v.project == ch.project_id && isShown(k) {
                     v.written(ch.paths ?? [], worktree: ch.worktree)
                 }
@@ -2221,6 +2226,41 @@ final class Store: ObservableObject {
         let m = SetupModel(key: k, store: self)
         setupViews[k] = m
         return m
+    }
+
+    /// What kind of mobile app each of this Mac's project folders holds
+    /// (`conch preview detect`), "" for none: which projects are offered
+    /// the Mobile Preview and a workbench's phone. Asked when this Mac's
+    /// server is reached, when a project's checkouts change, and when files
+    /// are written in a checkout not yet known to be one — an agent making
+    /// the app is how a project becomes one.
+    @Published var mobileKinds: [String: String] = [:]
+    private var mobileAsked: [String: Date] = [:]
+
+    /// This Mac's projects that are mobile apps.
+    var mobileProjectIDs: Set<String> { mobileProjects(snapshots["local"]?.projects ?? [], kinds: mobileKinds) }
+
+    /// The folder of a project the app is in: its own when it holds one,
+    /// else the first checkout that does.
+    func mobileDir(project pid: String) -> String? {
+        guard let p = snapshots["local"]?.project(pid) else { return nil }
+        return mobileDirs(p).first { !(mobileKinds[$0] ?? "").isEmpty }
+    }
+
+    /// Asks conch what the folders hold, at most once every few seconds a
+    /// folder unless forced (a project's checkouts changed).
+    func detectMobile(_ dirs: [String], force: Bool = false) {
+        let now = Date()
+        let ask = dirs.filter { force || now.timeIntervalSince(mobileAsked[$0] ?? .distantPast) > 5 }
+        guard !ask.isEmpty, let b = binary else { return }
+        for d in ask { mobileAsked[d] = now }
+        Task {
+            // Two or more folders, so the answer is a line each with its folder.
+            let args = ["preview", "detect"] + ask + (ask.count == 1 ? ask : [])
+            guard let out = try? await runConch(b, args) else { return }
+            let got = parseDetected(out)
+            if got.contains(where: { mobileKinds[$0.key] != $0.value }) { mobileKinds.merge(got) { $1 } }
+        }
     }
 
     private var mobileViews: [String: MobilePreviewModel] = [:]
@@ -2637,7 +2677,7 @@ final class Store: ObservableObject {
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
-                           offerCloud: offersCloud)
+                           offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [])
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
