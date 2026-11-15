@@ -232,15 +232,19 @@ struct CommitsView: View {
     @ObservedObject var store: Store
     /// Inside a branch's git tab: no frame of its own, which the tab has.
     var embedded = false
+    /// The agents' branches beside the graph, which a narrow window can do without.
+    @AppStorage("commits.branches") private var showBranches = true
 
     var body: some View {
         HStack(spacing: 0) {
-            BranchSide(model: model, store: store).frame(width: 232)
-            Rectangle().fill(Theme.line).frame(width: 1)
-            graph
+            if showBranches {
+                BranchSide(model: model, store: store).frame(minWidth: 180, idealWidth: 228, maxWidth: 228)
+                Rectangle().fill(Theme.line).frame(width: 1)
+            }
+            graph.frame(minWidth: 320)
             if model.selected != nil {
                 Rectangle().fill(Theme.line).frame(width: 1)
-                CommitDetailPanel(model: model, store: store).frame(width: 340)
+                CommitDetailPanel(model: model, store: store).frame(minWidth: 260, idealWidth: 340, maxWidth: 340)
             }
         }
         .background(Theme.window)
@@ -297,28 +301,39 @@ struct CommitsView: View {
     var header: some View {
         let name = store.snapshots[model.machine]?.project(model.project)?.name ?? model.project
         return HStack(spacing: 10) {
+            Button { showBranches.toggle() } label: {
+                LucideIcon("panel-left", color: showBranches ? Theme.accent : Theme.muted, size: 13).padding(3).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help(showBranches ? "Hide the agents' branches" : "Show the agents' branches")
+            .accessibilityLabel(showBranches ? "Hide the agents' branches" : "Show the agents' branches")
             LucideIcon("git-commit-horizontal", color: Theme.accent, size: 14)
-            Text("Commits").font(.ui(size: 13, weight: .semibold))
-            Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2)
-            Text(model.more ? "newest \(model.count)" : "\(model.count)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            Text("Commits").font(.ui(size: 13, weight: .semibold)).fixedSize()
+            Text(name).font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(1).layoutPriority(-1)
+            Text(model.more ? "newest \(model.count)" : "\(model.count)").font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize()
             if let f = model.format, !f.label.isEmpty {
                 Text(f.git3 ? "Git 3 · \(f.label)" : f.label)
                     .font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(f.git3 ? Theme.accent : Theme.muted)
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .background(Capsule().fill((f.git3 ? Theme.accent : Theme.muted).opacity(0.14)))
+                    .lineLimit(1)
                     .help(f.git3 ? "This repository is stored the way git 3 makes new ones: SHA-256 object names and reftable refs" : "Object names and refs storage")
             }
             if model.loading { ProgressView().controlSize(.small) }
-            Spacer()
+            Spacer(minLength: 8)
             HStack(spacing: 6) {
                 LucideIcon("search", color: Theme.muted, size: 11)
-                TextField("Search commits, hashes, authors", text: $model.query).textFieldStyle(.plain).font(.ui(size: 12)).frame(width: 220)
+                TextField("Search commits, hashes, authors", text: $model.query).textFieldStyle(.plain).font(.ui(size: 12))
+                    .frame(minWidth: 60, maxWidth: 220)
             }
             .padding(.horizontal, 8).frame(height: 24)
             .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
-            Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted)
-            Button { model.refresh() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).help("Read the history again, and its pull requests from GitHub")
+            // Said until a commit is picked: with its panel open the graph
+            // is narrow, and the search and refresh need the room.
+            if model.selected == nil {
+                Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).layoutPriority(-2)
+            }
+            Button { model.refresh() } label: { LucideIcon("refresh-cw", size: 12).padding(4).contentShape(Rectangle()) }.buttonStyle(.plain).fixedSize().help("Read the history again, and its pull requests from GitHub")
         }
         .padding(.horizontal, 12).frame(height: 40)
         .background(Theme.paneHeader)
@@ -355,7 +370,10 @@ struct CommitRow: View {
             || (model.focusOn != nil && model.owners[c.hash] != model.focusOn)
         HStack(spacing: 8) {
             GraphCell(row: row).frame(width: CGFloat(model.lanes) * Self.laneWidth + 6, height: Self.height).clipped()
-            Text(c.short).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
+            Text(c.short).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted).fixedSize()
+            // Chips and the subject share what is left, clipped rather than
+            // pushing the hash and the agent out of the row.
+            HStack(spacing: 8) {
             ForEach(Array(refs.enumerated()), id: \.offset) { _, r in RefChip(ref: r) }
             // The commit a pull request's checks run on: its CI, here too.
             if let pr = model.pullRequests[c.hash] {
@@ -365,8 +383,9 @@ struct CommitRow: View {
             if tip, let o = owner { StateTag(state: o.state) }
             Text(c.subject).font(.ui(size: 12.5)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
                 .layoutPriority(-1)
-            Spacer(minLength: 8)
-            AgentCell(agent: owner?.agent, author: c.author ?? "").frame(width: 120, alignment: .leading)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading).clipped()
+            AgentCell(agent: owner?.agent, author: c.author ?? "").frame(width: 96, alignment: .leading)
             Text(agoText(c.time)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).frame(minWidth: 52, alignment: .trailing)
         }
         .padding(.horizontal, 10).frame(height: Self.height)
@@ -375,6 +394,9 @@ struct CommitRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { model.pick(c.hash, shift: NSEvent.modifierFlags.contains(.shift)) }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { model.pick(c.hash, shift: false) }
         .help(c.hash)
         .contextMenu {
             Button("Copy Hash") { copy(c.hash) }
@@ -734,21 +756,25 @@ struct BranchSideRow: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.accentDeep.opacity(0.3) : hovering ? Theme.raise : .clear))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture {
-            model.focusOn = on ? nil : branch.name
-            // The branch's newest commit, picked and brought into view.
-            if !on, let tip = branchTips(model.rows.map(\.commit), remotes: model.remotes ?? ["origin", "upstream"])[branch.name] {
-                model.pick(tip, shift: false)
-                model.reveal += 1
-            }
-        }
+        .onTapGesture { toggle(on) }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction { toggle(on) }
         .contextMenu {
             if branch.state.conflicts {
                 Button("Ask \(branch.agent?.displayName ?? "an Agent") to Resolve") { model.askToResolve(branch) }
             }
             Button("View Changes") { model.store.openChanges(project: key(model.machine, model.project), branch: branch.name) }
+        }
+    }
+
+    /// Focuses the branch, or lets go of it.
+    func toggle(_ on: Bool) {
+        model.focusOn = on ? nil : branch.name
+        // The branch's newest commit, picked and brought into view.
+        if !on, let tip = branchTips(model.rows.map(\.commit), remotes: model.remotes ?? ["origin", "upstream"])[branch.name] {
+            model.pick(tip, shift: false)
+            model.reveal += 1
         }
     }
 

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -96,5 +97,28 @@ func TestWorktreeRebasingBranch(t *testing.T) {
 		if w.Main && w.Rebasing != "" {
 			t.Errorf("the main checkout is not rebasing: %+v", w)
 		}
+	}
+}
+
+// A commit handed to an agent from the graph: the new branch starts at
+// that commit, not at the base's newest.
+func TestWorktreeFromCommit(t *testing.T) {
+	c, proj, repo, _, _ := harvestFixture(t)
+	head := func(dir string) string {
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	first := head(repo)
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("later\n"), 0o644)
+	git(t, repo, "commit", "-q", "-am", "later")
+	var res proto.WorktreeResult
+	if err := call(t, c, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: proj.ID, Branch: "from-old", Base: first}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if got := head(res.Path); got != first {
+		t.Errorf("the branch starts at %s, want %s", got, first)
 	}
 }
