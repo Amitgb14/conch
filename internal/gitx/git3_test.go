@@ -149,6 +149,15 @@ func TestGit3Repository(t *testing.T) {
 	if c := CommitOf(ctx, root, "feat"); len(c) != 64 {
 		t.Errorf("CommitOf = %q", c)
 	}
+	if f := Format(ctx, root); f.Objects != "sha256" || f.Refs != "reftable" {
+		t.Errorf("Format = %+v", f)
+	}
+	if f := Format(ctx, newRepo(t)); f.Objects != "sha1" || f.Refs != "files" {
+		t.Errorf("Format of a git 2 repository = %+v", f)
+	}
+	if f := Format(ctx, t.TempDir()); f != (RepoFormat{}) {
+		t.Errorf("Format outside a repository = %+v", f)
+	}
 	if !isHash(head) {
 		t.Error("isHash refuses a SHA-256 hash")
 	}

@@ -100,3 +100,28 @@ func Remotes(ctx context.Context, dir string) []string {
 	}
 	return strings.Fields(string(out))
 }
+
+// RepoFormat is how a repository stores itself: its object hash (sha1, or
+// sha256 as git 3 makes new repositories) and its refs backend (files, or
+// reftable). Both are "" outside a repository.
+type RepoFormat struct {
+	Objects string
+	Refs    string
+}
+
+// Format reads dir's repository format. A git older than 2.45 cannot say
+// its refs backend, and cannot open a reftable repository either, so the
+// refs of one it can read are files.
+func Format(ctx context.Context, dir string) RepoFormat {
+	out, err := run(ctx, dir, "rev-parse", "--show-object-format")
+	if err != nil {
+		return RepoFormat{}
+	}
+	f := RepoFormat{Objects: strings.TrimSpace(string(out)), Refs: "files"}
+	if out, err := run(ctx, dir, "rev-parse", "--show-ref-format"); err == nil {
+		if r := strings.TrimSpace(string(out)); r != "" {
+			f.Refs = r
+		}
+	}
+	return f
+}

@@ -1631,6 +1631,16 @@ type LogResult struct {
 	// remote's branch (fork/main) from a local one with a slash. Absent
 	// from an older server: clients then take origin and upstream.
 	Remotes []string `json:"remotes,omitempty"`
+	// Format is how the repository stores itself — sha1 or sha256
+	// objects, files or reftable refs — absent from an older server.
+	Format *RepoFormat `json:"format,omitempty"`
+}
+
+// RepoFormat is a repository's object hash and refs backend: git 3 makes
+// new repositories sha256 and reftable, and conch meets both kinds.
+type RepoFormat struct {
+	Objects string `json:"objects,omitempty"`
+	Refs    string `json:"refs,omitempty"`
 }
 
 // CommitParams asks project.commit about Hash: the commit itself; with

@@ -41,6 +41,11 @@ func TestProjectLog(t *testing.T) {
 	if len(res.Commits) != 1 || !res.More || res.Commits[0].Subject != "on feat" {
 		t.Errorf("limit 1: %+v", res)
 	}
+	// The repository's format comes with it: a SHA-1 repository with the
+	// files backend, as git 2 makes them.
+	if res.Format == nil || res.Format.Objects != "sha1" || res.Format.Refs != "files" {
+		t.Errorf("format: %+v", res.Format)
+	}
 }
 
 // An unknown project is an error, as everywhere else; so is one that is
