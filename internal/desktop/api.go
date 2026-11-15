@@ -133,7 +133,12 @@ const (
 )
 
 // Patch is what changed since the last snapshot or patch: items set
-// (added or changed, whole) and keys removed, per list.
+// (added or changed, whole) and keys removed, per list. An app applies
+// it by replacing each item set where it already is, adding a new one at
+// the end, then dropping the keys removed. A machine that goes offline
+// takes its projects and panes with it, since they can no longer be
+// known. testdata/session.jsonl is a recorded session and
+// testdata/final.json the state it ends in, for an app's own tests.
 type Patch struct {
 	Machines *Changes[Machine] `json:"machines,omitempty"`
 	Projects *Changes[Project] `json:"projects,omitempty"`

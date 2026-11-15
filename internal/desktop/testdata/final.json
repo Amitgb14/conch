@@ -1,0 +1,12 @@
+{
+  "machines": [
+    {"id": "local", "label": "this computer", "state": "online"},
+    {"id": "busybox", "label": "busybox", "state": "offline", "detail": "connection refused"}
+  ],
+  "projects": [
+    {"key": "local:x1", "machine": "local", "id": "x1", "name": "conch", "path": "/home/amit/conch"}
+  ],
+  "panes": [
+    {"key": "local:p2", "machine": "local", "id": "p2", "name": "claude", "title": "✳ Fix the parser", "project": "local:x1", "branch": "fix-parser", "state": "running", "agent": {"name": "claude", "state": "waiting", "since": "2026-11-15T12:01:00Z"}}
+  ]
+}
