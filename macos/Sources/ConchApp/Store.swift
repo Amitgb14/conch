@@ -53,6 +53,9 @@ final class Store: ObservableObject {
     @Published var agents: [String: [AgentAvailability]] = [:]
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
+    /// Counts the autopilot's notes from each machine, so a feed showing
+    /// that machine's reads its list again when one arrives.
+    @Published var autopilotTick: [String: Int] = [:]
     /// The machines whose TUI tabs this launch has taken in.
     private var viewAdopted: Set<String> = []
     /// Files the palette's search found, for the query they were found for.
@@ -1731,6 +1734,8 @@ final class Store: ObservableObject {
             terminals.removeValue(forKey: k)?.stop()
             defer { updateBadge() }
             questions.removeValue(forKey: k)
+        case "autopilot.note":
+            autopilotTick[machine, default: 0] += 1
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
                 // A project added since the connection was counted, or one

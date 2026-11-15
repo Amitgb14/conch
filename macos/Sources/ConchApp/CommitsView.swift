@@ -44,8 +44,15 @@ final class CommitsModel: ObservableObject {
     @Published var owners: [String: String] = [:]
     /// A branch picked in the side's list: the rest of the graph dims.
     @Published var focusOn: String?
-    /// The CI panel in place of the commit's, and what it shows.
-    @Published var showCI = false
+    /// The CI panel or the autopilot's in place of the commit's — one at a
+    /// time — and what each shows.
+    @Published var showCI = false { didSet { if showCI { showAutopilot = false } } }
+    @Published var showAutopilot = false { didSet { if showAutopilot { showCI = false } } }
+    var sidePanel: Bool { showCI || showAutopilot }
+    @Published var activity: [AutopilotNote] = []
+    @Published var autopilot: AutopilotState?
+    @Published var activityError = ""
+    private var activityReads = Latest()
     @Published var ci: CIStats?
     @Published var ciDays = 14
     @Published var ciError = ""
@@ -78,6 +85,7 @@ final class CommitsModel: ObservableObject {
         (machine, project) = parseCommitsKey(key) ?? ("local", "")
         load()
         store.refreshProject(machine: machine, project: project)
+        loadAutopilot()
     }
 
     /// ↻: the history again, and the server asked to look at GitHub now.
@@ -107,6 +115,45 @@ final class CommitsModel: ObservableObject {
     /// of the agent named.
     func askToResolve(_ b: GraphBranch, start: String? = nil) {
         store.askToResolve(machine: machine, project: project, branch: b, start: start)
+    }
+
+    var canAutopilot: Bool { store.connection(machine)?.hello?.capabilities?.contains("autopilot.v1") == true }
+    var canActivity: Bool { store.connection(machine)?.hello?.capabilities?.contains("autopilot.activity.v1") == true }
+
+    /// The autopilot's policy and the branches it minds, and what it did
+    /// in this project, newest first.
+    func loadAutopilot() {
+        struct NoParams: Encodable {}
+        guard let c = store.connection(machine), canAutopilot else { return }
+        let n = activityReads.next()
+        Task {
+            if let st = try? await c.call("autopilot.get", NoParams(), as: AutopilotState.self), activityReads.isLatest(n) {
+                autopilot = st
+            }
+            guard canActivity else {
+                activityError = "conch on \(store.label(machine)) keeps no record of what the autopilot did: reload its server."
+                return
+            }
+            struct P: Encodable { var project_id: String; var limit: Int }
+            do {
+                let a = try await c.call("autopilot.activity", P(project_id: project, limit: 200), as: AutopilotActivity.self)
+                guard activityReads.isLatest(n) else { return }
+                activity = a.notes
+                activityError = ""
+            } catch {
+                guard activityReads.isLatest(n) else { return }
+                activityError = "\(error)"
+            }
+        }
+    }
+
+    /// Brings a branch into view: its commits stand out, its newest picked.
+    func focus(branch: String) {
+        focusOn = branch
+        if let tip = branchTips(rows.map(\.commit), remotes: remotes ?? ["origin", "upstream"])[branch] {
+            pick(tip, shift: false)
+            reveal += 1
+        }
     }
 
     var canCI: Bool { store.connection(machine)?.hello?.capabilities?.contains("ci.stats.v1") == true }
@@ -309,7 +356,7 @@ struct CommitsView: View {
     var body: some View {
         HStack(spacing: 0) {
             // The CI panel takes the room the branch list had.
-            if showBranches && !model.showCI {
+            if showBranches && !model.sidePanel {
                 BranchSide(model: model, store: store).frame(minWidth: 180, idealWidth: 228, maxWidth: 228)
                 Rectangle().fill(Theme.line).frame(width: 1)
             }
@@ -317,6 +364,9 @@ struct CommitsView: View {
             if model.showCI {
                 Rectangle().fill(Theme.line).frame(width: 1)
                 CIPanel(model: model).frame(minWidth: 300, idealWidth: 380, maxWidth: 380)
+            } else if model.showAutopilot {
+                Rectangle().fill(Theme.line).frame(width: 1)
+                AutopilotPanel(model: model, store: store).frame(minWidth: 300, idealWidth: 380, maxWidth: 380)
             } else if model.selected != nil {
                 Rectangle().fill(Theme.line).frame(width: 1)
                 CommitDetailPanel(model: model, store: store).frame(minWidth: 260, idealWidth: 340, maxWidth: 340)
@@ -376,7 +426,7 @@ struct CommitsView: View {
     var header: some View {
         let name = store.snapshots[model.machine]?.project(model.project)?.name ?? model.project
         return HStack(spacing: 10) {
-            if !model.showCI {
+            if !model.sidePanel {
                 Button { showBranches.toggle() } label: {
                     LucideIcon("panel-left", color: showBranches ? Theme.accent : Theme.muted, size: 13).padding(3).contentShape(Rectangle())
                 }
@@ -409,6 +459,23 @@ struct CommitsView: View {
             // is narrow, and the search and refresh need the room.
             if model.selected == nil {
                 Text("shift-click to compare").font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).layoutPriority(-2)
+            }
+            if model.canAutopilot {
+                let on = model.autopilot?.policy.anyOn == true
+                Button { model.showAutopilot.toggle(); if model.showAutopilot { model.loadAutopilot() } } label: {
+                    HStack(spacing: 5) {
+                        Circle().fill(on ? Theme.ok : Theme.muted).frame(width: 6, height: 6)
+                        Text("Autopilot").font(.ui(size: 11.5, weight: .semibold))
+                            .foregroundStyle(model.showAutopilot ? Theme.accent : Theme.text2)
+                    }
+                    .padding(.horizontal, 7).frame(height: 22)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(model.showAutopilot ? Theme.accent.opacity(0.16) : .clear))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(model.showAutopilot ? Theme.accent.opacity(0.5) : Theme.line))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).fixedSize()
+                .help(model.showAutopilot ? "Back to the commit" : "What the autopilot does on its own here, and what it did")
+                .accessibilityLabel(model.showAutopilot ? "Hide the autopilot" : "Show the autopilot, \(on ? "on" : "off")")
             }
             if model.canCI {
                 Button {
