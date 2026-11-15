@@ -47,7 +47,9 @@ var ProviderFileGuide string
 // that needs what format 1 lacked says format = 2, which a conch from
 // before formats calls an unknown key and refuses: refusing is right,
 // since it would otherwise send {public_key} as those very letters.
-const ProviderFormat = 2
+// Format 3 adds headers, which a format-2 conch would leave out and so
+// send requests the provider refuses.
+const ProviderFormat = 3
 
 // PublicKey is the public key a sandbox is made with when a provider file
 // puts {public_key} in its create body. internal/remote sets it (the
@@ -74,6 +76,9 @@ type ProviderFile struct {
 	Adapted   string `toml:"adapted"`
 	// Note is said before a sandbox is made with it.
 	Note string `toml:"note"`
+	// Headers are sent with every call; a call's own headers are laid
+	// over them.
+	Headers map[string]string `toml:"headers"`
 
 	Create CreateCall        `toml:"create"`
 	Get    GetCall           `toml:"get"`
@@ -85,11 +90,13 @@ type ProviderFile struct {
 	SSH    SSHWay            `toml:"ssh"`
 }
 
-// Call is one request: "METHOD /path", the path's {id} filled in, and a
-// body whose string values may be placeholders.
+// Call is one request: "METHOD /path", the path's {id} filled in, a body
+// whose string values may be placeholders, and headers of its own — an
+// Idempotency-Key = "{uuid}", say, or a delete's confirmation.
 type Call struct {
-	Call string         `toml:"call"`
-	Body map[string]any `toml:"body"`
+	Call    string            `toml:"call"`
+	Body    map[string]any    `toml:"body"`
+	Headers map[string]string `toml:"headers"`
 }
 
 // CreateCall makes a sandbox; ID is where its id is in the reply.
@@ -131,16 +138,52 @@ type ListCall struct {
 // registered with the person's account there; "authorize", one conch
 // hands over through Authorize; "none", a credential in User from Access.
 type SSHWay struct {
-	Host string `toml:"host"`
-	User string `toml:"user"`
-	Port int    `toml:"port"`
-	Key  string `toml:"key"`
+	Host string  `toml:"host"`
+	User string  `toml:"user"`
+	Port SSHPort `toml:"port"`
+	Key  string  `toml:"key"`
 	// Authorize lets a public key in ({public_key} in its body).
 	Authorize Call `toml:"authorize"`
 	// Access is asked before each connection when the way in is a
 	// credential handed out per connection; Host and User may then read
 	// its reply as {reply.PATH}.
 	Access Call `toml:"access"`
+}
+
+// SSHPort is ssh's port: a number, or (format 3) "{reply.PATH}", read
+// from [ssh.access]'s reply for a gateway that says its port per
+// connection, as it says its host.
+type SSHPort struct {
+	N     int
+	Reply string // the PATH of "{reply.PATH}"
+}
+
+var replyRef = regexp.MustCompile(`\{reply\.([^{}]+)\}`)
+
+func (p *SSHPort) UnmarshalTOML(v any) error {
+	switch x := v.(type) {
+	case int64:
+		p.N = int(x)
+		if int64(p.N) != x {
+			p.N = -1 // out of range, said by Problems
+		}
+	case string:
+		m := replyRef.FindStringSubmatch(x)
+		if m == nil || m[0] != x {
+			return fmt.Errorf(`[ssh] port %q: a number, or "{reply.PATH}" alone`, x)
+		}
+		p.Reply = m[1]
+	default:
+		return fmt.Errorf(`[ssh] port: a number, or "{reply.PATH}"`)
+	}
+	return nil
+}
+
+func (p SSHPort) String() string {
+	if p.Reply != "" {
+		return "{reply." + p.Reply + "}"
+	}
+	return strconv.Itoa(p.N)
 }
 
 // conch's own states a provider file may map to.
@@ -203,8 +246,13 @@ func (f *ProviderFile) Problems() []string {
 	add := func(format string, a ...any) { p = append(p, fmt.Sprintf(format, a...)) }
 	if f.Format < 0 || f.Format > ProviderFormat {
 		add("format %d: this conch reads up to format %d; update conch to use it", f.Format, ProviderFormat)
-	} else if need := f.needs2(); need != "" && f.Format < 2 {
-		add("%s needs format = 2", need)
+	} else {
+		if need := f.needs2(); need != "" && f.Format < 2 {
+			add("%s needs format = 2", need)
+		}
+		if need := f.needs3(); need != "" && f.Format < 3 {
+			add("%s needs format = 3", need)
+		}
 	}
 	switch {
 	case !providerName.MatchString(f.Name):
@@ -238,6 +286,11 @@ func (f *ProviderFile) Problems() []string {
 			add("[%s] body: %v", c.what, err)
 		}
 	}
+	for _, c := range f.headerSets() {
+		for _, e := range f.checkHeaders(c.headers) {
+			add("%s: %s", c.what, e)
+		}
+	}
 	if f.Create.ID == "" {
 		add("[create] id: where the new sandbox's id is in the reply")
 	}
@@ -268,8 +321,11 @@ func (f *ProviderFile) Problems() []string {
 	if f.SSH.Host == "" || f.SSH.User == "" {
 		add("[ssh] host and user: conch reaches every sandbox over ssh, so a provider with no ssh cannot be used")
 	}
-	if f.SSH.Port < 0 || f.SSH.Port > 65535 {
-		add("[ssh] port %d", f.SSH.Port)
+	if f.SSH.Port.N < 0 || f.SSH.Port.N > 65535 {
+		add("[ssh] port %d", f.SSH.Port.N)
+	}
+	if f.SSH.Port.Reply != "" && f.SSH.Access.Call == "" {
+		add("[ssh] port %s: there is no [ssh.access] reply to read it from", f.SSH.Port)
 	}
 	switch f.SSH.Key {
 	case "account", "none":
@@ -306,6 +362,86 @@ func (f *ProviderFile) needs2() string {
 		}
 	}
 	return ""
+}
+
+// needs3 names the first thing in the file that format 2 did not have.
+func (f *ProviderFile) needs3() string {
+	for _, c := range f.headerSets() {
+		if len(c.headers) > 0 {
+			return c.what
+		}
+	}
+	if f.SSH.Port.Reply != "" {
+		return "[ssh] port from the reply"
+	}
+	return ""
+}
+
+type headerSet struct {
+	what    string
+	headers map[string]string
+}
+
+// headerSets is every place a file may give headers, named as a problem
+// with them is said.
+func (f *ProviderFile) headerSets() []headerSet {
+	return []headerSet{{"headers", f.Headers}, {"[create] headers", f.Create.Headers}, {"[get] headers", f.Get.Headers},
+		{"[list] headers", f.List.Headers}, {"[start] headers", f.Start.Headers}, {"[stop] headers", f.Stop.Headers},
+		{"[delete] headers", f.Delete.Headers}, {"[ssh.authorize] headers", f.SSH.Authorize.Headers},
+		{"[ssh.access] headers", f.SSH.Access.Headers}}
+}
+
+// placeholders a header value may use: {uuid} is new for every request.
+// Never {key}: the key goes in auth_header alone, so a file cannot send it
+// anywhere a person reading the file would not look for it.
+var headerPlaceholders = map[string]bool{"{id}": true, "{name}": true, "{uuid}": true}
+
+var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+
+// conchHeaders are set by conch itself, or by Go for the request; a file
+// that set them would break the request or move the key.
+var conchHeaders = []string{"Host", "Content-Length", "Content-Type", "Accept", "Transfer-Encoding", "Connection"}
+
+func (f *ProviderFile) checkHeaders(h map[string]string) []string {
+	var p []string
+	auth := http.CanonicalHeaderKey(firstSet(f.AuthHeader, "Authorization"))
+	for _, k := range sortedKeys(h) {
+		val := h[k]
+		ck := http.CanonicalHeaderKey(k)
+		switch {
+		case !headerName.MatchString(k):
+			p = append(p, fmt.Sprintf("%q is not a header name", k))
+			continue
+		case ck == auth:
+			p = append(p, fmt.Sprintf("%s carries the key: set it with auth_header and auth_value", k))
+			continue
+		case slicesContains(conchHeaders, ck):
+			p = append(p, fmt.Sprintf("%s is conch's to set", k))
+			continue
+		case strings.ContainsAny(val, "\r\n\x00"):
+			p = append(p, fmt.Sprintf("%s's value has a line break", k))
+			continue
+		}
+		var bad []string
+		for _, ph := range placeholder.FindAllString(val, -1) {
+			if !headerPlaceholders[ph] {
+				bad = append(bad, ph)
+			}
+		}
+		if len(bad) > 0 {
+			p = append(p, fmt.Sprintf("%s: unknown placeholder %s (a header may use {id}, {name}, {uuid})", k, strings.Join(bad, ", ")))
+		}
+	}
+	return p
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func slicesContains(list []string, s string) bool {
@@ -394,11 +530,16 @@ type Mapping struct {
 // it reads back: the review a person does before saving the file.
 func (f *ProviderFile) Describe() []Mapping {
 	body := func(c Call) string {
+		s := c.Call
+		h := f.headersOf(c)
+		for _, k := range sortedKeys(h) {
+			s += fmt.Sprintf(" [%s: %s]", k, h[k])
+		}
 		if len(c.Body) == 0 {
-			return c.Call
+			return s
 		}
 		b, _ := json.Marshal(c.Body)
-		return c.Call + " " + string(b)
+		return s + " " + string(b)
 	}
 	m := []Mapping{
 		{"New sandbox", body(f.Create.Call), f.Create.ID},
@@ -415,8 +556,8 @@ func (f *ProviderFile) Describe() []Mapping {
 	sort.Strings(states)
 	m = append(m, Mapping{"States", strings.Join(states, " "), ""})
 	way := fmt.Sprintf("ssh %s@%s", f.SSH.User, f.SSH.Host)
-	if f.SSH.Port != 0 && f.SSH.Port != 22 {
-		way += fmt.Sprintf(" -p %d", f.SSH.Port)
+	if f.SSH.Port.Reply != "" || f.SSH.Port.N != 0 && f.SSH.Port.N != 22 {
+		way += " -p " + f.SSH.Port.String()
 	}
 	switch f.SSH.Key {
 	case "account":
@@ -586,10 +727,58 @@ func (c *Custom) do(ctx context.Context, call Call, v vars) (any, error) {
 		b, _ := v.fill(call.Body)
 		body = b
 	}
-	return c.request(ctx, method, path, body)
+	return c.request(ctx, method, path, body, c.headers(call, v))
 }
 
-func (c *Custom) request(ctx context.Context, method, path string, body any) (any, error) {
+// headersOf is the file's headers with the call's own laid over them, by
+// name as HTTP compares names (Idempotency-Key and idempotency-key are one).
+func (f *ProviderFile) headersOf(call Call) map[string]string {
+	if len(f.Headers) == 0 && len(call.Headers) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, set := range []map[string]string{f.Headers, call.Headers} {
+		for k, val := range set {
+			out[http.CanonicalHeaderKey(k)] = val
+		}
+	}
+	return out
+}
+
+// headers fills a call's headers for one request. A header whose value is
+// a placeholder with nothing to put there is left out, as a body's is;
+// {uuid} is new for each request, so no two are taken for a retry.
+func (c *Custom) headers(call Call, v vars) http.Header {
+	h := c.f.headersOf(call)
+	if len(h) == 0 {
+		return nil
+	}
+	hv := vars{"{uuid}": newUUID()}
+	for k, x := range v {
+		hv[k] = x
+	}
+	out := http.Header{}
+	for k, val := range h {
+		x, ok := hv.fill(val)
+		// Inside a longer value an unfilled placeholder would go out as its
+		// own letters; the header is left out instead.
+		if s := fmt.Sprint(x); ok && s != "" && !placeholder.MatchString(s) {
+			out.Set(k, s)
+		}
+	}
+	return out
+}
+
+// newUUID is a random (version 4) UUID.
+func newUUID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func (c *Custom) request(ctx context.Context, method, path string, body any, headers http.Header) (any, error) {
 	var rd io.Reader
 	if body != nil {
 		enc, err := json.Marshal(body)
@@ -601,6 +790,11 @@ func (c *Custom) request(ctx context.Context, method, path string, body any) (an
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.f.API, "/")+path, rd)
 	if err != nil {
 		return nil, err
+	}
+	// The file's headers first, so none can take the key's or conch's place
+	// (Problems refuses those names too).
+	for k, vals := range headers {
+		req.Header[k] = vals
 	}
 	req.Header.Set(firstSet(c.f.AuthHeader, "Authorization"), strings.ReplaceAll(firstSet(c.f.AuthValue, "Bearer {key}"), "{key}", c.key))
 	req.Header.Set("Accept", "application/json")
@@ -948,13 +1142,23 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 	}
 	fill := func(s string) string {
 		s = v.str(s)
-		return regexp.MustCompile(`\{reply\.([^{}]+)\}`).ReplaceAllStringFunc(s, func(m string) string {
+		return replyRef.ReplaceAllStringFunc(s, func(m string) string {
 			return pickStr(reply, strings.TrimSuffix(strings.TrimPrefix(m, "{reply."), "}"))
 		})
 	}
-	a := Access{User: fill(c.f.SSH.User), Host: fill(c.f.SSH.Host), Port: c.f.SSH.Port, PlainUser: c.f.SSH.Key != "none"}
+	a := Access{User: fill(c.f.SSH.User), Host: fill(c.f.SSH.Host), Port: c.f.SSH.Port.N, PlainUser: c.f.SSH.Key != "none"}
 	if a.User == "" || a.Host == "" {
 		return Access{}, fmt.Errorf("%s gave no ssh user or host for %s", c.label(), id)
+	}
+	if path := c.f.SSH.Port.Reply; path != "" {
+		// Said rather than left to ssh's default: the default is what a
+		// gateway that names its port does not listen on.
+		raw := pickStr(reply, path)
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 65535 {
+			return Access{}, fmt.Errorf("%s gave no ssh port for %s at %q (got %q)", c.label(), id, path, raw)
+		}
+		a.Port = n
 	}
 	return a, nil
 }
