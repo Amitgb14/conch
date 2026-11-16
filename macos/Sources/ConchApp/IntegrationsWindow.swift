@@ -463,7 +463,7 @@ struct IntegrationPage: View {
                         Text(v).font(.ui(size: 11)).foregroundStyle(Theme.ok).padding(.horizontal, 8).padding(.vertical, 3)
                             .overlay(Capsule().stroke(Theme.ok.opacity(0.5)))
                     }
-                    if info.revoked == nil {
+                    if info.offersKey {
                         Button(info.installed ? (info.keySet ? "Change Key…" : "Connect…") : "Install") { model.startInstall(info) }
                             .keyboardShortcut(.defaultAction)
                     }

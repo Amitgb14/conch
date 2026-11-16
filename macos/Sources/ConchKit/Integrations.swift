@@ -84,6 +84,8 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var kind: String
     public var source: String
     public var installed: Bool
+    /// conch's own code (GitHub, Linear, Jira): set up, not installed.
+    public var builtin: Bool?
     public var registry: String?
     public var version: Int?
     public var signed: Bool?
@@ -107,7 +109,7 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var installs: Int?
 
     enum CodingKeys: String, CodingKey {
-        case name, label, kind, source, installed, registry, version, signed, tier, checked, revoked, does, hosts, scopes, note, docs, sha256, installs, adapted
+        case name, label, kind, source, installed, builtin, registry, version, signed, tier, checked, revoked, does, hosts, scopes, note, docs, sha256, installs, adapted
         case keyEnv = "key_env", userEnv = "user_env", authType = "auth_type", baseURL = "base_url", keyHelp = "key_help", keySet = "key_set", adaptedBy = "adapted_by"
     }
 
@@ -115,6 +117,13 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var shortHash: String? {
         guard let h = sha256, h.count > 10 else { return sha256 }
         return String(h.prefix(4)) + "…" + String(h.suffix(4))
+    }
+
+    /// What its page offers: a key to give (Connect, Change Key) for one
+    /// that takes a key, Install for one not here; nothing for a built-in
+    /// with no key of conch's (GitHub's, through gh), or a revoked one.
+    public var offersKey: Bool {
+        revoked == nil && !(builtin == true && keyEnv.isEmpty)
     }
 
     /// The verified chip in full: "✓ verified 2026-11-12 with conch 0.2.1 (12 pipelines read)".
@@ -421,7 +430,11 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
         case let l? where l.hasPrefix("checked:"): check = .ok(String(l.dropFirst("checked: ".count)))
         case let l? where l.hasPrefix("the check failed"): check = .failed(l)
         case let l?: check = .ok(l)
-        case nil: check = .ok("installed")
+        case nil:
+            // No check was made (a built-in's key, a file with no project
+            // to read): what conch said last, "kept in the Keychain …".
+            let said = output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { !$0.isEmpty }
+            check = .ok(said ?? "installed")
         }
     }
 }

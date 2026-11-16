@@ -452,3 +452,57 @@ func TestIntegrationBuiltInEntry(t *testing.T) {
 		t.Fatalf("install: %q %v", out, err)
 	}
 }
+
+// Linear and Jira are built in: key keeps their key under the variable
+// their tracker code reads (what the project sheet's Connect… runs), info
+// says so with no registry to ask, and GitHub's have no key of conch's.
+func TestIntegrationBuiltInKeyAndInfo(t *testing.T) {
+	home, stored := integrationEnv(t)
+	t.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1")
+	t.Setenv("LINEAR_API_KEY", "")
+	t.Setenv("JIRA_API_TOKEN", "")
+	t.Setenv("WORK_LINEAR", "")
+
+	var err error
+	out, _ := a4Capture(t, "lin-sekrit\n", func() { err = runIntegration([]string{"key", "-stdin", "linear"}) })
+	if err != nil || strings.Contains(out, "lin-sekrit") || !strings.Contains(out, "kept in the Keychain (conch-mcp, LINEAR_API_KEY)") {
+		t.Fatalf("key linear: %q %v", out, err)
+	}
+	if b, _ := os.ReadFile(stored); !strings.Contains(string(b), `-a LINEAR_API_KEY -w "lin-sekrit"`) {
+		t.Fatalf("stored %q", b)
+	}
+
+	// [trackers.linear] api_key_env names another variable: that one.
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[trackers.linear]\napi_key_env = \"WORK_LINEAR\"\n"), 0o600)
+	out, _ = a4Capture(t, "work-key\n", func() { err = runIntegration([]string{"key", "-stdin", "linear"}) })
+	if err != nil || !strings.Contains(out, "(conch-mcp, WORK_LINEAR)") {
+		t.Fatalf("key linear, its own variable: %q %v", out, err)
+	}
+
+	// Jira's token alone is not enough: its site and email are said.
+	out, _ = a4Capture(t, "jira-tok\n", func() { err = runIntegration([]string{"key", "-stdin", "jira"}) })
+	if err != nil || !strings.Contains(out, "JIRA_API_TOKEN") || !strings.Contains(out, "site's address and your email") {
+		t.Fatalf("key jira: %q %v", out, err)
+	}
+
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"key", "github"}) })
+	if err != nil || !strings.Contains(out, "gh auth login") {
+		t.Fatalf("key github: %q %v", out, err)
+	}
+
+	// info, with no registry to reach: built in, set up, its variable.
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "jira"}) })
+	var info infoJSON
+	if err != nil || json.Unmarshal([]byte(out), &info) != nil || !info.BuiltIn || !info.Installed || info.Source != "built in" ||
+		info.KeyEnv != "JIRA_API_TOKEN" || info.KeySet || info.Kind != "tickets" {
+		t.Fatalf("info -json jira: %s %v", out, err)
+	}
+	t.Setenv("JIRA_API_TOKEN", "set")
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"info", "jira"}) })
+	if !strings.Contains(out, "built into conch") || !strings.Contains(out, "Its key ($JIRA_API_TOKEN) is set") {
+		t.Fatalf("info jira: %q", out)
+	}
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"info", "github"}) }); err != nil {
+		t.Fatalf("info github: %v", err)
+	}
+}

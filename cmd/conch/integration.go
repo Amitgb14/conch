@@ -209,6 +209,7 @@ type infoJSON struct {
 	Kind      string                `json:"kind"`
 	Source    string                `json:"source"`
 	Installed bool                  `json:"installed"`
+	BuiltIn   bool                  `json:"builtin,omitempty"`
 	Registry  string                `json:"registry,omitempty"`
 	Version   int                   `json:"version,omitempty"`
 	Signed    bool                  `json:"signed,omitempty"`
@@ -244,6 +245,9 @@ func integrationInfo(args []string) error {
 	name := fs.Arg(0)
 	if err := integration.CheckName(name); err != nil {
 		return err
+	}
+	if b, ok := builtinNamed(name); ok {
+		return builtinInfo(b, *asJSON)
 	}
 	var f *integration.File
 	files, _ := integration.All()
@@ -778,6 +782,9 @@ func integrationKey(args []string) error {
 	if fs.NArg() != 1 {
 		return errors.New("usage: conch integration key [-stdin] [-base URL] [-cwd DIR] NAME")
 	}
+	if b, ok := builtinNamed(fs.Arg(0)); ok {
+		return builtinKey(b, *fromStdin)
+	}
 	data, _, err := integration.Source(fs.Arg(0))
 	if err != nil {
 		return err
@@ -830,5 +837,82 @@ func keepBase(f *integration.File, base string) error {
 		return err
 	}
 	fmt.Printf("its address, %s, is kept in config.toml ([integrations.base] %s)\n", base, f.Name)
+	return nil
+}
+
+// A built-in is conch's own code — GitHub through gh, Linear and Jira
+// through their APIs — with no file: info says how it is set up, and key
+// gives a tracker its key under the variable the tracker's code reads,
+// which is what the project sheet's Connect… for Linear runs.
+type builtinIntegration struct {
+	name, label, kind string
+	// keyEnv is the variable its key is read from, from [trackers] when
+	// that names another; "" for one with no key of conch's (gh's login).
+	keyEnv func(config.Config) string
+	help   string
+	docs   string
+}
+
+var builtinIntegrations = []builtinIntegration{
+	{name: "github", label: "GitHub", kind: integration.KindHost, help: "Read through gh, with its own login: gh auth login.", docs: "https://cli.github.com"},
+	{name: "github-actions", label: "GitHub Actions", kind: integration.KindCI, help: "Read through gh, with its own login: gh auth login.", docs: "https://docs.github.com/actions"},
+	{name: "github-issues", label: "GitHub Issues", kind: integration.KindTickets, help: "Read through gh, with its own login: gh auth login.", docs: "https://docs.github.com/issues"},
+	{name: "linear", label: "Linear", kind: integration.KindTickets, docs: "https://linear.app/developers",
+		keyEnv: func(c config.Config) string { return firstSetStr(c.Trackers.Linear.APIKeyEnv, "LINEAR_API_KEY") },
+		help:   "A personal API key, from Linear's Settings → Security & access. Its team is chosen in Settings → Trackers."},
+	{name: "jira", label: "Jira", kind: integration.KindTickets, docs: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
+		keyEnv: func(c config.Config) string { return firstSetStr(c.Trackers.Jira.APITokenEnv, "JIRA_API_TOKEN") },
+		help:   "An API token, from id.atlassian.com → Security → API tokens; your site's address and your email go in Settings → Trackers."},
+}
+
+func builtinNamed(name string) (builtinIntegration, bool) {
+	for _, b := range builtinIntegrations {
+		if b.name == name {
+			return b, true
+		}
+	}
+	return builtinIntegration{}, false
+}
+
+func builtinInfo(b builtinIntegration, asJSON bool) error {
+	cfg, _ := config.Load()
+	env := ""
+	if b.keyEnv != nil {
+		env = b.keyEnv(cfg)
+	}
+	set := env != "" && (keyFor(env) != "" || b.name == "linear" && cfg.Trackers.Linear.APIKey != "" || b.name == "jira" && cfg.Trackers.Jira.APIToken != "")
+	if asJSON {
+		return json.NewEncoder(os.Stdout).Encode(infoJSON{Name: b.name, Label: b.label, Kind: b.kind, Source: "built in", Installed: true, BuiltIn: true,
+			Does: []integration.Feature{}, KeyEnv: env, KeyHelp: b.help, KeySet: set, Docs: b.docs})
+	}
+	fmt.Printf("%s · %s · built into conch\n\n%s\n", b.label, b.kind, b.help)
+	switch {
+	case env == "":
+	case set:
+		fmt.Printf("Its key ($%s) is set.\n", env)
+	default:
+		fmt.Printf("Its key is not set: conch integration key %s keeps it in the Keychain as $%s.\n", b.name, env)
+	}
+	return nil
+}
+
+func builtinKey(b builtinIntegration, fromStdin bool) error {
+	cfg, _ := config.Load()
+	if b.keyEnv == nil {
+		fmt.Printf("%s has no key of conch's: %s\n", b.label, b.help)
+		return nil
+	}
+	env := b.keyEnv(cfg)
+	if keyFor(env) != "" && !fromStdin {
+		fmt.Printf("%s's key is set already ($%s, or the Keychain)\n", b.label, env)
+	} else {
+		f := &integration.File{Name: b.name, Label: b.label, Kind: b.kind, KeyEnv: env}
+		if _, err := askKey(f, fromStdin); err != nil {
+			return err
+		}
+	}
+	if b.name == "jira" && (cfg.Trackers.Jira.URL == "" || cfg.Trackers.Jira.Email == "") {
+		fmt.Println("Jira also needs your site's address and your email: Settings → Trackers (or [trackers.jira] in config.toml)")
+	}
 	return nil
 }

@@ -156,3 +156,24 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let cards = IntegrationCatalog.cards(here: IntegrationList(integrations: [], problems: nil), listed: listed, uses: [:])
     #expect(cards.count == 1 && cards[0].builtIn && cards[0].installed && cards[0].standing == .builtIn && cards[0].summary == "Merge requests.")
 }
+
+// A built-in tracker connects by giving its key (conch integration key);
+// GitHub's, read through gh, offer nothing; and what conch said when no
+// check was made is shown as it said it.
+@Test func integrationBuiltInPages() throws {
+    let linear = try JSONDecoder().decode(IntegrationInfo.self, from: Data("""
+    {"name":"linear","label":"Linear","kind":"tickets","source":"built in","installed":true,"builtin":true,"does":[],"hosts":{"api":""},"key_env":"LINEAR_API_KEY","key_set":false}
+    """.utf8))
+    #expect(linear.offersKey)
+    var f = IntegrationInstallFlow(info: linear)
+    f.agreed = true; f.key = "k"
+    #expect(f.blocker == nil && f.arguments == ["integration", "key", "-stdin", "linear"])
+    f.finished(output: "kept in the Keychain (conch-mcp, LINEAR_API_KEY)\n", error: nil)
+    #expect(f.check == .ok("kept in the Keychain (conch-mcp, LINEAR_API_KEY)"))
+    var github = linear
+    github.name = "github"; github.keyEnv = ""
+    #expect(!github.offersKey)
+    var revoked = linear
+    revoked.builtin = nil; revoked.revoked = "bad"
+    #expect(!revoked.offersKey)
+}
