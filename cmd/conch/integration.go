@@ -43,6 +43,14 @@ const integrationUsage = `Usage:
   conch integration remove NAME                  delete an installed one
   conch integration check [-json] NAME|FILE      what is wrong with a file (offline)
   conch integration guide                        the file format, for writing one
+  conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
+                                                 an agent in a pane of its own reads the service's API
+                                                 docs and writes NAME.toml; conch checks it offline, then
+                                                 with your key once you agree where it goes (the agent
+                                                 never has it); -revise TEXT NAME, -check NAME, -save NAME
+  conch integration publish [-dry-run] [-json] [-y] [-cwd DIR] FILE|NAME
+                                                 check it with your key, then propose it and its index
+                                                 entry to the registry as a pull request (through gh)
 
 A file of your own goes in ~/.config/conch/integrations/NAME.toml and
 replaces one conch ships of the same name.`
@@ -70,6 +78,10 @@ func runIntegration(args []string) error {
 		return integrationCheck(args)
 	case "key":
 		return integrationKey(args)
+	case "adapt":
+		return integrationAdapt(args)
+	case "publish":
+		return integrationPublish(args)
 	case "guide":
 		fmt.Print(integration.Guide)
 		return nil

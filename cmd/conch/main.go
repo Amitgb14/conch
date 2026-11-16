@@ -265,6 +265,14 @@ Usage:
   conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide
                                 take newer versions (new hosts always asked), delete one, check a
                                 file, or print the format to write one
+  conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
+                                an agent in a pane of its own reads a service's API docs and writes
+                                NAME.toml; conch checks it, then reads the service with your key once
+                                you agree where it goes (the agent never has it); -revise TEXT NAME,
+                                -check NAME, -save NAME keeps it
+  conch integration publish [-dry-run] [-json] [-y] [-cwd DIR] FILE|NAME
+                                check a file with your key, then propose it and its index entry to
+                                the registry as a pull request through gh, the check's result in it
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID

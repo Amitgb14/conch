@@ -434,10 +434,7 @@ func providerPublish(args []string) error {
 	title := "Add " + firstNonEmptyStr(f.Label, name)
 	body := fmt.Sprintf("Adapted by %s from %s and checked with conch %s: the key listed %d sandboxes.\n\n- API key goes to `%s`\n- ssh goes to `%s`\n\nProposed with `conch sandbox provider publish`.\n",
 		meta.AdaptedBy, f.Docs, meta.Conch, ck.All, api, ssh)
-	files := []struct {
-		path string
-		data []byte
-	}{{"providers/" + name + "/provider.toml", data}, {"providers/" + name + "/meta.json", metaJSON}}
+	files := []registryFile{{"providers/" + name + "/provider.toml", data}, {"providers/" + name + "/meta.json", metaJSON}}
 	if *dry {
 		fmt.Printf("would propose to %s: %s\n\n%s", sandbox.RegistryRepo, title, body)
 		for _, fl := range files {
@@ -448,11 +445,35 @@ func providerPublish(args []string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
+	branch := fmt.Sprintf("provider-%s-%s", name, publishNow().UTC().Format("20060102-150405"))
+	prURL, err := proposeToRegistry(ctx, branch, title, body, files)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		b, _ := json.Marshal(map[string]string{"url": prURL})
+		fmt.Println(string(b))
+		return nil
+	}
+	fmt.Printf("proposed %s to the registry: %s\nit is listed once a maintainer has reviewed and merged it\n", name, prURL)
+	return nil
+}
+
+// registryFile is a file a pull request to the registry adds.
+type registryFile struct {
+	path string
+	data []byte
+}
+
+// proposeToRegistry opens a pull request to the registry adding files on
+// a new branch: the registry's own for somebody who may push to it, else a
+// fork's. It answers the pull request's address.
+func proposeToRegistry(ctx context.Context, branch, title, body string, files []registryFile) (string, error) {
 	var user struct {
 		Login string `json:"login"`
 	}
 	if err := ghJSON(ctx, "GET", "user", nil, &user); err != nil {
-		return fmt.Errorf("publish opens a pull request with gh, signed in to GitHub (gh auth login): %w", err)
+		return "", fmt.Errorf("publish opens a pull request with gh, signed in to GitHub (gh auth login): %w", err)
 	}
 	var repo struct {
 		Permissions struct {
@@ -460,10 +481,9 @@ func providerPublish(args []string) error {
 		} `json:"permissions"`
 	}
 	if err := ghJSON(ctx, "GET", "repos/"+sandbox.RegistryRepo, nil, &repo); err != nil {
-		return err
+		return "", err
 	}
 	target, head := sandbox.RegistryRepo, ""
-	branch := fmt.Sprintf("provider-%s-%s", name, publishNow().UTC().Format("20060102-150405"))
 	if repo.Permissions.Push {
 		head = branch
 	} else {
@@ -471,7 +491,7 @@ func providerPublish(args []string) error {
 			FullName string `json:"full_name"`
 		}
 		if err := ghJSON(ctx, "POST", "repos/"+sandbox.RegistryRepo+"/forks", map[string]any{"default_branch_only": true}, &fork); err != nil {
-			return fmt.Errorf("fork %s: %w", sandbox.RegistryRepo, err)
+			return "", fmt.Errorf("fork %s: %w", sandbox.RegistryRepo, err)
 		}
 		target, head = fork.FullName, user.Login+":"+branch
 		// A fork made before stays where it was; bring it up to date, or
@@ -484,10 +504,10 @@ func providerPublish(args []string) error {
 		} `json:"object"`
 	}
 	if err := ghJSON(ctx, "GET", "repos/"+target+"/git/ref/heads/main", nil, &ref); err != nil {
-		return err
+		return "", err
 	}
 	if _, err := ghx.API(ctx, "POST", "repos/"+target+"/git/refs", map[string]any{"ref": "refs/heads/" + branch, "sha": ref.Object.SHA}); err != nil {
-		return fmt.Errorf("make a branch in %s: %w", target, err)
+		return "", fmt.Errorf("make a branch in %s: %w", target, err)
 	}
 	for _, fl := range files {
 		put := map[string]any{"message": title + ": " + fl.path, "branch": branch, "content": base64.StdEncoding.EncodeToString(fl.data)}
@@ -499,22 +519,16 @@ func providerPublish(args []string) error {
 			put["sha"] = existing.SHA
 		}
 		if _, err := ghx.API(ctx, "PUT", "repos/"+target+"/contents/"+fl.path, put); err != nil {
-			return fmt.Errorf("write %s: %w", fl.path, err)
+			return "", fmt.Errorf("write %s: %w", fl.path, err)
 		}
 	}
 	var pr struct {
 		URL string `json:"html_url"`
 	}
 	if err := ghJSON(ctx, "POST", "repos/"+sandbox.RegistryRepo+"/pulls", map[string]any{"title": title, "head": head, "base": "main", "body": body}, &pr); err != nil {
-		return fmt.Errorf("open the pull request: %w", err)
+		return "", fmt.Errorf("open the pull request: %w", err)
 	}
-	if *asJSON {
-		b, _ := json.Marshal(map[string]string{"url": pr.URL})
-		fmt.Println(string(b))
-		return nil
-	}
-	fmt.Printf("proposed %s to the registry: %s\nit is listed once a maintainer has reviewed and merged it\n", name, pr.URL)
-	return nil
+	return pr.URL, nil
 }
 
 func ghJSON(ctx context.Context, method, path string, body, out any) error {
