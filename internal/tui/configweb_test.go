@@ -260,8 +260,14 @@ func TestSettingsEditInBrowserLink(t *testing.T) {
 }
 
 func TestSettingsChoices(t *testing.T) {
+	// The providers offered are the installed ones: conch has none of its own.
+	t.Setenv("CONCH_HOME", t.TempDir())
+	if c := SettingsChoices(nil); len(c.Providers) != 0 {
+		t.Fatalf("nothing installed offers %v", c.Providers)
+	}
+	installProviders(t, "daytona")
 	c := SettingsChoices(nil)
-	if len(c.Themes) != len(themes) || len(c.Accents) != len(accentColors) || len(c.Providers) == 0 {
+	if len(c.Themes) != len(themes) || len(c.Accents) != len(accentColors) || len(c.Providers) != 1 || c.Providers[0] != "daytona" {
 		t.Fatalf("%+v", c)
 	}
 	for i := 1; i < len(c.Accents); i++ {

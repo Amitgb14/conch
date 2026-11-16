@@ -53,8 +53,17 @@ func TestMain(m *testing.M) {
 	// may reach out of the suite.
 	forwardPort = func(context.Context, string, int, ...string) (int, error) { return 0, errors.New("no ssh in tests") }
 	checkPreview = func(context.Context, string) (int, string) { return 0, "no network in tests" }
+	// conch's own folder, empty, unless a test makes one: a test that read
+	// the developer's providers passed where daytona was installed and
+	// failed on CI, where it was not.
+	home, err := os.MkdirTemp("", "conch-tui-home")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("CONCH_HOME", home)
 	code := m.Run()
 	os.RemoveAll(downloads)
+	os.RemoveAll(home)
 	os.Exit(code)
 }
 

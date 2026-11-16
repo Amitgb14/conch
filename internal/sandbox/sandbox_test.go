@@ -1,6 +1,8 @@
 package sandbox
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,9 +30,17 @@ func TestEnvFrom(t *testing.T) {
 }
 
 func TestOpenAndKnown(t *testing.T) {
+	// Daytona is known with no file — a machine conch's own provider made
+	// still names it — and opened through its file once installed.
+	t.Setenv("CONCH_HOME", t.TempDir())
 	if !Known("daytona") || Known("e2b") || Known("") {
 		t.Fatal("Known")
 	}
+	data, err := os.ReadFile(filepath.Join("testdata", "registry", "daytona.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customHome(t, "daytona", string(data))
 	if p, err := Open("daytona", config.SandboxCfg{}); err != nil || p.Name() != "daytona" {
 		t.Fatalf("open daytona: %v %v", p, err)
 	}
