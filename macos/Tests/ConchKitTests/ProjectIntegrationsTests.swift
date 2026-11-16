@@ -100,3 +100,19 @@ private func detect(_ s: String = detectJSON) throws -> IntegrationDetect {
     revoked.revoked = "sent logs elsewhere"
     #expect(!IntegrationInstallFlow(connecting: revoked).agreed)
 }
+
+// Integrations… on a git project's menu, after Agent Setup, only where the
+// server can say what a project uses.
+@Test func integrationsOnTheProjectMenu() {
+    var snap = fixture()
+    let node = TreeNode(id: "p:local|r1", kind: .project("local|r1"), title: "api")
+    let i = snap.projects.firstIndex { $0.id == "r1" }!
+    snap.projects[i].git = true
+    let item = RowMenuItem("Integrations…", .integrations(project: "local|r1"))
+    #expect(!snap.menu(for: node, machine: "local").contains(item))
+    let titles = snap.menu(for: node, machine: "local", integrations: true).map(\.title)
+    let at = titles.firstIndex(of: "Agent Setup")!
+    #expect(titles[at + 1] == "Integrations…")
+    snap.projects[i].git = false
+    #expect(!snap.menu(for: node, machine: "local", integrations: true).contains(item))
+}

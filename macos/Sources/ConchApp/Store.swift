@@ -779,6 +779,8 @@ final class Store: ObservableObject {
     /// The Integrations window's install sheet for one, checked in dir.
     var onInstallIntegration: ((String, String?) -> Void)?
     func installIntegration(_ name: String, checkIn dir: String?) { onInstallIntegration?(name, dir) }
+    /// A project's integrations (ProjectIntegrationsSheet.swift), by its key.
+    var onOpenProjectIntegrations: ((String) -> Void)?
     /// [verify.intake]'s labels: what means ready for conch in Tickets.
     @Published private(set) var intakeLabels: Set<String> = []
 
@@ -2701,7 +2703,8 @@ final class Store: ObservableObject {
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
                            offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [],
-                           teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true)
+                           teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true,
+                           integrations: conns[m]?.hello?.capabilities?.contains("integration.detect.v1") == true)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2831,6 +2834,7 @@ final class Store: ObservableObject {
         case .sandbox(let m, let verb): sandbox(m, verb)
         case .cloud(let m, let verb): cloudVerb(m, verb)
         case .mobilePreview(let pk): openMobilePreview(project: pk)
+        case .integrations(let pk): onOpenProjectIntegrations?(pk)
         case .agentSetup(let pk, let dir):
             let (m, pid) = unkey(pk)
             let k = setupKey(m, pid, dir: dir)
