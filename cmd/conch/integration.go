@@ -583,7 +583,9 @@ func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) st
 }
 
 type lsRow struct {
-	Name    string `json:"name"`
+	Name string `json:"name"`
+	// Label is how people write it, where that is not the name.
+	Label   string `json:"label,omitempty"`
 	Kind    string `json:"kind"`
 	Version string `json:"version"`
 	Source  string `json:"source"`
@@ -641,7 +643,7 @@ func integrationList(args []string) error {
 	// installed from a registry, or a file of the person's own.
 	installed, _ := sandbox.ReadInstalled()
 	for _, name := range sandbox.Names() {
-		r := lsRow{Name: name, Kind: integration.KindSandbox, Version: "-", Source: "built in", State: "ok"}
+		r := lsRow{Name: name, Label: sandbox.ProviderLabel(name), Kind: integration.KindSandbox, Version: "-", Source: "built in", State: "ok"}
 		if !sandbox.Builtin(name) {
 			r.Source = "a file of your own"
 			if _, ok := installed[name]; ok {

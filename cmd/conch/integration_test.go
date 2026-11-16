@@ -530,11 +530,18 @@ func TestIntegrationSandboxProviders(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &got) != nil {
 		t.Fatalf("ls: %s %v", out, err)
 	}
-	var daytona *lsRow
+	var daytona, boat *lsRow
 	for i, r := range got.Integrations {
-		if r.Name == "daytona" {
+		switch r.Name {
+		case "daytona":
 			daytona = &got.Integrations[i]
+		case "boat":
+			boat = &got.Integrations[i]
 		}
+	}
+	// A sandbox is named as people write it, as conch sandbox names it.
+	if boat == nil || boat.Label != "boat.dev" || daytona == nil || daytona.Label != "Daytona" {
+		t.Fatalf("sandbox labels in ls: %+v %+v", boat, daytona)
 	}
 	if daytona == nil || daytona.Kind != "sandbox" || daytona.Source != "built in" || !strings.Contains(daytona.State, "DAYTONA_API_KEY") {
 		t.Fatalf("daytona in ls: %+v", daytona)

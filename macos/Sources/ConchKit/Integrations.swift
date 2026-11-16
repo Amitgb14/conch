@@ -11,6 +11,8 @@ import Foundation
 /// One integration this computer has, as `conch integration ls -json` says.
 public struct IntegrationHere: Decodable, Equatable, Sendable {
     public var name: String
+    /// How people write it (a sandbox's "boat.dev"), where that is not the name.
+    public var label: String? = nil
     public var kind: String
     public var version: String
     public var source: String
@@ -282,7 +284,7 @@ public enum IntegrationCatalog {
             let builtIn = h.source == "built in"
             var standing: IntegrationStanding = builtIn ? .builtIn : .installed
             if let e = entry, let why = e.revokedReason { standing = .revoked(why) }
-            out.append(IntegrationCard(name: h.name, label: entry?.label ?? labels[h.name] ?? h.name, kind: h.kind, source: h.source,
+            out.append(IntegrationCard(name: h.name, label: entry?.label ?? h.label ?? labels[h.name] ?? h.name, kind: h.kind, source: h.source,
                                        installed: true, builtIn: builtIn, standing: standing,
                                        auth: authWord(userEnv: entry?.userEnv ?? (h.name == "jenkins" ? "JENKINS_USER" : nil), builtIn: builtIn, name: h.name),
                                        summary: builtIn ? (builtInSummary[h.name] ?? entry?.note ?? "")

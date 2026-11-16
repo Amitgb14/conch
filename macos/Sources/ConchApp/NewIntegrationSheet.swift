@@ -23,6 +23,7 @@ struct NewIntegrationSheet: View {
     @State private var problem = ""
     @State private var revision = ""
     @State private var kept = false
+    @State private var choosingAgent = false
 
     private static let kinds: [(IntegrationKind, String)] = [(.ci, "CI"), (.host, "Code host"), (.tickets, "Tickets"), (.sandbox, "Sandbox"), (.notify, "Notify")]
     /// The agents that can write it: those installed here that conch
@@ -84,11 +85,7 @@ struct NewIntegrationSheet: View {
             }
             row("Service") { TextField("", text: $form.service, prompt: Text("Semaphore")).textFieldStyle(.roundedBorder) }
             row("API docs") { TextField("", text: $form.docs, prompt: Text("https://docs.example.com/api")).textFieldStyle(.roundedBorder) }
-            row("Agent") {
-                HStack(spacing: 5) {
-                    ForEach(agents, id: \.0) { a in chip(a.1, on: form.agent == a.0, enabled: true, agent: a.0) { form.agent = a.0 } }
-                }
-            }
+            row("Agent") { agentPicker }
             if form.kind != .sandbox && !projects.isEmpty {
                 row("Check on") {
                     Picker("", selection: Binding(get: { form.project ?? "" }, set: { form.project = $0 })) {
@@ -114,15 +111,52 @@ struct NewIntegrationSheet: View {
         }
     }
 
-    /// A choice: an agent's with its own mark. One that cannot be chosen
+    /// The agent, as a drop-down of the installed ones with their own
+    /// logos: a menu draws only SF Symbols, so it is a popover of rows.
+    private var agentPicker: some View {
+        let chosen = agents.first(where: { $0.0 == form.agent }) ?? agents[0]
+        return Button { choosingAgent.toggle() } label: {
+            HStack(spacing: 6) {
+                Mark(agent: chosen.0)
+                Text(chosen.1).font(.ui(size: 12)).foregroundStyle(Theme.text)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.muted)
+            }
+            .padding(.horizontal, 8).frame(width: 200, height: 24)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.window))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).focusable(false)
+        .accessibilityLabel("Agent: \(chosen.1)")
+        .popover(isPresented: $choosingAgent, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(agents, id: \.0) { a in
+                    Button { form.agent = a.0; choosingAgent = false } label: {
+                        HStack(spacing: 7) {
+                            Mark(agent: a.0)
+                            Text(a.1).font(.ui(size: 12.5)).foregroundStyle(Theme.text)
+                            Spacer(minLength: 12)
+                            if a.0 == chosen.0 { Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.accent) }
+                        }
+                        .padding(.horizontal, 8).frame(height: 24).frame(minWidth: 190)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(a.0 == chosen.0 ? Theme.accent.opacity(0.10) : .clear))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(6)
+        }
+        .onAppear { if !agents.contains(where: { $0.0 == form.agent }) { form.agent = agents[0].0 } }
+    }
+
+    /// A choice of kind. One that cannot be chosen
     /// is drawn faint and takes no click, and none takes the keyboard's
     /// focus — a focus ring left on CI read as CI chosen.
-    private func chip(_ s: String, on: Bool, enabled: Bool, agent: String? = nil, _ action: @escaping () -> Void) -> some View {
+    private func chip(_ s: String, on: Bool, enabled: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                if let agent { Mark(agent: agent) }
-                Text(s).font(.ui(size: 11.5, weight: on ? .semibold : .regular))
-            }
+            Text(s).font(.ui(size: 11.5, weight: on ? .semibold : .regular))
             .foregroundStyle(on ? Theme.accent : enabled ? Theme.text2 : Theme.muted.opacity(0.6))
             .padding(.horizontal, 9).padding(.vertical, 3)
             .background(Capsule().fill(on ? Theme.accent.opacity(0.12) : .clear))

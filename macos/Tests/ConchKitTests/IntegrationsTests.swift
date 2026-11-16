@@ -198,7 +198,7 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
 @Test func integrationLogos() {
     for name in ["circleci", "gitlab-ci", "buildkite", "jenkins", "bitbucket-pipelines", "semaphore",
                  "github", "github-actions", "github-issues", "linear", "jira", "shortcut", "gitlab-issues",
-                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "devin"] {
+                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "devin", "boat", "daytona", "tensorlake"] {
         let logo = IntegrationLogos.logo(name)
         #expect(logo != nil, "\(name) has no logo")
         #expect((IntegrationLogos.ops(name)?.count ?? 0) > 3, "\(name)'s path draws nothing")
@@ -235,4 +235,16 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(cards[0].summary == "Pull requests, checks, merge, reviews, issues.")
     #expect(cards[1].summary == "Failed steps' logs to the branch's agent, re-run failed jobs.")
     #expect(IntegrationCatalog.summary(kind: "ci", operations: []) == "")
+}
+
+// A sandbox no registry lists is named as ls names it ("boat.dev"), not
+// by its bare name; one ls gives no label for keeps its name.
+@Test func integrationSandboxLabels() throws {
+    let here = try JSONDecoder().decode(IntegrationList.self, from: Data("""
+    {"integrations":[{"name":"boat","label":"boat.dev","kind":"sandbox","version":"-","source":"built in","state":"ok"},
+                     {"name":"instabox","kind":"sandbox","version":"-","source":"a file of your own","state":"ok"}]}
+    """.utf8))
+    let cards = IntegrationCatalog.cards(here: here, listed: [], uses: [:])
+    #expect(cards.first(where: { $0.name == "boat" })?.label == "boat.dev")
+    #expect(cards.first(where: { $0.name == "instabox" })?.label == "instabox")
 }
