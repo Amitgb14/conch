@@ -56,6 +56,13 @@ private func pr(_ runs: [PRCheck]) -> PRInfo {
     green.runs = [PRCheck(name: "x", state: "fail")]
     #expect(ciCanRerun(green), "a failing run though the rollup lags")
     #expect(!ciCanRerun(nil))
+    // A server that says which can: only a failing one that can.
+    let jenkins = PRCheck(name: "jenkins", state: "fail", source: "jenkins", rerun: nil)
+    let circleCan = PRCheck(name: "circle", state: "fail", source: "circleci", rerun: true)
+    #expect(!ciCanRerun(pr([jenkins]), checksSay: true))
+    #expect(ciCanRerun(pr([jenkins]), checksSay: false), "an older server: offered, and refused there with why")
+    #expect(ciCanRerun(pr([jenkins, circleCan]), checksSay: true))
+    #expect(!ciCanRerun(pr([PRCheck(name: "x", state: "pass", rerun: true)]), checksSay: true))
 }
 
 // The autopilot's note about a failed run reads as the feed shows it.

@@ -142,6 +142,11 @@ func (cv *changesView) rerunCI(m *Model) tea.Cmd {
 	case !m.hasCapability(cv.machine, proto.CapBranchCIRerun):
 		m.setFlash("the server there predates re-running CI; reload it (conch server reload)", true)
 		return nil
+	case m.hasCapability(cv.machine, proto.CapPRCheckRerun) && !slices.ContainsFunc(pr.Runs, func(c proto.PRCheck) bool { return c.State == "fail" && c.Rerun }):
+		// The server says which checks can be run again, and none that
+		// failed can: say so rather than ask it to try.
+		m.setFlash(noRerunWords(pr.Runs), true)
+		return nil
 	}
 	m.setFlash("re-running the failed jobs on "+cv.branch+"…", false)
 	params := proto.BranchCILogParams{ProjectID: cv.projectID, Branch: cv.branch}
@@ -152,6 +157,16 @@ func (cv *changesView) rerunCI(m *Model) tea.Cmd {
 		}
 		return flashMsg(fmt.Sprintf("re-running %s's failed jobs on %s (run %s)", firstNonEmpty(out.Service, out.Source), params.Branch, out.Run))
 	}
+}
+
+// noRerunWords says why nothing that failed can be run again.
+func noRerunWords(runs []proto.PRCheck) string {
+	for _, c := range runs {
+		if c.State == "fail" && c.Source != "" {
+			return integration.Label(c.Source, integration.Cached()) + " cannot re-run from conch: its integration has no re-run"
+		}
+	}
+	return "nothing that failed can be re-run from conch"
 }
 
 // branchDir is where a branch is checked out, else its project's folder.

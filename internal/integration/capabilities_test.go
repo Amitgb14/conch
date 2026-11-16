@@ -168,3 +168,22 @@ func TestIntegrationFileCapabilitiesAgreeWithTheRegistry(t *testing.T) {
 		}
 	}
 }
+
+// A check can be run again through Actions, or an integration whose file
+// has [rerun]; one without, or a service with no file here, cannot.
+func TestCanRerun(t *testing.T) {
+	read := func(name string) *File {
+		data, _ := os.ReadFile("testdata/registry/" + name + ".toml")
+		f, _, err := Parse(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	files := []*File{read("circleci"), read("jenkins"), read("gitlab-issues")}
+	for src, want := range map[string]bool{SourceActions: true, "circleci": true, "jenkins": false, "gitlab-issues": false, "azure-pipelines": false, "": false} {
+		if got := CanRerun(src, files); got != want {
+			t.Errorf("CanRerun(%q) = %v", src, got)
+		}
+	}
+}

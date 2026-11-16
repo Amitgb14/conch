@@ -32,9 +32,13 @@ public func checkWhere(_ c: PRCheck) -> String {
     return host
 }
 
-/// Whether a pull request has failed jobs to run again.
-public func ciCanRerun(_ pr: PRInfo?) -> Bool {
+/// Whether a pull request has failed jobs to run again. A server that
+/// says which checks can be run again (pr.check.rerun.v1, checksSay) is
+/// taken at its word: a failing check of a CI whose integration has no
+/// re-run offers none.
+public func ciCanRerun(_ pr: PRInfo?, checksSay: Bool = false) -> Bool {
     guard let pr else { return false }
+    if checksSay { return (pr.runs ?? []).contains { $0.state == "fail" && $0.rerun == true } }
     return pr.checks == "fail" || (pr.runs ?? []).contains { $0.state == "fail" }
 }
 

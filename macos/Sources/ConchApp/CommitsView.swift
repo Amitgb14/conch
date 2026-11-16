@@ -173,6 +173,15 @@ final class CommitsModel: ObservableObject {
     var canCI: Bool { store.connection(machine)?.hello?.capabilities?.contains("ci.stats.v1") == true }
     var canRerun: Bool { store.connection(machine)?.hello?.capabilities?.contains("ci.rerun.v1") == true }
 
+    /// Whether a failing branch's CI can be run again: a server that says
+    /// which checks can (pr.check.rerun.v1) is taken at its word, so a CI
+    /// whose integration has no re-run offers none.
+    func canRerun(branch: String) -> Bool {
+        guard canRerun else { return false }
+        guard store.connection(machine)?.hello?.capabilities?.contains("pr.check.rerun.v1") == true else { return true }
+        return ciCanRerun(projectInfo?.branches?.first { $0.name == branch }?.pr, checksSay: true)
+    }
+
     /// The project's CI over ciDays. A busy repository's job times arrive
     /// a few dozen runs at a time, so while the server says some are still
     /// to read it is asked again, a few times.
@@ -719,7 +728,7 @@ struct CommitRow: View {
             Button("Copy Hash") { copy(c.hash) }
             Button("Copy Subject") { copy(c.subject) }
             Button("Hand to an Agent…") { model.handToAgent(c) }
-            if let o = owner, o.state == .ciFailing, tip, model.canRerun {
+            if let o = owner, o.state == .ciFailing, tip, model.canRerun(branch: o.name) {
                 Button("Re-run Failed Jobs") { model.rerun(branch: o.name) }
             }
             if let o = owner, o.state.conflicts {
@@ -1107,7 +1116,7 @@ struct BranchSideRow: View {
                     .disabled(model.pushing.contains(r.branch) || { if case .moved = r.push { return true } else { return false } }())
                 Button("Undo the Rebase…") { model.undoRebase(r) }
             }
-            if branch.state == .ciFailing, model.canRerun {
+            if branch.state == .ciFailing, model.canRerun(branch: branch.name) {
                 Button("Re-run Failed Jobs") { model.rerun(branch: branch.name) }
             }
             Button("View Changes") { model.store.openChanges(project: key(model.machine, model.project), branch: branch.name) }

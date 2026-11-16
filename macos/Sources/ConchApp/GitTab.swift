@@ -482,7 +482,7 @@ struct GitOverview: View {
                             .controlSize(.small)
                             .help("The failed run's log, sent to the branch's agent, as the review queue's Fix")
                     }
-                    if ciCanRerun(pr) {
+                    if ciCanRerun(pr, checksSay: store.connection(model.machine)?.hello?.capabilities?.contains("pr.check.rerun.v1") == true) {
                         Button("Re-run failed jobs") { model.rerunCI() }.controlSize(.small)
                             .help("Run what failed again — on GitHub Actions, or through a CI integration that can")
                     }
@@ -1368,7 +1368,7 @@ struct GitSide: View {
                 Button(model.agent.map { "Send the failure to \($0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name)" } ?? "Start an agent on the failure") { model.fixCI() }
                     .controlSize(.small)
             }
-            if ciCanRerun(pr) {
+            if ciCanRerun(pr, checksSay: store.connection(model.machine)?.hello?.capabilities?.contains("pr.check.rerun.v1") == true) {
                 Button("Re-run failed jobs") { model.rerunCI() }.controlSize(.small)
                     .help("Run what failed again — on GitHub Actions, or through a CI integration that can")
             }
