@@ -236,6 +236,12 @@ func TestIntegrationInfoCheckGuide(t *testing.T) {
 		!strings.Contains(out, "without your key") || !strings.Contains(out, "✓ A failed job's output goes to the branch's agent") {
 		t.Fatalf("info: %q %v", out, err)
 	}
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "jenkins"}) })
+	var info infoJSON
+	if err != nil || json.Unmarshal([]byte(out), &info) != nil || info.Kind != "ci" || info.AuthType != "basic" || info.UserEnv != "JENKINS_USER" ||
+		info.BaseURL != "ask" || info.Source != "ships with conch" || len(info.Does) != 5 || info.KeySet {
+		t.Fatalf("info -json: %s %v", out, err)
+	}
 	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"info", "nothing-here"}) }); err == nil {
 		t.Fatal("info of nothing")
 	}
@@ -274,5 +280,37 @@ func TestIntegrationInfoCheckGuide(t *testing.T) {
 	}
 	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"lst"}) }); err == nil || !strings.Contains(err.Error(), "did you mean conch integration ls") {
 		t.Fatalf("a typo: %v", err)
+	}
+}
+
+// key gives a shipped integration its key, into the Keychain, never
+// printing it; a key already set is said rather than asked again.
+func TestIntegrationKey(t *testing.T) {
+	_, stored := integrationEnv(t)
+	t.Setenv("CIRCLECI_TOKEN", "")
+	t.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1")
+	var err error
+	out, _ := a4Capture(t, "circle-sekrit\n", func() { err = runIntegration([]string{"key", "-stdin", "circleci"}) })
+	if err != nil || strings.Contains(out, "circle-sekrit") || !strings.Contains(out, "kept in the Keychain (conch-mcp, CIRCLECI_TOKEN)") {
+		t.Fatalf("key: %q %v", out, err)
+	}
+	b, _ := os.ReadFile(stored)
+	if !strings.Contains(string(b), `-a CIRCLECI_TOKEN -w "circle-sekrit"`) {
+		t.Fatalf("stored %q", b)
+	}
+	t.Setenv("CIRCLECI_TOKEN", "set")
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"key", "circleci"}) })
+	if err != nil || !strings.Contains(out, "set already") {
+		t.Fatalf("set already: %q %v", out, err)
+	}
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"key", "nothing-here"}) }); err == nil {
+		t.Fatal("an unknown name")
+	}
+	// A key the Keychain's command line could be broken by is refused,
+	// not half-stored.
+	t.Setenv("CIRCLECI_TOKEN", "")
+	_, _ = a4Capture(t, "bad\"key\n", func() { err = runIntegration([]string{"key", "-stdin", "circleci"}) })
+	if err == nil || !strings.Contains(err.Error(), "cannot take") {
+		t.Fatalf("a quote in the key: %v", err)
 	}
 }

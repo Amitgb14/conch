@@ -430,3 +430,43 @@ text = "."
 		t.Fatalf("no base: %v", err)
 	}
 }
+
+func TestIntegrationDetect(t *testing.T) {
+	r := newCIRig(t, true, circleCheck)
+	if miss := r.c.MissingCapabilities([]string{proto.CapIntegrationDetect}); len(miss) > 0 {
+		t.Fatalf("capability missing: %v", miss)
+	}
+	os.MkdirAll(filepath.Join(r.proj.Path, ".github", "workflows"), 0o755)
+	detect := func() map[string]proto.IntegrationUse {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		var got proto.IntegrationDetect
+		if err := r.c.Call(ctx, proto.MethodIntegrationDetect, proto.IntegrationDetectParams{ProjectID: r.proj.ID}, &got); err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]proto.IntegrationUse{}
+		for _, u := range got.Integrations {
+			m[u.Name] = u
+		}
+		return m
+	}
+	m := detect()
+	if u := m["github"]; u.Kind != "host" || !u.Connected {
+		t.Fatalf("github: %+v", u)
+	}
+	if u := m["github-actions"]; u.Why != ".github/workflows" || !u.Installed {
+		t.Fatalf("actions: %+v", u)
+	}
+	if u := m["circleci"]; u.Why != "check ci/circleci: build-and-test" || !u.Installed || u.Connected || u.KeyEnv != "CIRCLECI_TOKEN" {
+		t.Fatalf("circleci, no key: %+v", u)
+	}
+	t.Setenv("CIRCLECI_TOKEN", ciKey)
+	if u := detect()["circleci"]; !u.Connected {
+		t.Fatalf("circleci with its key: %+v", u)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := r.c.Call(ctx, proto.MethodIntegrationDetect, proto.IntegrationDetectParams{ProjectID: "nope"}, nil); err == nil {
+		t.Fatal("an unknown project")
+	}
+}

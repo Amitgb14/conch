@@ -31,10 +31,12 @@ import (
 
 const integrationUsage = `Usage:
   conch integration search [-json] [KIND|WORDS]   what the registries list
-  conch integration info NAME                    what it does in conch, where your key goes, who wrote it
+  conch integration info [-json] NAME            what it does in conch, where your key goes, who wrote it
   conch integration install [-y] [-key-stdin] NAME
                                                  agree to its hosts, give its key (kept in the Keychain
                                                  on a Mac), and check it against this project
+  conch integration key [-stdin] NAME            give an integration its key: without echo, kept in the
+                                                 Keychain on a Mac (elsewhere it says the variable)
   conch integration ls [-json] [-cwd DIR]        every integration here, built in or installed, and its state
   conch integration update [-y] [NAME]           take the registry's newest; asks again when hosts change
   conch integration remove NAME                  delete an installed one
@@ -65,6 +67,8 @@ func runIntegration(args []string) error {
 		return integrationRemove(args)
 	case "check":
 		return integrationCheck(args)
+	case "key":
+		return integrationKey(args)
 	case "guide":
 		fmt.Print(integration.Guide)
 		return nil
@@ -177,11 +181,46 @@ func integrationSearch(args []string) error {
 	return tw.Flush()
 }
 
+// infoJSON is an integration's page, for Conch.app's.
+type infoJSON struct {
+	Name      string                `json:"name"`
+	Label     string                `json:"label"`
+	Kind      string                `json:"kind"`
+	Source    string                `json:"source"`
+	Installed bool                  `json:"installed"`
+	Registry  string                `json:"registry,omitempty"`
+	Version   int                   `json:"version,omitempty"`
+	Signed    bool                  `json:"signed,omitempty"`
+	Tier      string                `json:"tier,omitempty"`
+	Checked   *integration.Checked  `json:"checked,omitempty"`
+	Revoked   string                `json:"revoked,omitempty"`
+	Does      []integration.Feature `json:"does"`
+	Hosts     integration.Hosts     `json:"hosts"`
+	KeyEnv    string                `json:"key_env"`
+	UserEnv   string                `json:"user_env,omitempty"`
+	AuthType  string                `json:"auth_type,omitempty"`
+	Scopes    []string              `json:"scopes,omitempty"`
+	BaseURL   string                `json:"base_url,omitempty"`
+	KeyHelp   string                `json:"key_help,omitempty"`
+	KeySet    bool                  `json:"key_set"`
+	Note      string                `json:"note,omitempty"`
+	Docs      string                `json:"docs,omitempty"`
+	AdaptedBy string                `json:"adapted_by,omitempty"`
+	Adapted   string                `json:"adapted,omitempty"`
+	SHA256    string                `json:"sha256,omitempty"`
+	Installs  int                   `json:"installs,omitempty"`
+}
+
 func integrationInfo(args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: conch integration info NAME")
+	fs := flag.NewFlagSet("integration info", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "print JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
-	name := args[0]
+	if fs.NArg() != 1 {
+		return errors.New("usage: conch integration info [-json] NAME")
+	}
+	name := fs.Arg(0)
 	if err := integration.CheckName(name); err != nil {
 		return err
 	}
@@ -209,6 +248,24 @@ func integrationInfo(args []string) error {
 		if f.Shipped() {
 			source = "ships with conch"
 		}
+	}
+	if *asJSON {
+		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: f != nil,
+			Does: integration.Does(kind, ops), Hosts: hosts, KeyEnv: keyEnv, KeyHelp: keyHelp, Note: note, Docs: docs}
+		if f != nil {
+			j.UserEnv, j.AuthType, j.Scopes, j.BaseURL = f.Auth.UserEnv, f.Auth.Type, f.Auth.Scopes, f.BaseURL
+			j.AdaptedBy, j.Adapted = f.AdaptedBy, f.Adapted
+		}
+		j.KeySet = keyEnv != "" && keyFor(keyEnv) != ""
+		if listed {
+			j.Registry, j.Version, j.Signed, j.Tier, j.Checked = e.Registry, e.Version, ix.Signed, e.Tier, e.Checked
+			j.Revoked, j.SHA256, j.Installs = e.RevokedReason(e.Version), e.SHA256, e.Installs
+			if j.AdaptedBy == "" {
+				j.AdaptedBy, j.Adapted = e.AdaptedBy, e.Adapted
+			}
+			j.UserEnv = firstSetStr(j.UserEnv, e.UserEnv)
+		}
+		return json.NewEncoder(os.Stdout).Encode(j)
 	}
 	fmt.Printf("%s · %s · %s\n", firstSetStr(label, name), kind, source)
 	if listed {
@@ -315,9 +372,14 @@ func integrationInstall(args []string) error {
 // Keychain, where conch's server reads it; elsewhere the variable is
 // said, since conch writes a key to no file.
 func takeKey(f *integration.File, fromStdin bool) (string, error) {
-	if k := keyFor(f.KeyEnv); k != "" {
+	if k := keyFor(f.KeyEnv); k != "" && !fromStdin {
 		return k, nil
 	}
+	return askKey(f, fromStdin)
+}
+
+// askKey reads a new key and keeps it, whatever is set already.
+func askKey(f *integration.File, fromStdin bool) (string, error) {
 	var key string
 	switch {
 	case fromStdin:
@@ -652,6 +714,40 @@ func integrationCheck(args []string) error {
 	}
 	if len(problems) > 0 {
 		return exitStatus(1)
+	}
+	return nil
+}
+
+// integrationKey asks for an integration's key, shipped or installed.
+func integrationKey(args []string) error {
+	fs := flag.NewFlagSet("integration key", flag.ContinueOnError)
+	fromStdin := fs.Bool("stdin", false, "read the key from standard input")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: conch integration key [-stdin] NAME")
+	}
+	data, _, err := integration.Source(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	f, problems, err := integration.Parse(data)
+	if err != nil || len(problems) > 0 {
+		return fmt.Errorf("%s cannot be used: %v %s", fs.Arg(0), err, strings.Join(problems, "; "))
+	}
+	if keyFor(f.KeyEnv) != "" && !*fromStdin {
+		fmt.Printf("%s's key is set already ($%s, or the Keychain)\n", f.DisplayName(), f.KeyEnv)
+		return nil
+	}
+	key, err := askKey(f, *fromStdin)
+	if err != nil {
+		return err
+	}
+	if key != "" && keychainHere() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		fmt.Println(liveCheckHere(ctx, f, key))
 	}
 	return nil
 }

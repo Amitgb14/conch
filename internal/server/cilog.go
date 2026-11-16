@@ -248,3 +248,42 @@ func firstNonEmpty(vs ...string) string {
 	}
 	return ""
 }
+
+// integrationsOf is the services a project uses: what its checkout, its
+// remote and its pull requests' checks show, with whether something here
+// reads each and whether its key is set where this server runs.
+func (pm *projectManager) integrationsOf(projectID string) (proto.IntegrationDetect, *proto.Error) {
+	p, perr := pm.gitProject(projectID)
+	if perr != nil {
+		return proto.IntegrationDetect{}, perr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rem, _ := integration.ParseRemote(gitx.RemoteURL(ctx, p.root))
+	var checks []integration.CheckRef
+	p.mu.Lock()
+	for _, pr := range p.prs {
+		for _, c := range pr.Runs {
+			checks = append(checks, integration.CheckRef{Name: c.Name, URL: c.URL})
+		}
+	}
+	p.mu.Unlock()
+	files := integration.Cached()
+	out := proto.IntegrationDetect{Integrations: []proto.IntegrationUse{}}
+	for _, d := range integration.Detected(p.root, rem, checks, files) {
+		u := proto.IntegrationUse{Name: d.Name, Label: d.Label, Kind: d.Kind, Why: d.Why, Installed: d.Installed}
+		switch d.Name {
+		case "github", integration.SourceActions:
+			u.Connected = true // through gh, whose login is its own
+		default:
+			for _, f := range files {
+				if f.Name == d.Name {
+					u.KeyEnv = f.KeyEnv
+					u.Connected = pm.s.trackerSecret(f.KeyEnv) != ""
+				}
+			}
+		}
+		out.Integrations = append(out.Integrations, u)
+	}
+	return out, nil
+}

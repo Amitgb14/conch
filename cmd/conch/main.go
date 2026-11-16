@@ -254,7 +254,8 @@ Usage:
   conch integration search [-json] [KIND|WORDS]
                                 CI services and more conch can talk to, from the registries
                                 (each a file describing an API, never code)
-  conch integration info NAME   what it does in conch, where your key goes, who wrote it
+  conch integration info [-json] NAME
+                                what it does in conch, where your key goes, who wrote it
   conch integration install [-y] [-key-stdin] NAME
                                 says the hosts your key goes to first, checks the file's hash,
                                 asks for the key (kept in the Keychain on a Mac) and checks it here

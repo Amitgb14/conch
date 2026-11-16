@@ -265,8 +265,8 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	for _, step := range []struct {
 		key string
 		tab int
-	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 7}, {"tab", 0},
-		{"shift+tab", 7}, {"left", 6}, {"h", 5}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"8", 7}, {"1", 0}} {
+	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 7}, {"tab", 8}, {"tab", 0},
+		{"shift+tab", 8}, {"left", 7}, {"h", 6}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"8", 7}, {"9", 8}, {"1", 0}} {
 		s.sel = 3
 		s.update(m, a2Key(step.key))
 		if s.tab != step.tab || s.sel != 0 {
@@ -340,8 +340,8 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	// Past the last tab's label — the bar does not fill the box — is no
 	// tab at all.
 	bar := 0
-	for i, name := range settingsTabs {
-		bar += len(fmt.Sprintf(" %d %s ", i+1, name))
+	for _, label := range settingsTabLabels(s.tab, b.width()-2) {
+		bar += len(label)
 	}
 	s.mouse(m, tea.MouseMsg{X: b.x + 1 + bar + 1, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
 	if s.tab != 1 {

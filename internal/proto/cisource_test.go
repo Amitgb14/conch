@@ -7,7 +7,7 @@ import (
 )
 
 func TestCISourceCapabilities(t *testing.T) {
-	for _, c := range []string{CapCISources, CapPRCheckSource, CapCIRerun} {
+	for _, c := range []string{CapCISources, CapPRCheckSource, CapCIRerun, CapIntegrationDetect} {
 		if !slices.Contains(Capabilities, c) {
 			t.Errorf("%s not announced", c)
 		}

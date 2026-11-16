@@ -47,7 +47,7 @@ type settings struct {
 	shellErr string
 }
 
-var settingsTabs = []string{"Theme", "Notifications", "Agents", "Git", "Brain", "Sandboxes", "Web", "Actions"}
+var settingsTabs = []string{"Theme", "Notifications", "Agents", "Git", "Brain", "Sandboxes", "Web", "Actions", "Integrations"}
 
 // The tabs that are found by number.
 const (
@@ -56,6 +56,8 @@ const (
 	sandboxTab = 5
 	webTab     = 6
 	actionsTab = 7
+	// integrationsTab is last, so every tab before it keeps its number.
+	integrationsTab = 8
 )
 
 type shellThemesMsg struct {
@@ -130,6 +132,8 @@ func (s *settings) tabItems(m *Model) []settingItem {
 		return s.phoneItems(m)
 	case actionsTab:
 		return s.actionItems(m)
+	case integrationsTab:
+		return s.integrationItems(m)
 	}
 	return s.agentItems(m)
 }
@@ -1527,6 +1531,31 @@ const settingsWidth = 86
 // settingsBoxWidth is how wide the list's lines are. Wide enough for the
 // tab bar to fit on one line, which is what the number keys are for: a
 // tab truncated off the end cannot be found.
+// settingsTabLabels are the tab bar's labels for a bar room wide: each
+// tab's number and name when they all fit, else the open tab's name and
+// the others' numbers alone — the key that opens each. A ninth tab
+// (Integrations) outgrew the box, and a tab truncated off the end of the
+// bar cannot be found, by eye or by the mouse.
+func settingsTabLabels(open, room int) []string {
+	full := make([]string, len(settingsTabs))
+	total := 0
+	for i, name := range settingsTabs {
+		full[i] = fmt.Sprintf(" %d %s ", i+1, name)
+		total += len(full[i])
+	}
+	if total <= room {
+		return full
+	}
+	short := make([]string, len(settingsTabs))
+	for i := range settingsTabs {
+		short[i] = fmt.Sprintf(" %d ", i+1)
+		if i == open {
+			short[i] = full[i]
+		}
+	}
+	return short
+}
+
 func settingsBoxWidth(width int) int { return clamp(settingsWidth, 40, max(width-4, 40)) }
 
 // settingsWrap gives every item a line it fits on. A label too long for
@@ -1670,8 +1699,7 @@ func (s *settings) render(m Model) box {
 	// end cannot be found, and the numbers are what the box's width is
 	// for (settingsWidth).
 	var tabs strings.Builder
-	for i, name := range settingsTabs {
-		label := fmt.Sprintf(" %d %s ", i+1, name)
+	for i, label := range settingsTabLabels(s.tab, w-2) {
 		if i == s.tab {
 			tabs.WriteString(styleSel.Render(label))
 		} else {
@@ -1761,12 +1789,13 @@ func (s *settings) mouse(m *Model, msg tea.MouseMsg, b box) tea.Cmd {
 	row := msg.Y - b.y - 1
 	if row == 0 { // the tab bar
 		x := msg.X - b.x - 1
-		for i, name := range settingsTabs {
+		for i, label := range settingsTabLabels(s.tab, b.width()-2) {
 			// The label's own width, with nothing between tabs: this
 			// has to match what render draws, or a click drifts further
 			// right with every tab — which is how it was found, when an
-			// eighth tab made the drift seven columns.
-			width := len(fmt.Sprintf(" %d %s ", i+1, name))
+			// eighth tab made the drift seven columns. Both take the
+			// labels from settingsTabLabels for that reason.
+			width := ansi.StringWidth(label)
 			if x < width {
 				s.setTab(i)
 				return nil
