@@ -18,38 +18,52 @@ func isolate(t *testing.T) string {
 }
 
 const good = `
+format = 3
 kind = "ci"
 name = "acme-ci"
 label = "Acme CI"
 api = "https://api.acme.dev"
 key_env = "ACME_TOKEN"
-follow = ["logs.acme.dev"]
+follow_hosts = ["logs.acme.dev"]
 
 [detect]
 files = [".acme.yml"]
 remotes = ["acme.dev"]
+checks = ["acme/*"]
 
 [project]
 id = "{owner}/{repo}"
 
-[failed_log]
-workflow = "{run.name}"
-url = "{run.web_url}"
+[states]
+ok = "pass"
+broken = "fail"
+busy = "pending"
 
-[[failed_log.steps]]
-as = "run"
+[runs]
 call = "GET /runs?branch={branch}&commit={head}"
-pick = "runs[status=failed]"
+items = "runs"
+id = "id"
+name = "{item.workflow} #{item.number}"
+state = "status"
+url = "web_url"
+
+[failed_log]
+job = "{jobs.0.name}"
 
 [[failed_log.steps]]
 as = "jobs"
-call = "GET /runs/{run.id}/jobs"
-pick = "jobs[*status=failed].log_url"
+call = "GET /runs/{run}/jobs"
+pick = "jobs[*status=broken]"
 
 [[failed_log.steps]]
 each = "jobs"
-fetch = "{item}"
-text = true
+call = "GET /jobs/{item.id}"
+follow = "log_url"
+text = "[*].line"
+
+[rerun]
+call = "POST /runs/{run}/retry"
+body = { failed_only = true, branch = "{branch}" }
 `
 
 func TestParseGood(t *testing.T) {
@@ -57,8 +71,14 @@ func TestParseGood(t *testing.T) {
 	if err != nil || len(problems) > 0 {
 		t.Fatalf("err %v, problems %v", err, problems)
 	}
-	if f.DisplayName() != "Acme CI" || len(f.FailedLog.Steps) != 3 || f.Shipped() {
+	if f.DisplayName() != "Acme CI" || len(f.FailedLog.Steps) != 2 || f.Shipped() {
 		t.Fatalf("read %+v", f)
+	}
+	if got := f.Operations(); strings.Join(got, " ") != "runs failed_log rerun" {
+		t.Fatalf("operations %v", got)
+	}
+	if got := f.Hosts(); strings.Join(got, " ") != "api.acme.dev logs.acme.dev" {
+		t.Fatalf("hosts %v", got)
 	}
 }
 
@@ -66,29 +86,55 @@ func TestParseProblems(t *testing.T) {
 	for name, tc := range map[string]struct {
 		from, to, want string
 	}{
-		"unknown key":      {`label = "Acme CI"`, `label = "Acme CI"` + "\nlogo = \"x\"", "unknown key logo"},
-		"newer format":     {`kind = "ci"`, `kind = "ci"` + "\nformat = 9", "format 9"},
-		"kind":             {`kind = "ci"`, `kind = "host"`, `kind "host"`},
-		"name":             {`name = "acme-ci"`, `name = "../x"`, `name "../x"`},
-		"http api":         {`https://api.acme.dev`, `http://api.acme.dev`, "api"},
-		"key env":          {`"ACME_TOKEN"`, `"acme token"`, "key_env"},
-		"auth without key": {`key_env = "ACME_TOKEN"`, `key_env = "ACME_TOKEN"` + "\nauth_value = \"Bearer x\"", "never sends {key}"},
-		"follow url":       {`["logs.acme.dev"]`, `["https://logs.acme.dev/x"]`, "follow"},
-		"no detect":        {"files = [\".acme.yml\"]\nremotes = [\"acme.dev\"]", "", "[detect] files or remotes"},
-		"detect outside":   {`[".acme.yml"]`, `["../../etc/passwd"]`, "a path inside the checkout"},
-		"no project":       {`id = "{owner}/{repo}"`, `id = ""`, "[project] id"},
-		"bad method":       {`call = "GET /runs/{run.id}/jobs"`, `call = "DELETE /runs/{run.id}/jobs"`, "GET, POST or PUT"},
-		"no slash":         {`call = "GET /runs/{run.id}/jobs"`, `call = "GET runs"`, "starts with /"},
-		"call and fetch":   {`fetch = "{item}"`, `fetch = "{item}"` + "\ncall = \"GET /x\"", "call or fetch, one of them"},
-		"unknown each":     {`each = "jobs"`, `each = "builds"`, `each "builds"`},
-		"later name":       {`call = "GET /runs/{run.id}/jobs"`, `call = "GET /runs/{jobs.id}/jobs"`, "{jobs.id} is nothing known"},
-		"item outside":     {`call = "GET /runs/{run.id}/jobs"`, `call = "GET /runs/{item.id}/jobs"`, "{item.id} is nothing known"},
-		"pick unknown":     {`pick = "runs[status=failed]"`, `pick = "runs[sha={sha}]"`, "{sha} is nothing known"},
-		"last not a log":   {`text = true`, `pick = "x"`, "the last step is the log"},
-		"text with pick":   {`text = true`, "text = true\npick = \"x\"", "no pick or lines"},
-		"as reserved":      {`as = "jobs"`, `as = "branch"`, `as "branch"`},
-		"workflow unknown": {`workflow = "{run.name}"`, `workflow = "{build.name}"`, "{build.name} is no step's"},
-		"fetch no follow":  {`follow = ["logs.acme.dev"]`, ``, "no follow hosts"},
+		"unknown key":       {`label = "Acme CI"`, `label = "Acme CI"` + "\nlogo = \"x\"", "unknown key logo"},
+		"unknown op":        {`[rerun]`, "[cancel]\ncall = \"POST /x\"\n[rerun]", "unknown key cancel"},
+		"newer format":      {`format = 3`, `format = 9`, "format 9"},
+		"old format":        {`format = 3`, `format = 2`, "format = 3: an integration file says so"},
+		"no format":         {`format = 3`, ``, "format = 3: an integration file says so"},
+		"kind":              {`kind = "ci"`, `kind = "build"`, `kind "build"`},
+		"kind not yet":      {`kind = "ci"`, `kind = "tickets"`, `kind "tickets": this conch does not read it yet`},
+		"kind sandbox":      {`kind = "ci"`, `kind = "sandbox"`, `read by conch sandbox`},
+		"name":              {`name = "acme-ci"`, `name = "../x"`, `name "../x"`},
+		"http api":          {`https://api.acme.dev`, `http://api.acme.dev`, "api"},
+		"base_url":          {`key_env = "ACME_TOKEN"`, `key_env = "ACME_TOKEN"` + "\nbase_url = \"https://x\"", `base_url "https://x"`},
+		"key env":           {`"ACME_TOKEN"`, `"acme token"`, "key_env"},
+		"auth without key":  {`key_env = "ACME_TOKEN"`, `key_env = "ACME_TOKEN"` + "\nauth_value = \"Bearer x\"", "never sends {key}"},
+		"auth twice":        {`key_env = "ACME_TOKEN"`, `key_env = "ACME_TOKEN"` + "\nauth_header = \"X\"\n[auth]\ntype = \"bearer\"", "say it once"},
+		"auth type":         {`[detect]`, "[auth]\ntype = \"oauth\"\n[detect]", `type "oauth"`},
+		"basic no user":     {`[detect]`, "[auth]\ntype = \"basic\"\n[detect]", "user_env"},
+		"scopes not bearer": {`[detect]`, "[auth]\nscopes = [\"read\"]\n[detect]", "scopes are for bearer"},
+		"bearer header":     {`[detect]`, "[auth]\ntype = \"bearer\"\nheader = \"X\"\n[detect]", "no header or value"},
+		"follow url":        {`["logs.acme.dev"]`, `["https://logs.acme.dev/x"]`, "follow_hosts"},
+		"follow wildcard":   {`["logs.acme.dev"]`, `["*.acme.dev"]`, "follow_hosts"},
+		"no detect":         {"files = [\".acme.yml\"]\nremotes = [\"acme.dev\"]\nchecks = [\"acme/*\"]", "", "[detect] files, remotes or checks"},
+		"detect outside":    {`[".acme.yml"]`, `["../../etc/passwd"]`, "a path inside the checkout"},
+		"detect remote url": {`["acme.dev"]`, `["https://acme.dev"]`, "[detect] remotes"},
+		"no project":        {`id = "{owner}/{repo}"`, `id = ""`, "[project] id"},
+		"project unknown":   {`id = "{owner}/{repo}"`, `id = "{branch}"`, "{branch} is not a part of the remote"},
+		"state unknown":     {`busy = "pending"`, `busy = "waiting"`, `busy = "waiting"`},
+		"no fail state":     {`broken = "fail"`, ``, "maps nothing to pass or to fail"},
+		"no runs":           {"[runs]\ncall = \"GET /runs?branch={branch}&commit={head}\"", "[runs]", "[runs]: required for kind ci"},
+		"runs fields":       {`items = "runs"`, ``, "[runs] items, id and state"},
+		"runs template":     {`"{item.workflow} #{item.number}"`, `"{build.name}"`, "[runs] name: {build.name}"},
+		"call and steps":    {"[failed_log]\n", "[failed_log]\ncall = \"GET /x\"\n", "a call or steps, not both"},
+		"bad method":        {`call = "POST /runs/{run}/retry"`, `call = "DELETE /runs/{run}/retry"`, "GET, POST, PUT, PATCH"},
+		"no slash":          {`call = "GET /runs/{run}/jobs"`, `call = "GET runs"`, "a path under api"},
+		"full url":          {`call = "GET /runs/{run}/jobs"`, `call = "GET /https://evil.dev/x"`, "a path under api"},
+		"unknown each":      {`each = "jobs"`, `each = "builds"`, `each "builds"`},
+		"later name":        {`call = "GET /runs/{run}/jobs"`, `call = "GET /runs/{jobs.id}/jobs"`, "{jobs.id} is nothing known"},
+		"run in runs":       {`call = "GET /runs?branch={branch}&commit={head}"`, `call = "GET /runs/{run}"`, "{run} is nothing known"},
+		"item outside each": {`call = "GET /runs/{run}/jobs"`, `call = "GET /runs/{item.id}/jobs"`, "{item.id} is nothing known"},
+		"reply first":       {`call = "GET /runs/{run}/jobs"`, `call = "GET /runs/{reply.id}/jobs"`, "{reply.id} is nothing known"},
+		"pick unknown":      {`pick = "jobs[*status=broken]"`, `pick = "jobs[sha={sha}]"`, "{sha} is nothing known"},
+		"body unknown":      {`branch = "{branch}"`, `branch = "{who}"`, "{who} is nothing known"},
+		"last not a log":    {`text = "[*].line"`, ``, "the last step is the log"},
+		"text with pick":    {`text = "[*].line"`, "text = \".\"\npick = \"x\"", "no pick"},
+		"follow with pick":  {`follow = "log_url"`, "follow = \"log_url\"\npick = \"x\"", "no pick"},
+		"follow no hosts":   {`follow_hosts = ["logs.acme.dev"]`, ``, "no follow_hosts"},
+		"as reserved":       {`as = "jobs"`, `as = "branch"`, `as "branch"`},
+		"job unknown":       {`job = "{jobs.0.name}"`, `job = "{build.name}"`, "[failed_log] job: {build.name}"},
+		"key in path":       {`call = "POST /runs/{run}/retry"`, `call = "POST /runs/{run}/retry?token={key}"`, "{key} in"},
+		"key in body":       {`failed_only = true`, `token = "{key}"`, "{key} in"},
 	} {
 		src := strings.Replace(good, tc.from, tc.to, 1)
 		if src == good {
@@ -222,5 +268,18 @@ func TestCheckName(t *testing.T) {
 		if CheckName(bad) == nil {
 			t.Errorf("%q taken", bad)
 		}
+	}
+}
+
+// The guide is what an agent writes a file from, so its example has to
+// be a file this conch takes.
+func TestGuideExampleIsClean(t *testing.T) {
+	_, rest, ok := strings.Cut(Guide, "```toml\n")
+	example, _, ok2 := strings.Cut(rest, "```")
+	if !ok || !ok2 {
+		t.Fatal("no example in the guide")
+	}
+	if _, problems, err := Parse([]byte(example)); err != nil || len(problems) > 0 {
+		t.Fatalf("the guide's example: %v %v", err, problems)
 	}
 }

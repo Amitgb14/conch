@@ -1,51 +1,76 @@
-# CircleCI: a branch's newest pipeline, its failed workflow and job, and
-# what the job's failed steps printed. CircleCI's v2 API has no job log,
-# so the steps come from v1.1, and each step's output from a presigned
-# URL it hands back — fetched without the key.
+# CircleCI. A run is a workflow of the newest pipeline at the pull
+# request's head. CircleCI's v2 API has no job log, so the failed log is
+# read through v1.1: the job's steps, then each failed action's presigned
+# output_url, fetched without the key from CircleCI's log host.
+format = 3
 kind = "ci"
 name = "circleci"
 label = "CircleCI"
-api = "https://circleci.com/api"
+api = "https://circleci.com"
 key_env = "CIRCLECI_TOKEN"
-auth_header = "Circle-Token"
-auth_value = "{key}"
-follow = ["circle-production-action-output.s3.amazonaws.com"]
+follow_hosts = ["circle-production-action-output.s3.amazonaws.com"]
 docs = "https://circleci.com/docs/api/v2/"
 adapted_by = "claude"
 adapted = "2026-11-15"
-note = "A personal API token (User Settings → Personal API Tokens). A project set up through the CircleCI GitHub App is named circleci/ORG-ID/PROJECT-ID rather than gh/OWNER/REPO, which this file does not yet read."
+key_help = "CircleCI → User Settings → Personal API Tokens → Create. Read access is enough except for re-runs."
+note = "A project set up through the CircleCI GitHub App is named circleci/ORG-ID/PROJECT-ID rather than gh/OWNER/REPO, which this file does not read yet."
+
+[auth]
+header = "Circle-Token"
+value = "{key}"
 
 [detect]
 files = [".circleci/config.yml", ".circleci/config.yaml"]
+checks = ["ci/circleci*"]
 
 [project]
 id = "gh/{path}"
 
-[failed_log]
-workflow = "{workflow.name}"
-url = "https://app.circleci.com/pipelines/github/{path}/{pipeline.number}/workflows/{workflow.id}"
+[states]
+success = "pass"
+fixed = "pass"
+failed = "fail"
+failing = "fail"
+error = "fail"
+infrastructure_fail = "fail"
+timedout = "fail"
+running = "pending"
+on_hold = "pending"
+not_run = "canceled"
+canceled = "canceled"
+unauthorized = "fail"
 
-[[failed_log.steps]]
+[runs]
+items = "items"
+id = "id"
+name = "name"
+state = "status"
+commit = "{pipeline.vcs.revision}"
+url = "https://app.circleci.com/pipelines/github/{path}/{pipeline.number}/workflows/{item.id}"
+started = "created_at"
+finished = "stopped_at"
+
+[[runs.steps]]
 as = "pipeline"
-call = "GET /v2/project/{project}/pipeline?branch={branch}"
+call = "GET /api/v2/project/{project}/pipeline?branch={branch}"
 pick = "items[vcs/revision={head}]"
 
-[[failed_log.steps]]
-as = "workflow"
-call = "GET /v2/pipeline/{pipeline.id}/workflow"
-pick = "items[status=failed]"
+[[runs.steps]]
+call = "GET /api/v2/pipeline/{pipeline.id}/workflow"
+
+[failed_log]
+job = "{job.name}"
 
 [[failed_log.steps]]
 as = "job"
-call = "GET /v2/workflow/{workflow.id}/job"
+call = "GET /api/v2/workflow/{run}/job"
 pick = "items[status=failed]"
 
 [[failed_log.steps]]
-as = "outputs"
-call = "GET /v1.1/project/{project}/{job.job_number}"
-pick = "steps[*].actions[*status=failed].output_url"
+call = "GET /api/v1.1/project/{project}/{job.job_number}"
+follow = "steps[*].actions[*status=failed].output_url"
+text = "[*].message"
 
-[[failed_log.steps]]
-each = "outputs"
-fetch = "{item}"
-lines = "message"
+[rerun]
+call = "POST /api/v2/workflow/{run}/rerun"
+body = { from_failed = true }

@@ -109,3 +109,10 @@ them then refuses the file rather than misreading it.
 
 Check it with `conch sandbox provider check -offline ./provider.toml`, and
 fix what it reports until it reports nothing.
+
+## Format 3: integrations
+
+Format 3 is the same file with a `kind` (`ci`, and later `tickets`,
+`notify`, `host`) and the operations of that kind's contract, kept in
+`$CONCH_HOME/integrations/`. A sandbox provider stays format 1 or 2, here.
+`conch integration guide` prints format 3 whole.

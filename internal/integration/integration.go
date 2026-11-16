@@ -30,86 +30,6 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 )
 
-// Format is the newest integration file this conch reads.
-const Format = 1
-
-// KindCI is a CI service: its failed runs and their logs.
-const KindCI = "ci"
-
-// File is the shape of an integration file.
-type File struct {
-	Format int    `toml:"format"`
-	Kind   string `toml:"kind"`
-	Name   string `toml:"name"`
-	Label  string `toml:"label"`
-	// API is the base every call's path is put after; the key goes only
-	// there.
-	API    string `toml:"api"`
-	KeyEnv string `toml:"key_env"`
-	// AuthHeader and AuthValue send the key: "Authorization" and
-	// "Bearer {key}" when left out.
-	AuthHeader string `toml:"auth_header"`
-	AuthValue  string `toml:"auth_value"`
-	// Follow are the hosts a URL found in a reply may be fetched from,
-	// never with the key.
-	Follow    []string `toml:"follow"`
-	Docs      string   `toml:"docs"`
-	AdaptedBy string   `toml:"adapted_by"`
-	Adapted   string   `toml:"adapted"`
-	Note      string   `toml:"note"`
-
-	Detect    Detect    `toml:"detect"`
-	Project   Project   `toml:"project"`
-	FailedLog Operation `toml:"failed_log"`
-
-	// shipped is set for a file conch carries rather than one installed.
-	shipped bool
-}
-
-// Detect says which projects use the service: a file in the checkout, a
-// host in the remote's URL.
-type Detect struct {
-	Files   []string `toml:"files"`
-	Remotes []string `toml:"remotes"`
-}
-
-// Project makes the service's name for a project out of its remote:
-// {host} {owner} {repo} {path} (owner/repo, or group/sub/repo) and
-// {path_escaped} (that, URL-escaped as one segment).
-type Project struct {
-	ID string `toml:"id"`
-}
-
-// Operation is one of the kind's jobs, done as a short chain of calls.
-type Operation struct {
-	Steps []Step `toml:"steps"`
-	// Workflow and URL say which run answered, as templates over the
-	// steps' values.
-	Workflow string `toml:"workflow"`
-	URL      string `toml:"url"`
-}
-
-// Step is one call, or one call per item of an earlier step's list.
-type Step struct {
-	// As names the step's value for those after it: {as.PATH}.
-	As string `toml:"as"`
-	// Call is "METHOD /path" on api, with the key; Fetch is a URL found
-	// in a reply, fetched from a follow host without it. One of them.
-	Call  string `toml:"call"`
-	Fetch string `toml:"fetch"`
-	// Each names an earlier step whose value is a list: the call is made
-	// once per item, which is {item}, and the texts are put together.
-	Each string `toml:"each"`
-	// Pick is the path to the value kept, in a JSON reply; the whole reply
-	// when empty. A step that picks nothing ends the operation: there is
-	// no such run.
-	Pick string `toml:"pick"`
-	// Text takes the reply as text — a log. Lines takes a JSON list's
-	// items' field at that path as the text, one item a line.
-	Text  bool   `toml:"text"`
-	Lines string `toml:"lines"`
-}
-
 var nameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
 var envRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
@@ -137,6 +57,10 @@ func Parse(data []byte) (*File, []string, error) {
 	}
 	var problems []string
 	for _, k := range md.Undecoded() {
+		// A body is free-form: what is inside it is the service's.
+		if slicesHas(k, "body") {
+			continue
+		}
 		problems = append(problems, fmt.Sprintf("unknown key %s", k))
 	}
 	problems = append(problems, f.Problems()...)
@@ -156,129 +80,21 @@ func Read(path string) (*File, []string, error) {
 	return f, problems, nil
 }
 
-// Problems lists what is wrong with the file, or nothing.
-func (f *File) Problems() []string {
-	var p []string
-	add := func(format string, a ...any) { p = append(p, fmt.Sprintf(format, a...)) }
-	if f.Format < 0 || f.Format > Format {
-		add("format %d: this conch reads up to format %d; update conch to use it", f.Format, Format)
-	}
-	if f.Kind != KindCI {
-		add("kind %q: this conch knows ci", f.Kind)
-	}
-	if !nameRE.MatchString(f.Name) {
-		add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
-	}
-	if !webURL(f.API) {
-		add("api %q: an https:// URL", f.API)
-	}
-	if !envRE.MatchString(f.KeyEnv) {
-		add("key_env %q: the name of an environment variable, e.g. ACME_TOKEN", f.KeyEnv)
-	}
-	if f.AuthValue != "" && !strings.Contains(f.AuthValue, "{key}") {
-		add("auth_value %q never sends {key}", f.AuthValue)
-	}
-	for _, h := range f.Follow {
-		if h == "" || strings.ContainsAny(h, "/:@ ") {
-			add("follow %q: a host name, nothing else", h)
-		}
-	}
-	if len(f.Detect.Files) == 0 && len(f.Detect.Remotes) == 0 {
-		add("[detect] files or remotes: how conch knows a project uses it")
-	}
-	for _, name := range f.Detect.Files {
-		if name == "" || filepath.IsAbs(name) || strings.Contains(name, "..") {
-			add("[detect] files %q: a path inside the checkout", name)
-		}
-	}
-	if f.Project.ID == "" {
-		add("[project] id: the service's name for a project, e.g. gh/{owner}/{repo}")
-	}
-	f.checkOp("failed_log", f.FailedLog, &p)
-	sort.Strings(p)
-	return p
-}
-
-func (f *File) checkOp(what string, op Operation, p *[]string) {
-	add := func(format string, a ...any) { *p = append(*p, fmt.Sprintf(format, a...)) }
-	if len(op.Steps) == 0 {
-		add("[%s] steps: none", what)
-		return
-	}
-	names := map[string]bool{}
-	for i, s := range op.Steps {
-		at := fmt.Sprintf("[%s] step %d", what, i+1)
-		switch {
-		case (s.Call == "") == (s.Fetch == ""):
-			add("%s: call or fetch, one of them", at)
-		case s.Call != "":
-			if err := checkCall(s.Call); err != nil {
-				add("%s call: %v", at, err)
-			}
-		case len(f.Follow) == 0:
-			add("%s fetch: no follow hosts it may reach", at)
-		}
-		if s.Each != "" && !names[s.Each] {
-			add("%s each %q: no earlier step is called that", at, s.Each)
-		}
-		if s.Text && (s.Pick != "" || s.Lines != "") {
-			add("%s: text takes the whole reply, so no pick or lines", at)
-		}
-		if s.As != "" {
-			if s.As == "item" || reserved[s.As] || !regexp.MustCompile(`^[a-z_][a-z0-9_]*$`).MatchString(s.As) {
-				add("%s as %q: a lowercase name of its own", at, s.As)
-			}
-			names[s.As] = true
-		}
-		for _, ref := range placeholders(s.Call + " " + s.Fetch + " " + s.Pick) {
-			root, _, _ := strings.Cut(ref, ".")
-			if !(reserved[root] || names[root] && root != s.As || root == "item" && s.Each != "") {
-				add("%s: {%s} is nothing known before it", at, ref)
-			}
-		}
-	}
-	for _, ref := range placeholders(op.Workflow + " " + op.URL) {
-		if root, _, _ := strings.Cut(ref, "."); !reserved[root] && !names[root] {
-			add("[%s] workflow or url: {%s} is no step's", what, ref)
-		}
-	}
-	if last := op.Steps[len(op.Steps)-1]; !last.Text && last.Lines == "" {
-		add("[%s] the last step is the log: text = true, or lines", what)
-	}
-}
-
-// reserved are the placeholders every call may use.
-var reserved = map[string]bool{"project": true, "branch": true, "head": true, "host": true, "owner": true, "repo": true, "path": true, "path_escaped": true}
-
-func checkCall(c string) error {
-	method, path, ok := strings.Cut(c, " ")
-	switch {
-	case !ok:
-		return fmt.Errorf("%q: METHOD /path", c)
-	case method != "GET" && method != "POST" && method != "PUT":
-		return fmt.Errorf("%q: GET, POST or PUT", c)
-	case !strings.HasPrefix(path, "/"):
-		return fmt.Errorf("%q: the path starts with /", c)
-	}
-	return nil
-}
-
-var placeholderRE = regexp.MustCompile(`\{([a-z_][a-z0-9_]*(?:\.[^{}]*)?)\}`)
-
-func placeholders(s string) []string {
-	var out []string
-	for _, m := range placeholderRE.FindAllStringSubmatch(s, -1) {
-		out = append(out, m[1])
-	}
-	return out
-}
-
 func webURL(s string) bool {
 	u, err := url.Parse(s)
 	if err != nil || u.Host == "" {
 		return false
 	}
 	return u.Scheme == "https" || u.Scheme == "http" && loopback(u.Hostname())
+}
+
+// hostOf is a URL's host, lowercased; "" for none.
+func hostOf(s string) string {
+	u, err := url.Parse(s)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 func loopback(host string) bool {
