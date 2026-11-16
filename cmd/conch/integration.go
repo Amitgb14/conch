@@ -47,6 +47,9 @@ const integrationUsage = `Usage:
   conch integration remove NAME                  delete an installed one
   conch integration check [-json] NAME|FILE      what is wrong with a file (offline)
   conch integration guide                        the file format, for writing one
+  conch integration icons [-json]                the registries' kinds, and each integration's icon
+                                                 downloaded here, checked against the index (Conch.app
+                                                 draws the catalog with them)
   conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
                                                  an agent in a pane of its own reads the service's API
                                                  docs and writes NAME.toml; conch checks it offline, then
@@ -86,6 +89,8 @@ func runIntegration(args []string) error {
 		return integrationAdapt(args)
 	case "publish":
 		return integrationPublish(args)
+	case "icons":
+		return integrationIcons(args)
 	case "guide":
 		fmt.Print(integration.Guide)
 		return nil

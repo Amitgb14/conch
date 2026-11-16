@@ -579,3 +579,57 @@ func TestIntegrationSandboxProviders(t *testing.T) {
 		t.Fatalf("install daytona: %v", err)
 	}
 }
+
+// conch integration icons gives Conch.app the registry's kinds and each
+// integration's icon as a file here, checked against the index; a bad one
+// is said and left out, and the rest still come.
+func TestIntegrationIcons(t *testing.T) {
+	integrationEnv(t)
+	reg := serveRegistry(t)
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><rect width="8" height="8"/></svg>`
+	h := sha256.Sum256([]byte(svg))
+	good := hex.EncodeToString(h[:])
+	ix, _ := json.Marshal(map[string]any{"format": 2,
+		"kinds": []map[string]string{{"kind": "ci", "label": "CI"}, {"kind": "deploy", "label": "Deploys"}},
+		"entries": []map[string]any{
+			{"kind": "ci", "name": "circleci", "label": "CircleCI", "version": 1, "hosts": map[string]string{"api": "circleci.com"}, "icon": "icons/circleci.svg", "icon_sha256": good},
+			{"kind": "ci", "name": "badicon", "label": "Bad", "version": 1, "hosts": map[string]string{"api": "x.dev"}, "icon": "icons/badicon.svg", "icon_sha256": strings.Repeat("0", 64)},
+			{"kind": "ci", "name": "noicon", "label": "None", "version": 1, "hosts": map[string]string{"api": "y.dev"}},
+		}})
+	reg.mu.Lock()
+	reg.files["index.json"], reg.files["icons/circleci.svg"], reg.files["icons/badicon.svg"] = ix, []byte(svg), []byte(svg)
+	reg.mu.Unlock()
+	out, _, err := a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
+	var got iconsJSON
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil {
+		t.Fatalf("%q %v", out, err)
+	}
+	if len(got.Kinds) != 2 || got.Kinds[1].Label != "Deploys" {
+		t.Fatalf("kinds %+v", got.Kinds)
+	}
+	if b, _ := os.ReadFile(got.Icons["circleci"]); string(b) != svg {
+		t.Fatalf("circleci's icon %q", got.Icons["circleci"])
+	}
+	if _, ok := got.Icons["badicon"]; ok || len(got.Problems) != 1 || !strings.Contains(got.Problems[0], "badicon") {
+		t.Fatalf("a bad icon: %+v", got)
+	}
+	// The registry gone: what was read last, and the icon kept.
+	reg.mu.Lock()
+	reg.files = map[string][]byte{}
+	reg.mu.Unlock()
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
+	got = iconsJSON{}
+	if json.Unmarshal([]byte(out), &got) != nil || !got.Cached || got.Icons["circleci"] == "" || len(got.Kinds) != 2 {
+		t.Fatalf("offline: %s", out)
+	}
+	// An index from before kinds: conch's own five.
+	t.Setenv("CONCH_HOME", t.TempDir())
+	reg.mu.Lock()
+	reg.files["index.json"] = []byte(`{"format":2,"entries":[]}`)
+	reg.mu.Unlock()
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
+	got = iconsJSON{}
+	if json.Unmarshal([]byte(out), &got) != nil || len(got.Kinds) != 5 || got.Kinds[3].Kind != "sandbox" {
+		t.Fatalf("no kinds: %s", out)
+	}
+}

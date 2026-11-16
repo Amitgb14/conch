@@ -273,7 +273,7 @@ Usage:
   conch integration ls [-json] [-cwd DIR]
                                 every integration here — built in, shipped, installed — its key's
                                 state and whether this project uses it
-  conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide
+  conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide | icons [-json]
                                 take newer versions (new hosts always asked), delete one, check a
                                 file, or print the format to write one
   conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...

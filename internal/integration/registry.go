@@ -109,6 +109,10 @@ type Entry struct {
 	Docs      string       `json:"docs,omitempty"`
 	AdaptedBy string       `json:"adapted_by,omitempty"`
 	Adapted   string       `json:"adapted,omitempty"`
+	// Icon is the service's own mark, beside the index (icons/NAME.svg or
+	// .png), and IconSHA256 its hash: FetchIcon downloads and checks it.
+	Icon       string `json:"icon,omitempty"`
+	IconSHA256 string `json:"icon_sha256,omitempty"`
 
 	// Registry is which index it was read from.
 	Registry string `json:"-"`
@@ -154,10 +158,16 @@ func (e Entry) RevokedReason(version int) string {
 
 // Index is a registry's list, and whether it was signed.
 type Index struct {
-	Format   int     `json:"format"`
-	Entries  []Entry `json:"entries"`
-	Registry string  `json:"-"`
-	Signed   bool    `json:"-"`
+	Format int `json:"format"`
+	// Kinds are the registry's folders, in the order it lists them, with
+	// what people call each: an index from before them has none.
+	Kinds    []KindInfo `json:"kinds,omitempty"`
+	Entries  []Entry    `json:"entries"`
+	Registry string     `json:"-"`
+	Signed   bool       `json:"-"`
+	// Cached says this is the last index read, the registry being out of
+	// reach (IndexOrCached).
+	Cached bool `json:"-"`
 }
 
 // Find is the entry for name.
@@ -234,6 +244,7 @@ func FetchIndex(ctx context.Context, r Registry) (*Index, error) {
 	if err != nil {
 		return nil, fmt.Errorf("the registry %s's index: %w", r.Name, err)
 	}
+	keepIndex(r, data, signed)
 	ix.Registry, ix.Signed = r.Name, signed
 	for i := range ix.Entries {
 		ix.Entries[i].Registry = r.Name

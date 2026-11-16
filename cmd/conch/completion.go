@@ -132,7 +132,7 @@ var compSubcommands = map[string][]compItem{
 	},
 	"sandbox": {{"-provider", "the provider to act on"}, {"stats", "every provider's sandboxes"}, {"providers", "the providers, and which have a key"}, {"adapt", "a provider conch doesn't know, from its API docs"}, {"provider", "check, install, update or publish a provider file"}},
 	"integration": {{"search", "what the registries list"}, {"info", "what one does, where your key goes"}, {"install", "install one"}, {"ls", "every integration here"},
-		{"update", "take newer versions"}, {"remove", "delete an installed one"}, {"check", "what is wrong with a file"}, {"guide", "the file format"},
+		{"update", "take newer versions"}, {"remove", "delete an installed one"}, {"check", "what is wrong with a file"}, {"guide", "the file format"}, {"icons", "kinds and icons, for the app"},
 		{"adapt", "one conch does not know, from its API docs"}, {"publish", "propose a file to the registry"}},
 	"sandbox -provider": {
 		{"create", "make a sandbox"}, {"add", "make an existing sandbox a machine"}, {"ls", "list sandboxes"},
