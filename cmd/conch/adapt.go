@@ -50,16 +50,22 @@ func draftDir(name string) string {
 }
 
 type adaptState struct {
-	Name  string   `json:"name"`
+	Name string `json:"name"`
+	// Kind is an integration's; a sandbox provider's draft has none.
+	Kind  string   `json:"kind,omitempty"`
 	Agent string   `json:"agent"`
 	Pane  string   `json:"pane"`
 	URLs  []string `json:"urls"`
 	Docs  []string `json:"docs"`
 }
 
-// adaptEvent is a line of `conch sandbox adapt -json`, for the app's sheet.
+// adaptEvent is a line of `conch sandbox adapt -json` and `conch
+// integration adapt -json`, for the app's sheets.
 type adaptEvent struct {
-	Event    string             `json:"event"` // registry, docs, agent, waiting, blocked, file, problems, check, done, error
+	// registry, docs, agent, waiting, blocked, file, problems, check, done,
+	// error; and an integration's offline, consent (where the key would
+	// go, asked of the person) and live.
+	Event    string             `json:"event"`
 	Detail   string             `json:"detail,omitempty"`
 	Name     string             `json:"name,omitempty"`
 	Pane     string             `json:"pane,omitempty"`
@@ -69,6 +75,10 @@ type adaptEvent struct {
 	Problems []string           `json:"problems,omitempty"`
 	Check    *providerCheckJSON `json:"check,omitempty"`
 	OK       bool               `json:"ok,omitempty"`
+	// An integration's kind and the operations its file fills.
+	Kind       string    `json:"kind,omitempty"`
+	Operations []string  `json:"operations,omitempty"`
+	Live       *liveJSON `json:"live,omitempty"`
 }
 
 type adaptOut struct {
@@ -95,6 +105,20 @@ func (o adaptOut) say(e adaptEvent) {
 				fmt.Fprintf(o.w, "  → %s", m.Reads)
 			}
 			fmt.Fprintln(o.w)
+		}
+		if len(e.Operations) > 0 {
+			fmt.Fprintf(o.w, "  %s: %s\n", e.Kind, strings.Join(e.Operations, ", "))
+		}
+		if e.Detail != "" {
+			fmt.Fprintf(o.w, "  note: %s\n", e.Detail)
+		}
+	case "offline":
+		fmt.Fprintln(o.w, "offline check: "+e.Detail)
+	case "consent":
+		fmt.Fprintf(o.w, "not checked with your key: it would send %s (conch integration adapt -check %s)\n", e.Detail, e.Name)
+	case "live":
+		if e.Live != nil {
+			fmt.Fprintln(o.w, "live check: "+e.Live.String())
 		}
 	case "problems":
 		fmt.Fprintln(o.w, "\nwhat is wrong with it:")
@@ -310,9 +334,6 @@ func sandboxAdapt(args []string) error {
 	if err := sandbox.CheckName(n); err != nil {
 		return fail(err)
 	}
-	if sandbox.Builtin(n) {
-		return fail(fmt.Errorf("conch has %s built in: set its key in Settings → Sandboxes, or run conch sandbox -provider %s create", sandbox.ProviderLabel(n), n))
-	}
 	if _, err := os.Stat(sandbox.ProviderFilePath(n)); err == nil {
 		return fail(fmt.Errorf("%s is already a provider (%s): remove it first with conch sandbox provider rm %s", n, sandbox.ProviderFilePath(n), n))
 	}
@@ -373,8 +394,8 @@ func sandboxAdapt(args []string) error {
 }
 
 // keylessEnv empties, in the agent's pane, the variables API keys are
-// usually in: the built-in providers', and the one this provider's would
-// likely be called. The agent works from the docs; it has no use for one.
+// usually in: the well-known providers' (Devin Cloud's too, still set in
+// some environments), and the one this provider's would likely be called. The agent works from the docs; it has no use for one.
 func keylessEnv(name string) []string {
 	env := []string{"DAYTONA_API_KEY=", "BOAT_API_KEY=", "DEVIN_API_KEY=", "TENSORLAKE_API_KEY=", "E2B_API_KEY="}
 	v := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
@@ -666,9 +687,6 @@ func providerSave(name string) error {
 	if err := sandbox.CheckName(name); err != nil {
 		return err
 	}
-	if sandbox.Builtin(name) {
-		return fmt.Errorf("%s is built into conch", name)
-	}
 	draft := filepath.Join(draftDir(name), "provider.toml")
 	f, problems, err := sandbox.ReadProviderFile(draft)
 	if errors.Is(err, os.ErrNotExist) {
@@ -697,9 +715,6 @@ func providerSave(name string) error {
 func providerRemove(name string) error {
 	if err := sandbox.CheckName(name); err != nil {
 		return err
-	}
-	if sandbox.Builtin(name) {
-		return fmt.Errorf("%s is built into conch and cannot be removed", name)
 	}
 	path := sandbox.ProviderFilePath(name)
 	if _, err := os.Stat(path); err != nil {

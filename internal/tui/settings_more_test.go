@@ -265,8 +265,8 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	for _, step := range []struct {
 		key string
 		tab int
-	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 7}, {"tab", 0},
-		{"shift+tab", 7}, {"left", 6}, {"h", 5}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"8", 7}, {"1", 0}} {
+	}{{"tab", 1}, {"right", 2}, {"l", 3}, {"tab", 4}, {"tab", 5}, {"tab", 6}, {"tab", 7}, {"tab", 8}, {"tab", 0},
+		{"shift+tab", 8}, {"left", 7}, {"h", 6}, {"4", 3}, {"5", 4}, {"6", 5}, {"7", 6}, {"8", 7}, {"9", 8}, {"1", 0}} {
 		s.sel = 3
 		s.update(m, a2Key(step.key))
 		if s.tab != step.tab || s.sel != 0 {
@@ -340,8 +340,8 @@ func TestA2SettingsKeysRenderMouse(t *testing.T) {
 	// Past the last tab's label — the bar does not fill the box — is no
 	// tab at all.
 	bar := 0
-	for i, name := range settingsTabs {
-		bar += len(fmt.Sprintf(" %d %s ", i+1, name))
+	for _, label := range settingsTabLabels(s.tab, b.width()-2) {
+		bar += len(label)
 	}
 	s.mouse(m, tea.MouseMsg{X: b.x + 1 + bar + 1, Y: b.y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
 	if s.tab != 1 {
@@ -496,7 +496,8 @@ func TestSettingsSandboxTab(t *testing.T) {
 		t.Fatalf("the list:\n%s", page)
 	}
 	rowY := func(i int) int { return b.y + 3 + i - s.scroll }
-	s.mouse(m, tea.MouseMsg{X: b.x + 3, Y: rowY(1), Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
+	// boat.dev is first, by name: Daytona is the second row.
+	s.mouse(m, tea.MouseMsg{X: b.x + 3, Y: rowY(2), Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}, b)
 	if s.provider != "daytona" {
 		t.Fatalf("clicking Daytona opened %q", s.provider)
 	}
@@ -515,7 +516,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 	// With no key, the header says so rather than pretending it is ready.
 	out := plain()
 	for _, want := range []string{"Daytona|no key · $DAYTONA_API_KEY is not set", "API key variable|DAYTONA_API_KEY",
-		"Snapshot|Daytona's default", "Region|the account's default",
+		"Default image|Daytona's default", "Region|the account's default", "Default size|the provider's default · 1–4 vCPU, 1–8 GiB, 1–10 GiB disk",
 		"Stop when idle|after 30m with no agent working and nothing printing", "Pass in|nothing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in\n%s", want, out)
@@ -536,7 +537,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 	}
 	item("boat.dev").run(m)
 	boat := plain()
-	for _, want := range []string{"API key variable|BOAT_API_KEY", "Snapshot|boat.dev's default",
+	for _, want := range []string{"API key variable|BOAT_API_KEY", "Default image|boat.dev's default", "Default size|boat.dev's default · small | default | large",
 		"‹ Sandboxes|esc", "Life|2h 00m · the provider's own"} {
 		if !strings.Contains(boat, want) {
 			t.Fatalf("boat's page lacks %q in\n%s", want, boat)
@@ -607,7 +608,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 
 	// A field opened from the settings screen comes back to it, whether it
 	// is saved or dropped, so several can be changed in a row.
-	item("Snapshot").run(m)
+	item("Default image").run(m)
 	if d, ok := m.overlay.(*dialog); !ok || d.back != overlay(s) {
 		t.Fatalf("the field forgot where it came from: %#v", m.overlay)
 	}
@@ -617,7 +618,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 
 	// The text settings open a dialog that saves into the configuration.
 	for _, c := range []struct{ label, typed, want string }{
-		{"Snapshot", " my-snapshot ", "my-snapshot"},
+		{"Default image", " my-snapshot ", "my-snapshot"},
 		{"Region", "eu", "eu"},
 		{"API key variable", "MY_DAYTONA_KEY", "MY_DAYTONA_KEY"},
 	} {
@@ -635,7 +636,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 		}
 	}
 	got := m.cfg.Sandbox.Of("daytona")
-	if got.Snapshot != "my-snapshot" || got.Target != "eu" || got.APIKeyEnv != "MY_DAYTONA_KEY" {
+	if got.Image != "my-snapshot" || got.Region != "eu" || got.APIKeyEnv != "MY_DAYTONA_KEY" {
 		t.Fatalf("saved %+v", got)
 	}
 	if out := plain(); !strings.Contains(out, "API key variable|MY_DAYTONA_KEY") || !strings.Contains(out, "$MY_DAYTONA_KEY") {
@@ -673,7 +674,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 	}
 	s.open("fly")
 	out = plain()
-	for _, want := range []string{"API key variable|FLY_API_KEY", "Snapshot|Fly's default", "Pass in|nothing"} {
+	for _, want := range []string{"API key variable|FLY_API_KEY", "Default image|Fly's default", "Pass in|nothing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("another provider lacks %q:\n%s", want, out)
 		}
@@ -683,7 +684,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 	if fly := m.cfg.Sandbox.Of("fly"); fly.IdleStop == nil || *fly.IdleStop == config.IdleStopDefault {
 		t.Fatalf("Fly's idle stop was not saved: %+v", m.cfg.Sandbox)
 	}
-	if got := m.cfg.Sandbox.Of("daytona"); got.Snapshot != "my-snapshot" || got.Target != "eu" {
+	if got := m.cfg.Sandbox.Of("daytona"); got.Image != "my-snapshot" || got.Region != "eu" {
 		t.Fatalf("Daytona's settings changed with Fly's: %+v", got)
 	}
 	// A provider that leaves the registry takes its page with it.
@@ -692,7 +693,7 @@ func TestSettingsSandboxTab(t *testing.T) {
 		t.Fatalf("a provider this build no longer knows kept its page:\n%s", got)
 	}
 	sandbox.Names = func() []string { return nil }
-	if out := plain(); !strings.Contains(out, "knows no sandbox providers") {
+	if out := plain(); !strings.Contains(out, "No sandbox provider is installed") {
 		t.Fatalf("no providers:\n%s", out)
 	}
 }
@@ -1117,5 +1118,100 @@ func TestSettingsWrapKeepsSelectionAcrossResize(t *testing.T) {
 	}
 	if got := ansi.Strip(s.items(m)[s.sel].label); got != want {
 		t.Fatalf("the highlight moved from %q to %q", want, got)
+	}
+}
+
+// A provider's page offers what its file says can be chosen, checked as
+// the file says: Daytona's region from its list and its size within its
+// limits, boat.dev's size by name — and not a field its file has no use for.
+func TestSettingsSandboxFromTheFile(t *testing.T) {
+	m, _ := sandboxModel(t)
+	installProviders(t, "tensorlake")
+	s := &settings{}
+	s.setTab(sandboxTab)
+	item := func(label string) settingItem {
+		t.Helper()
+		for _, it := range s.items(m) {
+			if ansi.Strip(it.label) == label {
+				return it
+			}
+		}
+		t.Fatalf("no item %q", label)
+		return settingItem{}
+	}
+	has := func(label string) bool {
+		for _, it := range s.items(m) {
+			if ansi.Strip(it.label) == label {
+				return true
+			}
+		}
+		return false
+	}
+	s.open("daytona")
+	item("Region").run(m)
+	d := m.overlay.(*dialog)
+	if !strings.Contains(strings.Join(d.text, " "), "One of us, eu.") {
+		t.Fatalf("region help: %v", d.text)
+	}
+	if got := a2ErrText(a2Run(d.submit(m, []string{"mars"}))); !strings.Contains(got, "us, eu") {
+		t.Fatalf("a region Daytona has not: %q", got)
+	}
+	a2Run(d.submit(m, []string{"eu"}))
+	if c := m.cfg.Sandbox.Of("daytona"); c.Region != "eu" || c.Target != "" {
+		t.Fatalf("region saved as %+v", c)
+	}
+	item("Default size").run(m)
+	d = m.overlay.(*dialog)
+	if got := a2ErrText(a2Run(d.submit(m, []string{"16", "", ""}))); !strings.Contains(got, "1 to 4") {
+		t.Fatalf("too many vCPUs: %q", got)
+	}
+	a2Run(d.submit(m, []string{"2", "4", ""}))
+	if c := m.cfg.Sandbox.Of("daytona"); c.CPU != 2 || c.Memory != 4 || c.Disk != 0 {
+		t.Fatalf("size saved as %+v", c)
+	}
+	if got := ansi.Strip(item("Default size").detail); got != "2 vCPU · 4 GiB" {
+		t.Fatalf("size row %q", got)
+	}
+
+	s.open("boat")
+	if has("Region") {
+		t.Fatal("boat.dev has no regions to choose")
+	}
+	var seen []string
+	for i := 0; i < 4; i++ {
+		item("Default size").run(m)
+		seen = append(seen, m.cfg.Sandbox.Of("boat").Size)
+	}
+	if fmt.Sprint(seen) != "[small default large ]" {
+		t.Fatalf("sizes cycled %q", seen)
+	}
+
+	// InstaBox's template is a setting of its own, and its size is read
+	// from the plan: vCPUs and memory, and no disk, which it takes none of.
+	installProviders(t, "instabox")
+	s.open("instabox")
+	item("Template").run(m)
+	d = m.overlay.(*dialog)
+	if got := a2ErrText(a2Run(d.submit(m, []string{"ci"}))); got != "" {
+		t.Fatalf("a template: %q", got)
+	}
+	if got := m.cfg.Sandbox.Of("instabox").Template; got != "ci" {
+		t.Fatalf("template saved as %q", got)
+	}
+	item("Default size").run(m)
+	d = m.overlay.(*dialog)
+	if len(d.fields) != 2 || !strings.Contains(strings.Join(d.text, " "), "the sizes your plan allows") {
+		t.Fatalf("instabox's size dialog: %d fields, %v", len(d.fields), d.text)
+	}
+	a2Run(d.submit(m, []string{"4", "8"}))
+	if c := m.cfg.Sandbox.Of("instabox"); c.CPU != 4 || c.Memory != 8 || c.Disk != 0 {
+		t.Fatalf("size saved as %+v", c)
+	}
+
+	// Tensorlake's image is free; it has no region, and its size is disk
+	// alone.
+	s.open("tensorlake")
+	if has("Region") || !has("Default image") || !strings.Contains(ansi.Strip(item("Default size").detail), "10–100 GiB disk") {
+		t.Fatalf("tensorlake's page")
 	}
 }

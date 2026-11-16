@@ -140,8 +140,15 @@ func Schema(c Choices) []Section {
 			Help: "The environment variable holding the key. A key set above wins over it."},
 		{Key: "api_url", Label: "API endpoint", Kind: KindString, Placeholder: "the provider's own",
 			Help: "Overrides the provider's API address: its base, e.g. https://api.tensorlake.ai — not a path under it such as …/sandboxes."},
-		{Key: "target", Label: "Region", Kind: KindString, Placeholder: "the account default", Help: "e.g. us or eu."},
-		{Key: "snapshot", Label: "Snapshot", Kind: KindString, Placeholder: "the provider's own", Help: "The image new sandboxes start from."},
+		{Key: "region", Label: "Region", Kind: KindString, Placeholder: "the account default", Help: "One of the regions the provider's file lists, e.g. us or eu."},
+		{Key: "image", Label: "Default image", Kind: KindString, Placeholder: "the provider's own", Help: "The image or snapshot new sandboxes start from."},
+		{Key: "template", Label: "Default template", Kind: KindString, Placeholder: "the provider's own", Help: "For a provider that makes machines from templates, e.g. agent-browser."},
+		{Key: "size", Label: "Default size", Kind: KindString, Placeholder: "the provider's own", Help: "For a provider whose machines come in named sizes, e.g. small or large."},
+		{Key: "cpu", Label: "Default vCPUs", Kind: KindInt, Min: intp(0), Help: "Within the limits the provider's file gives; 0 is its default."},
+		{Key: "memory", Label: "Default memory (GiB)", Kind: KindInt, Min: intp(0), Help: "Within the limits the provider's file gives; 0 is its default."},
+		{Key: "disk", Label: "Default disk (GiB)", Kind: KindInt, Min: intp(0), Help: "Within the limits the provider's file gives; 0 is its default."},
+		{Key: "target", Label: "Region (older key)", Kind: KindString, Placeholder: "use Region", Help: "What older conches called the region; read when Region is empty."},
+		{Key: "snapshot", Label: "Snapshot (older key)", Kind: KindString, Placeholder: "use Default image", Help: "What older conches called the default image; read when it is empty."},
 		{Key: "auto_stop", Label: "Provider idle timer (minutes)", Kind: KindInt, Min: intp(0),
 			Help: "The provider's own idle timer; 0 turns it off. Providers only see traffic from outside, so a quietly working agent looks idle to them."},
 		{Key: "idle_stop", Label: "conch stops it after idle (minutes)", Kind: KindInt, Min: intp(0), Default: config.IdleStopDefault,
@@ -316,6 +323,15 @@ func Schema(c Choices) []Section {
 			Fields: []Field{
 				{Key: "", Label: "Providers", Kind: KindKeyed, KeyLabel: "Provider", Fields: provider, Suggest: c.Providers},
 			}},
+		{ID: "integrations", Key: "integrations", Title: "Integrations", Icon: "blocks", Description: "Where integration files come from, and the address of a service you run yourself.",
+			Fields: []Field{
+				{Key: "registries", Label: "Registries", Kind: KindTables, Help: "Registries besides conch's own; each is trusted by its key, and an index it has not signed is said to be unsigned.", Fields: []Field{
+					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "acme"},
+					{Key: "url", Label: "Index address", Kind: KindString, Placeholder: "https://acme.github.io/conch-integrations"},
+					{Key: "key", Label: "Signing key", Kind: KindString, Placeholder: "base64 ed25519 public key", Help: "The public half of the key its index is signed with."},
+				}},
+				{Key: "base", Label: "Self-hosted addresses", Kind: KindMap, Help: "An integration's name and its API's address, for one that asks: gitlab-ci = https://gitlab.example.com/api/v4."},
+			}},
 		{ID: "trackers", Key: "trackers", Title: "Trackers", Icon: "ticket", Description: "Tickets from Linear and Jira for conch task -ticket, besides GitHub issues.",
 			Fields: []Field{
 				{Key: "linear", Label: "Linear", Kind: KindTable, Help: "A personal API key, from Linear's Settings → Security & access.", Fields: []Field{
@@ -376,10 +392,10 @@ func cloudSection(on bool) Section {
 	enabled := Field{Key: "enabled", Label: "Enabled", Kind: KindBool,
 		Help: "Offers Conch Cloud: conch login, cloud machines, and moving a project to one. Not enabled in this release; CONCH_CLOUD=1 or 0 in the environment overrides this."}
 	if !on {
-		return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server",
+		return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "cloud",
 			Description: "Not enabled in this release. Turn it on to try it.", Fields: []Field{enabled}}
 	}
-	return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
+	return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "cloud", Description: "Cloud machines that keep your agents working with the laptop closed.",
 		Fields: []Field{
 			enabled,
 			{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",

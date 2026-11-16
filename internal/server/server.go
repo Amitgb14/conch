@@ -38,6 +38,9 @@ const frameInterval = 33 * time.Millisecond
 
 // Server owns all panes on this machine.
 type Server struct {
+	// notifyWG counts notifications being sent through notify
+	// integrations, so a test can wait for them.
+	notifyWG sync.WaitGroup
 	// usage is what the agents here saved, read as it is asked for
 	// (usage.history.v1) and kept, so asking again reads only what is new.
 	usage *usage.History
@@ -455,7 +458,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true,
 	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodBranchStale: true, proto.MethodBranchPrune: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
@@ -1634,6 +1637,27 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.ciLog(lp)
+
+	case proto.MethodIntegrationDetect:
+		dp, perr := decode[proto.IntegrationDetectParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.integrationsOf(dp.ProjectID)
+
+	case proto.MethodIntegrationTeam:
+		tp, perr := decode[proto.IntegrationTeamParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.integrationTeam(tp)
+
+	case proto.MethodBranchCIRerun:
+		lp, perr := decode[proto.BranchCILogParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchCIRerun(lp)
 
 	case proto.MethodBranchGit:
 		gp, perr := decode[proto.BranchGitParams](msg)

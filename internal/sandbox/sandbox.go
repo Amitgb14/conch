@@ -81,8 +81,16 @@ type Sandbox struct {
 
 // Spec is what to create. Zero values leave the provider's defaults.
 type Spec struct {
-	Name     string
+	Name string
+	// Snapshot is the image or snapshot to start from.
 	Snapshot string
+	// Region and Size are a provider file's settings (format 4): where it
+	// runs, and a named size for a provider whose machines come in them.
+	Region string
+	Size   string
+	// Template is what the provider makes the machine from, where its file
+	// offers templates beside images or snapshots (InstaBox's).
+	Template string
 	CPU      int // vCPUs
 	Memory   int // GiB
 	Disk     int // GiB
@@ -229,81 +237,46 @@ type Lifetime interface {
 	Life() time.Duration
 }
 
-// CommandAccess is a provider whose sandboxes are reached through a
-// program of its own that wraps ssh — Devin's `devin ssh` — rather than at
-// an address conch can ssh to itself. ssh's options and the command to run
-// go after what it returns.
-type CommandAccess interface {
-	SSHCommand(id string) ([]string, error)
-}
-
-// Placed is a provider whose machines are neither sized nor made from a
-// snapshot but placed: on a platform, or on a pool of machines of your
-// own. That place's name goes where the snapshot does, and numbers are
-// refused.
-type Placed interface {
-	// PlaceHint says what the snapshot field takes, for a placeholder.
-	PlaceHint() string
-}
-
 // Noted is a provider with something to say before a sandbox is made with
 // it: a cost or a limit a person would not expect of a machine.
 type Noted interface {
 	Note() string
 }
 
-// builtin lists the providers conch has built in.
-var builtin = []string{"daytona", "boat", "devin", "tensorlake"}
-
-// Builtin reports whether name is a provider conch has built in, rather
-// than one described by a file.
-func Builtin(name string) bool { return slices.Contains(builtin, name) }
-
-// Names lists the providers conch knows: its own, then the ones described
-// by a file in ProvidersDir that loads. It reads the folder each time, so
-// a provider saved a moment ago is there.
-// Tests replace it.
+// Names lists the providers that can be used here: the provider files in
+// ProvidersDir that load, installed from the registry or of the person's
+// own. conch has none of its own. It reads the folder each time, so a
+// provider saved a moment ago is there. Tests replace it.
 var Names = func() []string {
 	good, _ := CustomProviders()
-	return append(append([]string(nil), builtin...), good...)
+	return good
 }
 
-// unoffered are providers conch knows but does not offer for making a
-// sandbox: Tensorlake's gateway lets in only keys registered with the
-// account, which conch cannot do, so a sandbox made there was paid for
-// and then could not be set up. Its sandboxes are still listed, added
-// and deleted, and -provider tensorlake create still makes one for
-// somebody who has registered their key.
-var unoffered = []string{"tensorlake"}
+// Offered lists the providers a sandbox is made with from a menu: every
+// one installed.
+func Offered() []string { return Names() }
 
-// Offered lists the providers a sandbox is made with from a menu: Names
-// without the ones conch knows but does not offer.
-func Offered() []string {
-	var out []string
-	for _, n := range Names() {
-		if !slices.Contains(unoffered, n) {
-			out = append(out, n)
-		}
+// Known reports whether name is a provider a machine may name: one
+// installed, or one conch had built in, whose file is installed the first
+// time such a machine is used.
+func Known(name string) bool {
+	if name == "" {
+		return false
 	}
-	return out
+	_, was := former[name]
+	return was || slices.Contains(Names(), name)
 }
 
-// Known reports whether name is a provider conch knows.
-func Known(name string) bool { return name != "" && slices.Contains(Names(), name) }
-
-// labels are provider names as people write them, where capitalising the
-// first letter is not how it is done.
-var labels = map[string]string{"e2b": "E2B", "boat": "boat.dev", "devin": "Devin Cloud"}
-
-// ProviderLabel is a provider's name for people to read.
+// ProviderLabel is a provider's name for people to read: its file's
+// label, else the one conch's own provider of that name had.
 func ProviderLabel(name string) string {
-	if l, ok := labels[name]; ok {
-		return l
-	}
-	if !Builtin(name) && providerName.MatchString(name) {
+	if providerName.MatchString(name) {
 		if f, problems, err := ReadProviderFile(ProviderFilePath(name)); err == nil && len(problems) == 0 && f.Label != "" {
 			return f.Label
 		}
+	}
+	if f, was := former[name]; was {
+		return f.label
 	}
 	if name == "" {
 		return ""
@@ -311,17 +284,16 @@ func ProviderLabel(name string) string {
 	return strings.ToUpper(name[:1]) + name[1:]
 }
 
-// Open returns the named provider, set up from cfg.
+// Open returns the named provider, set up from cfg. A provider conch had
+// built in has its file installed from the registry the first time.
 func Open(name string, cfg config.SandboxCfg) (Provider, error) {
-	switch name {
-	case "daytona":
-		return NewDaytona(cfg.Of(name)), nil
-	case "boat":
-		return NewBoat(cfg.Of(name)), nil
-	case "devin":
-		return NewDevin(cfg.Of(name)), nil
-	case "tensorlake":
-		return NewTensorlake(cfg.Of(name)), nil
+	if why, ok := dropped[name]; ok {
+		return nil, fmt.Errorf("%w: %s", ErrDropped, why)
+	}
+	if _, was := former[name]; was && fileMissing(name) {
+		if err := adopt(name); err != nil {
+			return nil, err
+		}
 	}
 	return openCustom(name, cfg)
 }

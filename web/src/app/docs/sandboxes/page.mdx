@@ -25,13 +25,15 @@ In the tree they sit under **Sandboxes**, one group per provider:
 
 ## Providers
 
+Each provider is a file from [the registry](#the-provider-registry); conch has none built in.
+
 | Provider | What it is | How conch gets in |
 | --- | --- | --- |
-| [Daytona](https://www.daytona.io) | sandboxes sized in vCPUs, memory and disk | a fresh ssh token per connection |
+| [Daytona](https://www.daytona.io) | sandboxes sized in vCPUs, memory and disk, in a region | a fresh ssh token per connection |
 | [boat.dev](https://boat.dev) | whole Ubuntu machines in named sizes | your public key, authorized in the sandbox |
-| [Devin Cloud](https://docs.devin.ai/cli/cloud) | the VM of a Devin Cloud session | `devin ssh` |
+| [Tensorlake](https://tensorlake.ai) | sandboxes with a disk of 10 to 100 GiB | the ssh keys registered with your account |
 
-Tensorlake sandboxes are made from the command line only (`conch sandbox -provider tensorlake create`).
+Sandboxes made before still work: the file is installed when first needed. Devin Cloud is gone; end its sessions in Devin.
 
 ## Setting up
 
@@ -40,17 +42,14 @@ Create an API key in the provider's dashboard and put it in your environment, th
 ```sh
 export DAYTONA_API_KEY=dtn_…     # Daytona
 export BOAT_API_KEY=boat_…       # boat.dev
-export DEVIN_API_KEY=cog_…       # Devin Cloud: a service user's key
 export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 ```
 
-Devin Cloud also needs the devin CLI installed (`conch agent install devin`) and signed in (`devin auth login`).
-
-**How:** another variable or the key itself goes in Settings → **Sandboxes** or [`[sandbox.<provider>]`](/docs/configuration#sandbox).
+**How:** the key, a region, a default image and a size, as each file offers, go in Settings → **Sandboxes** or [`[sandbox.<provider>]`](/docs/configuration#sandbox).
 
 ## In the TUI
 
-**How:** press `M`, choose **New sandbox…**, then Daytona (`d`), boat.dev (`b`) or Devin Cloud (`e`). Leave label, snapshot and size empty for the defaults. If setup fails, the sandbox is deleted.
+**How:** press `M`, choose **New sandbox…**, then a provider; change Settings' choices for this one alone. If setup fails, the sandbox is deleted.
 
 `m` on a sandbox's row adds:
 
@@ -108,9 +107,9 @@ Flags are on [Command line](/docs/cli#sandbox).
 
 ## The provider registry
 
-Providers others have adapted, such as Hetzner Cloud and DigitalOcean, from [the registry](https://github.com/Amitgb14/conch-sandbox-providers). Install says where your key is sent and from which variable, and asks first; an update that changes either asks again.
+Every provider, from [the registry](https://github.com/Amitgb14/conch-integrations). Install says where your key is sent, and asks; an update that changes that asks again.
 
-**How:** `M` → **New sandbox…** → **\* Install a provider from the registry…**, Settings → Sandboxes → **Add provider…** in Conch.app, or:
+**How:** `M` → **New sandbox…** → **\* Install a provider from the registry…**, **Integrations → Sandboxes** in Conch.app, or:
 
 ```sh
 conch sandbox provider search

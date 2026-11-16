@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 )
 
 // A provider conch does not know is described in a file rather than
@@ -49,12 +51,21 @@ var ProviderFileGuide string
 // since it would otherwise send {public_key} as those very letters.
 // Format 3 adds headers, which a format-2 conch would leave out and so
 // send requests the provider refuses.
-const ProviderFormat = 3
+// Format 4 adds settings, sizes, lifetimes, snapshots, preview links,
+// usage and an ssh address that arrives late (format4.go): what conch's
+// own providers did, so that they could become files.
+const ProviderFormat = 4
 
 // PublicKey is the public key a sandbox is made with when a provider file
 // puts {public_key} in its create body. internal/remote sets it (the
 // person's own key, else conch's), since that is where keys are found.
 var PublicKey func(ctx context.Context) (string, error)
+
+// KeyLookup finds a key by its variable's name somewhere besides the
+// environment — the Keychain, where Integrations keeps the keys it is
+// given — for a provider whose key is in neither config.toml nor the
+// environment. conch's main sets it; nil (every test) asks nothing.
+var KeyLookup func(keyEnv string) string
 
 // ProviderFile is the shape of a provider file.
 type ProviderFile struct {
@@ -88,6 +99,14 @@ type ProviderFile struct {
 	Delete Call              `toml:"delete"`
 	States map[string]string `toml:"states"`
 	SSH    SSHWay            `toml:"ssh"`
+
+	// Format 4 (format4.go).
+	Settings []Setting    `toml:"setting"`
+	Size     SizeSpec     `toml:"size"`
+	Lifetime LifeSpec     `toml:"lifetime"`
+	Snapshot SnapshotSpec `toml:"snapshot"`
+	Preview  PreviewSpec  `toml:"preview"`
+	Usage    UsageSpec    `toml:"usage"`
 }
 
 // Call is one request: "METHOD /path", the path's {id} filled in, a body
@@ -118,6 +137,13 @@ type GetCall struct {
 	MemoryMB string `toml:"memory_mb"`
 	DiskMB   string `toml:"disk_mb"`
 	Created  string `toml:"created"`
+	// MemoryGiB and DiskGiB (format 4) are for an API that says GiB.
+	MemoryGiB string `toml:"memory_gib"`
+	DiskGiB   string `toml:"disk_gib"`
+	// Desired (format 4) is where the provider is taking the sandbox, read
+	// through [states]: Daytona's says "destroyed" for one deleted a moment
+	// ago that still reports itself started.
+	Desired string `toml:"desired"`
 }
 
 // ListCall lists the account's sandboxes. Items is where the list is in
@@ -132,6 +158,11 @@ type ListCall struct {
 	Next        string `toml:"next"`
 	CursorParam string `toml:"cursor_param"`
 	Mine        string `toml:"mine"`
+	// AllMine (format 4) says the call asks only for conch's own — by a
+	// label create puts on them — so every item is conch's, whatever its
+	// name: sandboxes conch's own Daytona provider made were named after
+	// their label alone.
+	AllMine bool `toml:"all_mine"`
 }
 
 // SSHWay is how ssh gets in. Key says whose key opens it: "account", a key
@@ -148,6 +179,19 @@ type SSHWay struct {
 	// credential handed out per connection; Host and User may then read
 	// its reply as {reply.PATH}.
 	Access Call `toml:"access"`
+	// Endpoint (format 4) is host:port from Access's reply, used instead
+	// of Host and Port when it is there: boat.dev reaches a machine with no
+	// address of its own through a forwarder.
+	Endpoint string `toml:"endpoint"`
+	// WaitSecs (format 4) is how long to keep asking Access while it gives
+	// no host: a sandbox may answer started a moment before it has one.
+	WaitSecs int `toml:"wait_secs"`
+	// Command (format 4) is an ssh command line in Access's reply, "ssh -p
+	// PORT USER@HOST": its host and port win when it reads, which is how a
+	// self-hosted Daytona's gateway is found.
+	Command string `toml:"command"`
+	// Expires (format 4) is when Access's credential stops working.
+	Expires string `toml:"expires"`
 }
 
 // SSHPort is ssh's port: a number, or (format 3) "{reply.PATH}", read
@@ -253,12 +297,12 @@ func (f *ProviderFile) Problems() []string {
 		if need := f.needs3(); need != "" && f.Format < 3 {
 			add("%s needs format = 3", need)
 		}
+		if need := f.needs4(); need != "" && f.Format < 4 {
+			add("%s needs format = 4", need)
+		}
 	}
-	switch {
-	case !providerName.MatchString(f.Name):
+	if !providerName.MatchString(f.Name) {
 		add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
-	case slicesContains(builtin, f.Name):
-		add("name %q is a provider conch has built in", f.Name)
 	}
 	if u, err := url.Parse(f.API); err != nil || u.Scheme != "https" || u.Host == "" {
 		if !(err == nil && u.Scheme == "http" && isLoopback(u.Hostname())) {
@@ -300,9 +344,12 @@ func (f *ProviderFile) Problems() []string {
 	if f.List.Items == "" || f.List.ID == "" {
 		add("[list] items and id: where the list is, and each one's id")
 	}
-	if f.List.Mine == "" || f.Get.Name == "" {
+	switch {
+	case f.List.AllMine:
+		// The list call asks only for conch's own; names say nothing.
+	case f.List.Mine == "" || f.Get.Name == "":
 		add("[list] mine and [get] name: conch names what it makes, and finds its own by that name")
-	} else if !bodyUses(f.Create.Body, "{name}") {
+	case !bodyUses(f.Create.Body, "{name}"):
 		add("[create] body never sends {name}, so List could not find conch's own")
 	}
 	if (f.List.Next == "") != (f.List.CursorParam == "") {
@@ -343,6 +390,7 @@ func (f *ProviderFile) Problems() []string {
 			add("[ssh.access] call: %v", err)
 		}
 	}
+	p = append(p, f.problems4()...)
 	sort.Strings(p)
 	return p
 }
@@ -394,7 +442,9 @@ func (f *ProviderFile) headerSets() []headerSet {
 // placeholders a header value may use: {uuid} is new for every request.
 // Never {key}: the key goes in auth_header alone, so a file cannot send it
 // anywhere a person reading the file would not look for it.
-var headerPlaceholders = map[string]bool{"{id}": true, "{name}": true, "{uuid}": true}
+// headerPlaceholders a header may use: format 4's snapshot and preview
+// calls add their own, a snapshot's delete confirmed by its name.
+var headerPlaceholders = map[string]bool{"{id}": true, "{name}": true, "{uuid}": true, "{snapshot_name}": true, "{port}": true}
 
 var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
@@ -429,7 +479,7 @@ func (f *ProviderFile) checkHeaders(h map[string]string) []string {
 			}
 		}
 		if len(bad) > 0 {
-			p = append(p, fmt.Sprintf("%s: unknown placeholder %s (a header may use {id}, {name}, {uuid})", k, strings.Join(bad, ", ")))
+			p = append(p, fmt.Sprintf("%s: unknown placeholder %s (a header may use {id}, {name}, {uuid}, {snapshot_name}, {port})", k, strings.Join(bad, ", ")))
 		}
 	}
 	return p
@@ -475,6 +525,12 @@ var bodyPlaceholders = map[string]bool{
 	"{name}": true, "{label}": true, "{cpu}": true, "{memory_gib}": true, "{memory_mb}": true,
 	"{disk_gib}": true, "{disk_mb}": true, "{snapshot}": true, "{env}": true, "{auto_stop_secs}": true,
 	"{public_key}": true, "{id}": true,
+}
+
+func init() {
+	for _, p := range placeholders4 {
+		bodyPlaceholders[p] = true
+	}
 }
 
 var placeholder = regexp.MustCompile(`\{[a-z_.]+\}`)
@@ -585,6 +641,11 @@ type Custom struct {
 	f   *ProviderFile
 	key string
 	hc  *http.Client
+	// What config.toml chose for new sandboxes (format 4's settings and
+	// size), and the life one is given, in minutes.
+	region, image, size, template string
+	cpu, mem, disk                int
+	autoStop                      int
 }
 
 // NewCustom returns the provider f describes, with its key from cfg or
@@ -596,8 +657,18 @@ func NewCustom(f *ProviderFile, cfg config.ProviderCfg) *Custom {
 	if c.key == "" {
 		c.key = strings.TrimSpace(os.Getenv(keyEnv))
 	}
+	if c.key == "" && KeyLookup != nil {
+		c.key = strings.TrimSpace(KeyLookup(keyEnv))
+	}
 	if cfg.APIURL != "" {
 		f.API = cfg.APIURL
+	}
+	c.region, c.image, c.size, c.template = cfg.RegionOr(), cfg.ImageOr(), cfg.Size, cfg.Template
+	c.cpu, c.mem, c.disk, c.autoStop = cfg.CPU, cfg.Memory, cfg.Disk, cfg.AutoStop
+	// A size name in the image's place is what conch's own boat.dev
+	// provider read there (snapshot = "large"), so it is still a size.
+	if c.size == "" && slices.Contains(f.Size.Names, c.image) {
+		c.size, c.image = c.image, ""
 	}
 	return c
 }
@@ -622,7 +693,7 @@ func (c *Custom) Note() string {
 	if c.f.AdaptedBy != "" {
 		n += " by " + c.f.AdaptedBy
 	}
-	n += ", not built into conch."
+	n += "."
 	if c.f.SSH.Key == "account" {
 		n += " It lets in the ssh keys registered with your account there: register yours once."
 	}
@@ -714,14 +785,39 @@ func (v vars) fill(x any) (any, bool) {
 	return x, true
 }
 
+// fillPath puts each value in the path escaped, as a path segment or a
+// query value; a query parameter left empty is dropped, so "?region=" asks
+// for the account's default rather than for a region called nothing.
+func fillPath(path string, v vars) string {
+	path = placeholder.ReplaceAllStringFunc(path, func(p string) string {
+		x, ok := v[p]
+		if !ok {
+			return p
+		}
+		return url.PathEscape(fmt.Sprint(x))
+	})
+	base, query, ok := strings.Cut(path, "?")
+	if !ok {
+		return path
+	}
+	var keep []string
+	for _, kv := range strings.Split(query, "&") {
+		if k, val, has := strings.Cut(kv, "="); kv != "" && !(has && val == "" && k != "") {
+			keep = append(keep, kv)
+		}
+	}
+	if len(keep) == 0 {
+		return base
+	}
+	return base + "?" + strings.Join(keep, "&")
+}
+
 func (c *Custom) do(ctx context.Context, call Call, v vars) (any, error) {
 	if err := c.Check(); err != nil {
 		return nil, err
 	}
 	method, path, _ := strings.Cut(strings.TrimSpace(call.Call), " ")
-	if id, ok := v["{id}"].(string); ok {
-		path = strings.ReplaceAll(path, "{id}", url.PathEscape(id))
-	}
+	path = fillPath(path, v)
 	var body any
 	if call.Body != nil {
 		b, _ := v.fill(call.Body)
@@ -817,7 +913,7 @@ func (c *Custom) request(ctx context.Context, method, path string, body any, hea
 		return nil, ErrNotFound
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		msg := tensorlakeMessage(data)
+		msg := replyMessage(data)
 		e := fmt.Sprintf("%s: %s %s answered %d", c.f.Name, method, path, resp.StatusCode)
 		if msg != "" {
 			e += " " + msg
@@ -839,54 +935,10 @@ func (c *Custom) request(ctx context.Context, method, path string, body any, hea
 	return out, nil
 }
 
-// Pick reads a dotted path out of a JSON value: "a.b", "items.0.id".
-func Pick(v any, path string) any {
-	if path == "" {
-		return nil
-	}
-	for _, part := range strings.Split(path, ".") {
-		// field[key=value]: the first item of the list at field (or of
-		// this list, when field is empty) whose key reads value.
-		if i := strings.IndexByte(part, '['); i >= 0 && strings.HasSuffix(part, "]") {
-			key, want, ok := strings.Cut(part[i+1:len(part)-1], "=")
-			if field := part[:i]; field != "" {
-				m, isMap := v.(map[string]any)
-				if !isMap {
-					return nil
-				}
-				v = m[field]
-			}
-			list, isList := v.([]any)
-			if !ok || key == "" || !isList {
-				return nil
-			}
-			v = nil
-			for _, it := range list {
-				if pickStr(it, key) == want {
-					v = it
-					break
-				}
-			}
-			if v == nil {
-				return nil
-			}
-			continue
-		}
-		switch x := v.(type) {
-		case map[string]any:
-			v = x[part]
-		case []any:
-			i, err := strconv.Atoi(part)
-			if err != nil || i < 0 || i >= len(x) {
-				return nil
-			}
-			v = x[i]
-		default:
-			return nil
-		}
-	}
-	return v
-}
+// Pick reads a dotted path out of a JSON value: "a.b", "items.0.id",
+// "networks.v4[type=public].ip_address". The grammar is the integration
+// files', which grew out of this one.
+func Pick(v any, path string) any { return integration.Pick(v, path, nil) }
 
 func pickStr(v any, path string) string {
 	switch x := Pick(v, path).(type) {
@@ -938,10 +990,18 @@ func (c *Custom) sandbox(v any, id string) Sandbox {
 	if !ok {
 		state = State(raw)
 	}
+	if c.f.Get.Desired != "" && customStates[c.f.States[pickStr(v, c.f.Get.Desired)]].Going() {
+		state = StateDestroyed
+	}
+	reason := pickStr(v, c.f.Get.Reason)
+	// An error by another name (build_failed) keeps the provider's word.
+	if state == StateError && raw != string(StateError) {
+		reason = firstSet(reason, raw)
+	}
 	return Sandbox{
-		ID: id, Name: firstSet(pickStr(v, c.f.Get.Name), id), State: state, Reason: pickStr(v, c.f.Get.Reason),
-		CPU: int(pickNum(v, c.f.Get.CPU)), Memory: int(pickNum(v, c.f.Get.MemoryMB) / 1024),
-		Disk: int(pickNum(v, c.f.Get.DiskMB) / 1024), Created: pickTime(v, c.f.Get.Created),
+		ID: id, Name: firstSet(pickStr(v, c.f.Get.Name), id), State: state, Reason: reason,
+		CPU: int(pickNum(v, c.f.Get.CPU)), Memory: int(pickNum(v, c.f.Get.MemoryMB)/1024 + pickNum(v, c.f.Get.MemoryGiB)),
+		Disk: int(pickNum(v, c.f.Get.DiskMB)/1024 + pickNum(v, c.f.Get.DiskGiB)), Created: pickTime(v, c.f.Get.Created),
 	}
 }
 
@@ -950,7 +1010,7 @@ func (c *Custom) sandbox(v any, id string) Sandbox {
 func (c *Custom) nameFor(label string) string {
 	b := make([]byte, 3)
 	_, _ = rand.Read(b)
-	slug := strings.Trim(tensorlakeNameChars.ReplaceAllString(strings.ToLower(label), "-"), "-")
+	slug := strings.Trim(nameChars.ReplaceAllString(strings.ToLower(label), "-"), "-")
 	if len(slug) > 32 {
 		slug = strings.Trim(slug[:32], "-")
 	}
@@ -965,9 +1025,22 @@ func (c *Custom) Create(ctx context.Context, spec Spec) (Sandbox, error) {
 		return Sandbox{}, fmt.Errorf("%s's file says no way to pass variables in: remove env from [sandbox.%s], or add {env} to [create] body", c.label(), c.f.Name)
 	}
 	name := c.nameFor(spec.Name)
+	spec = c.withDefaults(spec)
+	if err := c.CheckSize(spec.Size, spec.CPU, spec.Memory, spec.Disk); err != nil {
+		return Sandbox{}, err
+	}
+	for _, s := range [][2]string{{"region", spec.Region}, {"image", spec.Snapshot}, {"template", spec.Template}} {
+		if err := c.CheckSetting(s[0], s[1]); err != nil {
+			return Sandbox{}, err
+		}
+	}
 	v := vars{"{name}": name, "{label}": spec.Name, "{cpu}": spec.CPU, "{memory_gib}": spec.Memory,
 		"{memory_mb}": spec.Memory * 1024, "{disk_gib}": spec.Disk, "{disk_mb}": spec.Disk * 1024,
-		"{snapshot}": spec.Snapshot, "{env}": spec.Env, "{auto_stop_secs}": spec.AutoStop * 60}
+		"{snapshot}": spec.Snapshot, "{image}": spec.Snapshot, "{region}": spec.Region, "{size}": spec.Size, "{template}": spec.Template,
+		"{env}": spec.Env, "{auto_stop_secs}": spec.AutoStop * 60}
+	if c.f.Lifetime.DefaultMins > 0 {
+		v["{ttl_secs}"] = int(c.ttl(spec.AutoStop).Seconds())
+	}
 	if bodyUses(c.f.Create.Body, "{public_key}") {
 		if PublicKey == nil {
 			return Sandbox{}, fmt.Errorf("%s makes a sandbox with your public key, and conch has none to give", c.label())
@@ -989,6 +1062,28 @@ func (c *Custom) Create(ctx context.Context, spec Spec) (Sandbox, error) {
 	return c.wait(ctx, Sandbox{ID: id, Name: name, State: StateStarting}, StateStarted)
 }
 
+// withDefaults fills what the spec leaves empty with what config.toml
+// chose for this provider. A size name given where the image goes is a
+// size, as conch's own boat.dev provider read it.
+func (c *Custom) withDefaults(spec Spec) Spec {
+	if spec.Size == "" && slices.Contains(c.f.Size.Names, spec.Snapshot) {
+		spec.Size, spec.Snapshot = spec.Snapshot, ""
+	}
+	spec.Region = firstSet(spec.Region, c.region)
+	spec.Template = firstSet(spec.Template, c.template)
+	spec.Snapshot = firstSet(spec.Snapshot, c.image)
+	if spec.CPU == 0 && spec.Memory == 0 && spec.Disk == 0 && spec.Size == "" {
+		spec.Size, spec.CPU, spec.Memory, spec.Disk = firstSet(c.size, c.f.Size.Default), c.cpu, c.mem, c.disk
+		if len(c.f.Size.Names) == 0 {
+			spec.Size = ""
+		}
+	}
+	if spec.AutoStop == 0 {
+		spec.AutoStop = c.autoStop
+	}
+	return spec
+}
+
 func (c *Custom) Get(ctx context.Context, id string) (Sandbox, error) {
 	if id == "" {
 		return Sandbox{}, ErrNotFound
@@ -1003,7 +1098,13 @@ func (c *Custom) Get(ctx context.Context, id string) (Sandbox, error) {
 	if out == nil {
 		return Sandbox{}, ErrNotFound
 	}
-	return c.sandbox(out, id), nil
+	s := c.sandbox(out, id)
+	if s.State.Going() {
+		// On its way out, and not coming back: said as what callers can
+		// act on, rather than a state they would wait on for ever.
+		return Sandbox{}, ErrNotFound
+	}
+	return s, nil
 }
 
 func (c *Custom) List(ctx context.Context) ([]Sandbox, error) {
@@ -1027,7 +1128,7 @@ func (c *Custom) List(ctx context.Context) ([]Sandbox, error) {
 		}
 		items, _ := Pick(out, c.f.List.Items).([]any)
 		for _, it := range items {
-			if s := c.sandbox(it, pickStr(it, c.f.List.ID)); s.ID != "" && strings.HasPrefix(pickStr(it, c.f.Get.Name), c.f.List.Mine) {
+			if s := c.sandbox(it, pickStr(it, c.f.List.ID)); s.ID != "" && c.mine(it) && !s.State.Going() {
 				list = append(list, s)
 			}
 		}
@@ -1037,6 +1138,12 @@ func (c *Custom) List(ctx context.Context) ([]Sandbox, error) {
 		}
 		cursor = next
 	}
+}
+
+// mine says whether a listed sandbox is conch's: by its name, unless the
+// list call asked only for conch's own.
+func (c *Custom) mine(item any) bool {
+	return c.f.List.AllMine || strings.HasPrefix(pickStr(item, c.f.Get.Name), c.f.List.Mine)
 }
 
 // Count is how many sandboxes the account has, conch's or not: the check
@@ -1051,7 +1158,7 @@ func (c *Custom) Count(ctx context.Context) (all, mine int, err error) {
 		return 0, 0, fmt.Errorf("[list] items %q is not a list in the reply", c.f.List.Items)
 	}
 	for _, it := range items {
-		if strings.HasPrefix(pickStr(it, c.f.Get.Name), c.f.List.Mine) {
+		if c.mine(it) {
 			mine++
 		}
 	}
@@ -1070,7 +1177,11 @@ func (c *Custom) Start(ctx context.Context, id string) (Sandbox, error) {
 		return s, &FailedError{ID: s.ID, State: s.State, Reason: s.Reason}
 	}
 	if !s.State.comingUp() {
-		if _, err := c.do(ctx, c.f.Start, vars{"{id}": id}); err != nil {
+		v := vars{"{id}": id}
+		if c.f.Lifetime.DefaultMins > 0 {
+			v["{ttl_secs}"] = int(c.ttl(c.autoStop).Seconds())
+		}
+		if _, err := c.do(ctx, c.f.Start, v); err != nil {
 			return s, fmt.Errorf("start sandbox: %w", err)
 		}
 		s.State = StateStarting
@@ -1135,19 +1246,51 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 	}
 	v := vars{"{id}": id, "{name}": s.Name}
 	reply := any(nil)
-	if c.f.SSH.Access.Call != "" {
-		if reply, err = c.do(ctx, c.f.SSH.Access, v); err != nil {
-			return Access{}, fmt.Errorf("ask for ssh access: %w", err)
-		}
-	}
 	fill := func(s string) string {
 		s = v.str(s)
 		return replyRef.ReplaceAllStringFunc(s, func(m string) string {
 			return pickStr(reply, strings.TrimSuffix(strings.TrimPrefix(m, "{reply."), "}"))
 		})
 	}
+	deadline := time.Now().Add(time.Duration(c.f.SSH.WaitSecs) * waitUnit)
+	for c.f.SSH.Access.Call != "" {
+		if reply, err = c.do(ctx, c.f.SSH.Access, v); err != nil {
+			return Access{}, fmt.Errorf("ask for ssh access: %w", err)
+		}
+		// A sandbox that has just come up may have no address for a
+		// moment; a file that says so is asked again for a while.
+		if fill(c.f.SSH.Host) != "" || (c.f.SSH.Endpoint != "" && strings.TrimSpace(fill(c.f.SSH.Endpoint)) != "") ||
+			c.f.SSH.WaitSecs == 0 || time.Now().After(deadline) {
+			break
+		}
+		if err := pause(ctx); err != nil {
+			return Access{}, fmt.Errorf("sandbox %s has no address yet: %w", id, err)
+		}
+	}
 	a := Access{User: fill(c.f.SSH.User), Host: fill(c.f.SSH.Host), Port: c.f.SSH.Port.N, PlainUser: c.f.SSH.Key != "none"}
+	if c.f.SSH.Command != "" {
+		if host, port, ok := parseSSHCommand(fill(c.f.SSH.Command), a.User); ok {
+			a.Host, a.Port = host, port
+		}
+	}
+	if c.f.SSH.Expires != "" {
+		a.Expires, _ = time.Parse(time.RFC3339, fill(c.f.SSH.Expires))
+	}
+	if ep := strings.TrimSpace(fill(c.f.SSH.Endpoint)); c.f.SSH.Endpoint != "" && ep != "" {
+		host, port, err := endpoint(ep)
+		if err != nil {
+			return Access{}, fmt.Errorf("%s: %w", c.label(), err)
+		}
+		if a.User == "" {
+			return Access{}, fmt.Errorf("%s gave no ssh user for %s", c.label(), id)
+		}
+		a.Host, a.Port = host, port
+		return a, nil
+	}
 	if a.User == "" || a.Host == "" {
+		if c.f.SSH.WaitSecs > 0 {
+			return Access{}, fmt.Errorf("sandbox %s has no address yet (it is %s)", id, s.State)
+		}
 		return Access{}, fmt.Errorf("%s gave no ssh user or host for %s", c.label(), id)
 	}
 	if path := c.f.SSH.Port.Reply; path != "" {
@@ -1253,11 +1396,10 @@ func openCustom(name string, cfg config.SandboxCfg) (Provider, error) {
 	return NewCustom(f, cfg.Of(name)), nil
 }
 
-// IsCustom says whether name is a provider described by a file.
+// IsCustom says whether name is a provider described by a file: every
+// provider is, now that conch has none of its own, so it is whether one
+// loads.
 func IsCustom(name string) bool {
-	if slicesContains(builtin, name) {
-		return false
-	}
 	good, _ := CustomProviders()
 	return slicesContains(good, name)
 }

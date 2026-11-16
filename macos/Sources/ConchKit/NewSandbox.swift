@@ -11,42 +11,39 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
     public var why: String?
     /// Named sizes, smallest first, for a provider that takes no numbers.
     public var sizes: [String]?
-    /// What its snapshot field takes instead, for one that places machines.
-    public var place: String?
     /// What it says before a sandbox is made: a cost or a limit.
     public var note: String?
-    /// Described by a file of the person's (conch sandbox adapt) rather
-    /// than built in, and where that file is.
+    /// A file of the person's own (conch sandbox adapt) rather than one
+    /// installed from the registry — conch has no provider of its own —
+    /// and where the file is.
     public var adapted: Bool?
     public var file: String?
     public var id: String { name }
 
-    /// Whether its row offers Set key…: a built-in provider that is not
-    /// ready, which is a key it lacks. Its key goes in a card of the
-    /// providers list below, which a provider has only once added there —
-    /// so a row that said "put the key in Settings → Sandboxes" and had
-    /// nothing to press left Tensorlake, new and with no card yet, with no
-    /// way to set one. An adapted provider is left out: what it lacks may
-    /// be more than a key, and its file says.
-    public var offersSetKey: Bool { !ready && adapted != true }
+    /// Whether its row offers Set key…: one that is not ready, which is a
+    /// key it lacks. Its key goes in a card of the providers list below,
+    /// which a provider has only once added there — so a row that said
+    /// "put the key in Settings → Sandboxes" and had nothing to press left
+    /// Tensorlake, new and with no card yet, with no way to set one.
+    public var offersSetKey: Bool { !ready }
 
-    public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, place: String? = nil, note: String? = nil, adapted: Bool? = nil, file: String? = nil) {
+    /// Where its file came from, for its row.
+    public var origin: String { adapted == true ? "your file" : "registry" }
+
+    public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, note: String? = nil, adapted: Bool? = nil, file: String? = nil) {
         self.name = name
         self.label = label
         self.ready = ready
         self.why = why
         self.sizes = sizes
-        self.place = place
         self.note = note
         self.adapted = adapted
         self.file = file
     }
 
-    /// How its machines are chosen: a snapshot and numbers, a named size,
-    /// or a place.
+    /// How its machines are chosen: an image and numbers, or a named size.
     public var takes: SandboxShape {
         if let s = sizes, !s.isEmpty { return .sizes(s) }
-        if let p = place, !p.isEmpty { return .place(p) }
         return .snapshot
     }
 }
@@ -54,15 +51,131 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
 public enum SandboxShape: Equatable, Sendable {
     case snapshot
     case sizes([String])
-    case place(String)
+}
+
+/// What a provider's file lets be chosen for its sandboxes, as `conch
+/// sandbox -provider P settings -json` says it: Settings → Sandboxes and
+/// the New Sandbox sheet draw it.
+public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
+    public struct Setting: Decodable, Equatable, Sendable {
+        public var key: String
+        public var label: String
+        public var help: String?
+        public var `default`: String?
+        public var free: Bool?
+        public var choices: [Choice]
+        /// Why the choices could not be read; a value can still be typed.
+        public var error: String?
+        public var values: [String] { choices.map(\.value) }
+    }
+    public struct Choice: Decodable, Equatable, Sendable {
+        public var value: String
+        public var name: String?
+    }
+    public struct Size: Decodable, Equatable, Sendable {
+        public var names: [String]?
+        public var `default`: String?
+        public var cpu: [Int]?
+        public var memoryGib: [Int]?
+        public var diskGib: [Int]?
+        enum CodingKeys: String, CodingKey { case names, `default`, cpu; case memoryGib = "memory_gib", diskGib = "disk_gib" }
+        /// Limits rather than names.
+        public var limits: Bool { (cpu ?? []).count + (memoryGib ?? []).count + (diskGib ?? []).count > 0 }
+    }
+    /// One size the provider's plan allows, as it said it.
+    public struct SizeOption: Decodable, Equatable, Hashable, Sendable {
+        public var cpu: Int
+        public var memory: Int?
+        public var disk: Int?
+        public init(cpu: Int, memory: Int? = nil, disk: Int? = nil) { self.cpu = cpu; self.memory = memory; self.disk = disk }
+        /// "4 vCPU · 8 GiB".
+        public var words: String {
+            var s = "\(cpu) vCPU"
+            if let m = memory, m > 0 { s += " · \(m) GiB" }
+            if let d = disk, d > 0 { s += " · \(d) GiB disk" }
+            return s
+        }
+    }
+    public struct Chosen: Decodable, Equatable, Sendable {
+        public var region: String?
+        public var template: String?
+        public var image: String?
+        public var size: String?
+        public var cpu: Int?
+        public var memory: Int?
+        public var disk: Int?
+    }
+    public var name: String
+    public var label: String
+    public var ready: Bool
+    public var why: String?
+    public var settings: [Setting]
+    public var size: Size
+    public var chosen: Chosen
+    /// The sizes the account may make, read from the provider; sizeError
+    /// why they could not be.
+    public var sizes: [SizeOption]?
+    public var sizeError: String?
+    /// The parts of a size the provider's create sends: cpu, memory, disk.
+    public var takes: [String]?
+    enum CodingKeys: String, CodingKey {
+        case name, label, ready, why, settings, size, chosen, sizes, takes
+        case sizeError = "size_error"
+    }
+
+    /// Whether a size is chosen from what the provider offers rather than
+    /// typed as numbers.
+    public var sizeChoices: [SizeOption] { sizes ?? [] }
+
+    /// Whether the provider takes this part of a size at create; an older
+    /// conch that said nothing takes every part.
+    public func takesPart(_ part: String) -> Bool { takes.map { $0.contains(part) } ?? true }
+
+    public func setting(_ key: String) -> Setting? { settings.first { $0.key == key } }
+
+    /// Whether a provider's card in Settings shows a field of config.toml's
+    /// [sandbox.NAME]: what its file declares, and conch's own (the key,
+    /// idle stop, prices, what goes in). target and snapshot, which older
+    /// conches wrote, show only while they still hold something.
+    public func shows(_ key: String, value: String? = nil) -> Bool {
+        switch key {
+        case "region": return setting("region") != nil
+        case "image": return setting("image") != nil
+        case "template": return setting("template") != nil
+        case "size": return !(size.names ?? []).isEmpty
+        case "cpu": return (size.cpu ?? []).count == 2 || (sizes != nil && takesPart("cpu"))
+        case "memory": return (size.memoryGib ?? []).count == 2 || (sizes != nil && takesPart("memory"))
+        case "disk": return (size.diskGib ?? []).count == 2 || (sizes != nil && takesPart("disk"))
+        case "target", "snapshot": return !(value ?? "").isEmpty
+        default: return true
+        }
+    }
+
+    /// What a field offers to choose from: a setting's choices, or the
+    /// named sizes.
+    public func suggestions(_ key: String) -> [String]? {
+        switch key {
+        case "region", "image", "template":
+            guard let s = setting(key), !s.choices.isEmpty else { return nil }
+            return s.values
+        case "size": return size.names
+        default: return nil
+        }
+    }
 }
 
 /// What New Sandbox… asks for.
 public struct NewSandboxForm: Equatable, Sendable {
     public var provider: String
     public var label = ""
-    /// The snapshot, the size's name or the place: whichever the provider takes.
+    /// The image or snapshot to start from.
     public var snapshot = ""
+    /// Where it runs, for a provider whose file offers regions.
+    public var region = ""
+    /// What it is made from, for a provider whose file offers templates.
+    public var template = ""
+    /// A named size, for a provider whose machines come in them.
+    public var size = ""
     public var cpu = ""
     public var memory = ""
     public var disk = ""
@@ -80,6 +193,14 @@ public struct NewSandboxForm: Equatable, Sendable {
         if !l.isEmpty { args += ["-label", l] }
         let s = snapshot.trimmingCharacters(in: .whitespaces)
         if !s.isEmpty { args += ["-snapshot", s] }
+        let r = region.trimmingCharacters(in: .whitespaces)
+        if !r.isEmpty { args += ["-region", r] }
+        let tp = template.trimmingCharacters(in: .whitespaces)
+        if !tp.isEmpty { args += ["-template", tp] }
+        if case .sizes(let names) = p.takes, !size.isEmpty {
+            guard names.contains(size) else { return .failure(.problem("size: one of \(names.joined(separator: ", "))")) }
+            args += ["-size", size]
+        }
         if case .snapshot = p.takes {
             for (flag, value, what) in [("-cpu", cpu, "vCPUs"), ("-memory", memory, "memory"), ("-disk", disk, "disk")] {
                 let v = value.trimmingCharacters(in: .whitespaces)

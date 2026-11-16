@@ -64,6 +64,10 @@ final class ChangesModel: ObservableObject {
 
     // the overview
     @Published var recent: [LogCommit] = []
+    /// The services the project is thought to use, and why
+    /// (integration.detect): asked once a red check needs explaining.
+    @Published var ciUses: [IntegrationUse] = []
+    private var ciAsked = false
 
     var mode: Mode {
         if let c = chosen { return c }
@@ -125,6 +129,37 @@ final class ChangesModel: ObservableObject {
         }
         await loadComments()
         if mode == .overview { await loadRecent() }
+        await loadCIUses()
+    }
+
+    /// The card for a red check conch cannot read, if there is one.
+    var ciCard: CICard? { CICard(branchInfo?.pr, uses: ciUses) }
+
+    func loadCIUses() async {
+        guard !ciAsked, ciCard != nil, let c = connection, can("integration.detect.v1") else { return }
+        ciAsked = true
+        struct P: Encodable { var project_id: String }
+        if let d = try? await c.call("integration.detect", P(project_id: project), as: IntegrationDetect.self) {
+            ciUses = d.integrations
+        }
+    }
+
+    /// Install the card's integration: the Integrations window's sheet,
+    /// checked against this branch's checkout. Only this Mac's: another
+    /// machine's server reads its checks from files of its own.
+    var canInstallCI: Bool { machine == "local" }
+    func installCI() {
+        guard let card = ciCard, canInstallCI else { return }
+        let dir = store?.snapshots[machine]?.project(project)?.worktrees?.first { $0.branch == branch }?.path
+        store?.installIntegration(card.name, checkIn: dir ?? store?.snapshots[machine]?.project(project)?.path)
+    }
+
+    func rerunCI() {
+        guard can("branch.ci_rerun.v1") else {
+            error = "conch on \(store?.label(machine) ?? machine) is too old to re-run CI: reload its server"
+            return
+        }
+        store?.rerunCI(machine: machine, project: project, branch: branch)
     }
 
     func select(_ path: String, committed: Bool) {

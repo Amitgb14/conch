@@ -1,0 +1,70 @@
+# GitLab issues. A ticket is an issue of the project's GitLab
+# repository, named by its number in that project (its iid).
+format = 3
+kind = "tickets"
+name = "gitlab-issues"
+label = "GitLab issues"
+api = "https://gitlab.com/api/v4"
+base_url = "ask"
+key_env = "GITLAB_TOKEN"
+docs = "https://docs.gitlab.com/api/issues/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "GitLab → Preferences → Access tokens: a personal access token with api (read_api only reads)."
+note = "gitlab.com unless you give your own GitLab's API, https://gitlab.example.com/api/v4. Moving takes close or reopen. A link is added as a comment."
+
+[auth]
+header = "PRIVATE-TOKEN"
+value = "{key}"
+
+[detect]
+remotes = ["gitlab.com"]
+
+[project]
+id = "{path_escaped}"
+
+[list]
+call = "GET /projects/{project}/issues?state=opened&order_by=updated_at&per_page={limit}"
+items = "[*]"
+key = "iid"
+title = "title"
+description = "description"
+url = "web_url"
+status = "state"
+
+[mine]
+call = "GET /projects/{project}/issues?state=opened&scope=assigned_to_me&order_by=updated_at&per_page={limit}"
+items = "[*]"
+key = "iid"
+title = "title"
+url = "web_url"
+status = "state"
+
+[get]
+key = "iid"
+title = "title"
+description = "description"
+url = "web_url"
+status = "state"
+comments = "{notes.[*system=false]}"
+comment_author = "author.username"
+comment_body = "body"
+
+[[get.steps]]
+as = "notes"
+call = "GET /projects/{project}/issues/{ticket}/notes?sort=asc&order_by=created_at&per_page=100"
+
+[[get.steps]]
+call = "GET /projects/{project}/issues/{ticket}"
+
+[comment]
+call = "POST /projects/{project}/issues/{ticket}/notes"
+body = { body = "{body}" }
+
+[link]
+call = "POST /projects/{project}/issues/{ticket}/notes"
+body = { body = "[{title}]({url})" }
+
+[move]
+call = "PUT /projects/{project}/issues/{ticket}"
+body = { state_event = "{status}" }

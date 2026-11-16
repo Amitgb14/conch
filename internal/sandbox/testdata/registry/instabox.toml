@@ -1,0 +1,101 @@
+format = 4
+name = "instabox"
+label = "InstaBox"
+api = "https://api.instabox.sh"
+key_env = "INSTABOX_API_KEY"
+auth_header = "X-API-Key"
+auth_value = "{key}"
+docs = "https://instabox.sh/docs/api-reference/introduction.md"
+adapted_by = "claude"
+adapted = "2026-11-16"
+note = "Each change answers 202 with an operation; the machine's state moves on its own. SSH goes through the instabox gateway with a per-connection token (ssh-tokens), so no key needs registering. Sizes are your plan's (Free: 4 vCPU / 8 GiB only; the free plan makes machines from agent-browser, android, omarchy or ci, or a snapshot). Disk cannot be chosen at create."
+headers = { Idempotency-Key = "{uuid}" }
+
+[create]
+call = "POST /v1/machines"
+body = { name = "{name}", templateId = "{template}", snapshotId = "{image}", vcpus = "{cpu}", memMiB = "{memory_mb}", env = "{env}", autoSuspendAfterSeconds = "{auto_stop_secs}" }
+id = "machineId"
+
+[get]
+call = "GET /v1/machines/{id}"
+headers = { Idempotency-Key = "" }
+state = "state"
+name = "name"
+reason = "lastError.message"
+cpu = "spec.vcpus"
+memory_mb = "spec.memMiB"
+created = "createdAt"
+
+[list]
+call = "GET /v1/machines"
+headers = { Idempotency-Key = "" }
+items = "machines"
+id = "id"
+next = "nextCursor"
+cursor_param = "cursor"
+mine = "conch-"
+
+[start]
+call = "POST /v1/machines/{id}/start"
+[stop]
+call = "POST /v1/machines/{id}/stop"
+[delete]
+call = "DELETE /v1/machines/{id}"
+headers = { X-Confirm-Delete = "{id}" }
+
+[states]
+creating = "starting"
+starting = "starting"
+running = "started"
+stopping = "stopping"
+stopped = "stopped"
+suspended = "stopped"
+failed = "error"
+deleted = "gone"
+
+[ssh]
+host = "{reply.host}"
+port = "{reply.port}"
+user = "{reply.token}"
+key = "none"
+[ssh.access]
+call = "POST /v1/machines/{id}/ssh-tokens"
+
+[size.choices]
+call = "GET /v1/orgs"
+items = "orgs.0.allowedSpecs"
+cpu = "vcpus"
+memory_mb = "memMiB"
+
+[[setting]]
+key = "template"
+label = "Template"
+choices_call = "GET /v1/templates"
+items = "templates[*creatable=true]"
+value = "id"
+name = "description"
+default = "agent-browser"
+
+[[setting]]
+key = "image"
+label = "Snapshot"
+help = "A snapshot of yours to start from instead of a template."
+choices_call = "GET /v1/snapshots"
+items = "snapshots"
+value = "id"
+name = "name"
+free = true
+
+[snapshot.save]
+call = "POST /v1/machines/{id}/snapshots"
+body = { name = "{snapshot_name}" }
+[snapshot.list]
+call = "GET /v1/snapshots"
+headers = { Idempotency-Key = "" }
+items = "snapshots"
+name = "name"
+state = "status"
+created = "createdAt"
+[snapshot.forget]
+call = "DELETE /v1/snapshots/{snapshot_name}"
+headers = { X-Confirm-Delete = "{snapshot_name}" }

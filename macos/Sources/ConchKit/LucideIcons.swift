@@ -22,6 +22,8 @@ public enum LucideIcons {
         "square-terminal": ["m7 11 2-2-2-2", "M11 13h4", svgRect(3, 3, 18, 18, 2)],
         "history": ["M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", "M3 3v5h5", "M12 7v5l4 2"],
         "laptop": ["M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"],
+        // Integrations: blocks, one set apart — what plugs into conch.
+        "blocks": [svgRect(14, 3, 7, 7, 1), "M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"],
         "server": [svgRect(2, 2, 20, 8, 2), svgRect(2, 14, 20, 8, 2), svgLine(6, 6, 6.01, 6), svgLine(6, 18, 6.01, 18)],
         "cloud": ["M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"],
         "monitor": [svgRect(2, 3, 20, 14, 2), svgLine(8, 21, 16, 21), svgLine(12, 17, 12, 21)],

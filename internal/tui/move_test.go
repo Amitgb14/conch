@@ -77,7 +77,10 @@ func moveSandboxes(t *testing.T, p sandbox.Provider) {
 		}
 		return nil, errors.New("not here")
 	}
-	t.Cleanup(func() { openSandboxProvider = old })
+	// Installed, as a provider has to be to be offered.
+	names := sandbox.Names
+	sandbox.Names = func() []string { return []string{"daytona"} }
+	t.Cleanup(func() { openSandboxProvider, sandbox.Names = old, names })
 }
 
 var featTarget = harvestTarget{machine: localMachine, projectID: "r1", branch: "feat"}

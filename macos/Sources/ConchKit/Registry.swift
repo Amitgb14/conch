@@ -1,7 +1,7 @@
 import Foundation
 
 // The provider registry: provider files others adapted and published
-// (github.com/Amitgb14/conch-sandbox-providers). conch reads it — `conch
+// (github.com/Amitgb14/conch-integrations). conch reads it — `conch
 // sandbox provider search -json` lists it, `install -y NAME` installs one —
 // and the Add provider sheet shows what those say.
 

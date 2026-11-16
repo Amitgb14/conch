@@ -209,7 +209,7 @@ Projects kept together because they change together — an API, its web app, the
 | `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
 | `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
 | `-issue N` | work on that GitHub issue, read with `gh`: its title and body are the prompt, and any `PROMPT` is added |
-| `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address — read by the server with the key in [`[trackers]`](/docs/configuration#trackers): its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
+| `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address, or a [tickets integration](/docs/integrations#ticket-trackers)'s `NAME:KEY` (`shortcut:123`) — read by the server with the key in [`[trackers]`](/docs/configuration#trackers) or the integration's: its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
 
 ### ticket
 
@@ -222,7 +222,7 @@ Tickets in Linear and Jira, through the server on the project's machine and the 
 | `conch ticket comment TICKET TEXT...` | add a comment |
 | `conch ticket status TICKET STATUS...` | move it to a status as the tracker names it (`In Review`, `Done`); Jira takes the transition that leads there |
 | `conch ticket link [-title T] TICKET URL` | attach a link — a pull request, a branch — to the ticket |
-| `conch ticket all [-mine] [-json]` | every project's open tickets — its GitHub issues and its Linear or Jira tickets — with what conch is doing about each: a task queued, its agent working or waiting, its pull request and CI, merged. Conch.app's Tickets window (⇧⌘I) shows the same |
+| `conch ticket all [-mine] [-json]` | every project's open tickets — its GitHub issues, its Linear or Jira tickets and those of its tickets integrations — with what conch is doing about each: a task queued, its agent working or waiting, its pull request and CI, merged. Conch.app's Tickets window (⇧⌘I) shows the same |
 | `conch ticket check [-json]` | whether GitHub (through `gh`), Linear and Jira can be reached with what the server has: whose the key is, the teams or projects it sees, open tickets and yours, each `[[trackers.projects]]` entry, and what is wrong — never the key. Settings → Trackers shows the same |
 
 ```sh
@@ -244,7 +244,8 @@ Finishing a task from a script, the same steps as the [changes view](/docs/tasks
 | `conch branch merge [-no-squash] [-m MESSAGE]` | merge the branch into the base where the base is checked out, squashed unless `-no-squash`. A merge that conflicts is undone and the command fails |
 | `conch branch discard [-n] [-force]` | remove the branch's worktree and delete the branch. It refuses when that would lose uncommitted files or unpushed commits, unless `-force`; `-n` only prints what would go |
 | `conch branch prune [-days N \| -merged] [-y] [-force] [BRANCH...]` | delete local branches with no commit in N days (`[git] stale_days`, else 30) that lose nothing: merged, or pushed. `-merged` takes instead every branch the base already has — merged, squashed in, or merged on GitHub with its last commit — however recent. It keeps the base branch and any branch checked out in a worktree, and — unless `-force` — one with commits neither merged nor pushed. Without `-y` it only prints what would go |
-| `conch branch fix-ci [-agent A]` | send the branch's newest failed CI run — its log's end and a link to it — to the agent working on the branch, as `f` in the review queue; with none there, start one (`-agent`, else `[agents] default`) in the branch's worktree with it. Refused while that agent waits on a question of its own |
+| `conch branch fix-ci [-agent A]` | send the branch's newest failed CI run — from GitHub Actions, or, when Actions has none, from the project's CI integration (CircleCI, GitLab CI; see Integrations) — its log's end and a link to it — to the agent working on the branch, as `f` in the review queue; with none there, start one (`-agent`, else `[agents] default`) in the branch's worktree with it. Refused while that agent waits on a question of its own |
+| `conch branch rerun-ci` | re-run what failed in the branch's newest failed CI run: `gh run rerun --failed` on GitHub Actions, else through the project's CI integration |
 
 ```sh
 conch branch commit -m "Add the health check" && conch branch pr -title "Health check"
@@ -304,8 +305,9 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox provider publish [-dry-run] [-json] NAME` | check one of yours with your key, then propose it to the registry as a pull request through `gh` (your fork, or the repository itself if you can push); your key is never part of it |
 | `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
-| `conch sandbox -provider daytona\|boat\|devin …` | whose sandboxes the command means, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
-| `conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox (key in `$DAYTONA_API_KEY`, `$BOAT_API_KEY` or `$DEVIN_API_KEY`; Devin Cloud also needs the `devin` CLI signed in), install conch there and add it as a machine; it runs until stopped. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox -provider P …` | whose sandboxes the command means — an installed provider: daytona, boat, tensorlake or any other file, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
+| `conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox with an installed provider (its key in the variable its file names, e.g. `$DAYTONA_API_KEY`), install conch there and add it as a machine; it runs until stopped. Template, region, image and size are what the provider's file offers, defaulting to Settings'. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox -provider P settings [-json]` | what the provider's file lets you choose — a region, a default image, a size — with its choices, and what `config.toml` chose |
 | `conch sandbox -provider P add [-label L] ID` | make a sandbox `ls` shows with no machine — one whose machine was removed, or on boat.dev one made in its own interface — one of conch's machines: started if stopped, conch installed, and added. Never deleted if that fails |
 | `conch sandbox -provider P ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox -provider P`) |
 | `conch sandbox -provider P ssh [-t] ID [COMMAND...]` | a shell in a running sandbox, or `COMMAND` run there (`-t` gives it a terminal); exits with its status |
@@ -318,6 +320,24 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox -provider P snapshots [-rm NAME]` | list what is kept, or forget one |
 
 `ID` is the machine's ID or label, the provider's own sandbox ID, or `PROVIDER:ID`; it must belong to the provider `-provider` names. See [Sandboxes](/docs/sandboxes).
+
+### integration
+
+| Command | Description |
+| --- | --- |
+| `conch integration search [-json] [KIND\|WORDS]` | what the [registries](/docs/integrations#registries) list: each integration's kind, whether a maintainer has run it live, and the hosts it reaches. An index that is not signed says so |
+| `conch integration info [-json] NAME` | what it does in conch, the hosts your key goes to (and the ones it reads without it), how to make its key, who wrote it |
+| `conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME` | say the hosts and the key's variable and ask (`-y` doesn't), check the file's hash and that it reaches nothing else, then ask for the key without echoing it (`-key-stdin` reads it) and keep it in the Keychain on a Mac — elsewhere it says the variable to set; then one read-only call against this project's branch. A revoked version is refused |
+| `conch integration key [-stdin] [-base URL] [-cwd DIR] NAME` | give an integration — shipped or installed — its key: without echo (`-stdin` reads it), kept in the Keychain on a Mac, then checked against this project; `-base` keeps the address of a service you run yourself (`[integrations.base]`) |
+| `conch integration ls [-json] [-cwd DIR]` | every integration here: built in (GitHub, GitHub Actions, GitHub Issues, Linear, Jira), shipped with conch, installed or of your own, its version, its key's state and whether the project in `DIR` uses it; a file that is not used says why (revoked, a problem in it) |
+| `conch integration update [-y] [NAME]` | take newer versions of what you installed; a file edited here is left alone, and a version reaching new hosts is asked about even with `-y` |
+| `conch integration remove NAME` | delete an installed integration and its record |
+| `conch integration check [-json] NAME\|FILE` | everything wrong with a file, one line each; exits 1 when anything is |
+| `conch integration guide` | the [file format](/docs/integrations#writing-one), for writing one |
+| `conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...` | [adapt one](/docs/integrations#adapting-one-from-its-api-docs) conch does not know: conch downloads the API docs, an agent (`-agent`, default claude) writes `NAME.toml` to the kind's contract in a pane of its own and runs `conch integration check` until it is clean, then conch reads the project in `DIR`'s runs with your key — after asking, since the file chose the variable and the host. The agent never has the key. A service conch ships or a registry lists is pointed at rather than adapted (`-new` adapts anyway); `-kind sandbox` is `conch sandbox adapt`. `-revise TEXT NAME` asks the agent for a change, `-check NAME` runs the key check, `-save NAME` keeps the draft as a file of your own |
+| `conch integration publish [-dry-run] [-json] [-y] [-cwd DIR] FILE\|NAME` | check the file with your key (asked first, unless `-y`), then open a pull request to the registry through `gh` adding the file and its index entry (kind, version — the next unused one —, hosts, key variable, operations), with the check's result in its body. Your key is never part of it |
+
+See [Integrations](/docs/integrations).
 
 ### web
 

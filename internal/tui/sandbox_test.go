@@ -133,6 +133,7 @@ func sandboxModel(t *testing.T) (*Model, *machine) {
 	t.Helper()
 	a2Isolate(t)
 	t.Setenv("DAYTONA_API_KEY", "")
+	installProviders(t, "daytona", "boat")
 	m := a2Model()
 	saved, _ := remote.SaveMachine(remote.Machine{Label: "fix", Target: "daytona:sb1"})
 	remote.SaveMachine(remote.Machine{Label: "gpu", Target: "dev@gpu"})
@@ -330,7 +331,7 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	m.overlay = mu
 	mu.items[1].run(m)
 	sub, ok := m.overlay.(*menu)
-	if !ok || a2MenuLabels(sub) != "d Daytona… | b boat.dev… | e Devin Cloud… | * Install a provider from the registry… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
+	if !ok || a2MenuLabels(sub) != "b boat.dev… | d Daytona… | * Install a provider from the registry… | + Add a provider conch doesn't know…" || sub.title != "New sandbox" {
 		t.Fatalf("sandbox menu: %#v", m.overlay)
 	}
 	if _, _ = sub.update(m, a2Key("esc")); m.overlay == nil {
@@ -343,26 +344,26 @@ func TestSandboxAddMenuAndDialog(t *testing.T) {
 	providers := sandbox.Names
 	t.Cleanup(func() { sandbox.Names = providers })
 	sandbox.Names = func() []string { return []string{"daytona", "fly"} }
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly… (adapted) | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | f Fly… | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("another provider: %q", got)
 	}
 	sandbox.Names = func() []string { return []string{"daytona", "dune"} } // a letter already taken: the next of its own
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune… (adapted) | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "d Daytona… | u Dune… | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("a shared letter: %q", got)
 	}
 	sandbox.Names = func() []string { return []string{"ad", "da", "a-d"} } // every letter taken: enter still picks it
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… (adapted) | d Da… (adapted) |  A-d… (adapted) | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != "a Ad… | d Da… |  A-d… | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("no letter left: %q", got)
 	}
 	sandbox.Names = func() []string { return nil }
-	if got := a2MenuLabels(newSandboxMenu(nil)); got != " conch knows no sandbox providers | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
+	if got := a2MenuLabels(newSandboxMenu(nil)); got != " No sandbox provider is installed | * Install a provider from the registry… | + Add a provider conch doesn't know…" {
 		t.Fatalf("no providers: %q", got)
 	}
 	sandbox.Names = providers
 
 	// With no key the dialog says so before anything is spent.
 	sub = newSandboxMenu(nil)
-	sub.items[0].run(m)
+	sub.items[1].run(m)
 	d, ok := m.overlay.(*dialog)
 	if !ok || !strings.Contains(d.title, "New Daytona sandbox") || !strings.Contains(strings.Join(d.text, " "), "Needs a Daytona API key: set $DAYTONA_API_KEY") {
 		t.Fatalf("sandbox dialog: %#v", m.overlay)
@@ -507,12 +508,12 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	// A second provider, to prove the grouping is not Daytona's alone.
 	providers := sandbox.Names
 	t.Cleanup(func() { sandbox.Names = providers })
-	sandbox.Names = func() []string { return []string{"daytona", "e2b"} }
+	sandbox.Names = func() []string { return []string{"daytona", "boat"} }
 	m := a2Model()
 	for _, mm := range []remote.Machine{
 		{Label: "sdx01", Target: "daytona:sb-aaa"},
 		{Label: "sdx02", Target: "daytona:sb-bbb"},
-		{Label: "sdx01", Target: "e2b:sb-ccc"}, // the same label under another provider: given its ID (remote.SaveMachine)
+		{Label: "sdx01", Target: "boat:sb-ccc"}, // the same label under another provider: given its ID (remote.SaveMachine)
 		{Label: "gpu", Target: "dev@gpu"},
 	} {
 		if _, err := remote.SaveMachine(mm); err != nil {
@@ -542,7 +543,7 @@ func TestSandboxTreeGrouping(t *testing.T) {
 		}
 	}
 	m.rebuild()
-	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n1 sandboxes/e2b\n2 sdx01-2\n"
+	want := "0 local\n0 gpu\n0 sandboxes\n1 sandboxes/boat\n2 sdx01-2\n1 sandboxes/daytona\n2 sdx01\n2 sdx02\n"
 	if got := shape(); got != want {
 		t.Fatalf("tree:\n%s\nwant:\n%s", got, want)
 	}
@@ -570,7 +571,7 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	// Collapsing a provider hides only its own.
 	m.expanded[sandboxProviderID("daytona")] = false
 	m.rebuild()
-	if got := shape(); strings.Contains(got, "2 sdx02") || !strings.Contains(got, "1 sandboxes/e2b") {
+	if got := shape(); strings.Contains(got, "2 sdx02") || !strings.Contains(got, "1 sandboxes/boat") {
 		t.Fatalf("collapsed daytona:\n%s", got)
 	}
 	m.expanded[sandboxesID()] = false
@@ -583,12 +584,12 @@ func TestSandboxTreeGrouping(t *testing.T) {
 	m.expanded[sandboxesID()] = true
 	m.rebuild()
 	page := a2Plain(m.sandboxesLines("", 80))
-	for _, want := range []string{"Sandboxes  3", "sdx01", "sdx02", "Daytona sb-aaa", "E2B sb-ccc", "one that runs, costs"} {
+	for _, want := range []string{"Sandboxes  3", "sdx01", "sdx02", "Daytona sb-aaa", "boat.dev sb-ccc", "one that runs, costs"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("the page lacks %q:\n%s", want, page)
 		}
 	}
-	if one := a2Plain(m.sandboxesLines("e2b", 80)); !strings.Contains(one, "E2B sandboxes  1") || strings.Contains(one, "sb-aaa") {
+	if one := a2Plain(m.sandboxesLines("boat", 80)); !strings.Contains(one, "boat.dev sandboxes  1") || strings.Contains(one, "sb-aaa") {
 		t.Fatalf("one provider's page:\n%s", one)
 	}
 	// With none, the group is gone from the tree and the page says how to
@@ -1522,81 +1523,4 @@ func TestReceiveUsage(t *testing.T) {
 	}
 	// A machine that has gone is not remembered at all.
 	m.receiveUsage(sandboxUsageMsg{machine: "nope", usage: u})
-}
-
-// Devin places a session rather than sizing it: the dialog asks for a
-// platform and no numbers, says what a session costs that a machine
-// wouldn't, and submits the platform where the snapshot goes.
-func TestSandboxDialogDevin(t *testing.T) {
-	m, _ := sandboxModel(t)
-	labels := func(d *dialog) string {
-		var out []string
-		for _, f := range d.fields {
-			out = append(out, strings.TrimSpace(f.label)+"|"+f.in.Placeholder)
-		}
-		return strings.Join(out, " · ")
-	}
-	d := newSandboxDialog(*m, "devin")
-	got := labels(d)
-	if strings.Contains(got, "vCPUs") || strings.Contains(got, "Memory") || strings.Contains(got, "Snapshot") ||
-		!strings.Contains(got, "Platform|a platform (e.g. windows) or an outpost pool; empty is the default") {
-		t.Fatalf("Devin's fields: %s", got)
-	}
-	text := strings.Join(d.text, " ")
-	for _, want := range []string{"Needs a Devin Cloud API key", "$DEVIN_API_KEY", "bills ACUs", "devin auth login"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("Devin's dialog lacks %q: %q", want, text)
-		}
-	}
-	// A platform in the settings is the placeholder.
-	pc := m.cfg.Sandbox.Of("devin")
-	pc.Snapshot = "windows"
-	m.cfg.Sandbox.Set("devin", pc)
-	if got := labels(newSandboxDialog(*m, "devin")); !strings.Contains(got, "Platform|windows") {
-		t.Fatalf("with a platform set: %s", got)
-	}
-	// What it submits goes to a fake: the platform as the snapshot, and no size.
-	p := &sbProvider{createErr: errors.New("far enough")}
-	useSandboxProvider(t, p)
-	a2Run(d.submit(m, []string{"web", "my-pool", ""}))
-	if p.spec.Snapshot != "my-pool" || p.spec.CPU != 0 || len(p.spec.Env) != 0 {
-		t.Fatalf("spec %+v", p.spec)
-	}
-}
-
-// Devin's settings page asks for a platform where the others ask for a
-// snapshot and a region: a session has no region to choose.
-func TestDevinSettingsPage(t *testing.T) {
-	m, _ := sandboxModel(t)
-	s := &settings{}
-	var rows []string
-	for _, it := range s.providerItems(m, "devin") {
-		rows = append(rows, it.label+"|"+ansi.Strip(it.detail))
-	}
-	out := strings.Join(rows, "\n")
-	if !strings.Contains(out, "Platform|the organization's default") || strings.Contains(out, "Region|") ||
-		strings.Contains(out, "Snapshot|") || !strings.Contains(out, "API key variable|DEVIN_API_KEY") {
-		t.Fatalf("Devin's page:\n%s", out)
-	}
-	for _, it := range s.providerItems(m, "devin") {
-		if it.label == "Platform" {
-			it.run(m)
-		}
-	}
-	d, ok := m.overlay.(*dialog)
-	if !ok || !strings.Contains(strings.Join(d.text, " "), "outpost pool") {
-		t.Fatalf("platform dialog: %#v", m.overlay)
-	}
-	d.submit(m, []string{" linux "})
-	if got := m.cfg.Sandbox.Of("devin").Snapshot; got != "linux" {
-		t.Fatalf("saved %q", got)
-	}
-	// Daytona's page still has both.
-	rows = nil
-	for _, it := range s.providerItems(m, "daytona") {
-		rows = append(rows, it.label)
-	}
-	if got := strings.Join(rows, ","); !strings.Contains(got, "Snapshot,Region") {
-		t.Fatalf("Daytona's page: %s", got)
-	}
 }

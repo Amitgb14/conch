@@ -117,6 +117,10 @@ private struct Entry: View {
             Circle().fill(tone).frame(width: 7, height: 7).padding(.top, 4)
             VStack(alignment: .leading, spacing: 3) {
                 Text(note.text).font(.ui(size: 12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+                // What was read of a failed run's log, and from where.
+                if let read = note.ci?.read {
+                    Text(read).font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+                }
                 HStack(spacing: 6) {
                     if !note.kindLabel.isEmpty {
                         Text(note.kindLabel).font(.ui(size: 10, weight: .semibold)).foregroundStyle(tone)

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/ghx"
 	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -1101,8 +1102,10 @@ func prChecks(runs []ghx.Check) []proto.PRCheck {
 		return nil
 	}
 	out := make([]proto.PRCheck, len(runs))
+	files := integration.Cached()
 	for i, r := range runs {
-		out[i] = proto.PRCheck{Name: r.Name, State: r.State, URL: r.URL}
+		src, readable := integration.CheckSource(r.Name, r.URL, files)
+		out[i] = proto.PRCheck{Name: r.Name, State: r.State, URL: r.URL, Source: src, Readable: readable}
 	}
 	return out
 }

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -289,5 +291,23 @@ func TestPickSelectors(t *testing.T) {
 	_ = json.Unmarshal([]byte(`[{"a":"b","c":"d"}]`), &list)
 	if got := Pick(list, "[a=b].c"); got != "d" {
 		t.Errorf("a selector on the reply itself: %v", got)
+	}
+}
+
+// A conch's sandbox parser is what an older conch reads every provider
+// file with, so it must refuse an integration file rather than read a CI
+// file as a sandbox provider with nothing in it. Sandbox files have a
+// format 3 of their own (headers), so the refusal is by the integration's
+// keys, kind first, not by its number.
+func TestProviderFileRefusesAnIntegrationFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "circleci.toml")
+	src := "format = 3\nkind = \"ci\"\nname = \"circleci\"\napi = \"https://circleci.com\"\nkey_env = \"CIRCLECI_TOKEN\"\nfollow_hosts = [\"logs.example\"]\n[runs]\ncall = \"GET /x\"\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, problems, err := ReadProviderFile(path)
+	all := strings.Join(problems, "\n")
+	if err == nil && !strings.Contains(all, "unknown key kind") {
+		t.Fatalf("an integration file read as a sandbox provider: %v", problems)
 	}
 }

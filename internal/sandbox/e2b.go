@@ -334,7 +334,7 @@ func (e *E2B) call(ctx context.Context, method, path string, q url.Values, body,
 		return fmt.Errorf("e2b: reply to %s %s is over %d bytes", method, path, maxBody)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return &E2BError{Status: resp.StatusCode, Message: errorMessage(data), keyEnv: e.keyEnv}
+		return &E2BError{Status: resp.StatusCode, Message: replyMessage(data), keyEnv: e.keyEnv}
 	}
 	if out == nil || len(bytes.TrimSpace(data)) == 0 {
 		if out != nil {

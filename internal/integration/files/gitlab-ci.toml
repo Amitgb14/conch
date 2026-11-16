@@ -1,0 +1,65 @@
+# GitLab CI. A run is a pipeline at the pull request's head; its failed
+# log is each failed job's trace.
+format = 3
+kind = "ci"
+name = "gitlab-ci"
+label = "GitLab CI"
+api = "https://gitlab.com/api/v4"
+base_url = "ask"
+key_env = "GITLAB_TOKEN"
+docs = "https://docs.gitlab.com/api/pipelines/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "GitLab → Preferences → Access tokens: a personal access token with read_api (api to retry pipelines)."
+note = "gitlab.com unless you give your own GitLab's API, https://gitlab.example.com/api/v4."
+
+[auth]
+header = "PRIVATE-TOKEN"
+value = "{key}"
+
+[detect]
+files = [".gitlab-ci.yml"]
+remotes = ["gitlab.com"]
+
+[project]
+id = "{path_escaped}"
+
+[states]
+success = "pass"
+failed = "fail"
+created = "pending"
+waiting_for_resource = "pending"
+preparing = "pending"
+pending = "pending"
+running = "pending"
+manual = "pending"
+scheduled = "pending"
+canceled = "canceled"
+skipped = "canceled"
+
+[runs]
+call = "GET /projects/{project}/pipelines?ref={branch}&sha={head}&per_page=20"
+items = "[*]"
+id = "id"
+name = "pipeline {item.id}"
+state = "status"
+commit = "sha"
+url = "web_url"
+started = "created_at"
+finished = "updated_at"
+
+[failed_log]
+job = "{jobs.0.name}"
+
+[[failed_log.steps]]
+as = "jobs"
+call = "GET /projects/{project}/pipelines/{run}/jobs?scope[]=failed&per_page=100"
+pick = "[*]"
+
+[[failed_log.steps]]
+each = "jobs"
+call = "GET /projects/{project}/jobs/{item.id}/trace"
+text = "."
+
+[rerun]
+call = "POST /projects/{project}/pipelines/{run}/retry"

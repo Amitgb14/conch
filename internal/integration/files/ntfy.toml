@@ -1,0 +1,23 @@
+# ntfy: a topic's address, on ntfy.sh or a server of your own. Anybody
+# who knows a topic on ntfy.sh can read it, so its address is the key.
+format = 3
+kind = "notify"
+name = "ntfy"
+label = "ntfy"
+api = "https://ntfy.sh"
+base_url = "ask"
+key_env = "NTFY_TOPIC_URL"
+docs = "https://docs.ntfy.sh/publish/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Pick a topic name nobody would guess and subscribe to it in the ntfy app; the key is its address, https://ntfy.sh/TOPIC."
+note = "ntfy.sh unless you give your own server's address. The topic's URL is the key: it is kept like one, and never shown."
+
+[auth]
+type = "url"
+
+[send]
+call = "POST"
+body = "{body}"
+headers = { Title = "{title}", Click = "{url}", Tags = "robot" }
+text = "."

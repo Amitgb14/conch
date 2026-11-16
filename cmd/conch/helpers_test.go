@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sandbox"
 	"github.com/Amitgb14/conch/internal/sshtest"
 )
 
@@ -35,6 +38,19 @@ func TestMain(m *testing.M) {
 	openInBrowser = func(string) error { return nil }
 	// Nor read the real provider registry: adapt asks it first.
 	os.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1/unused")
+	// Nor reach a tracker or a webhook with the developer's own key: a
+	// server started here sends to every notify integration whose key is
+	// set.
+	for _, k := range []string{"SHORTCUT_API_TOKEN", "SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL", "NTFY_TOPIC_URL"} {
+		os.Unsetenv(k)
+	}
+	// Nor from the developer's Keychain, which a server started here reads
+	// keys from on a Mac: a test that wants one gives a security of its
+	// own. Only on a Mac, where the Keychain is assumed anyway, so the
+	// paths without one stay as they are elsewhere.
+	if runtime.GOOS == "darwin" && os.Getenv("CONCH_SECURITY") == "" {
+		os.Setenv("CONCH_SECURITY", "/nonexistent/security")
+	}
 	switch os.Getenv("A4_HELPER_MODE") {
 	case "main":
 		os.Args = append([]string{"conch"}, os.Args[1:]...)
@@ -86,16 +102,8 @@ func a4Env(t *testing.T) string {
 	t.Setenv("CONCH_TAILSCALE", filepath.Join(dir, "no-tailscale")) // never the real one
 	// A real Daytona key in the developer's environment must never be used.
 	t.Setenv("DAYTONA_API_KEY", "")
-	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1/unused")
-	t.Setenv("DAYTONA_TARGET", "")
 	t.Setenv("BOAT_API_KEY", "")
-	t.Setenv("BOAT_API_URL", "http://127.0.0.1:1/unused")
-	t.Setenv("DEVIN_API_KEY", "")
-	t.Setenv("DEVIN_API_URL", "http://127.0.0.1:1/unused")
-	t.Setenv("DEVIN_ORG_ID", "")
 	t.Setenv("TENSORLAKE_API_KEY", "")
-	t.Setenv("TENSORLAKE_API_URL", "http://127.0.0.1:1/unused")
-	t.Setenv("CONCH_DEVIN", filepath.Join(dir, "no-devin")) // never the real CLI
 	gh := filepath.Join(dir, "gh")
 	os.WriteFile(gh, []byte("#!/bin/sh\nexit 1\n"), 0o755)
 	t.Setenv("CONCH_GH", gh)
@@ -475,4 +483,38 @@ func a4RunBinary(t *testing.T, exe, stdin string, args ...string) (int, string, 
 		code = cmd.ProcessState.ExitCode()
 	}
 	return code, stdout.String(), stderr.String()
+}
+
+// installProviderFile puts the provider file conch-integrations publishes
+// for name (a copy in internal/sandbox/testdata/registry) in place, pointed
+// at api: conch has no provider of its own, so a fake provider is reached
+// as the real one is, through its file.
+func installProviderFile(t *testing.T, name, api string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "internal", "sandbox", "testdata", "registry", name+".toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := regexp.MustCompile(`(?m)^api = ".*"$`).ReplaceAllString(string(data), fmt.Sprintf("api = %q", api))
+	dir := sandbox.ProvidersDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".toml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// appendProviderFile adds TOML to an installed provider file: a table the
+// published one does not have, for a test.
+func appendProviderFile(t *testing.T, name, toml string) {
+	t.Helper()
+	f, err := os.OpenFile(sandbox.ProviderFilePath(name), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(toml); err != nil {
+		t.Fatal(err)
+	}
 }

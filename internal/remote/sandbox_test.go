@@ -311,8 +311,7 @@ func TestUnsavedWork(t *testing.T) {
 	if UnsavedWork(nil) != nil || UnsavedWork([]proto.ProjectInfo{{Name: "empty"}}) != nil {
 		t.Fatal("nothing to lose")
 	}
-	if DefaultSandboxLabel("0123456789") != "sandbox-01234567" || DefaultSandboxLabel("ab") != "sandbox-ab" ||
-		DefaultSandboxLabel("devin-0123456789abcdef") != "sandbox-01234567" {
+	if DefaultSandboxLabel("0123456789") != "sandbox-01234567" || DefaultSandboxLabel("ab") != "sandbox-ab" {
 		t.Fatal("DefaultSandboxLabel")
 	}
 }
@@ -356,6 +355,7 @@ func TestConnectToASandbox(t *testing.T) {
 // settings decide, and a provider conch does not know says so.
 func TestOpenProviderFromTheSettings(t *testing.T) {
 	a4Env(t)
+	installProviderFiles(t, "daytona", "boat")
 	t.Setenv("DAYTONA_API_KEY", "")
 	t.Setenv("BOAT_API_KEY", "")
 	// Nothing configured: the provider is still opened, and says what it

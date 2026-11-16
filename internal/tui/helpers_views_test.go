@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"github.com/Amitgb14/conch/internal/sandbox"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -26,11 +30,9 @@ func a2Isolate(t *testing.T) {
 	t.Setenv("TMUX", "")
 	// A real provider key in the developer's environment must never show
 	// up in a settings row or make a dialog think it is configured.
-	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY", "DEVIN_ORG_ID"} {
+	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "TENSORLAKE_API_KEY",
+		"CIRCLECI_TOKEN", "GITLAB_TOKEN", "BUILDKITE_TOKEN", "JENKINS_TOKEN", "LINEAR_API_KEY", "JIRA_API_TOKEN"} {
 		t.Setenv(v, "")
-	}
-	for _, v := range []string{"DAYTONA_API_URL", "BOAT_API_URL", "DEVIN_API_URL"} {
-		t.Setenv(v, "http://127.0.0.1:1/unused")
 	}
 }
 
@@ -145,5 +147,27 @@ func a2Frame(m *Model, pane string, f *proto.Frame) {
 	m.frames[paneKey(localMachine, pane)] = f
 	if m.viewing == pane || m.viewing == "" {
 		m.frame = f
+	}
+}
+
+// installProviders puts the provider files conch-integrations publishes
+// (copies in internal/sandbox/testdata/registry) in $CONCH_HOME, pointed at
+// an address nothing answers: conch has no provider of its own, so a
+// provider is offered only once it is installed.
+func installProviders(t *testing.T, names ...string) {
+	t.Helper()
+	dir := sandbox.ProvidersDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join("..", "sandbox", "testdata", "registry", name+".toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := regexp.MustCompile(`(?m)^api = ".*"$`).ReplaceAllString(string(data), `api = "http://127.0.0.1:1"`)
+		if err := os.WriteFile(filepath.Join(dir, name+".toml"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

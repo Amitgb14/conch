@@ -26,6 +26,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/doctor"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sandbox"
 	"github.com/Amitgb14/conch/internal/server"
 	"github.com/Amitgb14/conch/internal/tui"
 	"github.com/Amitgb14/conch/internal/update"
@@ -190,13 +191,15 @@ Usage:
                                 and starts from its branch (stacked work; -base to start elsewhere);
                                 -issue N works on that GitHub issue (PROMPT is then optional);
                                 -ticket KEY on that Linear or Jira ticket (ENG-123, linear:ENG-123,
-                                or its address), set up in [trackers] in config.toml;
+                                or its address), set up in [trackers] in config.toml, or a tickets
+                                integration's (shortcut:123);
                                 -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
   conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL | check | all
-                                tickets in Linear or Jira ([trackers] in config.toml): list the
-                                project's open ones, read one, comment, move it, link a pull request
+                                tickets in Linear or Jira ([trackers] in config.toml) or a tickets
+                                integration (Shortcut, GitLab issues: NAME:KEY): list the project's
+                                open ones, read one, comment, move it, link a pull request
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
@@ -208,7 +211,9 @@ Usage:
                                 lose nothing, or (-merged) every merged one; a dry run
                                 without -y
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
-                                in its worktree with it), as f in the review queue
+                                in its worktree with it), as f in the review queue: GitHub
+                                Actions, else the project's CI integration (CircleCI, GitLab CI)
+  conch branch rerun-ci         re-run what failed in a branch's newest failed CI run
   conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
                                 FILE[:LINE] NOTE, rm ID, send [-agent A] them to it, or
@@ -222,9 +227,10 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
-                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
-                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
+  conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+                                make a sandbox with an installed provider (each is a provider file:
+                                conch sandbox provider install daytona, boat, tensorlake, …; its key
+                                in its variable, e.g. $DAYTONA_API_KEY, or Settings → Sandboxes)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
@@ -246,7 +252,7 @@ Usage:
                                 check a provider file, print it, make a draft a provider, or forget one
                                 (its sandboxes are left alone)
   conch sandbox provider search [-json] [TERM]
-                                the providers others adapted and published (github.com/Amitgb14/conch-sandbox-providers)
+                                the providers others adapted and published (github.com/Amitgb14/conch-integrations)
   conch sandbox provider install [-y] [NAME]
                                 install one: says where your key and ssh go first, and checks the file's hash
   conch sandbox provider update [-y] [NAME]
@@ -255,6 +261,30 @@ Usage:
   conch sandbox provider publish [-dry-run] [-json] NAME
                                 check a provider of yours with your key, then propose it to the registry
                                 as a pull request through gh (your key is never part of it)
+  conch integration search [-json] [KIND|WORDS]
+                                CI services, trackers (tickets) and webhooks (notify) conch can
+                                talk to, from the registries
+                                (each a file describing an API, never code)
+  conch integration info [-json] NAME
+                                what it does in conch, where your key goes, who wrote it
+  conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME
+                                says the hosts your key goes to first, checks the file's hash,
+                                asks for the key (kept in the Keychain on a Mac) and checks it here:
+                                a CI's runs, a tracker's tickets, a test message for a webhook
+  conch integration ls [-json] [-cwd DIR]
+                                every integration here — built in, shipped, installed — its key's
+                                state and whether this project uses it
+  conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide | icons [-json]
+                                take newer versions (new hosts always asked), delete one, check a
+                                file, or print the format to write one
+  conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
+                                an agent in a pane of its own reads a service's API docs and writes
+                                NAME.toml; conch checks it, then reads the service with your key once
+                                you agree where it goes (the agent never has it); -revise TEXT NAME,
+                                -check NAME, -save NAME keeps it
+  conch integration publish [-dry-run] [-json] [-y] [-cwd DIR] FILE|NAME
+                                check a file with your key, then propose it and its index entry to
+                                the registry as a pull request through gh, the check's result in it
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID
@@ -268,6 +298,9 @@ Usage:
                                 what a sandbox has cost, period by period
   conch sandbox -provider P snapshot [-name N] ID | snapshots [-rm NAME]
                                 keep a sandbox to make others from, or list what is kept
+  conch sandbox -provider P settings [-json]
+                                what its provider file lets you choose — a region, a default image,
+                                a size — with the choices it offers, and what config.toml chose
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch -m MACHINE upload [-to DIR [-p]] [-f] PATH...
                                 copy files or folders to a machine — into DIR there (~ is its
@@ -418,6 +451,10 @@ func main() {
 	}
 	buildinfo.Build() // hash the executable now, before a rebuild can replace it
 	buildinfo.ResolveVersion()
+	// A sandbox provider's key may be in the Keychain, where Integrations
+	// keeps the keys it is given. Set here, not in an init, so no test
+	// binary reads the developer's Keychain.
+	sandbox.KeyLookup = keychainKey
 	log.SetFlags(log.LstdFlags)
 	args := os.Args[1:]
 	for len(args) >= 2 && (args[0] == "-m" || args[0] == "--machine") {
@@ -501,6 +538,8 @@ func main() {
 		err = runMachine(args)
 	case "sandbox", "sandboxes":
 		err = runSandbox(args)
+	case "integration", "integrations":
+		err = runIntegration(args)
 	case "bridge":
 		err = runBridge()
 	case "update":

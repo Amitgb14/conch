@@ -124,6 +124,9 @@ public enum RowAction: Equatable, Sendable {
     case agentSetup(project: String, dir: String)
     /// The project's app on a phone simulator beside its agents, in a tab.
     case mobilePreview(project: String)
+    /// What a project is hosted on, which CI and tracker it uses (mock 5),
+    /// in a sheet of its own.
+    case integrations(project: String)
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
@@ -253,7 +256,8 @@ extension Snapshot {
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
                      canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false,
-                     mobile: Set<String> = [], teams: [AgentTeam] = [], canTeam: Bool = false) -> [RowMenuItem] {
+                     mobile: Set<String> = [], teams: [AgentTeam] = [], canTeam: Bool = false,
+                     integrations: Bool = false) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -341,6 +345,9 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
             if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
+            // A server with integration.detect.v1; a git project, since
+            // what it uses is read off its remote and checkout.
+            if integrations && pr.git != false { out.append(RowMenuItem("Integrations…", .integrations(project: pk))) }
             // Simulators and emulators are this Mac's own, and only a project
             // that is a mobile app (mobileProjects) has anything to show on one.
             if machine == "local", mobile.contains(unkey(pk).id) { out.append(RowMenuItem("Mobile Preview", .mobilePreview(project: pk))) }

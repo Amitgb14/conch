@@ -2,6 +2,7 @@ package proto
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -110,6 +111,9 @@ type AutopilotNote struct {
 	// when; both absent from an older server.
 	Kind string    `json:"kind,omitempty"`
 	At   time.Time `json:"at,omitempty"`
+	// CI is the failed run a note is about, when it is about one: whose
+	// it was and what failed in it (CapAutopilotNoteCI).
+	CI *NoteCI `json:"ci,omitempty"`
 }
 
 // What a note is about, for the activity feed to group and mark.
@@ -134,6 +138,70 @@ type AutopilotActivityParams struct {
 // AutopilotActivity is the autopilot's notes, newest first.
 type AutopilotActivity struct {
 	Notes []AutopilotNote `json:"notes"`
+}
+
+// NoteCI is a failed CI run as a note names it. Before its log is read
+// only the service is known, from the pull request's failing checks.
+type NoteCI struct {
+	Source   string `json:"source,omitempty"`
+	Service  string `json:"service,omitempty"`
+	Workflow string `json:"workflow,omitempty"`
+	Job      string `json:"job,omitempty"`
+	URL      string `json:"url,omitempty"`
+	// Lines of its failed log were read from Host.
+	Lines int    `json:"lines,omitempty"`
+	Host  string `json:"host,omitempty"`
+}
+
+// NoteFromLog is what a note says of a failed run whose log was read.
+func NoteFromLog(lg BranchCILog) *NoteCI {
+	ci := &NoteCI{Source: lg.Source, Service: lg.Service, Workflow: lg.Workflow, Job: lg.Job, URL: lg.URL}
+	if text := strings.TrimSuffix(lg.Log, "\n"); text != "" {
+		ci.Lines = strings.Count(text, "\n") + 1
+	}
+	if u, err := url.Parse(lg.URL); err == nil {
+		ci.Host = u.Hostname()
+	}
+	return ci
+}
+
+// Headline names a failed run as the activity feed reads it: "CI failed
+// on B — CircleCI · workflow W · job J", as much of it as is known.
+func (c *NoteCI) Headline(branch string) string {
+	head := "CI failed on " + branch
+	if c == nil {
+		return head
+	}
+	var parts []string
+	if s := firstOf(c.Service, c.Source); s != "" {
+		parts = append(parts, s)
+	}
+	if c.Workflow != "" {
+		parts = append(parts, "workflow "+c.Workflow)
+	}
+	if c.Job != "" {
+		parts = append(parts, "job "+c.Job)
+	}
+	if len(parts) > 0 {
+		head += " — " + strings.Join(parts, " · ")
+	}
+	return head
+}
+
+// Read says how much of its log was read, and from where; "" when none
+// was.
+func (c *NoteCI) Read() string {
+	if c == nil || c.Lines == 0 {
+		return ""
+	}
+	s := fmt.Sprintf("read %d lines of the failed log", c.Lines)
+	if c.Lines == 1 {
+		s = "read 1 line of the failed log"
+	}
+	if c.Host != "" {
+		s += " from " + c.Host
+	}
+	return s
 }
 
 // A failure sent to an agent is bounded: enough of the end of the output
@@ -218,12 +286,30 @@ func FailurePrompt(what, command string, exit int, output string) string {
 // CIFailurePrompt is FailurePrompt for a failed CI run, with a link to it.
 func CIFailurePrompt(log BranchCILog) string {
 	what := "CI"
-	if log.Workflow != "" {
-		what = "CI (" + log.Workflow + ")"
+	if log.Source != "" && log.Source != "github-actions" {
+		what = "CI on " + firstOf(log.Service, log.Source)
+	}
+	var detail []string
+	for _, d := range []string{log.Workflow, log.Job} {
+		if d != "" {
+			detail = append(detail, d)
+		}
+	}
+	if len(detail) > 0 {
+		what += " (" + strings.Join(detail, " · ") + ")"
 	}
 	text := FailurePrompt(what, "", 0, FailureTail(strings.Split(log.Log, "\n")))
 	if log.URL != "" {
 		text += "\n\nThe run: " + log.URL
 	}
 	return text
+}
+
+func firstOf(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

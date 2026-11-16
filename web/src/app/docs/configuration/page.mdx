@@ -33,14 +33,8 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `CONCH_SOURCE` | conch's source tree, for cross-compiling to [remote machines](/docs/remote-machines#adding-a-machine) |
 | `CONCH_REMOTE_BINARY` | a prebuilt conch binary to install on remote machines |
 | `CONCH_VERSION`, `CONCH_INSTALL_DIR` | release and directory for the [install script](/docs/installation#install-script) |
-| `DAYTONA_API_KEY`, `BOAT_API_KEY`, `DEVIN_API_KEY`, `TENSORLAKE_API_KEY` | the key for [sandboxes](/docs/sandboxes), one per provider |
-| `DAYTONA_API_URL`, `DAYTONA_TARGET` | Daytona's API and region, when `[sandbox.daytona]` doesn't set them |
-| `BOAT_API_URL` | boat.dev's API, when `[sandbox.boat]` doesn't set it |
-| `DEVIN_API_URL` | Devin's API, when `[sandbox.devin]` doesn't set it |
-| `TENSORLAKE_API_URL`, `TENSORLAKE_SSH_HOST` | Tensorlake's API, when `[sandbox.tensorlake]` doesn't set it, and its ssh gateway (`sandbox.tensorlake.ai`) |
-| `CONCH_PROVIDERS_URL` | the [provider registry](/docs/sandboxes#the-provider-registry) conch installs from (`https://amitgb14.github.io/conch-sandbox-providers`): its `index.json` and the files it lists. https, or http on this computer |
-| `DEVIN_ORG_ID` | the Devin organization sessions are made in; without it conch asks Devin which one the key's sessions run in |
-| `CONCH_DEVIN` | the `devin` CLI conch reaches a Devin Cloud session with; without it, `devin` on `PATH`, then `~/.local/bin/devin` |
+| `DAYTONA_API_KEY`, `BOAT_API_KEY`, `TENSORLAKE_API_KEY` | the key for [sandboxes](/docs/sandboxes), one per provider: the variable each provider's file names |
+| `CONCH_PROVIDERS_URL` | the [provider registry](/docs/sandboxes#the-provider-registry) conch installs from (`https://amitgb14.github.io/conch-integrations`, one index for sandbox providers and every other integration): its `index.json` (and `index.json.sig`, checked when `CONCH_PROVIDERS_KEY` gives the key) and the files it lists. https, or http on this computer |
 | `CONCH_LOG_CALLER` | `1` writes a line per connection saying which pane the server placed it in, with the process ancestry it climbed — for finding out why an agent that should be [scoped](/docs/agents-together#what-an-agent-may-do) is not |
 | `CONCH_STATUS` | `0` stops conch [telling the terminal what its agents are doing](/docs/agents#conch-reports-its-own-state-too), `1` makes it do so where it otherwise would not |
 
@@ -133,12 +127,16 @@ auto = false           # and install it as soon as it is found
 upload_drops = true    # upload files dropped on a remote pane and paste their paths there
 upload_max_mb = 25     # refuse larger files (the server takes at most 256)
 
-[sandbox.daytona]      # one table per provider ([sandbox.boat] too); the same keys for each
+[sandbox.daytona]      # one table per installed provider ([sandbox.boat] too)
 api_key = ""           # the key itself, kept in this file; "" reads it from the environment
-api_key_env = ""       # variable holding the key; "" is DAYTONA_API_KEY
-api_url = ""           # "" is $DAYTONA_API_URL or the provider's own
-target = ""            # region, e.g. "us" or "eu"
-snapshot = ""          # what new sandboxes start from; "" is the provider's default
+api_key_env = ""       # variable holding the key; "" is the one its file names
+api_url = ""           # "" is the provider's own
+region = ""            # where new sandboxes run, one its file offers; "" the account's default
+image = ""             # what new sandboxes start from; "" is the provider's default
+size = ""              # a named size, for a provider whose machines come in them (boat.dev)
+cpu = 0                # or vCPUs, memory and disk in GiB, within its file's limits;
+memory = 0             # 0 is the provider's default
+disk = 0
 restore_running = true # write down what a sandbox was running and offer it back on start
 idle_stop = 30         # minutes with no agent working and nothing printing before conch
                        # stops the sandbox; 0 never does
@@ -238,6 +236,8 @@ command = "curl -s \"https://api.telegram.org/bot$TG_TOKEN/sendMessage\" -d chat
 
 It runs where conch's TUI runs, follows `enabled` and quiet hours like the other alerts, and is stopped after 30 seconds if it hangs.
 
+Slack, Discord and ntfy also come as [notify integrations](/docs/integrations#notifications), sent by conch's server rather than the TUI, with the webhook's address kept like a key; they follow `enabled`, `waiting` and `done`, not quiet hours.
+
 `silence` is how long a pane watched with `ctrl+b M` must go without output before it alerts; see [Watching a pane](/docs/interface#watching-a-pane). Less than 1 means the default, 30.
 
 `limits` alerts when Claude's 5-hour or weekly window, Codex's windows or a spend limit passes a percentage in `limit_at` (1–100). Each threshold alerts once per window and machine, even across restarts of the TUI; a new window after a reset alerts again.
@@ -260,11 +260,9 @@ The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_
 
 ### sandbox
 
-`[sandbox.<provider>]` sets up [sandboxes](/docs/sandboxes) — `[sandbox.daytona]`, `[sandbox.boat]` and `[sandbox.devin]` today, and the same keys for any provider conch grows; the Settings screen has them under **Sandboxes** (`,` then `5`), which lists the providers and opens one. A table for a provider this build doesn't know is left alone rather than dropped when the settings are saved. `api_key` keeps the key in this file (0600) and wins over `api_key_env`; leave it empty to read the key from your environment every time, which is what conch does otherwise. The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; the provider keeps their values with the sandbox.
+`[sandbox.<provider>]` sets up [sandboxes](/docs/sandboxes), one table per installed provider; the Settings screen has them under **Sandboxes** (`,` then `5`), which lists the providers and opens one. Each provider's file says which of `region`, `image`, `size` or `cpu`/`memory`/`disk` it takes, and which values (`conch sandbox -provider P settings`); a value it does not offer is refused before anything is made. `target` and `snapshot`, which older conches wrote, are read as `region` and `image` when those are empty. A table for a provider this build doesn't know is left alone rather than dropped when the settings are saved. `api_key` keeps the key in this file (0600) and wins over `api_key_env`; leave it empty to read the key from your environment every time, which is what conch does otherwise. The key itself is never stored: `api_key_env` only names the variable it is read from. `auto_stop` other than 0 lets Daytona stop a sandbox that long after the last ssh connection or API call — agents working inside don't count, so they stop too. `env` names variables passed into every sandbox `conch sandbox create` makes, on top of its `-env` flags; the provider keeps their values with the sandbox.
 
-Not every key means something to every provider: boat.dev has no regions, so `target` is unused, and its machines come in named sizes (`small`, `default`, `large`) which go in `snapshot` — anything else there is taken for the name of a snapshot to start from. It has no idle timer of its own either, so `auto_stop` is how long a new sandbox is *given*, counted from when it was made, rather than how long it may sit unused: 120 minutes by default, which is what boat.dev's free trial allows, and **Life** in its settings page. Raise it on a paid plan; if the plan allows less than you ask for, conch asks again for the longest that plan named rather than failing. conch's own `idle_stop` is what stops a sandbox nobody is using, and normally gets there first.
-
-Devin Cloud chooses its machines' size itself, so `snapshot` is the *platform* a session runs on — an OS your organization offers, such as `windows`, or the name of an outpost pool — and empty is the organization's default; numbers are refused. It has no regions, so `target` is unused, and Settings shows **Platform** in place of Snapshot and Region. The key is a service user's (`cog_…`).
+boat.dev's machines come in named sizes (`small`, `default`, `large`); a size name in `snapshot`, as older conches kept it, is still a size. It has no idle timer of its own, so `auto_stop` is how long a new sandbox is *given*, counted from when it was made: 120 minutes by default, what boat.dev's free trial allows, and **Life** in its settings page. Raise it on a paid plan. conch's own `idle_stop` is what stops a sandbox nobody is using, and normally gets there first.
 
 <Callout type="note">
 

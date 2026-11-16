@@ -73,3 +73,17 @@ func failedRuns(ctx context.Context, dir, branch, head string) ([]Run, error) {
 	}
 	return found, nil
 }
+
+// RerunFailed re-runs the failed jobs of the newest failed Actions run on
+// branch, at head when given, and says which run that was.
+func RerunFailed(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+	runs, err := failedRuns(ctx, dir, branch, head)
+	if err != nil {
+		return FailedRun{}, err
+	}
+	r := runs[0]
+	if err := Rerun(ctx, dir, r.ID); err != nil {
+		return FailedRun{}, err
+	}
+	return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL}, nil
+}

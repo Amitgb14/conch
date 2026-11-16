@@ -1,0 +1,60 @@
+# Semaphore. A run is a pipeline of the branch; its failed log is each
+# failed job's output. Every organization has its own API host, so its
+# address is asked for.
+format = 3
+kind = "ci"
+name = "semaphore"
+label = "Semaphore"
+base_url = "ask"
+key_env = "SEMAPHORE_API_TOKEN"
+docs = "https://docs.semaphoreci.com/reference/api"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Semaphore → your avatar → Profile Settings → API Token → Regenerate API Token."
+note = "Give your organization's address in config.toml: [integrations.base] semaphore = \"https://ORG.semaphoreci.com/api/v1alpha\". Reads the project named as the repository. A partial rebuild needs a new request token each time, which a file cannot make yet, so this file does not re-run. Not yet checked against a real organization."
+
+[auth]
+header = "Authorization"
+value = "Token {key}"
+
+[detect]
+files = [".semaphore/semaphore.yml"]
+
+[project]
+id = "{repo}"
+
+[states]
+passed = "pass"
+failed = "fail"
+stopped = "canceled"
+canceled = "canceled"
+
+[runs]
+items = "[*]"
+id = "ppl_id"
+name = "{item.name}"
+state = "result"
+commit = "commit_sha"
+started = "created_at.seconds"
+finished = "done_at.seconds"
+
+[[runs.steps]]
+as = "proj"
+call = "GET /projects/{project}"
+pick = "metadata"
+
+[[runs.steps]]
+call = "GET /pipelines?project_id={proj.id}&branch_name={branch}"
+
+[failed_log]
+job = "{jobs.0.name}"
+
+[[failed_log.steps]]
+as = "jobs"
+call = "GET /pipelines/{run}?detailed=true"
+pick = "blocks[*].jobs[*result=FAILED]"
+
+[[failed_log.steps]]
+each = "jobs"
+call = "GET /logs/{item.job_id}"
+text = "events[*].output"

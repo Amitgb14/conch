@@ -284,6 +284,16 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if proj := m.project(r.machine, r.projectID); proj != nil && proj.Git {
 			issue := menuItem{"", "New task from a GitHub issue…", func(m *Model) tea.Cmd { return m.openIssues(r.machine, r.projectID) }}
 			items = append(items[:1], append([]menuItem{issue}, items[1:]...)...)
+			if m.hasCapability(r.machine, proto.CapIntegrationDetect) {
+				// Beside agent setup: what the project is wired to.
+				in := menuItem{"", "Integrations…", func(m *Model) tea.Cmd { return m.openProjectIntegrations(r.machine, r.projectID) }}
+				for i, it := range items {
+					if it.key == "i" {
+						items = append(items[:i+1], append([]menuItem{in}, items[i+1:]...)...)
+						break
+					}
+				}
+			}
 		}
 	case kindMachine:
 		mach := m.machine(r.machine)
@@ -1350,6 +1360,10 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "p", what: "open a pull request"},
 		{keys: "M", what: "merge into the base (undone if it conflicts)"},
+		{keys: "r", what: "re-run the pull request's failed CI jobs (GitHub Actions, or a CI integration that can)"},
+		{keys: "I / O", what: "a red check conch can't read: install its integration · open it on its service", more: []string{
+			"the card above the files says which check, why conch thinks the project uses that service, and goes once an integration reads it; every check is listed under it with where it ran",
+		}},
 		{keys: "D", what: "discard the branch and its worktree"},
 		{keys: "A", what: "compare the attempts at this task (t runs a command in each, o shows its terminal)"},
 		{keys: "y", what: "copy the path, or the diff"},

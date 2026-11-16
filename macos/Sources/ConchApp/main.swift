@@ -106,6 +106,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let system = SystemMonitorWindow(store: store)
         systemWindow = system
         ticketsWindow = TicketsWindow(store: store)
+        integrationsWindow = IntegrationsWindow(store: store)
+        projectIntegrations = ProjectIntegrationsWindow { [weak self] in self?.integrationsWindow }
         if UserDefaults.standard.bool(forKey: "background") {
             // -background YES: opened behind whatever is in front and not
             // made active, for a scripted run beside somebody at work —
@@ -151,6 +153,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         s.onOpenSettings = { [weak self] in self?.settingsWindow?.show(section: $0) }
         s.onOpenSystemMonitor = { [weak self] in self?.systemWindow?.show() }
         s.onOpenTickets = { [weak self] in self?.ticketsWindow?.show() }
+        s.onOpenIntegrations = { [weak self] kind in
+            if let kind { self?.integrationsWindow?.show(kind: kind) } else { self?.integrationsWindow?.show() }
+        }
+        s.onInstallIntegration = { [weak self] name, dir in self?.integrationsWindow?.install(name, checkIn: dir) }
+        s.onOpenProjectIntegrations = { [weak self, weak s] pk in
+            if let s { self?.projectIntegrations?.show(project: pk, store: s) }
+        }
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         s.onConfigChange = { [weak self] in self?.updateThemeMenu() }
     }
@@ -450,6 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windowMenu.addItem(.separator())
         windowMenu.addItem(item("System Monitor", "m", [.command, .option], "systemMonitor"))
         windowMenu.addItem(item("Tickets", "i", [.command, .shift], "tickets"))
+        windowMenu.addItem(item("Integrations", "", [], "integrations"))
         let wtop = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
         wtop.submenu = windowMenu
         main.addItem(wtop)
@@ -494,6 +504,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var settingsWindow: SettingsWindow?
     var systemWindow: SystemMonitorWindow?
     var ticketsWindow: TicketsWindow?
+    var integrationsWindow: IntegrationsWindow?
+    var projectIntegrations: ProjectIntegrationsWindow?
 
     @objc func chooseTheme(_ sender: NSMenuItem) {
         for s in AppWindows.shared.stores { s.chooseTheme(sender.representedObject as? String ?? "") }

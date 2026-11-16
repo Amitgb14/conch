@@ -34,3 +34,32 @@ func TestParseRef(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckRef(t *testing.T) {
+	cases := []struct {
+		in, tracker, key string
+		err              bool
+	}{
+		{"ENG-123", "", "ENG-123", false},
+		{"linear:eng-1", "linear", "ENG-1", false},
+		{"shortcut:123", "shortcut", "123", false},
+		{"gitlab-issues: 12 ", "gitlab-issues", "12", false},
+		{"123", "", "123", false}, // a project tied to an integration
+		{"", "", "", true},
+		{"linear:", "", "", true},
+		{"linear:123", "", "", true}, // Linear's keys are conch's to check
+		{"jira:x y", "", "", true},
+		{"shortcut:", "", "", true},
+		{"shortcut:1 2", "", "", true},
+		{"Shortcut:1", "", "", true},
+		{"two words", "", "", true},
+		{"https://example.com/ENG-1", "", "", true},
+		{"-12", "", "", true},
+	}
+	for _, c := range cases {
+		tr, key, err := CheckRef(c.in)
+		if (err != nil) != c.err || tr != c.tracker || key != c.key {
+			t.Errorf("CheckRef(%q) = %q, %q, %v; want %q, %q, err %v", c.in, tr, key, err, c.tracker, c.key, c.err)
+		}
+	}
+}

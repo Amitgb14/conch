@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
-  AlertTriangle, Bell, Bot, Box, FileCode2, GitMerge, Keyboard, Laptop, Loader2, Lock, Palette, RefreshCw, Save, Search, Server,
+  AlertTriangle, Bell, Blocks, Bot, Box, Cloud, FileCode2, GitMerge, Keyboard, Laptop, Loader2, Lock, Palette, RefreshCw, Save, Search, Server,
   ShieldCheck, Smartphone, Sparkles, TabletSmartphone, SquareTerminal, Terminal, Ticket, Undo2, WifiOff, Zap, type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -25,7 +25,7 @@ import type { Cfg, Payload, Section } from "@/types"
 const icons: Record<string, LucideIcon> = {
   palette: Palette, keyboard: Keyboard, bell: Bell, bot: Bot, "shield-check": ShieldCheck, "git-merge": GitMerge,
   sparkles: Sparkles, terminal: Terminal, "square-terminal": SquareTerminal, server: Server, "refresh-cw": RefreshCw,
-  smartphone: Smartphone, "tablet-smartphone": TabletSmartphone, box: Box, zap: Zap, lock: Lock, laptop: Laptop, ticket: Ticket,
+  smartphone: Smartphone, "tablet-smartphone": TabletSmartphone, box: Box, blocks: Blocks, cloud: Cloud, zap: Zap, lock: Lock, laptop: Laptop, ticket: Ticket,
 }
 
 export default function App() {

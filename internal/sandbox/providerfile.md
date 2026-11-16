@@ -139,5 +139,86 @@ that header's name. Conch sets `Host`, `Content-Type`, `Content-Length`,
 `Accept`, `Transfer-Encoding` and `Connection` itself, so a file may not
 name them.
 
+## Format 4
+
+What a person may choose for the provider, and the rest of what a
+sandbox provider can do. A file that uses any of it starts with
+`format = 4`.
+
+```toml
+format = 4
+
+[[setting]]                   # shown in Settings → Sandboxes and the New Sandbox sheet
+key = "region"                # region, image or template: {region} {image} {template} in calls
+label = "Region"
+choices = ["us", "eu"]        # a fixed list, or read from the API:
+# choices_call = "GET /regions"; items = "items"; value = "id"; name = "label"
+# free = true                 # a value of the person's own is fine too (an image)
+# default = "us"              # what the provider does when nothing is chosen
+
+[size]                        # named sizes, {size} in the create body…
+names = ["small", "default", "large"]
+# …or limits, [min, max], on {cpu} {memory_gib} {disk_gib}:
+# cpu = [1, 4]; memory_gib = [1, 8]; disk_gib = [3, 10]
+# …or the sizes the account's plan allows, read from the API, each item
+# one size, offered as a list ("4 vCPU · 8 GiB"):
+# [size.choices]
+# call = "GET /v1/orgs"; items = "orgs.0.allowedSpecs"; cpu = "vcpus"; memory_mb = "memMiB"
+
+[lifetime]                    # a sandbox given a life when it is made: {ttl_secs}
+default_mins = 120            # in [create] body, and [start] body for a resume
+max_mins = 43200
+
+[snapshot.save]               # keep sandbox {id} as {snapshot_name}
+call = "POST /snapshots"
+body = { sandbox = "{id}", name = "{snapshot_name}" }
+[snapshot.list]
+call = "GET /snapshots"
+items = "snapshots"; name = "name"; state = "state"; created = "created_at"
+size = "{item.cpu} vCPU, {item.memory} GiB"   # a path, or a template over {item.PATH}
+[snapshot.forget]
+call = "DELETE /snapshots/{snapshot_name}"
+
+[preview]                     # a link to {port}, good for {expires_secs}
+call = "GET /sandboxes/{id}/ports/{port}/link?expires={expires_secs}"
+url = "url"
+max_secs = 86400
+[preview.reserved]
+2280 = "the provider's own API"
+
+[usage]                       # what {id} cost between {from} and {to} (RFC 3339)
+call = "GET /sandboxes/{id}/usage?from={from}&to={to}"
+cost = "dollars"              # a total, with seconds = "seconds"; or periods:
+# items = "periods"; from = "start"; to = "end"; cpu = "cpu"; memory_gib = "ram"; cost = "price"
+```
+
+And beside what earlier formats have:
+
+- `[ssh] endpoint = "{reply.PATH}"`: a `host:port` from `[ssh.access]`'s
+  reply, used instead of `host` and `port` when it is there.
+  `[ssh] wait_secs = 90` asks `[ssh.access]` again while it gives no
+  address.
+- `[list] all_mine = true`: the list call asks only for conch's own (by a
+  label `[create]` puts on them), so names are not checked and `{name}`
+  need not be sent.
+- `[get] memory_gib` and `disk_gib`, for an API that says GiB.
+- A header may use its operation's placeholders too: `{snapshot_name}`
+  (a snapshot's delete confirmed by its name) and `{port}`.
+- Only the parts of a size `[create] body` sends are asked for: a provider
+  that takes no disk at create is not offered one.
+- Every call's path may use the placeholders its operation has; one left
+  empty in a query (`?region={region}`) drops that parameter.
+
+Every call still goes to `api`, with the key: a provider whose usage is
+on another host (Daytona's) leaves `[usage]` out, and conch reckons the
+cost from the prices set in Settings.
+
 Check it with `conch sandbox provider check -offline ./provider.toml`, and
 fix what it reports until it reports nothing.
+
+## Format 3: integrations
+
+Format 3 is the same file with a `kind` (`ci`, and later `tickets`,
+`notify`, `host`) and the operations of that kind's contract, kept in
+`$CONCH_HOME/integrations/`. A sandbox provider has no `kind`, here.
+`conch integration guide` prints format 3 whole.

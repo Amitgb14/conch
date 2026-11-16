@@ -14,11 +14,18 @@ public struct AutopilotNote: Decodable, Equatable, Sendable {
     /// older server.
     public var kind: String?
     public var at: Date?
+    /// The failed CI run it is about — its service, workflow and job, and
+    /// what was read of it — from a server with autopilot.note.ci.v1.
+    public var ci: NoteCI?
 
     enum CodingKeys: String, CodingKey {
-        case branch, text, error, merged, kind, at
+        case branch, text, error, merged, kind, at, ci
         case projectID = "project_id"
     }
+
+    /// The line a failed run leads with: "CI failed on B — CircleCI ·
+    /// workflow W · job J"; else what the server said.
+    public var headline: String { ci.map { $0.headline(branch: branch ?? "") } ?? text }
 
     public enum Tone: Equatable, Sendable { case done, failed, handed, info }
 
