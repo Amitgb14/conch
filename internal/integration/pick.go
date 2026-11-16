@@ -9,6 +9,9 @@ import (
 
 // Pick reads a path out of a JSON value decoded with UseNumber.
 //
+// A selector's value matches without regard to case: a status somebody
+// typed is matched to the one a tracker names.
+//
 // A path is dotted keys and list indexes, "items.0.id". A part may select
 // from a list: "items[status=failed]" is its first item whose status reads
 // failed; "items[*status=failed]" every such item; "items[*]" every item,
@@ -67,7 +70,7 @@ func Pick(v any, path string, fill func(string) string) any {
 				continue
 			}
 			for _, it := range list {
-				if key != "" && want != "" && Text(Pick(it, key, nil)) != want {
+				if key != "" && want != "" && !strings.EqualFold(Text(Pick(it, key, nil)), want) {
 					continue
 				}
 				next = append(next, it)

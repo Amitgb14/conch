@@ -2,9 +2,16 @@
 
 An integration file tells conch how to use a service's HTTP API for one
 kind of job conch already does. It is the sandbox provider file grown a
-`kind`; the kind this conch reads is `ci`: a branch's runs, what a failed
-one printed, and re-running it — so a failure on CircleCI or GitLab CI
-reaches the branch's agent as a GitHub Actions one does.
+`kind`. This conch reads three:
+
+- `ci`: a branch's runs, what a failed one printed, and re-running it —
+  so a failure on CircleCI or GitLab CI reaches the branch's agent as a
+  GitHub Actions one does. The example below is one.
+- `tickets`: a tracker conch has no code for (Shortcut, GitLab's issues),
+  read and changed as Linear and Jira are — see [Tickets](#tickets).
+- `notify`: where conch says an agent is waiting, an agent is done, or a
+  pull request merged — a Slack or Discord webhook, ntfy — see
+  [Notify](#notify).
 
 A file runs nothing. Its calls go to its own `api` (or the URL the person
 gave for `base_url = "ask"`), with the person's key; a URL a reply hands
@@ -83,9 +90,14 @@ body = { failed_only = true }
 
 ## Operations
 
-An operation is one `call` (with `body`, `follow`, `text` beside it) or
-`steps`, a chain. A call is `"METHOD /path"` (GET, POST, PUT or PATCH)
-under the API. A body is a TOML table sent as JSON.
+An operation is one `call` (with `body`, `headers`, `follow`, `text`
+beside it) or `steps`, a chain. A call is `"METHOD /path"` (GET, POST,
+PUT or PATCH) under the API. A body is a TOML table sent as JSON, or a
+string sent as plain text. `headers` are the service's own, filled like a
+body; a header that would carry a credential, or that conch sets, may not
+be given.
+
+For kind `ci`:
 
 | Operation | | conch asks it | it gives conch |
 | --- | --- | --- | --- |
@@ -128,6 +140,119 @@ What a step keeps of its reply:
   puts what it finds together, a line each.
 - `each` — the step is made once per item of an earlier step's list, as
   `{item}`, and the texts put together.
+
+## Tickets
+
+```toml
+format = 3
+kind = "tickets"
+name = "acme-tickets"
+label = "Acme Tickets"
+api = "https://api.acme.dev/v1"
+key_env = "ACME_TOKEN"
+
+[detect]                      # optional: a tracker is usually tied to a
+remotes = ["acme.dev"]        # project by [[trackers.projects]] instead
+
+[project]                     # optional: {project}, when the tracker is per repository
+id = "{path_escaped}"
+
+[list]                        # required: open tickets, most recently changed first
+call = "GET /tickets?state=open&team={scope}&per_page={limit}"
+items = "tickets"             # where the list is
+key = "number"                # each ticket's key, as conch gives it back as {ticket}
+title = "title"
+description = "body"          # optional, as are url and status
+url = "web_url"
+status = "state"
+
+[mine]                        # optional: as list, the tickets assigned to the key's person
+call = "GET /tickets?state=open&assignee=me&per_page={limit}"
+items = "tickets"
+key = "number"
+title = "title"
+
+[get]                         # required: one ticket, {ticket}
+key = "number"
+title = "title"
+description = "body"
+status = "state_id"
+status_names = "{states}"     # status is an id: its name is in this {id, name} list
+comments = "comments"         # a path into the ticket, or {STEP.path}
+comment_author = "user.name"
+comment_body = "text"
+
+[[get.steps]]
+as = "states"
+call = "GET /states"
+
+[[get.steps]]
+call = "GET /tickets/{ticket}"
+
+[comment]                     # optional: {body}
+call = "POST /tickets/{ticket}/comments"
+body = { text = "{body}" }
+
+[link]                        # optional: {url} and {title} (the url when none is given)
+call = "POST /tickets/{ticket}/links"
+body = { url = "{url}", title = "{title}" }
+
+[move]                        # optional: {status}, as the person typed it
+call = "PUT /tickets/{ticket}"
+body = { state = "{status}" }
+```
+
+| Operation | | conch asks it | placeholders |
+| --- | --- | --- | --- |
+| `list` | required | the open tickets | `{scope}` (the team or project `[[trackers.projects]] key` names, else empty), `{limit}` |
+| `mine` | optional | the open tickets assigned to the key's person | as `list` |
+| `get` | required | one ticket, with its comments | `{ticket}` |
+| `comment` | optional | add a comment | `{ticket}`, `{body}` |
+| `link` | optional | attach a branch or pull request; a service with no links says it in a comment | `{ticket}`, `{url}`, `{title}` |
+| `move` | optional | move it to a status | `{ticket}`, `{status}` |
+
+A ticket's field is a path into the ticket or, holding a `{`, a template
+over `{item.x}` and the steps. A selector matches without regard to case,
+so `[*name={status}]` finds *In Review* for "in review". There is no
+`[states]`: a ticket's status is shown as the service words it. `{project}`
+exists only when `[project] id` makes it; a tracker that is not per
+repository leaves both out. A ticket is named `NAME:KEY` (`shortcut:123`)
+wherever conch takes one, or by its key alone in a project tied to the
+tracker. Linear and Jira are conch's own code and need no file.
+
+## Notify
+
+```toml
+format = 3
+kind = "notify"
+name = "acme-chat"
+label = "Acme Chat"
+api = "https://hooks.acme.dev"  # the host the webhook's address must be on
+key_env = "ACME_WEBHOOK_URL"    # the webhook's address: the secret
+
+[auth]
+type = "url"                  # the key is the address calls go to
+
+[send]                        # required: {title} {body} {url}
+call = "POST"                 # the method alone, or a /path or ?query added to the address
+body = { text = "*{title}*\n{body}\n{url}" }  # a table is JSON; a string is sent as text
+headers = { X-Priority = "3" } # optional; never Authorization, Cookie, Host or Content-Type
+text = "."                    # read the answer as text: a webhook's is often "ok"
+```
+
+`[auth] type = "url"` is for a webhook, whose address is its secret: it is
+read from `key_env` or the Keychain like any key, never logged or shown,
+and must be an `https` address on `api`'s host (or on the address the
+person gave for `base_url = "ask"`); one anywhere else is refused before
+anything is sent. A notify file may also send a key the usual ways, to a
+`call` under `api`.
+
+conch's server sends through every notify file whose key is set: when an
+agent starts waiting, when one finishes (as `[notify] waiting` and `done`
+allow, and only while `[notify] enabled`), and when the autopilot merges a
+pull request. `{url}` is empty when there is nothing to link to — a
+template's empty placeholder is left out, and a header that ends up empty
+is not sent. `{title}` and `{body}` are cut to 200 and 1500 characters.
 
 Check a file with `conch integration check FILE`, and fix what it reports
 until it reports nothing.

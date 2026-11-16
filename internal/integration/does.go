@@ -13,15 +13,31 @@ type Feature struct {
 // from the kind's contract rather than written per integration, so every
 // page says it the same way.
 func Does(kind string, ops []string) []Feature {
-	if kind != KindCI {
-		return nil
-	}
 	has := func(op string) bool { return slicesHas(ops, op) }
 	level := func(ok bool) string {
 		if ok {
 			return "yes"
 		}
 		return "no"
+	}
+	switch kind {
+	case KindTickets:
+		mine := Feature{"Your own tickets", "Mine in the Tickets view, conch ticket ls -mine", level(has("mine"))}
+		return []Feature{
+			{"Open tickets beside GitHub's issues", "The Tickets view, conch ticket all, and each project's tickets", level(has("list"))},
+			{"Start a task from a ticket", "New Task, conch task -ticket NAME:KEY (shortcut:123): its text and comments become the prompt", level(has("get"))},
+			mine,
+			{"Comment on a ticket", "conch ticket comment, and agents through it", level(has("comment"))},
+			{"Link the branch and pull request", "conch ticket link", level(has("link"))},
+			{"Move a ticket", "conch ticket status", level(has("move"))},
+		}
+	case KindNotify:
+		return []Feature{
+			{"Agent waiting, agent done, pull request merged", "Sent by conch's server, as the desktop notifications are, whether or not conch is open", level(has("send"))},
+		}
+	case KindCI:
+	default:
+		return nil
 	}
 	out := []Feature{
 		{"A failed job's output goes to the branch's agent", "The autopilot's auto_fix, conch branch fix-ci, and the review queue's f", level(has("failed_log"))},

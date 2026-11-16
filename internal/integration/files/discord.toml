@@ -1,0 +1,20 @@
+# Discord, through a channel's webhook. The webhook's address is the key.
+format = 3
+kind = "notify"
+name = "discord"
+label = "Discord"
+api = "https://discord.com"
+key_env = "DISCORD_WEBHOOK_URL"
+docs = "https://discord.com/developers/docs/resources/webhook#execute-webhook"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Discord → the channel's settings → Integrations → Webhooks → New Webhook → Copy Webhook URL (https://discord.com/api/webhooks/…)."
+note = "The webhook's URL is the key: it is kept like one, and never shown. Give its discord.com address (not an older discordapp.com one). Nobody is mentioned, whatever an agent wrote."
+
+[auth]
+type = "url"
+
+[send]
+call = "POST"
+body = { content = "**{title}**\n{body}\n{url}", allowed_mentions = { parse = [] } }
+text = "."

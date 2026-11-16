@@ -1,0 +1,21 @@
+# Slack, through an incoming webhook. The webhook's address is the key:
+# whoever has it can post to the channel.
+format = 3
+kind = "notify"
+name = "slack"
+label = "Slack"
+api = "https://hooks.slack.com"
+key_env = "SLACK_WEBHOOK_URL"
+docs = "https://api.slack.com/messaging/webhooks"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Slack → your app → Incoming Webhooks → Add New Webhook to Workspace, then copy its URL (https://hooks.slack.com/services/…)."
+note = "The webhook's URL is the key: it is kept like one, and never shown."
+
+[auth]
+type = "url"
+
+[send]
+call = "POST"
+body = { text = "*{title}*\n{body}\n{url}" }
+text = "."
