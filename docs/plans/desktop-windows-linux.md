@@ -161,7 +161,7 @@ on Windows especially, where no embeddable terminal is official.
   Windows runner — so no UI test needs a server, an agent or WSL.
 - **End to end:** rows in `docs/testing/end-to-end.md` for each app on
   a real desktop (GNOME and KDE, Wayland and X11; Windows 11 with WSL 2);
-  9.189–9.190 already cover phase 0.
+  9.190–9.191 already cover phase 0.
 
 ## Phases
 
