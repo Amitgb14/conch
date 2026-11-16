@@ -224,7 +224,7 @@ func installEntry(ctx context.Context, e sandbox.RegistryEntry, yes bool) error 
 			return fmt.Errorf("%s's file reads your key from $%s, not the $%s the index lists: not installed", e.Name, f.KeyEnv, e.KeyEnv)
 		}
 	}
-	f, err := sandbox.InstallProviderFile(e.Name, data)
+	f, err := sandbox.InstallRegistryFile(e.Name, data, e.Capabilities)
 	if err != nil {
 		return err
 	}
@@ -298,6 +298,12 @@ func updateOne(ctx context.Context, ix *sandbox.Index, n string, in sandbox.Inst
 		return "no longer in the registry; kept as it is", nil
 	}
 	if e.SHA256 == in.SHA256 {
+		// Installed before the registry said what it can do: it says now.
+		if in.Capabilities == nil && e.Capabilities != nil {
+			if err := sandbox.KeepCapabilities(n, e.Capabilities); err != nil {
+				return "", err
+			}
+		}
 		return "up to date", nil
 	}
 	edited, err := sandbox.EditedSinceInstall(n, in)
@@ -351,7 +357,7 @@ func updateOne(ctx context.Context, ix *sandbox.Index, n string, in sandbox.Inst
 			return what + ": left as it is (run conch sandbox provider update " + n + " to see them and say yes)", nil
 		}
 	}
-	if _, err := sandbox.InstallProviderFile(n, data); err != nil {
+	if _, err := sandbox.InstallRegistryFile(n, data, e.Capabilities); err != nil {
 		return "", err
 	}
 	return "updated", nil

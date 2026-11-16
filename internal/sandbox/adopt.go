@@ -80,7 +80,7 @@ func adopt(name string) error {
 		return fmt.Errorf("%s's file in the registry sends $%s to %s, not $%s to %s as conch's own did, so it is not installed unasked: %s, after reading what it says",
 			name, f.KeyEnv, api, want.keyEnv, want.api, how)
 	}
-	_, err = InstallProviderFile(name, data)
+	_, err = InstallRegistryFile(name, data, e.Capabilities)
 	return err
 }
 
