@@ -76,7 +76,12 @@ type Entry struct {
 	SHA256  string `json:"sha256"`
 	// Hosts are where the file sends the key (API) and what it fetches
 	// without it (Follow); the person agrees to them before installing.
-	Hosts      Hosts    `json:"hosts"`
+	Hosts Hosts `json:"hosts"`
+	// KeyEnv is the variable the file reads the key from: shown with the
+	// hosts, since a file reading another service's variable would send
+	// that service's key to its own.
+	KeyEnv     string   `json:"key_env"`
+	UserEnv    string   `json:"user_env,omitempty"`
 	Operations []string `json:"operations,omitempty"`
 	// Tier is verified (a maintainer's key ran it, Checked says when) or
 	// community.
@@ -233,6 +238,7 @@ func ParseIndex(data []byte) (*Index, error) {
 		Providers []struct {
 			Name      string   `json:"name"`
 			Label     string   `json:"label"`
+			KeyEnv    string   `json:"key_env"`
 			APIHost   string   `json:"api_host"`
 			SSHHost   string   `json:"ssh_host"`
 			Format    int      `json:"format"`
@@ -253,7 +259,7 @@ func ParseIndex(data []byte) (*Index, error) {
 	case 1:
 		ix.Format = 1
 		for _, p := range head.Providers {
-			e := Entry{Kind: KindSandbox, Name: p.Name, Label: p.Label, Format: p.Format, File: p.File, SHA256: p.SHA256,
+			e := Entry{Kind: KindSandbox, Name: p.Name, Label: p.Label, KeyEnv: p.KeyEnv, Format: p.Format, File: p.File, SHA256: p.SHA256,
 				Hosts: Hosts{API: p.APIHost, SSH: p.SSHHost}, Note: p.Note, Docs: p.Docs, AdaptedBy: p.AdaptedBy, Adapted: p.Adapted,
 				Checked: p.Checked, Tier: "community"}
 			if p.Checked != nil {
@@ -374,6 +380,12 @@ func FetchFile(ctx context.Context, r Registry, e Entry) ([]byte, *File, error) 
 		return nil, nil, fmt.Errorf("%s's file cannot be used here: %s", e.Name, strings.Join(problems, "; "))
 	case f.Name != e.Name || f.Kind != e.Kind:
 		return nil, nil, fmt.Errorf("%s's file is %s %q, not what the index lists", e.Name, f.Kind, f.Name)
+	}
+	if f.KeyEnv != e.KeyEnv {
+		return nil, nil, fmt.Errorf("%s's file reads your key from $%s, not the $%s the index lists: not installed", e.Name, f.KeyEnv, e.KeyEnv)
+	}
+	if f.Auth.UserEnv != e.UserEnv {
+		return nil, nil, fmt.Errorf("%s's file reads a user name from $%s, not the $%s the index lists: not installed", e.Name, f.Auth.UserEnv, e.UserEnv)
 	}
 	if extra := beyond(f.Hosts(), e.Hosts); len(extra) > 0 {
 		return nil, nil, fmt.Errorf("%s's file reaches %s, which the index does not show", e.Name, strings.Join(extra, ", "))
