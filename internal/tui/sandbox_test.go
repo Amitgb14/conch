@@ -1524,4 +1524,3 @@ func TestReceiveUsage(t *testing.T) {
 	// A machine that has gone is not remembered at all.
 	m.receiveUsage(sandboxUsageMsg{machine: "nope", usage: u})
 }
-
