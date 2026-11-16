@@ -237,7 +237,7 @@ func sandboxSizeNames(provider string) []string {
 	if err != nil || p == nil {
 		return nil
 	}
-	if ns, ok := p.(sandbox.NamedSizes); ok {
+	if ns, ok := sandbox.As[sandbox.NamedSizes](p); ok {
 		return ns.SizeNames()
 	}
 	return nil
@@ -274,7 +274,7 @@ func newSandboxDialog(m Model, provider string) *dialog {
 		}
 		// A provider that gives a sandbox a fixed life says so here: it is
 		// its clock, not conch's, and it runs from now.
-		if l, ok := p.(sandbox.Lifetime); ok {
+		if l, ok := sandbox.As[sandbox.Lifetime](p); ok {
 			if life := l.Life(); life > 0 {
 				text = append(text, label+" gives it "+shortDuration(life)+" from now, whatever is happening in it (auto_stop in config.toml changes that). conch stops it sooner when nothing is.")
 			}
@@ -513,7 +513,7 @@ func (m *Model) openSandboxPort(mid string) tea.Cmd {
 	}
 	p, err := openSandboxProvider(provider)
 	if err == nil {
-		if _, can := p.(sandbox.Previewer); !can {
+		if _, can := sandbox.As[sandbox.Previewer](p); !can {
 			err = fmt.Errorf("%s cannot give a link to a port", providerLabel(provider))
 		}
 	}
@@ -639,7 +639,7 @@ func (m *Model) openSnapshotDialog(mid string) tea.Cmd {
 	}
 	p, err := openSandboxProvider(provider)
 	if err == nil {
-		if _, can := p.(sandbox.Snapshotter); !can {
+		if _, can := sandbox.As[sandbox.Snapshotter](p); !can {
 			err = fmt.Errorf("%s cannot keep snapshots", providerLabel(provider))
 		}
 	}
@@ -772,7 +772,7 @@ func (m *Model) askUsage(now time.Time) []tea.Cmd {
 			if err != nil || p.Check() != nil {
 				return nil
 			}
-			metered, can := p.(sandbox.Metered)
+			metered, can := sandbox.As[sandbox.Metered](p)
 			if !can {
 				return nil
 			}
@@ -955,7 +955,7 @@ func (m *Model) openSandboxUsage(mid string) tea.Cmd {
 	if err == nil {
 		err = p.Check()
 	}
-	metered, can := p.(sandbox.Metered)
+	metered, can := sandbox.As[sandbox.Metered](p)
 	if err == nil && !can {
 		err = fmt.Errorf("%s does not say what a sandbox has cost", providerLabel(provider))
 	}

@@ -75,7 +75,7 @@ func (m *Model) openCheckoutPort(r row) tea.Cmd {
 			m.setFlash(err.Error(), true)
 			return nil
 		}
-		pv, can := p.(sandbox.Previewer)
+		pv, can := sandbox.As[sandbox.Previewer](p)
 		if !can {
 			m.setFlash(fmt.Sprintf("%s cannot give a link to a port", providerLabel(provider)), true)
 			return nil

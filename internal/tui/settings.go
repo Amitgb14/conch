@@ -1177,7 +1177,7 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 	// to it.
 	var life []settingItem
 	if p, err := openSandboxProvider(provider); err == nil {
-		if l, ok := p.(sandbox.Lifetime); ok {
+		if l, ok := sandbox.As[sandbox.Lifetime](p); ok {
 			life = append(life, field("Life", lifeText(cfg.AutoStop, l.Life()),
 				"How long a new sandbox is given, in minutes, counted from when it is made — "+label+"'s own clock, whatever is happening inside. Empty means "+
 					label+"'s default of "+shortDuration(l.Life())+". A plan that allows less says so, and conch asks again for the longest it named; conch's own idle watch stops a sandbox nobody is using well before either.",

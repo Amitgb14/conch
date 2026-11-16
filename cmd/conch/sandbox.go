@@ -559,7 +559,7 @@ func sandboxURL(args []string) error {
 	if err != nil {
 		return err
 	}
-	pv, ok := p.(sandbox.Previewer)
+	pv, ok := sandbox.As[sandbox.Previewer](p)
 	if !ok {
 		return fmt.Errorf("%s cannot give a link to a port", sandboxProvider)
 	}
@@ -585,7 +585,7 @@ func snapshotter() (sandbox.Snapshotter, error) {
 	if err != nil {
 		return nil, err
 	}
-	sn, ok := p.(sandbox.Snapshotter)
+	sn, ok := sandbox.As[sandbox.Snapshotter](p)
 	if !ok {
 		return nil, fmt.Errorf("%s cannot keep snapshots", sandboxProvider)
 	}
@@ -723,7 +723,7 @@ func sandboxUsage(args []string) error {
 	if err != nil {
 		return err
 	}
-	metered, ok := p.(sandbox.Metered)
+	metered, ok := sandbox.As[sandbox.Metered](p)
 	if !ok {
 		return fmt.Errorf("%s does not say what a sandbox has cost", sandboxProvider)
 	}
@@ -1068,7 +1068,7 @@ func sandboxProviders(args []string) error {
 			j.Ready = true
 		}
 		if p != nil {
-			if ns, ok := p.(sandbox.NamedSizes); ok {
+			if ns, ok := sandbox.As[sandbox.NamedSizes](p); ok {
 				j.Sizes = ns.SizeNames()
 			}
 			if pl, ok := p.(sandbox.Placed); ok {
