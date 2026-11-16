@@ -171,3 +171,22 @@ func history() -> [LogCommit] {
     #expect(by["merging"]?.stopped == false)
     #expect(branchWorktree(project, "stopped")?.path == "/w/a")
 }
+
+// One step back at a time, the newest first, until nothing is open (#250
+// left the commit panel with no way to close it).
+@Test func graphBackSteps() {
+    #expect(graphBack(showCI: true, showAutopilot: false, comparing: true, selected: true, focused: true) == .closeCI)
+    #expect(graphBack(showCI: false, showAutopilot: true, comparing: true, selected: true, focused: true) == .closeAutopilot)
+    #expect(graphBack(showCI: false, showAutopilot: false, comparing: true, selected: true, focused: true) == .endCompare)
+    #expect(graphBack(showCI: false, showAutopilot: false, comparing: false, selected: true, focused: true) == .closeCommit)
+    #expect(graphBack(showCI: false, showAutopilot: false, comparing: false, selected: false, focused: true) == .clearFocus)
+    #expect(graphBack(showCI: false, showAutopilot: false, comparing: false, selected: false, focused: false) == .nothing)
+}
+
+@Test func clickingThePickedCommitClosesIt() {
+    #expect(pickCloses("a", selected: "a", shift: false, comparing: false))
+    #expect(!pickCloses("b", selected: "a", shift: false, comparing: false))
+    #expect(!pickCloses("a", selected: nil, shift: false, comparing: false))
+    #expect(!pickCloses("a", selected: "a", shift: true, comparing: false))   // shift compares
+    #expect(!pickCloses("a", selected: "a", shift: false, comparing: true))   // ends a comparison instead
+}

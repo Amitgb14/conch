@@ -384,8 +384,13 @@ final class CommitsModel: ObservableObject {
         }
     }
 
-    /// Picks a commit, or with shift a second one to compare with it.
+    /// Picks a commit, or with shift a second one to compare with it; the
+    /// picked one clicked again closes its panel.
     func pick(_ hash: String, shift: Bool) {
+        if pickCloses(hash, selected: selected, shift: shift, comparing: compareWith != nil) {
+            closeCommit()
+            return
+        }
         if shift, let s = selected, s != hash {
             compareWith = hash
         } else {
@@ -393,6 +398,29 @@ final class CommitsModel: ObservableObject {
             compareWith = nil
         }
         loadDetail()
+    }
+
+    /// Closes the commit's panel: the graph is whole again.
+    func closeCommit() {
+        selected = nil
+        compareWith = nil
+        detail = nil
+        detailError = ""
+        peekFile = nil
+        peek = []
+    }
+
+    /// One step back (Escape): the newest thing opened closes first.
+    func back() {
+        switch graphBack(showCI: showCI, showAutopilot: showAutopilot, comparing: compareWith != nil,
+                         selected: selected != nil, focused: focusOn != nil) {
+        case .closeCI: showCI = false
+        case .closeAutopilot: showAutopilot = false
+        case .endCompare: compareWith = nil; loadDetail()
+        case .closeCommit: closeCommit()
+        case .clearFocus: focusOn = nil
+        case .nothing: break
+        }
     }
 
     /// The range being compared, the older commit first, by the graph's order.
@@ -496,6 +524,9 @@ struct CommitsView: View {
         .sheet(isPresented: Binding(get: { model.reviewing != nil }, set: { if !$0 { model.reviewing = nil } })) {
             RebaseReviewSheet(model: model)
         }
+        // Only while the graph has the keyboard: Escape belongs to the
+        // terminals and agents in the other splits.
+        .onExitCommand { model.back() }
     }
 
     var graph: some View {
@@ -804,12 +835,20 @@ struct CommitDetailPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
+                // Still reading, or it failed: the × has no header to sit in.
+                if model.detail == nil {
+                    HStack { Spacer(); CloseCommitButton(model: model) }
+                }
                 if !model.detailError.isEmpty {
                     Text(model.detailError).font(.ui(size: 12)).foregroundStyle(Theme.err)
                 }
                 if let d = model.detail {
                     if let r = model.range {
-                        Text("Compare").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.merged)
+                        HStack {
+                            Text("Compare").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.merged)
+                            Spacer()
+                            CloseCommitButton(model: model)
+                        }
                         Text("\(d.commits ?? 0) commit\((d.commits ?? 0) == 1 ? "" : "s"), \(d.files?.count ?? 0) file\((d.files?.count ?? 0) == 1 ? "" : "s")")
                             .font(.ui(size: 14, weight: .semibold))
                         Text("\(String(r.from.prefix(7))) → \(String(r.to.prefix(7)))").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted)
@@ -822,6 +861,7 @@ struct CommitDetailPanel: View {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(d.hash, forType: .string)
                             }.controlSize(.small)
+                            CloseCommitButton(model: model)
                         }
                         Text(d.subject ?? "").font(.ui(size: 14, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 6) {
@@ -1272,5 +1312,22 @@ struct ConflictCard: View {
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(tone.opacity(0.10)))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(tone.opacity(0.35)))
+    }
+}
+
+
+/// The commit panel's ×: back to the whole graph (Escape does it too).
+struct CloseCommitButton: View {
+    @ObservedObject var model: CommitsModel
+    /// Read so the × is drawn again when the theme changes.
+    @Environment(\.conchTheme) private var look
+
+    var body: some View {
+        Button { model.closeCommit() } label: {
+            LucideIcon("x", color: Theme.muted, size: 13).padding(3).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Close — back to the whole graph (Esc)")
+        .accessibilityLabel("Close the commit")
     }
 }
