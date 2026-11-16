@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -361,5 +362,73 @@ func TestIntegrationKeyChecksTheProject(t *testing.T) {
 	out, _ := a4Capture(t, "acme-key\n", func() { err = runIntegration([]string{"key", "-stdin", "-cwd", repo, "acme-ci"}) })
 	if err != nil || !strings.Contains(out, "checked: read 2 runs of main on Acme CI") {
 		t.Fatalf("key -cwd: %q %v", out, err)
+	}
+}
+
+// shippedWithAPI installs a shipped file with its api moved to a test
+// server, as one installed of the same name replaces it.
+func shippedWithAPI(t *testing.T, home, name, api string) {
+	t.Helper()
+	data, _, err := integration.Source(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	i := strings.Index(src, "\napi = \"")
+	j := strings.Index(src[i+1:], "\n")
+	src = src[:i+1] + `api = "` + api + `"` + src[i+1+j:]
+	os.MkdirAll(filepath.Join(home, "integrations"), 0o755)
+	if err := os.WriteFile(filepath.Join(home, "integrations", name+".toml"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	integration.Forget()
+}
+
+// A tracker's key is checked by reading its open tickets; a webhook's by
+// sending a message through it — and neither is ever printed.
+func TestIntegrationKeyChecksTicketsAndNotify(t *testing.T) {
+	home, _ := integrationEnv(t)
+	t.Setenv("SHORTCUT_API_TOKEN", "")
+	t.Setenv("SLACK_WEBHOOK_URL", "")
+	sc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Shortcut-Token") != "sc-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v3/workflows":
+			w.Write([]byte(`[]`))
+		default:
+			w.Write([]byte(`{"data": [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}], "next": null}`))
+		}
+	}))
+	defer sc.Close()
+	shippedWithAPI(t, home, "shortcut", sc.URL+"/api/v3")
+	var err error
+	out, _ := a4Capture(t, "sc-key\n", func() { err = runIntegration([]string{"key", "-stdin", "shortcut"}) })
+	if err != nil || !strings.Contains(out, "checked: read 2 open tickets on Shortcut") || strings.Contains(out, "sc-key") {
+		t.Fatalf("shortcut: %q %v", out, err)
+	}
+
+	var got []string
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = append(got, r.URL.Path+" "+string(b))
+		w.Write([]byte("ok"))
+	}))
+	defer hook.Close()
+	shippedWithAPI(t, home, "slack", hook.URL)
+	out, _ = a4Capture(t, hook.URL+"/services/T/B/HOOKSECRET\n", func() { err = runIntegration([]string{"key", "-stdin", "slack"}) })
+	if err != nil || !strings.Contains(out, "checked: sent a test message through Slack") || strings.Contains(out, "HOOKSECRET") {
+		t.Fatalf("slack: %q %v", out, err)
+	}
+	if len(got) != 1 || !strings.Contains(got[0], "/services/T/B/HOOKSECRET") || !strings.Contains(got[0], "work.") {
+		t.Fatalf("sent %q", got)
+	}
+	// A webhook on another host: refused before anything is sent, and
+	// not repeated back.
+	out, _ = a4Capture(t, "https://evil.example/HOOKSECRET\n", func() { err = runIntegration([]string{"key", "-stdin", "slack"}) })
+	if strings.Contains(out, "HOOKSECRET") || !strings.Contains(out, "not checked") || len(got) != 1 {
+		t.Fatalf("elsewhere: %q %v %d", out, err, len(got))
 	}
 }

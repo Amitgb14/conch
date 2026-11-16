@@ -216,7 +216,7 @@ func runTask(args []string) error {
 	every := fs.String("every", "", "start it again this often, each on a branch of its own: 1h, 1d, weekly")
 	inSandbox := fs.String("sandbox", "", "run it in a new sandbox from this provider (daytona, boat…), cloned from the project's origin")
 	issue := fs.Int("issue", 0, "work on this GitHub issue: its title and body are the prompt (any PROMPT is added to it)")
-	ticket := fs.String("ticket", "", "work on this Linear or Jira ticket — ENG-123, linear:ENG-123 or its address: its title, body and comments are the prompt")
+	ticket := fs.String("ticket", "", "work on this ticket — ENG-123, linear:ENG-123, its address, or a tickets integration's NAME:KEY (shortcut:123): its title, body and comments are the prompt")
 	queue := fs.Bool("queue", false, "add it to the project's queue: it starts when fewer than -wip agents are running there")
 	wip := fs.Int("wip", 0, "with -queue, how many agents the project runs before it waits (default 3)")
 	account := fs.String("account", "", "the agents' account (conch account list); default: the folder's pin, else each agent's own")
@@ -237,7 +237,7 @@ func runTask(args []string) error {
 		if *issue > 0 {
 			return errors.New("-issue is a GitHub issue and -ticket a Linear or Jira one; give one of them")
 		}
-		_, key, err := tracker.ParseRef(*ticket)
+		_, key, err := tracker.CheckRef(*ticket)
 		if err != nil {
 			return fmt.Errorf("-ticket: %w", err)
 		}

@@ -185,13 +185,15 @@ Usage:
                                 and starts from its branch (stacked work; -base to start elsewhere);
                                 -issue N works on that GitHub issue (PROMPT is then optional);
                                 -ticket KEY on that Linear or Jira ticket (ENG-123, linear:ENG-123,
-                                or its address), set up in [trackers] in config.toml;
+                                or its address), set up in [trackers] in config.toml, or a tickets
+                                integration's (shortcut:123);
                                 -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
   conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL | check | all
-                                tickets in Linear or Jira ([trackers] in config.toml): list the
-                                project's open ones, read one, comment, move it, link a pull request
+                                tickets in Linear or Jira ([trackers] in config.toml) or a tickets
+                                integration (Shortcut, GitLab issues: NAME:KEY): list the project's
+                                open ones, read one, comment, move it, link a pull request
   conch branch commit [-file PATH]... -m MESSAGE
                                 commit a task branch's changes (-cwd, -branch pick it;
                                 -cwd needed with -m)
@@ -252,13 +254,15 @@ Usage:
                                 check a provider of yours with your key, then propose it to the registry
                                 as a pull request through gh (your key is never part of it)
   conch integration search [-json] [KIND|WORDS]
-                                CI services and more conch can talk to, from the registries
+                                CI services, trackers (tickets) and webhooks (notify) conch can
+                                talk to, from the registries
                                 (each a file describing an API, never code)
   conch integration info [-json] NAME
                                 what it does in conch, where your key goes, who wrote it
   conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME
                                 says the hosts your key goes to first, checks the file's hash,
-                                asks for the key (kept in the Keychain on a Mac) and checks it here
+                                asks for the key (kept in the Keychain on a Mac) and checks it here:
+                                a CI's runs, a tracker's tickets, a test message for a webhook
   conch integration ls [-json] [-cwd DIR]
                                 every integration here — built in, shipped, installed — its key's
                                 state and whether this project uses it

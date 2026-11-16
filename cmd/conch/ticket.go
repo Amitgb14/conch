@@ -11,17 +11,19 @@ import (
 	"text/tabwriter"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/tracker"
 )
 
-// conch ticket reads and changes tickets in Linear and Jira, through the
+// conch ticket reads and changes tickets in Linear, Jira and the trackers
+// installed as tickets integrations (Shortcut, GitLab issues), through the
 // server on the machine the project is on — which holds the key, as it
 // holds gh's sign-in for issues. It changes a ticket only when told to:
 // nothing here moves a ticket on its own.
 
 const ticketUsage = `Usage:
-  conch ticket ls      [-cwd DIR] [-tracker linear|jira] [-mine] [-n N] [-json]
+  conch ticket ls      [-cwd DIR] [-tracker linear|jira|NAME] [-mine] [-n N] [-json]
                                          the project's open tickets, most recently changed first
   conch ticket show    [-cwd DIR] [-json] TICKET
                                          a ticket: its status, body, comments and links
@@ -33,14 +35,17 @@ const ticketUsage = `Usage:
                                          attach a link: a branch, a pull request
   conch ticket all     [-mine] [-json]
                                          every project's open tickets (GitHub issues, Linear,
-                                         Jira) and what conch is doing about each
+                                         Jira, tickets integrations) and what conch is doing about each
   conch ticket check   [-cwd DIR] [-json]
                                          whether GitHub, Linear and Jira can be reached with
                                          what the server has: whose key, open tickets, what is wrong
 
 TICKET is its key (ENG-123), its key after the tracker (linear:ENG-123,
 jira:PROJ-42) or its address. Which tracker, and the key it is reached
-with, are set up in [trackers] in config.toml (conch config web).`
+with, are set up in [trackers] in config.toml (conch config web). A
+tracker installed as a tickets integration (conch integration install
+shortcut) names its tickets NAME:KEY (shortcut:123), or by the key alone
+in a project tied to it by [[trackers.projects]].`
 
 func runTicket(args []string) error {
 	if len(args) == 0 {
@@ -95,15 +100,17 @@ func openTickets(dir string) (*client.Client, string, error) {
 func ticketList(args []string) error {
 	fs := flag.NewFlagSet("ticket ls", flag.ContinueOnError)
 	cwd := fs.String("cwd", "", "a directory in the project (default: current)")
-	which := fs.String("tracker", "", "linear or jira, when both are set up")
+	which := fs.String("tracker", "", "linear, jira, or a tickets integration (shortcut), when more than one is set up")
 	mine := fs.Bool("mine", false, "only the tickets assigned to you")
 	n := fs.Int("n", 30, "how many")
 	asJSON := fs.Bool("json", false, "print JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if w := strings.ToLower(*which); w != "" && w != tracker.Linear && w != tracker.Jira {
-		return fmt.Errorf("-tracker is linear or jira, not %q", *which)
+	// Linear, Jira, or a tickets integration the server has: its name is
+	// the server's to know, and what is no name at all is refused here.
+	if w := strings.ToLower(*which); w == "github" || w != "" && integration.CheckName(w) != nil {
+		return fmt.Errorf("-tracker is linear, jira or a tickets integration's name (shortcut), not %q", *which)
 	}
 	c, project, err := openTickets(*cwd)
 	if err != nil {
@@ -139,7 +146,7 @@ func ticketShow(args []string) error {
 		return errors.New("usage: conch ticket show [-cwd DIR] [-json] TICKET")
 	}
 	ref := fs.Arg(0)
-	if _, _, err := tracker.ParseRef(ref); err != nil {
+	if _, _, err := tracker.CheckRef(ref); err != nil {
 		return err
 	}
 	c, project, err := openTickets(*cwd)
@@ -200,7 +207,7 @@ func ticketChange(what string, args []string) error {
 		return errors.New(usage)
 	}
 	ref, rest := fs.Arg(0), strings.TrimSpace(strings.Join(fs.Args()[1:], " "))
-	if _, _, err := tracker.ParseRef(ref); err != nil {
+	if _, _, err := tracker.CheckRef(ref); err != nil {
 		return err
 	}
 	up := proto.TicketUpdateParams{Ticket: ref}

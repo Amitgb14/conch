@@ -48,8 +48,14 @@ func TestA4TaskFromATicket(t *testing.T) {
 	if err != nil || it.Task == nil || it.Task.Ticket != "ENG-8" {
 		t.Fatalf("queued: %+v %v", it, err)
 	}
+	// A tickets integration's NAME:KEY is the server's to read.
+	a4Capture(t, "", func() { err = runTask([]string{"-ticket", "shortcut:123"}) })
+	srv.params(t, proto.MethodTaskCreate, &tp)
+	if err != nil || tp.Ticket != "shortcut:123" {
+		t.Fatalf("an integration's ticket: %+v %v", tp, err)
+	}
 	// Refused before anything is asked of the server.
-	for _, args := range [][]string{{"-ticket", "seven"}, {"-ticket", "ENG-7", "-issue", "3"}, {"-ticket", "ENG-7", "-sandbox", "daytona"}} {
+	for _, args := range [][]string{{"-ticket", "two words"}, {"-ticket", "linear:7"}, {"-ticket", "ENG-7", "-issue", "3"}, {"-ticket", "ENG-7", "-sandbox", "daytona"}} {
 		if a4Capture(t, "", func() { err = runTask(args) }); err == nil {
 			t.Fatalf("%v was taken", args)
 		}
@@ -147,7 +153,7 @@ func TestA4TicketCommand(t *testing.T) {
 	}
 
 	// Usage mistakes, before anything is sent.
-	for _, args := range [][]string{nil, {"what"}, {"show"}, {"show", "seven"}, {"comment", "ENG-7"}, {"status", "ENG-7"}, {"link", "ENG-7"}, {"link", "ENG-7", "not-an-address"}, {"ls", "-tracker", "github"}} {
+	for _, args := range [][]string{nil, {"what"}, {"show"}, {"show", "two words"}, {"show", "linear:7"}, {"comment", "ENG-7"}, {"status", "ENG-7"}, {"link", "ENG-7"}, {"link", "ENG-7", "not-an-address"}, {"ls", "-tracker", "github"}, {"ls", "-tracker", "../x"}} {
 		if a4Capture(t, "", func() { err = runTicket(args) }); err == nil {
 			t.Errorf("%v was taken", args)
 		}
