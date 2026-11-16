@@ -171,6 +171,7 @@ struct IntegrationsView: View {
     @ObservedObject var model: IntegrationsModel
     @ObservedObject var look: ShownTheme
     @Environment(\.conchTheme) private var theme
+    @State private var adapting = false
 
     var body: some View {
         let _ = theme
@@ -187,6 +188,9 @@ struct IntegrationsView: View {
         .background(Theme.window)
         .sheet(isPresented: Binding(get: { model.flow != nil }, set: { if !$0 { model.flow = nil } })) {
             IntegrationInstallSheet(model: model)
+        }
+        .sheet(isPresented: $adapting) {
+            NewIntegrationSheet(store: model.store) { model.load() }
         }
     }
 
@@ -207,6 +211,10 @@ struct IntegrationsView: View {
                 Text("conch-integrations").font(.ui(size: 12.5)).foregroundStyle(Theme.text2).padding(.horizontal, 9).padding(.vertical, 5)
                 Button("+ Add a registry…") { model.store.openSettings() }
                     .buttonStyle(.plain).font(.ui(size: 12.5)).foregroundStyle(Theme.muted).padding(.horizontal, 9)
+                heading("Make one")
+                Button("✦ Adapt from API docs…") { adapting = true }
+                    .buttonStyle(.plain).font(.ui(size: 12.5)).foregroundStyle(Theme.accent).padding(.horizontal, 9)
+                    .help("An agent writes an integration file from a service's API docs; conch checks it with your key")
             }
             .padding(8)
         }
