@@ -220,3 +220,19 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(IntegrationCatalog.banner(uses) == ["ceph tracks its work in Linear (ENG) (chosen in Settings)"])
     #expect(IntegrationCatalog.bannerNames(uses) == ["linear"])
 }
+
+// A built-in's card says what conch does with it, not what a registry
+// entry with no operations would: GitHub's and Actions' were "" and ".".
+@Test func integrationBuiltInSummaries() throws {
+    let here = IntegrationList(integrations: [
+        IntegrationHere(name: "github", kind: "host", version: "-", source: "built in", state: "through gh"),
+        IntegrationHere(name: "github-actions", kind: "ci", version: "-", source: "built in", state: "through gh")], problems: nil)
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data("""
+    [{"kind":"host","name":"github","label":"GitHub","builtin":true,"version":0,"hosts":{"api":""}},
+     {"kind":"ci","name":"github-actions","label":"GitHub Actions","builtin":true,"version":0,"hosts":{"api":""}}]
+    """.utf8))
+    let cards = IntegrationCatalog.cards(here: here, listed: listed, uses: [:])
+    #expect(cards[0].summary == "Pull requests, checks, merge, reviews, issues.")
+    #expect(cards[1].summary == "Failed steps' logs to the branch's agent, re-run failed jobs.")
+    #expect(IntegrationCatalog.summary(kind: "ci", operations: []) == "")
+}

@@ -243,7 +243,7 @@ public enum IntegrationCatalog {
         case "tickets":
             var parts = ["Open tickets in the Tickets view", "tasks from a ticket"]
             if operations.contains("comment") || operations.contains("move") { parts.append("comment and move") }
-            return parts.joined(separator: ", ") + "."
+            return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "notify":
             return operations.contains("send") ? "Agent waiting, done and merged, sent there by conch's server." : ""
         case "ci":
@@ -255,7 +255,7 @@ public enum IntegrationCatalog {
         if operations.contains("failed_log") { parts.append("A failed job's output to the branch's agent") }
         if operations.contains("rerun") { parts.append("re-run from failed") }
         if operations.contains("runs") { parts.append("runs for a branch") }
-        return parts.joined(separator: ", ") + "."
+        return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
     }
 
     /// How the key is given, in a chip's word.
@@ -285,7 +285,8 @@ public enum IntegrationCatalog {
             out.append(IntegrationCard(name: h.name, label: entry?.label ?? labels[h.name] ?? h.name, kind: h.kind, source: h.source,
                                        installed: true, builtIn: builtIn, standing: standing,
                                        auth: authWord(userEnv: entry?.userEnv ?? (h.name == "jenkins" ? "JENKINS_USER" : nil), builtIn: builtIn, name: h.name),
-                                       summary: entry.map { summary(kind: $0.kind, operations: $0.operations ?? []) } ?? builtInSummary[h.name] ?? "",
+                                       summary: builtIn ? (builtInSummary[h.name] ?? entry?.note ?? "")
+                                           : entry.map { summary(kind: $0.kind, operations: $0.operations ?? []) } ?? "",
                                        usedIn: usedIn(h.name), wanted: !builtIn && wantedNow(h.name)))
         }
         for e in listed where !seen.contains(e.name) {
