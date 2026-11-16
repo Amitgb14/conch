@@ -231,6 +231,9 @@ struct IntegrationsView: View {
             }
         }
         .background(Theme.window)
+        // No focus squares: AppKit drew one round whichever button took the
+        // keyboard first (All, then Refresh), which read as chosen.
+        .focusEffectDisabled()
         .sheet(isPresented: Binding(get: { model.flow != nil }, set: { if !$0 { model.flow = nil } })) {
             IntegrationInstallSheet(model: model)
         }
@@ -304,7 +307,7 @@ struct IntegrationsView: View {
                         .focusable(false)
                 }
                 if model.loading { ProgressView().controlSize(.small) }
-                Button("Refresh") { model.load() }.disabled(model.loading)
+                Button("Refresh") { model.load() }.disabled(model.loading).focusable(false)
             }
             let found = IntegrationCatalog.banner(model.uses)
             if !found.isEmpty {
