@@ -3,6 +3,7 @@ package integration
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -162,6 +163,43 @@ type contract struct {
 var contracts = map[string]contract{
 	KindCI: {required: []string{"runs"}, optional: []string{"failed_log", "rerun", "stats"},
 		states: []string{"pass", "fail", "pending", "canceled"}},
+}
+
+// opPurpose says what each operation is for, as an agent adapting a file
+// is told it.
+var opPurpose = map[string]string{
+	"runs":       "a branch's runs, newest first: {branch}, {head} and {project} are known",
+	"failed_log": "what a failed run printed, {run} its id: the text a branch's agent is sent",
+	"rerun":      "re-run what failed in run {run}",
+	"stats":      "recent runs with their durations, for the CI panel",
+}
+
+// KindContract is what a kind's file fills, for whoever writes one.
+type KindContract struct {
+	Required []string
+	Optional []string
+	States   []string
+	// Text is the contract in words.
+	Text string
+}
+
+// Contract is kind's contract; false for a kind this conch reads no file
+// of (a sandbox file is the sandbox package's).
+func Contract(kind string) (KindContract, bool) {
+	c, ok := contracts[kind]
+	if !ok {
+		return KindContract{}, false
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "A %s file fills these operations:\n", kind)
+	for _, op := range c.required {
+		fmt.Fprintf(&b, "- [%s] (required): %s\n", op, opPurpose[op])
+	}
+	for _, op := range c.optional {
+		fmt.Fprintf(&b, "- [%s]: %s\n", op, opPurpose[op])
+	}
+	fmt.Fprintf(&b, "Every state the service documents maps, in [states], to one of %s.\n", strings.Join(c.states, ", "))
+	return KindContract{Required: slices.Clone(c.required), Optional: slices.Clone(c.optional), States: slices.Clone(c.states), Text: b.String()}, true
 }
 
 // Operations lists the operations the file fills, in the contract's order.
