@@ -177,3 +177,46 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     revoked.builtin = nil; revoked.revoked = "bad"
     #expect(!revoked.offersKey)
 }
+
+// A sandbox provider from the registry installs as one, with no key asked
+// here; one conch has already offers no key, which Settings → Sandboxes keeps.
+@Test func integrationSandboxFlow() throws {
+    let hetzner = try JSONDecoder().decode(IntegrationInfo.self, from: Data("""
+    {"name":"hetzner","label":"Hetzner Cloud","kind":"sandbox","source":"registry conch-integrations","installed":false,"does":[],"hosts":{"api":"api.hetzner.cloud"},"key_env":"HCLOUD_TOKEN","key_set":false}
+    """.utf8))
+    #expect(hetzner.isSandbox && hetzner.offersKey)
+    var f = IntegrationInstallFlow(info: hetzner)
+    f.agreed = true
+    #expect(f.blocker == nil && f.arguments == ["integration", "install", "-y", "hetzner"])
+    var daytona = hetzner
+    daytona.name = "daytona"; daytona.installed = true
+    #expect(!daytona.offersKey)
+}
+
+// Every integration conch ships or lists as built in has its own logo, a
+// path that draws and a brand colour; one with none keeps its initial.
+@Test func integrationLogos() {
+    for name in ["circleci", "gitlab-ci", "buildkite", "jenkins", "bitbucket-pipelines", "semaphore",
+                 "github", "github-actions", "github-issues", "linear", "jira", "shortcut", "gitlab-issues",
+                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "devin"] {
+        let logo = IntegrationLogos.logo(name)
+        #expect(logo != nil, "\(name) has no logo")
+        #expect((IntegrationLogos.ops(name)?.count ?? 0) > 3, "\(name)'s path draws nothing")
+        #expect(logo.flatMap { UInt32($0.hex, radix: 16) } != nil, "\(name)'s colour \(logo?.hex ?? "")")
+    }
+    #expect(IntegrationLogos.logo("instabox") == nil && IntegrationLogos.ops("instabox") == nil)
+}
+
+// Sandboxes and notifications are where work runs and what it tells you,
+// not what a project uses: the banner leaves them out, and a tracker
+// with no key reads as one.
+@Test func integrationBannerLeavesSandboxesOut() {
+    let uses: [String: [IntegrationUse]] = ["ceph": [
+        IntegrationUse(name: "boat", label: "boat.dev", kind: "sandbox", why: "for tasks run off this machine", installed: true),
+        IntegrationUse(name: "slack", label: "Slack", kind: "notify", why: "x", installed: true),
+        IntegrationUse(name: "linear", label: "Linear (ENG)", kind: "tickets", why: "chosen in Settings", installed: true, connected: false),
+        IntegrationUse(name: "circleci", label: "CircleCI", kind: "ci", why: ".circleci/config.yml", installed: true, connected: true),
+    ]]
+    #expect(IntegrationCatalog.banner(uses) == ["ceph tracks its work in Linear (ENG) (chosen in Settings)"])
+    #expect(IntegrationCatalog.bannerNames(uses) == ["linear"])
+}

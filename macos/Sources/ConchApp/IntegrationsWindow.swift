@@ -415,24 +415,27 @@ func kindWord(_ kind: String) -> String {
     }
 }
 
-/// A service's mark: a rounded square in its colour, its initial.
+/// A service's mark: its own logo, white on a rounded square in its brand
+/// colour (IntegrationLogos), or its initial where conch has no logo.
 struct IntegrationMark: View {
     let name: String
     let label: String
     let size: CGFloat
     @Environment(\.conchTheme) private var theme
 
-    static let colours: [String: Color] = [
-        "circleci": Color(white: 0.2), "gitlab-ci": Color(red: 0.99, green: 0.43, blue: 0.15), "buildkite": Color(red: 0.08, green: 0.8, blue: 0.48),
-        "jenkins": Color(red: 0.83, green: 0.2, blue: 0.2), "github": Color(white: 0.15), "github-actions": Color(red: 0.16, green: 0.45, blue: 0.86),
-        "github-issues": Color(red: 0.16, green: 0.6, blue: 0.3), "linear": Color(red: 0.37, green: 0.42, blue: 0.82), "jira": Color(red: 0.15, green: 0.52, blue: 1.0),
-    ]
-
     var body: some View {
         let _ = theme
-        return RoundedRectangle(cornerRadius: size * 0.24).fill(Self.colours[name] ?? Theme.raise)
+        let logo = IntegrationLogos.logo(name)
+        return RoundedRectangle(cornerRadius: size * 0.24).fill(logo.flatMap { UInt32($0.hex, radix: 16) }.map { Color(nsColor: NSColor(hex: $0)) } ?? Theme.raise)
             .frame(width: size, height: size)
-            .overlay(Text(String(label.prefix(1))).font(.ui(size: size * 0.45, weight: .bold)).foregroundStyle(.white))
+            .overlay {
+                if let ops = IntegrationLogos.ops(name) {
+                    Lucide(ops: ops).fill(.white, style: FillStyle(eoFill: logo?.evenOdd ?? false))
+                        .frame(width: size * 0.58, height: size * 0.58)
+                } else {
+                    Text(String(label.prefix(1)).uppercased()).font(.ui(size: size * 0.45, weight: .bold)).foregroundStyle(Theme.text2)
+                }
+            }
     }
 }
 

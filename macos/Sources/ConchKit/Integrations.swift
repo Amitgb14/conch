@@ -123,8 +123,12 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     /// that takes a key, Install for one not here; nothing for a built-in
     /// with no key of conch's (GitHub's, through gh), or a revoked one.
     public var offersKey: Bool {
-        revoked == nil && !(builtin == true && keyEnv.isEmpty)
+        revoked == nil && !(builtin == true && keyEnv.isEmpty) && !(isSandbox && installed)
     }
+
+    /// A sandbox provider: installed as one, its key kept in Settings →
+    /// Sandboxes rather than given here.
+    public var isSandbox: Bool { kind == IntegrationKind.sandbox.rawValue }
 
     /// The verified chip in full: "✓ verified 2026-11-12 with conch 0.2.1 (12 pipelines read)".
     public var verifiedWords: String? {
@@ -337,21 +341,29 @@ public enum IntegrationCatalog {
 
     /// The detection banner: each project that uses a service with no key
     /// or nothing to read it, in words — "ceph builds on CircleCI
-    /// (.circleci/config.yml)". Empty when there is nothing to say.
+    /// (.circleci/config.yml)". Sandboxes and notifications are not what a
+    /// project uses but where its work runs and what it tells you, so they
+    /// are not found in it. Empty when there is nothing to say.
     public static func banner(_ uses: [String: [IntegrationUse]]) -> [String] {
         var out: [String] = []
         for project in uses.keys.sorted() {
-            for u in uses[project] ?? [] where u.installed != true || u.connected != true {
-                let verb = u.kind == "host" ? "is on" : "builds on"
+            for u in uses[project] ?? [] where found(u) {
+                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : "builds on"
                 out.append("\(project) \(verb) \(u.label) (\(u.why))")
             }
         }
         return out
     }
 
+    /// Whether a use is one the banner names: a CI, host or tracker with
+    /// no key or nothing here to read it.
+    static func found(_ u: IntegrationUse) -> Bool {
+        ["ci", "host", "tickets"].contains(u.kind) && (u.installed != true || u.connected != true)
+    }
+
     /// The names the banner's Show button filters to.
     public static func bannerNames(_ uses: [String: [IntegrationUse]]) -> Set<String> {
-        Set(uses.values.flatMap { $0 }.filter { $0.installed != true || $0.connected != true }.map(\.name))
+        Set(uses.values.flatMap { $0 }.filter(found).map(\.name))
     }
 }
 
@@ -405,7 +417,7 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
         if !agreed { return "agree to where the key goes" }
         if asksBase && !base.lowercased().hasPrefix("https://") { return "the address of your server, https://…" }
         if asksUser && user.trimmingCharacters(in: .whitespaces).isEmpty { return "your user name" }
-        if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !info.keySet { return "the key" }
+        if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !info.keySet && !info.isSandbox { return "the key" }
         if case .running = check { return "checking…" }
         return nil
     }
@@ -413,6 +425,7 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
     /// The conch command install runs; the key goes on its stdin, never
     /// in these.
     public var arguments: [String] {
+        if info.isSandbox { return ["integration", "install", "-y", info.name] }
         var args = info.installed ? ["integration", "key", "-stdin"] : ["integration", "install", "-y", "-key-stdin"]
         if asksBase && !base.isEmpty { args += ["-base", base] }
         if let dir = checkIn, !dir.isEmpty { args += ["-cwd", dir] }

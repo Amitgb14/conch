@@ -25,7 +25,13 @@ struct NewIntegrationSheet: View {
     @State private var kept = false
 
     private static let kinds: [(IntegrationKind, String)] = [(.ci, "CI"), (.host, "Code host"), (.tickets, "Tickets"), (.sandbox, "Sandbox"), (.notify, "Notify")]
-    private static let agents: [(String, String)] = [("claude", "Claude"), ("codex", "Codex")]
+    /// The agents that can write it: those installed here that conch
+    /// hands a first message to (the supported tier), Claude first.
+    private var agents: [(String, String)] {
+        let here = (store.agents["local"] ?? []).filter { $0.installed && $0.tier != "runs here" }
+        let list = here.map { ($0.name, $0.label ?? $0.name.capitalized) }
+        return list.isEmpty ? [("claude", "Claude")] : list
+    }
 
     private var projects: [(name: String, path: String)] {
         (store.snapshots["local"]?.projects ?? []).filter { $0.git == true }.map { ($0.name, $0.path) }
@@ -80,7 +86,7 @@ struct NewIntegrationSheet: View {
             row("API docs") { TextField("", text: $form.docs, prompt: Text("https://docs.example.com/api")).textFieldStyle(.roundedBorder) }
             row("Agent") {
                 HStack(spacing: 5) {
-                    ForEach(Self.agents, id: \.0) { a in chip(a.1, on: form.agent == a.0, enabled: true) { form.agent = a.0 } }
+                    ForEach(agents, id: \.0) { a in chip(a.1, on: form.agent == a.0, enabled: true, agent: a.0) { form.agent = a.0 } }
                 }
             }
             if form.kind != .sandbox && !projects.isEmpty {
@@ -108,14 +114,24 @@ struct NewIntegrationSheet: View {
         }
     }
 
-    private func chip(_ s: String, on: Bool, enabled: Bool, _ action: @escaping () -> Void) -> some View {
+    /// A choice: an agent's with its own mark. One that cannot be chosen
+    /// is drawn faint and takes no click, and none takes the keyboard's
+    /// focus — a focus ring left on CI read as CI chosen.
+    private func chip(_ s: String, on: Bool, enabled: Bool, agent: String? = nil, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(s).font(.ui(size: 11.5, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? Theme.accent : enabled ? Theme.text2 : Theme.muted)
-                .padding(.horizontal, 9).padding(.vertical, 3)
-                .overlay(Capsule().stroke(on ? Theme.accent : Theme.line))
+            HStack(spacing: 4) {
+                if let agent { Mark(agent: agent) }
+                Text(s).font(.ui(size: 11.5, weight: on ? .semibold : .regular))
+            }
+            .foregroundStyle(on ? Theme.accent : enabled ? Theme.text2 : Theme.muted.opacity(0.6))
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(Capsule().fill(on ? Theme.accent.opacity(0.12) : .clear))
+            .overlay(Capsule().stroke(on ? Theme.accent : Theme.line))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .focusable(false)
+        .disabled(!enabled)
         .help(enabled ? "" : "conch reads no \(s.lowercased()) files yet")
     }
 
