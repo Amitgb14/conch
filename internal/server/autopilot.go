@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -70,6 +71,8 @@ type autopilot struct {
 	// prompt stands in for promptAgent in tests, where a message that
 	// fails to reach a running agent cannot be arranged any other way.
 	prompt func(proto.AgentPromptParams) (proto.AgentPromptResult, *proto.Error)
+	// noted is told every note, in tests: set before the autopilot runs.
+	noted func(proto.AutopilotNote)
 }
 
 // autopilotFile is autopilot.json.
@@ -537,6 +540,9 @@ func (a *autopilot) checked(key, head string, passed bool) {
 // note tells every client what the autopilot did, and the log.
 func (s *Server) autopilotNote(n proto.AutopilotNote) {
 	log.Printf("autopilot: %s %s: %s", n.ProjectID, n.Branch, n.Text)
+	if f := s.autopilot.noted; f != nil {
+		f(n)
+	}
 	s.broadcast(proto.EventAutopilotNote, n)
 }
 
@@ -637,28 +643,63 @@ func (s *Server) autopilotPendingCI() {
 }
 
 // autopilotFixCI sends a branch's failed CI to its agent, read through gh
-// on this machine.
+// on this machine or a CI integration. Its notes name whose run it was:
+// the failing checks' service until the log is read, then the log's.
 func (s *Server) autopilotFixCI(projectID, branch string) {
-	s.autopilotFix(projectID, branch, "CI", func() (string, error) {
+	var about *proto.NoteCI
+	if p, perr := s.projects.get(projectID); perr == nil {
+		p.mu.Lock()
+		about = failingCI(p.prs[branch].Runs)
+		p.mu.Unlock()
+	}
+	s.autopilotFix(projectID, branch, "CI", about, func() (string, *proto.NoteCI, error) {
 		lg, perr := s.projects.ciLog(proto.BranchCILogParams{ProjectID: projectID, Branch: branch})
 		if perr != nil {
-			return "", perr
+			return "", nil, perr
 		}
-		return proto.CIFailurePrompt(lg), nil
+		return proto.CIFailurePrompt(lg), proto.NoteFromLog(lg), nil
 	})
+}
+
+// failingCI is the service a pull request's failing checks came from,
+// when they agree on one; nil when they do not, or name none.
+func failingCI(runs []proto.PRCheck) *proto.NoteCI {
+	src := ""
+	for _, r := range runs {
+		if r.State != "fail" {
+			continue
+		}
+		if r.Source == "" || src != "" && r.Source != src {
+			return nil
+		}
+		src = r.Source
+	}
+	if src == "" {
+		return nil
+	}
+	return &proto.NoteCI{Source: src, Service: integration.Label(src, integration.Cached())}
 }
 
 // autopilotFix is one failure going back to a branch's agent, if
 // auto_fix has room and the agent is free; text is what it is told,
-// fetched only once it is going.
-func (s *Server) autopilotFix(projectID, branch, what string, text func() (string, error)) {
+// fetched only once it is going. about is the failed CI run, when it is
+// one, as far as it is known before text runs; text may say more of it.
+func (s *Server) autopilotFix(projectID, branch, what string, about *proto.NoteCI, text func() (string, *proto.NoteCI, error)) {
 	key := branchKey(projectID, branch)
 	if s.autopilot.policy().AutoFix <= 0 {
 		return
 	}
+	ci := what == "CI"
+	// failed is how a note starts: "CI failed on B — CircleCI · job J".
+	failed := func(about *proto.NoteCI) string {
+		if ci {
+			return about.Headline(branch)
+		}
+		return fmt.Sprintf("%s failed on %s", what, branch)
+	}
 	agent := s.freeAgent(projectID, branch)
 	if agent == nil {
-		if waiting := s.busyAgent(projectID, branch); waiting != nil && what == "CI" {
+		if waiting := s.busyAgent(projectID, branch); waiting != nil && ci {
 			// Red is only reported on the turn, so a failure put off now
 			// is remembered, or it would never be sent.
 			s.autopilot.mu.Lock()
@@ -667,23 +708,25 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 			s.autopilot.saveLocked()
 			s.autopilot.mu.Unlock()
 			if !already {
-				s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
-					Text: fmt.Sprintf("CI failed on %s; it goes to %s once it is free", branch, waiting.DisplayName())})
+				s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, CI: about,
+					Text: fmt.Sprintf("%s; it goes to %s once it is free", failed(about), waiting.DisplayName())})
 			}
 		}
 		return
 	}
-	ci := what == "CI"
 	ok, capped, limit := s.autopilot.takeFix(key, ci)
 	if capped {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
-			Text: fmt.Sprintf("%s failed on %s again; auto_fix tried %d times, so it's yours now", what, branch, limit)})
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, CI: about,
+			Text: fmt.Sprintf("%s again; auto_fix tried %d times, so it's yours now", failed(about), limit)})
 	}
 	if !ok {
 		return
 	}
 	go func() {
-		prompt, err := text()
+		prompt, read, err := text()
+		if read != nil {
+			about = read
+		}
 		if err == nil {
 			_, perr := s.autopilotPrompt(proto.AgentPromptParams{ID: agent.ID, Text: prompt})
 			if perr != nil {
@@ -692,12 +735,12 @@ func (s *Server) autopilotFix(projectID, branch, what string, text func() (strin
 		}
 		if err != nil {
 			s.autopilot.giveBack(key, ci)
-			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
-				Text: fmt.Sprintf("%s failed on %s, and could not go to %s: %v", what, branch, agent.DisplayName(), err)})
+			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, CI: about,
+				Text: fmt.Sprintf("%s, and could not go to %s: %v", failed(about), agent.DisplayName(), err)})
 			return
 		}
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
-			Text: fmt.Sprintf("%s failed on %s: sent it to %s to fix", what, branch, agent.DisplayName())})
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, CI: about,
+			Text: fmt.Sprintf("%s: sent it to %s to fix", failed(about), agent.DisplayName())})
 	}()
 }
 
@@ -733,16 +776,16 @@ func (s *Server) autopilotCheckEnded(p *project, ck proto.AutopilotCheck, output
 	if ck.Exit == 0 {
 		go s.autopilotShip(ck.ProjectID, ck.Branch)
 	} else {
-		s.autopilotFix(ck.ProjectID, ck.Branch, "The project's check", func() (string, error) {
+		s.autopilotFix(ck.ProjectID, ck.Branch, "The project's check", nil, func() (string, *proto.NoteCI, error) {
 			lines := output
 			if lines == nil && ck.Pane != "" {
 				e, perr := s.get(ck.Pane)
 				if perr != nil {
-					return "", fmt.Errorf("the check's terminal is gone, and its output with it")
+					return "", nil, fmt.Errorf("the check's terminal is gone, and its output with it")
 				}
 				lines = e.p.PlainLines()
 			}
-			return proto.FailurePrompt("The project's check", ck.Command, ck.Exit, proto.FailureTail(lines)), nil
+			return proto.FailurePrompt("The project's check", ck.Command, ck.Exit, proto.FailureTail(lines)), nil, nil
 		})
 	}
 	s.autopilotMerges()
