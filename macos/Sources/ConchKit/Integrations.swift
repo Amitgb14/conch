@@ -133,11 +133,25 @@ public struct IntegrationUse: Decodable, Equatable, Sendable {
     public var installed: Bool?
     public var connected: Bool?
     public var keyEnv: String?
-    enum CodingKeys: String, CodingKey { case name, label, kind, why, installed, connected; case keyEnv = "key_env" }
+    /// The repository's .conch/integrations.toml names it.
+    public var team: Bool?
+    enum CodingKeys: String, CodingKey { case name, label, kind, why, installed, connected, team; case keyEnv = "key_env" }
 }
 
 public struct IntegrationDetect: Decodable, Equatable, Sendable {
     public var integrations: [IntegrationUse]
+    /// The repository's .conch/integrations.toml, from a server with
+    /// integration.team.v1.
+    public var team: IntegrationTeam?
+}
+
+/// A repository's .conch/integrations.toml: the names it lists, and
+/// whether the person has said to use them ("ask", "used", "ignored").
+public struct IntegrationTeam: Decodable, Equatable, Sendable {
+    public var path: String
+    public var names: [String]?
+    public var state: String
+    public var problem: String?
 }
 
 /// The kinds, in the sidebar's order, with how people write them.
@@ -326,6 +340,22 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
     public var check: Check = .idle
 
     public init(info: IntegrationInfo) { self.info = info }
+
+    /// Connecting one already installed, from a project's sheet: where its
+    /// key goes was agreed when it was installed, so the sheet opens at the
+    /// key.
+    public init(connecting info: IntegrationInfo) {
+        self.info = info
+        agreed = info.installed && info.revoked == nil
+    }
+
+    /// The step the sheet is on: the first not done.
+    public var step: Int {
+        if !agreed || (asksBase && base.isEmpty) { return 1 }
+        if key.isEmpty && !info.keySet { return 2 }
+        if case .ok = check { return 4 }
+        return 3
+    }
 
     public var asksBase: Bool { info.baseURL == "ask" }
     public var asksUser: Bool { (info.userEnv ?? "").isEmpty == false }
