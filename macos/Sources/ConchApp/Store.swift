@@ -756,6 +756,9 @@ final class Store: ObservableObject {
     /// The Tickets window (TicketsWindow.swift).
     var onOpenTickets: (() -> Void)?
     func openTickets() { onOpenTickets?() }
+    /// The Integrations window (IntegrationsWindow.swift).
+    var onOpenIntegrations: (() -> Void)?
+    func openIntegrations() { onOpenIntegrations?() }
     /// [verify.intake]'s labels: what means ready for conch in Tickets.
     @Published private(set) var intakeLabels: Set<String> = []
 
@@ -2534,6 +2537,7 @@ final class Store: ObservableObject {
         case "settings": openSettings()
         case "systemMonitor": openSystemMonitor()
         case "tickets": openTickets()
+        case "integrations": openIntegrations()
         case "addProject": addProject()
         case "sshToHost": sshToHost()
         case "addMachine": addMachine()

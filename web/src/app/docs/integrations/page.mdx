@@ -31,6 +31,12 @@ gitlab-ci = "https://gitlab.example.com/api/v4"
 
 If the failure came from a service conch recognises but has no integration for, such as Bitbucket Pipelines, `fix-ci` says *Bitbucket Pipelines: install its integration to read its log*. It doesn't stop at "no failed GitHub Actions run". If an integration is there but its key isn't, the message names the variable to set.
 
+## In Conch.app and the TUI
+
+In Conch.app, **Window → Integrations** (or ⌘K, "Integrations") lists them by kind, with a banner when one of your projects uses a service that has no key yet. A card opens the integration's page: what it does in conch, the hosts your key goes to, and who wrote the file. **Install** or **Connect** asks you to agree to the hosts, then takes the key (and the address of a server you run yourself), keeps it in the Keychain, and checks it once against a project that uses it.
+
+In the TUI the same list is under Settings (`,`) → Integrations.
+
 ## Commands
 
 ```sh
@@ -91,4 +97,4 @@ text = "."
 
 ## Not yet
 
-These are planned but not here yet: an Integrations window in Conch.app and the TUI, having an agent write a file from a service's API docs, and other kinds of integration (ticket trackers, notifications, code hosts besides GitHub).
+These are planned but not here yet: having an agent write a file from a service's API docs, and other kinds of integration (ticket trackers, notifications, code hosts besides GitHub).

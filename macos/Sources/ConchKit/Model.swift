@@ -1000,6 +1000,7 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("biggerText", "Window Text Bigger / Smaller / Default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
     ("checkForUpdates", "Check for Updates…", ""),
     ("systemMonitor", "System Monitor (CPU, Memory, Processes)", "⌥⌘M"),
+    ("integrations", "Integrations (CircleCI, GitLab CI, trackers…)", ""),
     ("openTUI", "Run in Terminal", ""),
 ]
 

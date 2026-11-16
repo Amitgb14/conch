@@ -314,3 +314,52 @@ func TestIntegrationKey(t *testing.T) {
 		t.Fatalf("a quote in the key: %v", err)
 	}
 }
+
+// -base keeps a self-hosted address in config.toml, only for a file that
+// asks for one, and only an https one.
+func TestIntegrationBase(t *testing.T) {
+	home, _ := integrationEnv(t)
+	t.Setenv("JENKINS_TOKEN", "set")
+	out, _, err := a4Out(t, func() error { return runIntegration([]string{"key", "-base", "https://ci.corp/", "jenkins"}) })
+	if err != nil || !strings.Contains(out, "[integrations.base] jenkins") {
+		t.Fatalf("base: %q %v", out, err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+	if !strings.Contains(string(b), `jenkins = "https://ci.corp"`) {
+		t.Fatalf("config.toml: %s", b)
+	}
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"key", "-base", "http://ci.corp", "jenkins"}) }); err == nil {
+		t.Fatal("a plain-http address kept")
+	}
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"key", "-base", "https://x", "circleci"}) }); err == nil || !strings.Contains(err.Error(), "takes no other") {
+		t.Fatalf("a base for a file that does not ask: %v", err)
+	}
+}
+
+// With -cwd the key is checked against that project: one read-only call
+// for its branch's runs.
+func TestIntegrationKeyChecksTheProject(t *testing.T) {
+	home, _ := integrationEnv(t)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer acme-key" || r.URL.Query().Get("branch") != "main" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Write([]byte(`{"runs": [{"id": 1, "status": "ok"}, {"id": 2, "status": "broken"}]}`))
+	}))
+	defer api.Close()
+	os.MkdirAll(filepath.Join(home, "integrations"), 0o755)
+	os.WriteFile(filepath.Join(home, "integrations", "acme-ci.toml"), []byte(strings.Replace(testIntegration, "https://api.acme.dev", api.URL, 1)), 0o600)
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"remote", "add", "origin", "https://github.com/acme/widgets.git"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	os.WriteFile(filepath.Join(repo, ".acme.yml"), nil, 0o600)
+	var err error
+	out, _ := a4Capture(t, "acme-key\n", func() { err = runIntegration([]string{"key", "-stdin", "-cwd", repo, "acme-ci"}) })
+	if err != nil || !strings.Contains(out, "checked: read 2 runs of main on Acme CI") {
+		t.Fatalf("key -cwd: %q %v", out, err)
+	}
+}

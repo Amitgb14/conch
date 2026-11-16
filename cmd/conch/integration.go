@@ -32,10 +32,11 @@ import (
 const integrationUsage = `Usage:
   conch integration search [-json] [KIND|WORDS]   what the registries list
   conch integration info [-json] NAME            what it does in conch, where your key goes, who wrote it
-  conch integration install [-y] [-key-stdin] NAME
+  conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME
                                                  agree to its hosts, give its key (kept in the Keychain
                                                  on a Mac), and check it against this project
-  conch integration key [-stdin] NAME            give an integration its key: without echo, kept in the
+  conch integration key [-stdin] [-base URL] [-cwd DIR] NAME
+                                                 give an integration its key: without echo, kept in the
                                                  Keychain on a Mac (elsewhere it says the variable)
   conch integration ls [-json] [-cwd DIR]        every integration here, built in or installed, and its state
   conch integration update [-y] [NAME]           take the registry's newest; asks again when hosts change
@@ -308,11 +309,13 @@ func integrationInstall(args []string) error {
 	fs := flag.NewFlagSet("integration install", flag.ContinueOnError)
 	yes := fs.Bool("y", false, "install without asking")
 	keyStdin := fs.Bool("key-stdin", false, "read the key from standard input, for scripts")
+	base := fs.String("base", "", "the API's address, for a service you run yourself (kept in config.toml)")
+	dir := fs.String("cwd", "", "the project to check it against (default: the current directory)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch integration install [-y] [-key-stdin] NAME")
+		return errors.New("usage: conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME")
 	}
 	name := fs.Arg(0)
 	if err := integration.CheckName(name); err != nil {
@@ -352,17 +355,20 @@ func integrationInstall(args []string) error {
 	if err := integration.Install(e, data); err != nil {
 		return err
 	}
+	if err := keepBase(f, *base); err != nil {
+		return err
+	}
 	key, err := takeKey(f, *keyStdin)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("installed %s %d (%s)", name, e.Version, e.Kind)
-	if used := usedHere(f); used != "" {
+	if used := usedHere(f, *dir); used != "" {
 		fmt.Printf(" · used by %s", used)
 	}
 	fmt.Println()
 	if key != "" {
-		fmt.Println(liveCheckHere(ctx, f, key))
+		fmt.Println(liveCheckHere(ctx, f, key, *dir))
 	}
 	return nil
 }
@@ -479,10 +485,10 @@ func projectHere(ctx context.Context, dir string) (root string, rem integration.
 	return parts[0], rem, branch
 }
 
-func usedHere(f *integration.File) string {
+func usedHere(f *integration.File, dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	root, rem, _ := projectHere(ctx, "")
+	root, rem, _ := projectHere(ctx, dir)
 	if root != "" && f.Uses(root, rem) {
 		return filepath.Base(root)
 	}
@@ -491,8 +497,8 @@ func usedHere(f *integration.File) string {
 
 // liveCheckHere reads the runs of this project's branch with the key: one
 // read-only call that says the key and the file work.
-func liveCheckHere(ctx context.Context, f *integration.File, key string) string {
-	root, rem, branch := projectHere(ctx, "")
+func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) string {
+	root, rem, branch := projectHere(ctx, dir)
 	if root == "" || !f.Uses(root, rem) {
 		return "not checked: run conch integration install from a project that uses it, or conch branch fix-ci there"
 	}
@@ -722,11 +728,13 @@ func integrationCheck(args []string) error {
 func integrationKey(args []string) error {
 	fs := flag.NewFlagSet("integration key", flag.ContinueOnError)
 	fromStdin := fs.Bool("stdin", false, "read the key from standard input")
+	base := fs.String("base", "", "the API's address, for a service you run yourself (kept in config.toml)")
+	dir := fs.String("cwd", "", "the project to check it against (default: the current directory)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch integration key [-stdin] NAME")
+		return errors.New("usage: conch integration key [-stdin] [-base URL] [-cwd DIR] NAME")
 	}
 	data, _, err := integration.Source(fs.Arg(0))
 	if err != nil {
@@ -735,6 +743,9 @@ func integrationKey(args []string) error {
 	f, problems, err := integration.Parse(data)
 	if err != nil || len(problems) > 0 {
 		return fmt.Errorf("%s cannot be used: %v %s", fs.Arg(0), err, strings.Join(problems, "; "))
+	}
+	if err := keepBase(f, *base); err != nil {
+		return err
 	}
 	if keyFor(f.KeyEnv) != "" && !*fromStdin {
 		fmt.Printf("%s's key is set already ($%s, or the Keychain)\n", f.DisplayName(), f.KeyEnv)
@@ -747,7 +758,35 @@ func integrationKey(args []string) error {
 	if key != "" && keychainHere() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		fmt.Println(liveCheckHere(ctx, f, key))
+		fmt.Println(liveCheckHere(ctx, f, key, *dir))
 	}
+	return nil
+}
+
+// keepBase records the address of a service the person runs themselves,
+// for a file that asks for one; "" changes nothing.
+func keepBase(f *integration.File, base string) error {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return nil
+	}
+	if f.BaseURL != "ask" {
+		return fmt.Errorf("%s's API is %s; it takes no other address", f.Name, f.API)
+	}
+	if !strings.HasPrefix(base, "https://") {
+		return fmt.Errorf("%q: an https:// address", base)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if cfg.Integrations.Base == nil {
+		cfg.Integrations.Base = map[string]string{}
+	}
+	cfg.Integrations.Base[f.Name] = base
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
+	fmt.Printf("its address, %s, is kept in config.toml ([integrations.base] %s)\n", base, f.Name)
 	return nil
 }
