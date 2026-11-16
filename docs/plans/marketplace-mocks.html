@@ -93,6 +93,14 @@
   .toc { margin: 0 40px 30px; display: flex; gap: 8px; flex-wrap: wrap; }
   .toc a { color: var(--ui); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 </style>
+<script>
+// ?only=m3 shows one mock alone (used to save each as a picture).
+const only = new URLSearchParams(location.search).get("only");
+if (only) document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("h1, .lede, .toc").forEach(e => e.remove());
+  document.querySelectorAll("section.mock").forEach(e => { if (e.id !== only) e.remove(); else e.style.marginTop = "24px"; });
+});
+</script>
 </head>
 <body>
 

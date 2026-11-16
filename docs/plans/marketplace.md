@@ -1,6 +1,6 @@
 # Integrations: one place to browse and install what conch talks to
 
-Status: proposal, 2026-11-15. Mocks: [marketplace-mocks.html](marketplace-mocks.html)
+Status: proposal, 2026-11-15. Tasks: [marketplace-tasks.md](marketplace-tasks.md). Mocks: [marketplace-mocks.html](marketplace-mocks.html), one picture each in marketplace-mocks/
 (open in a browser).
 
 ## The problem
