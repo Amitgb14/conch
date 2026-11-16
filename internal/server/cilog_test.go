@@ -351,3 +351,82 @@ esac
 		t.Fatalf("rerun %+v; gh was run as:\n%s", rr, b)
 	}
 }
+
+// A self-hosted GitLab: the file asks for its address, which config.toml
+// gives, and the log is read there.
+func TestCILogSelfHostedBase(t *testing.T) {
+	fakeGHOn(t, `[]`, "")
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	t.Setenv("GITLAB_TOKEN", "gl-key")
+	integration.Forget()
+	t.Cleanup(integration.Forget)
+	gl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("PRIVATE-TOKEN") != "gl-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.EscapedPath() {
+		case "/api/v4/projects/grp%2Fwidgets/pipelines":
+			io.WriteString(w, `[{"id": 41, "status": "failed", "web_url": "https://git.corp/grp/widgets/-/pipelines/41"}]`)
+		case "/api/v4/projects/grp%2Fwidgets/pipelines/41/jobs":
+			io.WriteString(w, `[{"id": 9, "name": "test"}]`)
+		case "/api/v4/projects/grp%2Fwidgets/jobs/9/trace":
+			io.WriteString(w, "FAIL on the corp gitlab\n")
+		default:
+			t.Errorf("unexpected %s", r.URL)
+		}
+	}))
+	defer gl.Close()
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[integrations.base]\nmy-gitlab = \""+gl.URL+"/api/v4\"\n"), 0o600)
+	os.MkdirAll(filepath.Join(home, "integrations"), 0o755)
+	os.WriteFile(filepath.Join(home, "integrations", "my-gitlab.toml"), []byte(`format = 3
+kind = "ci"
+name = "my-gitlab"
+label = "Corp GitLab"
+base_url = "ask"
+key_env = "GITLAB_TOKEN"
+[auth]
+header = "PRIVATE-TOKEN"
+value = "{key}"
+[detect]
+remotes = ["git.corp"]
+[project]
+id = "{path_escaped}"
+[states]
+success = "pass"
+failed = "fail"
+[runs]
+call = "GET /projects/{project}/pipelines?ref={branch}"
+items = "[*]"
+id = "id"
+state = "status"
+url = "web_url"
+[failed_log]
+[[failed_log.steps]]
+as = "jobs"
+call = "GET /projects/{project}/pipelines/{run}/jobs?scope[]=failed"
+pick = "[*]"
+[[failed_log.steps]]
+each = "jobs"
+call = "GET /projects/{project}/jobs/{item.id}/trace"
+text = "."
+`), 0o644)
+	c, _, proj := setupRepo(t)
+	git(t, proj.Path, "remote", "add", "origin", "git@git.corp:grp/widgets.git")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var lg proto.BranchCILog
+	if err := c.Call(ctx, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: proj.ID, Branch: "main"}, &lg); err != nil {
+		t.Fatal(err)
+	}
+	if lg.Source != "my-gitlab" || lg.Service != "Corp GitLab" || lg.Log != "FAIL on the corp gitlab\n" {
+		t.Fatalf("got %+v", lg)
+	}
+	// Without the address it says where to give it.
+	os.WriteFile(filepath.Join(home, "config.toml"), nil, 0o600)
+	err := c.Call(ctx, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: proj.ID, Branch: "main"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "[integrations.base] my-gitlab") {
+		t.Fatalf("no base: %v", err)
+	}
+}

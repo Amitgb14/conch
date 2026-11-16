@@ -27,9 +27,12 @@ type Config struct {
 	Git     GitCfg     `toml:"git"`
 	Verify  VerifyCfg  `toml:"verify"`
 	Sandbox SandboxCfg `toml:"sandbox"`
-	Web     WebCfg     `toml:"web"`
-	App     AppCfg     `toml:"app"`
-	Cloud   CloudCfg   `toml:"cloud"`
+	// Integrations are the registries integration files come from, and the
+	// addresses given for self-hosted services.
+	Integrations IntegrationsCfg `toml:"integrations"`
+	Web          WebCfg          `toml:"web"`
+	App          AppCfg          `toml:"app"`
+	Cloud        CloudCfg        `toml:"cloud"`
 	// Trackers are where tickets come from besides GitHub (trackers.go).
 	Trackers TrackersCfg `toml:"trackers"`
 	// Actions are commands of your own on conch's menus. Last, because
@@ -257,6 +260,26 @@ func (p ProviderCfg) StoppedCostPerHour(diskGiB int) float64 {
 // change here — and a table for a provider this build doesn't know is
 // kept as it is rather than thrown away when the settings are saved.
 type SandboxCfg map[string]ProviderCfg
+
+// IntegrationsCfg is [integrations].
+type IntegrationsCfg struct {
+	// Registries are those besides conch's own, each trusted by its own
+	// key: a company's, or a fork.
+	Registries []RegistryCfg `toml:"registries,omitempty"`
+	// Base is the API address given for an integration whose file asks
+	// for one (base_url = "ask"): a self-hosted GitLab or Jenkins, by the
+	// integration's name.
+	Base map[string]string `toml:"base,omitempty"`
+}
+
+// RegistryCfg is one registry: where its index is, and the public key
+// (ed25519, base64) its index is signed with. Without a key its index is
+// read and said to be unsigned.
+type RegistryCfg struct {
+	Name string `toml:"name"`
+	URL  string `toml:"url"`
+	Key  string `toml:"key,omitempty"`
+}
 
 // Of is the configuration for a provider, or the zero value when it has
 // none: every field's zero means "the provider's own default".

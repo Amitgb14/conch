@@ -142,10 +142,21 @@ func All() (files []*File, bad []string) {
 		f.shipped = true
 		byName[f.Name] = f
 	}
+	recs, err := Records()
+	if err != nil {
+		bad = append(bad, err.Error())
+	}
 	ents, _ = os.ReadDir(Dir())
 	for _, e := range ents {
 		name, ok := strings.CutSuffix(e.Name(), ".toml")
 		if !ok || e.IsDir() {
+			continue
+		}
+		if why := recs[name].Revoked; why != "" {
+			// The registry took this version back: it is not used, and
+			// whoever looks is told why. conch's own copy, if it ships one,
+			// stands in.
+			bad = append(bad, fmt.Sprintf("%s: revoked: %s", e.Name(), why))
 			continue
 		}
 		f, problems, err := Read(filepath.Join(Dir(), e.Name()))

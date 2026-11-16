@@ -309,6 +309,15 @@ func Schema(c Choices) []Section {
 			Fields: []Field{
 				{Key: "", Label: "Providers", Kind: KindKeyed, KeyLabel: "Provider", Fields: provider, Suggest: c.Providers},
 			}},
+		{ID: "integrations", Key: "integrations", Title: "Integrations", Icon: "server", Description: "Where integration files come from, and the address of a service you run yourself.",
+			Fields: []Field{
+				{Key: "registries", Label: "Registries", Kind: KindTables, Help: "Registries besides conch's own; each is trusted by its key, and an index it has not signed is said to be unsigned.", Fields: []Field{
+					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "acme"},
+					{Key: "url", Label: "Index address", Kind: KindString, Placeholder: "https://acme.github.io/conch-integrations"},
+					{Key: "key", Label: "Signing key", Kind: KindString, Placeholder: "base64 ed25519 public key", Help: "The public half of the key its index is signed with."},
+				}},
+				{Key: "base", Label: "Self-hosted addresses", Kind: KindMap, Help: "An integration's name and its API's address, for one that asks: gitlab-ci = https://gitlab.example.com/api/v4."},
+			}},
 		{ID: "trackers", Key: "trackers", Title: "Trackers", Icon: "ticket", Description: "Tickets from Linear and Jira for conch task -ticket, besides GitHub issues.",
 			Fields: []Field{
 				{Key: "linear", Label: "Linear", Kind: KindTable, Help: "A personal API key, from Linear's Settings → Security & access.", Fields: []Field{

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/ghx"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/integration"
@@ -112,6 +113,10 @@ func (ci ciSource) label() string { return ci.f.DisplayName() }
 func (pm *projectManager) ciFor(ctx context.Context, p *project, branch string, pr proto.PRInfo) []ciSource {
 	rem, _ := integration.ParseRemote(gitx.RemoteURL(ctx, p.root))
 	files := integration.Cached()
+	var bases map[string]string
+	if cfg, err := config.Load(); err == nil {
+		bases = cfg.Integrations.Base
+	}
 	use := map[string]*integration.File{}
 	for _, f := range files {
 		if f.Kind == integration.KindCI && f.Uses(p.root, rem) {
@@ -144,7 +149,15 @@ func (pm *projectManager) ciFor(ctx context.Context, p *project, branch string, 
 			if f.Auth.UserEnv != "" {
 				user = pm.s.trackerSecret(f.Auth.UserEnv)
 			}
-			conn, err := f.Connect(pm.s.trackerSecret(f.KeyEnv), user, "")
+			base := ""
+			if f.BaseURL == "ask" {
+				base = bases[f.Name]
+				if base == "" && f.API == "" {
+					ci.why = fmt.Sprintf("give its API's address in config.toml, [integrations.base] %s = \"https://…\"", f.Name)
+					break
+				}
+			}
+			conn, err := f.Connect(pm.s.trackerSecret(f.KeyEnv), user, base)
 			if errors.Is(err, integration.ErrNoKey) {
 				ci.why = fmt.Sprintf("set $%s where conch's server runs, or in the Keychain (service conch-mcp, account %s)", f.KeyEnv, f.KeyEnv)
 			} else if err != nil {
