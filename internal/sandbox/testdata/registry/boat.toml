@@ -1,0 +1,115 @@
+format = 4
+name = "boat"
+label = "boat.dev"
+api = "https://boat.dev/api/v1"
+key_env = "BOAT_API_KEY"
+docs = "https://docs.boat.dev/api/reference"
+adapted_by = "claude"
+adapted = "2026-11-16"
+note = "boat.dev's sandboxes are whole Ubuntu machines in Germany, Finland or France. A sandbox is given a life when it is made, counted from then rather than from the last thing done in it: two hours unless the provider idle timer (auto_stop, minutes) asks for more, which a free trial refuses. Stopping keeps the disk for nothing; starting again resumes it on another machine, at another address."
+
+[create]
+call = "POST /sandboxes"
+# type is a size, from a snapshot saved with conch sandbox snapshot.
+body = { name = "{name}", type = "{size}", from = "{image}", ttlSeconds = "{ttl_secs}", env = "{env}", labels = { conch = "1" } }
+id = "sandbox.id"
+
+[get]
+call = "GET /sandboxes/{id}"
+item = "sandbox"
+state = "state"
+name = "name"
+reason = "error"
+cpu = "vcpu"
+memory_gib = "memoryGB"
+created = "createdAt"
+
+[list]
+# Every sandbox on the account, as conch's own boat.dev provider listed
+# them: the ones it made carry no name or label of conch's.
+call = "GET /sandboxes?limit=100"
+items = "sandboxes"
+id = "id"
+next = "pageInfo.nextCursor"
+cursor_param = "cursor"
+mine = "conch-"
+all_mine = true
+
+[start]
+# boat has no start: a stopped sandbox is resumed, with a new life.
+call = "POST /sandboxes/{id}/resume"
+body = { ttlSeconds = "{ttl_secs}" }
+[stop]
+call = "POST /sandboxes/{id}/stop"
+body = {}
+[delete]
+call = "DELETE /sandboxes/{id}"
+headers = { X-Ascii-Confirm-Delete = "{id}" }
+
+[states]
+# boat's own "running" is its agent busy, which the machine is up for.
+ready = "started"
+idle = "started"
+running = "started"
+init = "starting"
+provisioning = "starting"
+provisioned = "starting"
+cloning = "starting"
+archiving = "stopping"
+archived = "stopped"
+error = "error"
+cancelled = "error"
+
+[ssh]
+host = "{reply.sandbox.ip}"
+# A machine with no public IPv4 of its own is reached through a forwarder.
+endpoint = "{reply.sandbox.sshEndpoint}"
+user = "user"
+key = "authorize"
+# boat answers ready a moment before the machine has an address.
+wait_secs = 90
+[ssh.access]
+call = "GET /sandboxes/{id}"
+[ssh.authorize]
+call = "POST /sandboxes/{id}/sshkey"
+body = { key = "{public_key}" }
+
+[size]
+# xlarge has to be granted to the account first, so it is not offered.
+names = ["small", "default", "large"]
+
+[lifetime]
+default_mins = 120
+max_mins = 43200
+
+[[setting]]
+key = "image"
+label = "Default image"
+help = "A snapshot saved with conch sandbox snapshot, or boat's own image when empty."
+choices_call = "GET /named-snapshots"
+items = "snapshots"
+value = "name"
+free = true
+
+[snapshot.save]
+call = "POST /named-snapshots"
+body = { sandboxId = "{id}", name = "{snapshot_name}" }
+[snapshot.list]
+call = "GET /named-snapshots"
+items = "snapshots"
+name = "name"
+state = "state"
+size = "type"
+created = "createdAt"
+[snapshot.forget]
+call = "DELETE /named-snapshots/{snapshot_name}"
+
+[preview]
+call = "POST /sandboxes/{id}/host"
+body = { port = "{port}", title = "conch" }
+url = "url"
+
+[usage]
+call = "GET /sandboxes/{id}/usage?since={from}&until={to}"
+cost = "dollars"
+seconds = "seconds"

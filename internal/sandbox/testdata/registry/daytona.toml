@@ -1,0 +1,112 @@
+format = 4
+name = "daytona"
+label = "Daytona"
+api = "https://app.daytona.io/api"
+key_env = "DAYTONA_API_KEY"
+docs = "https://www.daytona.io/docs/en/tools/api/"
+adapted_by = "claude"
+adapted = "2026-11-16"
+note = "SSH goes through Daytona's gateway (ssh.app.daytona.io) with a per-connection token from ssh-access, so no key needs registering. Auto-stop is off: Daytona's own default would stop the sandbox, and the agents in it, 15 minutes after conch lets go. A stopped sandbox keeps its disk; delete it to stop paying for that. A snapshot wants the sandbox stopped first."
+
+[create]
+call = "POST /sandbox"
+# memory and disk are in GiB. autoStopInterval is in minutes and sent as 0
+# (off) even when nothing is asked: Daytona's default is 15.
+body = { name = "{label}", snapshot = "{image}", target = "{region}", cpu = "{cpu}", memory = "{memory_gib}", disk = "{disk_gib}", env = "{env}", labels = { conch = "1" }, autoStopInterval = 0 }
+id = "id"
+
+[get]
+call = "GET /sandbox/{id}"
+state = "state"
+name = "name"
+reason = "errorReason"
+cpu = "cpu"
+memory_gib = "memory"
+disk_gib = "disk"
+created = "createdAt"
+
+[list]
+# conch's sandboxes, by the label create puts on them: labels={"conch":"1"}.
+# Named after what they are for, so the label alone says they are conch's.
+call = "GET /sandbox?labels=%7B%22conch%22%3A%221%22%7D&limit=200"
+items = "items"
+id = "id"
+next = "nextCursor"
+cursor_param = "cursor"
+mine = "conch-"
+all_mine = true
+
+[start]
+call = "POST /sandbox/{id}/start"
+[stop]
+call = "POST /sandbox/{id}/stop"
+[delete]
+call = "DELETE /sandbox/{id}"
+
+[states]
+creating = "starting"
+restoring = "starting"
+starting = "starting"
+pending_build = "starting"
+building_snapshot = "starting"
+pulling_snapshot = "starting"
+started = "started"
+stopping = "stopping"
+archiving = "stopping"
+stopped = "stopped"
+archived = "stopped"
+error = "error"
+build_failed = "error"
+destroying = "gone"
+destroyed = "gone"
+# resizing, snapshotting and forking are passing states conch waits out as they are.
+
+[ssh]
+host = "ssh.app.daytona.io"
+user = "{reply.token}"
+key = "none"
+[ssh.access]
+call = "POST /sandbox/{id}/ssh-access"
+
+[[setting]]
+key = "region"
+label = "Region"
+help = "Where new sandboxes run; empty is the organization's default."
+choices = ["us", "eu"]
+
+[[setting]]
+key = "image"
+label = "Default image"
+help = "A snapshot to start from: one of yours, or Daytona's default when empty."
+choices_call = "GET /snapshots?limit=100"
+items = "items"
+value = "name"
+free = true
+
+[size]
+cpu = [1, 4]
+memory_gib = [1, 8]
+disk_gib = [1, 10]
+
+[snapshot.save]
+call = "POST /sandbox/{id}/snapshot"
+body = { name = "{snapshot_name}", includeMemory = false }
+[snapshot.list]
+call = "GET /snapshots?limit=100"
+items = "items"
+name = "name"
+state = "state"
+size = "{item.cpu} vCPU, {item.memory} GiB, {item.disk} GiB disk"
+created = "createdAt"
+[snapshot.forget]
+call = "DELETE /snapshots/{snapshot_name}"
+
+[preview]
+# The signed kind: the plain link needs a header a browser will not send.
+call = "GET /sandbox/{id}/ports/{port}/signed-preview-url?expiresInSeconds={expires_secs}"
+url = "url"
+max_secs = 86400
+[preview.reserved]
+22222 = "web terminal"
+2280 = "toolbox API"
+33333 = "screen recordings"

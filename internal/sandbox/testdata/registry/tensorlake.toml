@@ -1,0 +1,64 @@
+format = 4
+name = "tensorlake"
+label = "Tensorlake"
+api = "https://api.tensorlake.ai"
+key_env = "TENSORLAKE_API_KEY"
+docs = "https://docs.tensorlake.ai/api-reference/v2/sandboxes"
+adapted_by = "claude"
+adapted = "2026-11-16"
+note = "Tensorlake lets in the ssh keys registered with your account, which an API key cannot do: register yours once with Tensorlake's CLI — pip install tensorlake, tl login, then env -u TENSORLAKE_API_KEY tl sbx ssh keys add ~/.ssh/id_ed25519.pub. A sandbox takes no variables when it is made: keep them as Tensorlake secrets. Disk is 10 to 100 GiB. Stop suspends the sandbox; start resumes it."
+
+[create]
+call = "POST /sandboxes"
+# wait = false: conch waits itself. timeout_secs = 0 is the longest the
+# plan allows; conch's own idle watch stops one nobody is using.
+body = { name = "{name}", wait = false, timeout_secs = 0, image = "{image}", resources = { cpus = "{cpu}", memory_mb = "{memory_mb}", disk_mb = "{disk_mb}" } }
+id = "sandbox_id"
+
+[get]
+call = "GET /sandboxes/{id}"
+state = "status"
+name = "name"
+reason = "error_details"
+cpu = "resources.cpus"
+memory_mb = "resources.memory_mb"
+disk_mb = "resources.disk_mb"
+created = "created_at"
+
+[list]
+call = "GET /sandboxes?limit=100"
+items = "sandboxes"
+id = "id"
+next = "next_cursor"
+cursor_param = "cursor"
+mine = "conch-"
+
+[start]
+call = "POST /sandboxes/{id}/resume"
+[stop]
+call = "POST /sandboxes/{id}/suspend"
+[delete]
+call = "DELETE /sandboxes/{id}"
+
+[states]
+pending = "starting"
+running = "started"
+suspending = "stopping"
+suspended = "stopped"
+terminated = "gone"
+resume_failed = "error"
+
+[ssh]
+host = "sandbox.tensorlake.ai"
+user = "{id}"
+key = "account"
+
+[[setting]]
+key = "image"
+label = "Default image"
+help = "The image new sandboxes start from; Tensorlake's own when empty."
+free = true
+
+[size]
+# Tensorlake's limits on a root disk.
+disk_gib = [10, 100]

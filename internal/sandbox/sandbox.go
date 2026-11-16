@@ -81,13 +81,18 @@ type Sandbox struct {
 
 // Spec is what to create. Zero values leave the provider's defaults.
 type Spec struct {
-	Name     string
+	Name string
+	// Snapshot is the image or snapshot to start from.
 	Snapshot string
-	CPU      int // vCPUs
-	Memory   int // GiB
-	Disk     int // GiB
-	Env      map[string]string
-	Labels   map[string]string
+	// Region and Size are a provider file's settings (format 4): where it
+	// runs, and a named size for a provider whose machines come in them.
+	Region string
+	Size   string
+	CPU    int // vCPUs
+	Memory int // GiB
+	Disk   int // GiB
+	Env    map[string]string
+	Labels map[string]string
 	// AutoStop is the minutes without activity before the provider stops
 	// the sandbox; 0 never does.
 	AutoStop int

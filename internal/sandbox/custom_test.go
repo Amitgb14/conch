@@ -175,7 +175,6 @@ func TestProviderFileProblems(t *testing.T) {
 		t.Fatalf("describe %+v", d)
 	}
 	for _, c := range []struct{ change, want string }{
-		{`name = "daytona"`, "built in"},
 		{`name = "Bad Name"`, "lowercase"},
 		{`api = "http://api.example.test"`, "https://"},
 		{`key_env = "lower"`, "key_env"},
@@ -250,10 +249,12 @@ func TestCustomProvidersSkipsBadFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "daytona.toml"), []byte(strings.Replace(tensorlakeFile("https://a.test"), `"tlake"`, `"daytona"`, 1)), 0o600)
 	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o600)
 	good, bad := CustomProviders()
-	if len(good) != 1 || good[0] != "tlake" {
+	// A file may take a name conch's own providers had: they are becoming
+	// files (conch-integrations' daytona, boat and tensorlake).
+	if len(good) != 2 || good[0] != "daytona" || good[1] != "tlake" {
 		t.Fatalf("good %v", good)
 	}
-	if len(bad) != 3 || !strings.Contains(bad["other"], `names "tlake"`) || !strings.Contains(bad["daytona"], "built in") {
+	if len(bad) != 2 || !strings.Contains(bad["other"], `names "tlake"`) {
 		t.Fatalf("bad %v", bad)
 	}
 	// A built-in's name is the built-in, whatever a file says.
