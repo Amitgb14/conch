@@ -650,6 +650,29 @@ struct SectionForm: View {
                 // account and its machines (CloudSettings.swift) once it is on.
                 card(nil, fields)
                 if model.store.offersCloud { CloudCard(store: model.store) }
+            case "integrations":
+                // The catalog first — what conch talks to, and installing
+                // more — as mock 1 has it behind Settings → Integrations;
+                // the registries and self-hosted addresses below are only
+                // config.toml's part, and alone the page read as empty.
+                Button { model.store.openIntegrations() } label: {
+                    HStack(spacing: 12) {
+                        LucideIcon("server", color: Theme.accent, size: 16)
+                            .frame(width: 32, height: 32).background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentDeep.opacity(0.3)))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Browse integrations").font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text)
+                            Text("CI services, ticket trackers and notifications: built in, shipped with conch, and from the registry").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if !fields.isEmpty { card(nil, fields) }
             case "sandbox":
                 // Which providers there are, built in and adapted, and the
                 // way to add one conch does not know.
