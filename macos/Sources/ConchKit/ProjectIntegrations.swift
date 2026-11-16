@@ -111,11 +111,13 @@ public enum ProjectIntegrations {
     }
 
     /// What ticking "Save in .conch/integrations.toml for the team" writes:
-    /// the names of what the project uses that something here reads — a
-    /// name, never a key. Sandboxes are this computer's, not the
+    /// the names of what the project uses that something here reads, and
+    /// whatever the repository's file already lists, which saving must not
+    /// drop — a name, never a key. Sandboxes are this computer's, not the
     /// repository's.
     public static func teamNames(_ d: IntegrationDetect?) -> [String] {
-        let names = (d?.integrations ?? []).filter { $0.installed == true && $0.kind != IntegrationKind.sandbox.rawValue }.map(\.name)
+        var names = (d?.integrations ?? []).filter { $0.installed == true && $0.kind != IntegrationKind.sandbox.rawValue }.map(\.name)
+        if let t = d?.team, t.problem == nil { names += t.names ?? [] }
         return Array(Set(names)).sorted()
     }
 
