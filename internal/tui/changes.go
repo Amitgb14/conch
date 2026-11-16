@@ -364,6 +364,12 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		if pr := m.branchPR(cv.machine, cv.projectID, cv.branch); pr != nil {
 			return false, openURL(pr.URL)
 		}
+	case "O":
+		return false, cv.openCICheck(m)
+	case "I":
+		return false, cv.installCI(m)
+	case "r":
+		return false, cv.rerunCI(m)
 	case "y":
 		if files > 0 {
 			return false, copyText(cv.data.Files[cv.sel].Path)
@@ -456,6 +462,7 @@ func (cv *changesView) filesTop(m Model) int {
 		top++
 	}
 	top += len(m.branchRiskLines(cv.machine, cv.projectID, cv.branch)) // what it would collide with, a file to a line
+	top += len(m.ciLines(cv, 80))                                      // a line each, whatever the width
 	return top
 }
 
@@ -486,7 +493,7 @@ func (cv *changesView) render(m Model, w, h int) []string {
 	lines = append(lines, styleMuted.Render(ansi.Truncate(meta, max(w, 1), "…")))
 	if pr := m.branchPR(cv.machine, cv.projectID, cv.branch); pr != nil {
 		lines[0] = spread(lines[0], styleMuted.Render("o open PR"), w)
-		lines = append(lines, prBadge(pr)+" "+ansi.Truncate(pr.Title, max(w/2, 10), "…")+styleMuted.Render(" · ")+prSummary(pr))
+		lines = append(lines, ansi.Truncate(prBadge(pr)+" "+ansi.Truncate(pr.Title, max(w/2, 10), "…")+styleMuted.Render(" · ")+prSummary(pr), max(w, 1), "…"))
 	}
 	// The files are what the warning is for, so they are listed under it
 	// rather than packed into one line the page then cuts off.
@@ -509,6 +516,7 @@ func (cv *changesView) render(m Model, w, h int) []string {
 			lines = append(lines, styleWarn.Render(ansi.Truncate("  "+r.text, max(w, 1), "…")))
 		}
 	}
+	lines = append(lines, m.ciLines(cv, w)...)
 	lines = append(lines, "")
 
 	switch {
