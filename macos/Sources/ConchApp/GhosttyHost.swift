@@ -65,8 +65,8 @@ final class GhosttyRuntime {
             confirm_read_clipboard_cb: { ud, confirm, state, request in
                 GhosttyPaneView.confirmClipboard(ud, confirm, state, request)
             },
-            write_clipboard_cb: { _, loc, content, len, _ in
-                GhosttyPaneView.writeClipboard(loc, content, len)
+            write_clipboard_cb: { ud, loc, content, len, _ in
+                GhosttyPaneView.writeClipboard(GhosttyPaneView.from(ud), loc, content, len)
             },
             close_surface_cb: { ud, _ in
                 DispatchQueue.main.async { GhosttyPaneView.from(ud)?.onExit?() }
@@ -711,14 +711,18 @@ final class GhosttyPaneView: NSView {
         }
     }
 
-    static func writeClipboard(_ loc: ghostty_clipboard_e, _ content: UnsafePointer<ghostty_clipboard_content_s>?, _ len: Int) {
+    /// A copy from the pane: a link its edge broke over rows goes on the
+    /// clipboard whole (unwrapCopiedLink), so a login URL pasted into a
+    /// browser still works.
+    static func writeClipboard(_ v: GhosttyPaneView?, _ loc: ghostty_clipboard_e, _ content: UnsafePointer<ghostty_clipboard_content_s>?, _ len: Int) {
         guard loc == GHOSTTY_CLIPBOARD_STANDARD, let content else { return }
         for i in 0..<len where String(cString: content[i].mime) == "text/plain" {
             let c = content[i]
             let text = String(decoding: UnsafeRawBufferPointer(start: c.data, count: c.len), as: UTF8.self)
             DispatchQueue.main.async {
+                let columns = v?.surface.map { Int(ghostty_surface_size($0).columns) } ?? 0
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
+                NSPasteboard.general.setString(unwrapCopiedLink(text, columns: columns), forType: .string)
             }
         }
     }
