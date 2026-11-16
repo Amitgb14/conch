@@ -387,6 +387,9 @@ type Record struct {
 	Hosts     Hosts  `json:"hosts"`
 	Installed string `json:"installed"`
 	Revoked   string `json:"revoked,omitempty"`
+	// Capabilities are the registry's for the file as it came
+	// (CapabilitiesOf); nil for one installed before it said.
+	Capabilities *Capabilities `json:"capabilities,omitempty"`
 }
 
 func recordsPath() string { return filepath.Join(Dir(), "registry.json") }
@@ -502,7 +505,7 @@ func Install(e Entry, data []byte) error {
 	}
 	sum := sha256.Sum256(data)
 	recs[e.Name] = Record{Registry: e.Registry, Version: e.Version, SHA256: hex.EncodeToString(sum[:]), Hosts: e.Hosts,
-		Installed: time.Now().UTC().Format("2006-01-02")}
+		Installed: time.Now().UTC().Format("2006-01-02"), Capabilities: e.Capabilities}
 	Forget()
 	return writeRecords(recs)
 }

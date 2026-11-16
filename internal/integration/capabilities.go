@@ -172,3 +172,71 @@ func (c *Capabilities) OperationWords(kind string) string {
 	}
 	return strings.Join(out, ", ")
 }
+
+// FileCapabilities is what an integration's file can do, as the
+// registry's index would say it (scripts/registry.py
+// integration_capabilities): for one installed before the registry said,
+// or a file of the person's own.
+func FileCapabilities(f *File) *Capabilities {
+	c := &Capabilities{Operations: append([]string{}, f.Operations()...), Detect: []string{}, States: []string{}}
+	typ := firstSet(f.Auth.Type, "header")
+	c.Auth = &AuthCaps{Type: typ}
+	if typ == "header" {
+		c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+	}
+	if f.BaseURL == "ask" {
+		c.Needs = append(c.Needs, "base_url")
+	}
+	if f.KeyEnv != "" {
+		c.Needs = append(c.Needs, "key")
+	}
+	if f.Auth.UserEnv != "" {
+		c.Needs = append(c.Needs, "user")
+	}
+	for _, d := range []struct {
+		name string
+		n    int
+	}{{"checks", len(f.Detect.Checks)}, {"files", len(f.Detect.Files)}, {"remotes", len(f.Detect.Remotes)}} {
+		if d.n > 0 {
+			c.Detect = append(c.Detect, d.name)
+		}
+	}
+	for _, st := range f.States {
+		if !slices.Contains(c.States, st) {
+			c.States = append(c.States, st)
+		}
+	}
+	slices.Sort(c.States)
+	c.Follow = len(f.FollowHosts) > 0
+	return c
+}
+
+// CapabilitiesOf is what the installed file f can do: the registry's,
+// kept when it was installed, while the file is still that one; else
+// worked out from the file.
+func CapabilitiesOf(f *File) *Capabilities {
+	if recs, err := Records(); err == nil {
+		if rec, ok := recs[f.Name]; ok && rec.Capabilities != nil {
+			if edited, err := Edited(f.Name); err == nil && !edited {
+				return rec.Capabilities
+			}
+		}
+	}
+	return FileCapabilities(f)
+}
+
+// KeepCapabilities records what the registry says name's file can do, for
+// one installed before it said.
+func KeepCapabilities(name string, caps *Capabilities) error {
+	recs, err := Records()
+	if err != nil {
+		return err
+	}
+	rec, ok := recs[name]
+	if !ok {
+		return nil
+	}
+	rec.Capabilities = caps
+	recs[name] = rec
+	return writeRecords(recs)
+}

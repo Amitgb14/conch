@@ -2,6 +2,8 @@ package integration
 
 import (
 	"encoding/json"
+	"os"
+	"reflect"
 	"testing"
 )
 
@@ -131,5 +133,38 @@ func TestCapabilityWords(t *testing.T) {
 	var none *Capabilities
 	if none.OperationWords(KindSandbox) != "" || none.SSHWords(KindSandbox) != "" || none.NeedsWords() != "" {
 		t.Error("nil capabilities say something")
+	}
+}
+
+// What the registry's index said for these files on 2026-11-16 (the files
+// in testdata/registry are the registry's): conch's working out agrees.
+var registrySaidIntegrations = map[string]string{
+	"circleci":            `{"operations": ["runs", "failed_log", "rerun"], "auth": {"type": "header", "header": "Circle-Token"}, "needs": ["key"], "detect": ["checks", "files"], "states": ["canceled", "fail", "pass", "pending"], "follow": true}`,
+	"jenkins":             `{"operations": ["runs", "failed_log"], "auth": {"type": "basic"}, "needs": ["base_url", "key", "user"], "detect": ["checks", "files"], "states": ["canceled", "fail", "pass"], "follow": false}`,
+	"bitbucket-pipelines": `{"operations": ["runs", "failed_log"], "auth": {"type": "basic"}, "needs": ["key", "user"], "detect": ["files", "remotes"], "states": ["canceled", "fail", "pass"], "follow": false}`,
+	"ntfy":                `{"operations": ["send"], "auth": {"type": "url"}, "needs": ["base_url", "key"], "detect": [], "states": [], "follow": false}`,
+	// The registry's list of a tracker's operations has no mine (what is
+	// assigned to you), which conch's does: told to the registry.
+	"gitlab-issues": `{"operations": ["list", "mine", "get", "comment", "link", "move"], "auth": {"type": "header", "header": "PRIVATE-TOKEN"}, "needs": ["base_url", "key"], "detect": ["remotes"], "states": [], "follow": false}`,
+}
+
+func TestIntegrationFileCapabilitiesAgreeWithTheRegistry(t *testing.T) {
+	for name, said := range registrySaidIntegrations {
+		data, err := os.ReadFile("testdata/registry/" + name + ".toml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, problems, err := Parse(data)
+		if err != nil || len(problems) > 0 {
+			t.Fatalf("%s: %v %v", name, err, problems)
+		}
+		var want Capabilities
+		if err := json.Unmarshal([]byte(said), &want); err != nil {
+			t.Fatal(err)
+		}
+		if got := FileCapabilities(f); !reflect.DeepEqual(*got, want) {
+			g, _ := json.Marshal(got)
+			t.Errorf("%s:\n got %s\nwant %s", name, g, said)
+		}
 	}
 }
