@@ -563,6 +563,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case issuesMsg:
 		return m, m.receiveIssues(msg)
 
+	case projectIntegrationsMsg:
+		return m, m.receiveProjectIntegrations(msg)
+
 	case reviewsMsg:
 		m.receiveReviews(msg)
 		return m, nil

@@ -83,6 +83,9 @@ func TestWithTeam(t *testing.T) {
 	if len(WithTeam(nil, nil, files)) != 0 {
 		t.Fatal("nothing named")
 	}
+	if Label("jira", files) != "Jira" || Label("github-issues", nil) != "GitHub Issues" || Label("nobody-knows", files) != "nobody-knows" {
+		t.Fatal("labels of conch's own")
+	}
 	if !Subset([]string{"a"}, []string{"a", "b"}) || Subset([]string{"c"}, []string{"a"}) || !Subset(nil, nil) {
 		t.Fatal("subset")
 	}

@@ -284,6 +284,16 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		if proj := m.project(r.machine, r.projectID); proj != nil && proj.Git {
 			issue := menuItem{"", "New task from a GitHub issue…", func(m *Model) tea.Cmd { return m.openIssues(r.machine, r.projectID) }}
 			items = append(items[:1], append([]menuItem{issue}, items[1:]...)...)
+			if m.hasCapability(r.machine, proto.CapIntegrationDetect) {
+				// Beside agent setup: what the project is wired to.
+				in := menuItem{"", "Integrations…", func(m *Model) tea.Cmd { return m.openProjectIntegrations(r.machine, r.projectID) }}
+				for i, it := range items {
+					if it.key == "i" {
+						items = append(items[:i+1], append([]menuItem{in}, items[i+1:]...)...)
+						break
+					}
+				}
+			}
 		}
 	case kindMachine:
 		mach := m.machine(r.machine)
