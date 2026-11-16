@@ -25,6 +25,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 )
 
 // A provider conch does not know is described in a file rather than
@@ -645,54 +646,10 @@ func (c *Custom) request(ctx context.Context, method, path string, body any) (an
 	return out, nil
 }
 
-// Pick reads a dotted path out of a JSON value: "a.b", "items.0.id".
-func Pick(v any, path string) any {
-	if path == "" {
-		return nil
-	}
-	for _, part := range strings.Split(path, ".") {
-		// field[key=value]: the first item of the list at field (or of
-		// this list, when field is empty) whose key reads value.
-		if i := strings.IndexByte(part, '['); i >= 0 && strings.HasSuffix(part, "]") {
-			key, want, ok := strings.Cut(part[i+1:len(part)-1], "=")
-			if field := part[:i]; field != "" {
-				m, isMap := v.(map[string]any)
-				if !isMap {
-					return nil
-				}
-				v = m[field]
-			}
-			list, isList := v.([]any)
-			if !ok || key == "" || !isList {
-				return nil
-			}
-			v = nil
-			for _, it := range list {
-				if pickStr(it, key) == want {
-					v = it
-					break
-				}
-			}
-			if v == nil {
-				return nil
-			}
-			continue
-		}
-		switch x := v.(type) {
-		case map[string]any:
-			v = x[part]
-		case []any:
-			i, err := strconv.Atoi(part)
-			if err != nil || i < 0 || i >= len(x) {
-				return nil
-			}
-			v = x[i]
-		default:
-			return nil
-		}
-	}
-	return v
-}
+// Pick reads a dotted path out of a JSON value: "a.b", "items.0.id",
+// "networks.v4[type=public].ip_address". The grammar is the integration
+// files', which grew out of this one.
+func Pick(v any, path string) any { return integration.Pick(v, path, nil) }
 
 func pickStr(v any, path string) string {
 	switch x := Pick(v, path).(type) {
