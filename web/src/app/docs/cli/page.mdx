@@ -208,7 +208,7 @@ Projects kept together because they change together — an API, its web app, the
 | `-n N` | attempts at the same prompt, each on its own branch (default: one per agent, at most 10) |
 | `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
 | `-issue N` | work on that GitHub issue, read with `gh`: its title and body are the prompt, and any `PROMPT` is added |
-| `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address — read by the server with the key in [`[trackers]`](/docs/configuration#trackers): its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
+| `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address, or a [tickets integration](/docs/integrations#ticket-trackers)'s `NAME:KEY` (`shortcut:123`) — read by the server with the key in [`[trackers]`](/docs/configuration#trackers) or the integration's: its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
 
 ### ticket
 
@@ -221,7 +221,7 @@ Tickets in Linear and Jira, through the server on the project's machine and the 
 | `conch ticket comment TICKET TEXT...` | add a comment |
 | `conch ticket status TICKET STATUS...` | move it to a status as the tracker names it (`In Review`, `Done`); Jira takes the transition that leads there |
 | `conch ticket link [-title T] TICKET URL` | attach a link — a pull request, a branch — to the ticket |
-| `conch ticket all [-mine] [-json]` | every project's open tickets — its GitHub issues and its Linear or Jira tickets — with what conch is doing about each: a task queued, its agent working or waiting, its pull request and CI, merged. Conch.app's Tickets window (⇧⌘I) shows the same |
+| `conch ticket all [-mine] [-json]` | every project's open tickets — its GitHub issues, its Linear or Jira tickets and those of its tickets integrations — with what conch is doing about each: a task queued, its agent working or waiting, its pull request and CI, merged. Conch.app's Tickets window (⇧⌘I) shows the same |
 | `conch ticket check [-json]` | whether GitHub (through `gh`), Linear and Jira can be reached with what the server has: whose the key is, the teams or projects it sees, open tickets and yours, each `[[trackers.projects]]` entry, and what is wrong — never the key. Settings → Trackers shows the same |
 
 ```sh

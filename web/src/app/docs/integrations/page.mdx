@@ -1,4 +1,4 @@
-export const metadata = { title: "Integrations", description: "Read CircleCI, GitLab CI, Buildkite and Jenkins failures the way conch reads GitHub Actions." }
+export const metadata = { title: "Integrations", description: "Read CircleCI, GitLab CI, Buildkite and Jenkins failures the way conch reads GitHub Actions; Shortcut and GitLab issues beside Linear and Jira; agents waiting on Slack, Discord or ntfy." }
 
 # Integrations
 
@@ -26,6 +26,37 @@ A service you run yourself (Jenkins, a self-managed GitLab) needs its address in
 jenkins = "https://jenkins.example.com"
 gitlab-ci = "https://gitlab.example.com/api/v4"
 ```
+
+## Ticket trackers
+
+Linear and Jira are conch's own code ([`[trackers]`](/docs/configuration#trackers)). A **tickets** integration adds another tracker beside them: its open tickets in the Tickets view and `conch ticket all`, a task started from one, and `conch ticket comment`, `status` and `link` on it.
+
+| Integration | Key | Where the key comes from | Notes |
+| --- | --- | --- | --- |
+| Shortcut | `$SHORTCUT_API_TOKEN` | Shortcut → Settings → Your Account → API Tokens | a story by its number: `shortcut:123`; `status` takes a workflow state's name (In Review); a link is added as a comment |
+| GitLab issues | `$GITLAB_TOKEN`, with `api` (`read_api` only reads) | GitLab → Preferences → Access tokens | the issues of the project's GitLab repository, found from its remote; `status` takes `close` or `reopen` |
+
+A ticket from an integration is named `NAME:KEY` wherever conch takes one: `conch task -ticket shortcut:123`, `conch ticket show gitlab-issues:12`. Tie a project to one and its keys alone will do:
+
+```toml
+[[trackers.projects]]
+project = "app"
+tracker = "shortcut"
+```
+
+A tracker that belongs to a repository (GitLab issues) shows in that project once its key is set. One that doesn't (Shortcut), and that no project is tied to, is a group of its own in the Tickets view.
+
+## Notifications
+
+A **notify** integration is told what the desktop is: an agent started waiting, an agent finished, and a pull request the autopilot merged. conch's server sends it, so it arrives whether or not the TUI or Conch.app is open, and once however many are.
+
+| Integration | Key |
+| --- | --- |
+| Slack | `$SLACK_WEBHOOK_URL`, an incoming webhook's address (`https://hooks.slack.com/services/…`) |
+| Discord | `$DISCORD_WEBHOOK_URL`, a channel webhook's address (`https://discord.com/api/webhooks/…`); nobody is ever mentioned |
+| ntfy | `$NTFY_TOPIC_URL`, a topic's address (`https://ntfy.sh/a-topic-nobody-guesses`), or one on your own server with `[integrations.base] ntfy` |
+
+A webhook's address **is** its secret, so it is kept like a key: read from the variable or the Keychain, never written to a file, never logged or shown. It must be an `https` address on the service's own host; any other is refused before anything is sent. `[notify]`'s `enabled`, `waiting` and `done` apply as they do to the desktop's alerts. `conch integration key slack` takes the address without echo and sends a test message.
 
 ## When a check can't be read
 
@@ -97,4 +128,4 @@ text = "."
 
 ## Not yet
 
-These are planned but not here yet: having an agent write a file from a service's API docs, and other kinds of integration (ticket trackers, notifications, code hosts besides GitHub).
+These are planned but not here yet: having an agent write a file from a service's API docs, code hosts besides GitHub, and intake from a tickets integration (intake reads GitHub issues only, as it does for Linear and Jira). `conch integration guide` has the tickets and notify formats.

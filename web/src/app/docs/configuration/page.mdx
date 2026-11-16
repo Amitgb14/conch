@@ -228,6 +228,8 @@ command = "curl -s \"https://api.telegram.org/bot$TG_TOKEN/sendMessage\" -d chat
 
 It runs where conch's TUI runs, follows `enabled` and quiet hours like the other alerts, and is stopped after 30 seconds if it hangs.
 
+Slack, Discord and ntfy also come as [notify integrations](/docs/integrations#notifications), sent by conch's server rather than the TUI, with the webhook's address kept like a key; they follow `enabled`, `waiting` and `done`, not quiet hours.
+
 `silence` is how long a pane watched with `ctrl+b M` must go without output before it alerts; see [Watching a pane](/docs/interface#watching-a-pane). Less than 1 means the default, 30.
 
 `limits` alerts when Claude's 5-hour or weekly window, Codex's windows or a spend limit passes a percentage in `limit_at` (1–100). Each threshold alerts once per window and machine, even across restarts of the TUI; a new window after a reset alerts again.

@@ -86,13 +86,14 @@ In the task dialog, the **When** field takes `queue`, `after api/model` or a tim
 
 ## Tickets
 
-Every project's GitHub issues and Linear or Jira tickets in one list.
+Every project's GitHub issues and Linear, Jira, Shortcut or GitLab tickets in one list.
 
-**How:** add a Linear or Jira key in [`[trackers]`](/docs/configuration#trackers), check it with `conch ticket check`, then:
+**How:** add a Linear or Jira key in [`[trackers]`](/docs/configuration#trackers) and check it with `conch ticket check`, or install a [tickets integration](/docs/integrations#ticket-trackers) (`conch integration key shortcut`), then:
 
 ```sh
 conch ticket all -mine          # every project's open tickets, and what conch is doing
 conch task -ticket ENG-123      # work on one
+conch task -ticket shortcut:123 # one from an integration: NAME:KEY
 conch ticket status ENG-123 "In Review"
 ```
 
