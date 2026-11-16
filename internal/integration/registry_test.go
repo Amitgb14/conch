@@ -341,3 +341,24 @@ func names(files []*File) []string {
 	}
 	return out
 }
+
+// A built-in entry lists something conch's own code reads: it parses, and
+// there is no file to fetch for it.
+func TestBuiltInEntries(t *testing.T) {
+	ix, err := ParseIndex([]byte(`{"format": 2, "entries": [
+	  {"kind": "tickets", "name": "jira", "label": "Jira", "builtin": true, "version": 0, "hosts": {"api": ""}, "key_env": "JIRA_API_TOKEN", "tier": "built in"},
+	  {"kind": "ci", "name": "acme-ci", "version": 1, "file": "integrations/acme-ci.toml", "sha256": "ab", "hosts": {"api": "api.acme.dev"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jira, _ := ix.Find("jira")
+	if !jira.BuiltIn || jira.DisplayName() != "Jira" {
+		t.Fatalf("jira %+v", jira)
+	}
+	if acme, _ := ix.Find("acme-ci"); acme.BuiltIn || acme.DisplayName() != "acme-ci" {
+		t.Fatalf("acme-ci %+v", acme)
+	}
+	if _, _, err := FetchFile(context.Background(), Registry{Name: "r", URL: "http://127.0.0.1:1"}, jira); err == nil || !strings.Contains(err.Error(), "built into conch") {
+		t.Fatalf("fetching a built-in: %v", err)
+	}
+}

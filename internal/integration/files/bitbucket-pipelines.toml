@@ -1,0 +1,55 @@
+# Bitbucket Pipelines (Bitbucket Cloud). A run is a pipeline of the
+# branch, newest first; its failed log is each failed step's log.
+format = 3
+kind = "ci"
+name = "bitbucket-pipelines"
+label = "Bitbucket Pipelines"
+api = "https://api.bitbucket.org/2.0"
+key_env = "BITBUCKET_API_TOKEN"
+docs = "https://developer.atlassian.com/cloud/bitbucket/rest/api-group-pipelines/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Bitbucket → Personal settings → Atlassian account settings → Security → API tokens → Create API token with scopes, for Bitbucket, with read:pipeline:bitbucket; your Atlassian account's email goes in $BITBUCKET_EMAIL."
+note = "App passwords stopped working on 2026-07-28: this takes a scoped API token with your account's email. Bitbucket has no call to re-run only what failed, so this file does not re-run. Not yet checked against a real workspace: a step's log may be handed over through a redirect to another host, which conch refuses."
+
+[auth]
+type = "basic"
+user_env = "BITBUCKET_EMAIL"
+
+[detect]
+files = ["bitbucket-pipelines.yml"]
+remotes = ["bitbucket.org"]
+
+[project]
+id = "{path}"
+
+[states]
+SUCCESSFUL = "pass"
+FAILED = "fail"
+ERROR = "fail"
+STOPPED = "canceled"
+EXPIRED = "canceled"
+
+[runs]
+call = "GET /repositories/{project}/pipelines/?target.branch={branch}&sort=-created_on&pagelen=20"
+items = "values"
+id = "uuid"
+name = "Pipeline #{item.build_number}"
+state = "state.result.name"
+commit = "target.commit.hash"
+url = "https://bitbucket.org/{path}/pipelines/results/{item.build_number}"
+started = "created_on"
+finished = "completed_on"
+
+[failed_log]
+job = "{steps.0.name}"
+
+[[failed_log.steps]]
+as = "steps"
+call = "GET /repositories/{project}/pipelines/{run}/steps/?pagelen=100"
+pick = "values[*state/result/name=FAILED]"
+
+[[failed_log.steps]]
+each = "steps"
+call = "GET /repositories/{project}/pipelines/{run}/steps/{item.uuid}/log"
+text = "."

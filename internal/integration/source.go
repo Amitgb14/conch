@@ -24,6 +24,8 @@ var known = []struct {
 	{name: "buildkite", label: "Buildkite", hosts: []string{"buildkite.com"}, prefixes: []string{"buildkite/"}},
 	{name: "jenkins", label: "Jenkins", prefixes: []string{"continuous-integration/jenkins"}, pathHas: "/job/"},
 	{name: "bitbucket-pipelines", label: "Bitbucket Pipelines", hosts: []string{"bitbucket.org"}},
+	{name: "azure-pipelines", label: "Azure Pipelines", hosts: []string{"dev.azure.com", "visualstudio.com"}, prefixes: []string{"Azure Pipelines"}},
+	{name: "travis-ci", label: "Travis CI", hosts: []string{"travis-ci.com", "travis-ci.org"}, prefixes: []string{"continuous-integration/travis-ci"}},
 }
 
 // Label is how people write a source: an integration's label, a known

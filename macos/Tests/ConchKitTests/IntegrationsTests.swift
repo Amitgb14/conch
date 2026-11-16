@@ -146,3 +146,13 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(IntegrationCatalog.summary(kind: "notify", operations: []) == "")
     #expect(IntegrationCatalog.summary(kind: "host", operations: ["list"]) == "")
 }
+
+// A built-in the registry lists that this conch's own list lacks is still
+// built in: installed, with nothing to install.
+@Test func integrationBuiltInListed() throws {
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data("""
+    [{"kind":"host","name":"gitlab-forge","label":"GitLab","builtin":true,"version":0,"hosts":{"api":""},"note":"Merge requests."}]
+    """.utf8))
+    let cards = IntegrationCatalog.cards(here: IntegrationList(integrations: [], problems: nil), listed: listed, uses: [:])
+    #expect(cards.count == 1 && cards[0].builtIn && cards[0].installed && cards[0].standing == .builtIn && cards[0].summary == "Merge requests.")
+}

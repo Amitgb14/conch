@@ -136,6 +136,9 @@ func registryNamed(name string) (integration.Registry, bool) {
 
 // standing is an entry's tier as people read it.
 func standing(e integration.Entry, signed bool) string {
+	if e.BuiltIn {
+		return "built in"
+	}
 	s := "not checked"
 	if e.Checked != nil {
 		s = "verified " + e.Checked.Date
@@ -190,7 +193,11 @@ func integrationSearch(args []string) error {
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	for _, r := range rows {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", firstSetStr(r.Label, r.Name), r.Kind, standing(r.Entry, r.Signed), hostWords(r.Hosts))
+		where := hostWords(r.Hosts)
+		if r.BuiltIn {
+			where = "conch's own code"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", firstSetStr(r.Label, r.Name), r.Kind, standing(r.Entry, r.Signed), where)
 	}
 	return tw.Flush()
 }
@@ -339,6 +346,9 @@ func integrationInstall(args []string) error {
 	e, ix, ok := findEntry(indexes(ctx, os.Stderr), name)
 	if !ok {
 		return fmt.Errorf("no registry lists %s: conch integration search lists what they have", name)
+	}
+	if e.BuiltIn {
+		return fmt.Errorf("%s is built into conch: there is nothing to install (conch integration info %s says how to set it up)", e.DisplayName(), name)
 	}
 	if why := e.RevokedReason(e.Version); why != "" {
 		return fmt.Errorf("%s version %d is revoked: %s", name, e.Version, why)

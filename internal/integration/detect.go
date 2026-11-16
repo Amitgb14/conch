@@ -29,6 +29,8 @@ type CheckRef struct {
 var markers = []struct{ path, name, kind string }{
 	{".github/workflows", SourceActions, KindCI},
 	{"bitbucket-pipelines.yml", "bitbucket-pipelines", KindCI},
+	{"azure-pipelines.yml", "azure-pipelines", KindCI},
+	{".travis.yml", "travis-ci", KindCI},
 }
 
 // Detected lists the services the project at root uses: its code host from

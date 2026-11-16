@@ -178,7 +178,7 @@ func TestShippedFilesAreClean(t *testing.T) {
 	for _, f := range all {
 		names[f.Name] = f.Shipped()
 	}
-	for _, want := range []string{"buildkite", "circleci", "gitlab-ci", "jenkins", "shortcut", "gitlab-issues", "slack", "discord", "ntfy"} {
+	for _, want := range []string{"bitbucket-pipelines", "buildkite", "circleci", "gitlab-ci", "jenkins", "semaphore", "shortcut", "gitlab-issues", "slack", "discord", "ntfy"} {
 		if !names[want] {
 			t.Errorf("%s not shipped: %v", want, names)
 		}

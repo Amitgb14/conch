@@ -67,9 +67,12 @@ func Registries(cfg config.IntegrationsCfg) []Registry {
 
 // Entry is one file in an index.
 type Entry struct {
-	Kind    string `json:"kind"`
-	Name    string `json:"name"`
-	Label   string `json:"label"`
+	Kind  string `json:"kind"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	// BuiltIn is something conch's own code reads — GitHub, Linear, Jira —
+	// listed so the catalog is one place; it has no file to install.
+	BuiltIn bool   `json:"builtin,omitempty"`
 	Version int    `json:"version"`
 	Format  int    `json:"format"`
 	File    string `json:"file"`
@@ -116,6 +119,14 @@ type Checked struct {
 type Revocation struct {
 	Version int    `json:"version"`
 	Reason  string `json:"reason"`
+}
+
+// DisplayName is how people write it.
+func (e Entry) DisplayName() string {
+	if e.Label != "" {
+		return e.Label
+	}
+	return e.Name
 }
 
 // RevokedReason is why version is revoked, "" when it is not.
@@ -366,6 +377,8 @@ func writeRecords(m map[string]Record) error {
 // kind, its name, no host the index did not show.
 func FetchFile(ctx context.Context, r Registry, e Entry) ([]byte, *File, error) {
 	switch {
+	case e.BuiltIn:
+		return nil, nil, fmt.Errorf("%s is built into conch: there is nothing to install", e.DisplayName())
 	case e.Kind == KindSandbox:
 		return nil, nil, fmt.Errorf("%s is a sandbox provider: conch sandbox provider install %s", e.Name, e.Name)
 	case contracts[e.Kind].required == nil:

@@ -261,19 +261,19 @@ func TestCILogFromCircleCI(t *testing.T) {
 	}
 }
 
-// Bitbucket Pipelines is a service conch knows and ships no file for: its
+// Azure Pipelines is a service conch knows and ships no file for: its
 // red check is named, and the message says what would read it.
 func TestCILogNamesAServiceWithNoIntegration(t *testing.T) {
-	r := newCIRig(t, false, `{"__typename":"StatusContext","context":"Pipeline #12","state":"FAILURE","targetUrl":"https://bitbucket.org/acme/widgets/pipelines/results/12"}`)
-	if ch := r.check(); ch.Source != "bitbucket-pipelines" || ch.Readable {
+	r := newCIRig(t, false, `{"__typename":"StatusContext","context":"Azure Pipelines","state":"FAILURE","targetUrl":"https://dev.azure.com/acme/widgets/_build/results?buildId=12"}`)
+	if ch := r.check(); ch.Source != "azure-pipelines" || ch.Readable {
 		t.Fatalf("the check: %+v", ch)
 	}
 	err := r.call(proto.MethodBranchCILog, nil)
-	if err == nil || !strings.Contains(err.Error(), "Bitbucket Pipelines: install its integration to read its log") {
+	if err == nil || !strings.Contains(err.Error(), "Azure Pipelines: install its integration to read its log") {
 		t.Fatalf("got %v", err)
 	}
 	err = r.call(proto.MethodBranchCIRerun, nil)
-	if err == nil || !strings.Contains(err.Error(), "Bitbucket Pipelines: install its integration") {
+	if err == nil || !strings.Contains(err.Error(), "Azure Pipelines: install its integration") {
 		t.Fatalf("rerun: %v", err)
 	}
 }

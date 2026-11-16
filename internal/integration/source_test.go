@@ -28,7 +28,9 @@ func TestCheckSource(t *testing.T) {
 		{"lint", "https://gitlab.com/grp/w/-/pipelines/41", shippedOnly, "gitlab-ci", true},
 		{"buildkite/widgets", "https://buildkite.com/acme/widgets/builds/9", shippedOnly, "buildkite", true},
 		{"buildkite/widgets", "", nil, "buildkite", false},
-		{"Pipeline #12", "https://bitbucket.org/acme/widgets/pipelines/results/12", shippedOnly, "bitbucket-pipelines", false},
+		{"Pipeline #12", "https://bitbucket.org/acme/widgets/pipelines/results/12", shippedOnly, "bitbucket-pipelines", true},
+		{"Azure Pipelines", "https://dev.azure.com/acme/widgets/_build/results?buildId=12", shippedOnly, "azure-pipelines", false},
+		{"continuous-integration/travis-ci/pr", "", shippedOnly, "travis-ci", false},
 		{"continuous-integration/jenkins/pr-merge", "https://ci.corp/job/widgets/PR-4/1/", nil, "jenkins", false},
 		{"continuous-integration/jenkins/pr-merge", "https://ci.corp/job/widgets/PR-4/1/", shippedOnly, "jenkins", true},
 		{"acme/unit", "https://ci.acme.dev/r/1", withAcme, "acme-ci", true}, // a file's checks glob

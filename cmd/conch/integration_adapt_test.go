@@ -21,11 +21,11 @@ import (
 // The key every test here holds, which must reach the service and
 // nothing else: not the agent's prompt, its environment or its folder,
 // nor anything published.
-const semaphoreKey = "sekrit-semaphore-key"
+const woodpeckerKey = "sekrit-woodpecker-key"
 
-// semaphoreSite is a CI service's docs and API on one test server: the
+// woodpeckerSite is a CI service's docs and API on one test server: the
 // docs at /openapi.yaml, a branch's runs at /runs behind the key.
-func semaphoreSite(t *testing.T) (*httptest.Server, func() []string) {
+func woodpeckerSite(t *testing.T) (*httptest.Server, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
 	var calls []string
@@ -33,12 +33,12 @@ func semaphoreSite(t *testing.T) (*httptest.Server, func() []string) {
 		switch r.URL.Path {
 		case "/openapi.yaml":
 			w.Header().Set("Content-Type", "application/yaml")
-			w.Write([]byte("openapi: 3.1.0\n# " + strings.Repeat("the semaphore pipelines API ", 20)))
+			w.Write([]byte("openapi: 3.1.0\n# " + strings.Repeat("the woodpecker pipelines API ", 20)))
 		case "/runs":
 			mu.Lock()
 			calls = append(calls, r.URL.RawQuery+" "+r.Header.Get("Authorization"))
 			mu.Unlock()
-			if r.Header.Get("Authorization") != "Bearer "+semaphoreKey {
+			if r.Header.Get("Authorization") != "Bearer "+woodpeckerKey {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -56,19 +56,19 @@ func semaphoreSite(t *testing.T) (*httptest.Server, func() []string) {
 	}
 }
 
-func semaphoreFile(api string) string {
+func woodpeckerFile(api string) string {
 	return `format = 3
 kind = "ci"
-name = "semaphore"
-label = "Semaphore"
+name = "woodpecker"
+label = "Woodpecker"
 api = "` + api + `"
-key_env = "SEMAPHORE_TOKEN"
-docs = "https://docs.semaphoreci.test/api"
+key_env = "WOODPECKER_TOKEN"
+docs = "https://docs.woodpeckerci.test/api"
 adapted_by = "claude"
 adapted = "2026-11-15"
 note = "no stats endpoint"
 [detect]
-files = [".semaphore/semaphore.yml"]
+files = [".woodpecker/woodpecker.yml"]
 [project]
 id = "{owner}/{repo}"
 [states]
@@ -127,7 +127,7 @@ func startIntegrationAgent(t *testing.T, write func(dir string)) *adaptAgent {
 			var p proto.AgentPromptParams
 			json.Unmarshal(msg.Params, &p)
 			a.prompts = append(a.prompts, p.Text)
-			write(integrationDraftDir("semaphore"))
+			write(integrationDraftDir("woodpecker"))
 			go conn.Write(a4Updated(proto.PaneInfo{ID: "p9", Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentDone, Turn: 2}}))
 			return proto.AgentPromptResult{ID: "p9", Agent: "claude", Turn: 2}, nil
 		}
@@ -162,13 +162,13 @@ func eventKinds(events []adaptEvent) string {
 // once the person has agreed to where it goes.
 func TestIntegrationAdaptKeepsTheKeyFromTheAgent(t *testing.T) {
 	_, stored := integrationEnv(t)
-	site, calls := semaphoreSite(t)
+	site, calls := woodpeckerSite(t)
 	serveRegistry(t) // lists nothing
 	project := gitProject(t)
 	agent := startIntegrationAgent(t, func(dir string) {
-		os.WriteFile(filepath.Join(dir, "semaphore.toml"), []byte(semaphoreFile(site.URL)), 0o600)
+		os.WriteFile(filepath.Join(dir, "woodpecker.toml"), []byte(woodpeckerFile(site.URL)), 0o600)
 	})
-	t.Setenv("SEMAPHORE_TOKEN", semaphoreKey)
+	t.Setenv("WOODPECKER_TOKEN", woodpeckerKey)
 	t.Setenv("CIRCLECI_TOKEN", "sekrit-circle")
 	var asked []string
 	adaptConfirm = func(q string) bool { asked = append(asked, q); return true }
@@ -176,7 +176,7 @@ func TestIntegrationAdaptKeepsTheKeyFromTheAgent(t *testing.T) {
 
 	var err error
 	out, _ := a4Capture(t, "", func() {
-		err = runIntegration([]string{"adapt", "-kind", "ci", "-agent", "codex", "-name", "semaphore", "-cwd", project, site.URL + "/openapi.yaml"})
+		err = runIntegration([]string{"adapt", "-kind", "ci", "-agent", "codex", "-name", "woodpecker", "-cwd", project, site.URL + "/openapi.yaml"})
 	})
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -185,26 +185,26 @@ func TestIntegrationAdaptKeepsTheKeyFromTheAgent(t *testing.T) {
 		t.Fatalf("panes %d", len(agent.created))
 	}
 	p := agent.created[0]
-	dir := integrationDraftDir("semaphore")
-	if p.Agent != "codex" || p.Cwd != dir || !p.NoProject || p.Name != "adapt semaphore" {
+	dir := integrationDraftDir("woodpecker")
+	if p.Agent != "codex" || p.Cwd != dir || !p.NoProject || p.Name != "adapt woodpecker" {
 		t.Fatalf("pane %+v", p)
 	}
 	// The prompt holds the kind's contract and where the format is; no key.
-	for _, want := range []string{`"semaphore"`, "kind = \"ci\"", "[runs] (required)", "[failed_log]", "pass, fail, pending, canceled",
-		"INTEGRATION-FILE.md", "./semaphore.toml", "conch integration check ./semaphore.toml", site.URL + "/openapi.yaml"} {
+	for _, want := range []string{`"woodpecker"`, "kind = \"ci\"", "[runs] (required)", "[failed_log]", "pass, fail, pending, canceled",
+		"INTEGRATION-FILE.md", "./woodpecker.toml", "conch integration check ./woodpecker.toml", site.URL + "/openapi.yaml"} {
 		if !strings.Contains(p.Prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, p.Prompt)
 		}
 	}
 	env := strings.Join(p.Env, "\n")
-	for _, secret := range []string{semaphoreKey, "sekrit-circle"} {
+	for _, secret := range []string{woodpeckerKey, "sekrit-circle"} {
 		if strings.Contains(p.Prompt, secret) || strings.Contains(env, secret) {
 			t.Fatalf("the key reached the agent: %q / %v", p.Prompt, p.Env)
 		}
 	}
 	// The variables keys are in are emptied in its pane: this service's
 	// likely one, and every integration's conch knows.
-	for _, want := range []string{"SEMAPHORE_TOKEN=", "SEMAPHORE_API_KEY=", "CIRCLECI_TOKEN=", "GITLAB_TOKEN=", "GITHUB_TOKEN="} {
+	for _, want := range []string{"WOODPECKER_TOKEN=", "WOODPECKER_API_KEY=", "CIRCLECI_TOKEN=", "GITLAB_TOKEN=", "GITHUB_TOKEN="} {
 		if !slicesHas(p.Env, want) {
 			t.Errorf("%s is not emptied: %v", want, p.Env)
 		}
@@ -214,7 +214,7 @@ func TestIntegrationAdaptKeepsTheKeyFromTheAgent(t *testing.T) {
 		t.Errorf("the Keychain is reachable: %v", p.Env)
 	}
 	filepath.Walk(dir, func(path string, info os.FileInfo, _ error) error {
-		if b, _ := os.ReadFile(path); info != nil && !info.IsDir() && strings.Contains(string(b), semaphoreKey) {
+		if b, _ := os.ReadFile(path); info != nil && !info.IsDir() && strings.Contains(string(b), woodpeckerKey) {
 			t.Errorf("the key is in %s", path)
 		}
 		return nil
@@ -227,41 +227,41 @@ func TestIntegrationAdaptKeepsTheKeyFromTheAgent(t *testing.T) {
 	}
 
 	// The key went to the service once the person agreed to the pair.
-	if len(asked) != 1 || !strings.Contains(asked[0], "$SEMAPHORE_TOKEN to "+site.URL) {
+	if len(asked) != 1 || !strings.Contains(asked[0], "$WOODPECKER_TOKEN to "+site.URL) {
 		t.Fatalf("asked %q", asked)
 	}
-	if c := calls(); len(c) != 1 || !strings.Contains(c[0], "branch=main") || !strings.Contains(c[0], semaphoreKey) {
+	if c := calls(); len(c) != 1 || !strings.Contains(c[0], "branch=main") || !strings.Contains(c[0], woodpeckerKey) {
 		t.Fatalf("calls %q", c)
 	}
 	for _, want := range []string{"codex is writing the file in pane p9", "codex wrote", "runs, failed_log",
-		"offline check: 0 problems", "live check: read 3 runs of me/proj on main", "conch integration adapt -save semaphore",
-		"conch integration publish semaphore"} {
+		"offline check: 0 problems", "live check: read 3 runs of me/proj on main", "conch integration adapt -save woodpecker",
+		"conch integration publish woodpecker"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, semaphoreKey) {
+	if strings.Contains(out, woodpeckerKey) {
 		t.Fatal("the key was printed")
 	}
 	if b, _ := os.ReadFile(stored); len(b) != 0 {
 		t.Fatalf("adapting put something in the Keychain: %q", b)
 	}
 	// A draft is not an integration until it is kept.
-	if _, _, err := integration.Source("semaphore"); err == nil {
+	if _, _, err := integration.Source("woodpecker"); err == nil {
 		t.Fatal("a draft is an integration")
 	}
-	out, _ = a4Capture(t, "", func() { err = runIntegration([]string{"adapt", "-save", "semaphore"}) })
+	out, _ = a4Capture(t, "", func() { err = runIntegration([]string{"adapt", "-save", "woodpecker"}) })
 	if err != nil || !strings.Contains(out, "kept") {
 		t.Fatalf("save: %v %q", err, out)
 	}
-	if _, _, err := integration.Source("semaphore"); err != nil {
+	if _, _, err := integration.Source("woodpecker"); err != nil {
 		t.Fatalf("not kept: %v", err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatal("the draft is left behind")
 	}
 	// Adapting it again is refused while it is here.
-	a4Capture(t, "", func() { err = runIntegration([]string{"adapt", "-name", "semaphore", site.URL}) })
+	a4Capture(t, "", func() { err = runIntegration([]string{"adapt", "-name", "woodpecker", site.URL}) })
 	if err == nil || !strings.Contains(err.Error(), "already") {
 		t.Fatalf("again: %v", err)
 	}
@@ -271,24 +271,24 @@ func TestIntegrationAdaptKeepsTheKeyFromTheAgent(t *testing.T) {
 // would go, and the person's -check sends it.
 func TestIntegrationAdaptJSONAsksBeforeTheKey(t *testing.T) {
 	integrationEnv(t)
-	site, calls := semaphoreSite(t)
+	site, calls := woodpeckerSite(t)
 	serveRegistry(t)
 	project := gitProject(t)
-	bad := strings.Replace(semaphoreFile(site.URL), `broken = "fail"`, `broken = "red"`, 1)
+	bad := strings.Replace(woodpeckerFile(site.URL), `broken = "fail"`, `broken = "red"`, 1)
 	startIntegrationAgent(t, func(dir string) {
 		b := bad
-		if _, err := os.Stat(filepath.Join(dir, "semaphore.toml")); err == nil {
-			b = semaphoreFile(site.URL) // the revision fixes it
+		if _, err := os.Stat(filepath.Join(dir, "woodpecker.toml")); err == nil {
+			b = woodpeckerFile(site.URL) // the revision fixes it
 		}
-		os.WriteFile(filepath.Join(dir, "semaphore.toml"), []byte(b), 0o600)
+		os.WriteFile(filepath.Join(dir, "woodpecker.toml"), []byte(b), 0o600)
 	})
-	t.Setenv("SEMAPHORE_TOKEN", semaphoreKey)
+	t.Setenv("WOODPECKER_TOKEN", woodpeckerKey)
 	adaptConfirm = func(q string) bool { t.Errorf("asked in -json: %q", q); return false }
 	t.Cleanup(func() { adaptConfirm = askYes })
 
 	var err error
 	out, _ := a4Capture(t, "", func() {
-		err = runIntegration([]string{"adapt", "-json", "-name", "semaphore", site.URL + "/openapi.yaml"})
+		err = runIntegration([]string{"adapt", "-json", "-name", "woodpecker", site.URL + "/openapi.yaml"})
 	})
 	if err == nil || !strings.Contains(err.Error(), "-revise") {
 		t.Fatalf("a bad file passed: %v\n%s", err, out)
@@ -304,14 +304,14 @@ func TestIntegrationAdaptJSONAsksBeforeTheKey(t *testing.T) {
 		t.Fatalf("problems %v", events[4].Problems)
 	}
 	// Keeping a wrong draft is refused.
-	a4Capture(t, "", func() { err = runIntegration([]string{"adapt", "-save", "semaphore"}) })
+	a4Capture(t, "", func() { err = runIntegration([]string{"adapt", "-save", "woodpecker"}) })
 	if err == nil {
 		t.Fatal("kept a wrong draft")
 	}
 
 	// Revised, it is clean; the key is not sent, and where it would go is said.
 	out, _ = a4Capture(t, "", func() {
-		err = runIntegration([]string{"adapt", "-json", "-revise", "map broken to fail", "semaphore"})
+		err = runIntegration([]string{"adapt", "-json", "-revise", "map broken to fail", "woodpecker"})
 	})
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -320,7 +320,7 @@ func TestIntegrationAdaptJSONAsksBeforeTheKey(t *testing.T) {
 	if k := eventKinds(events); k != "agent file offline consent done " {
 		t.Fatalf("events %q", k)
 	}
-	if c := events[3]; !strings.Contains(c.Detail, "$SEMAPHORE_TOKEN to "+site.URL) {
+	if c := events[3]; !strings.Contains(c.Detail, "$WOODPECKER_TOKEN to "+site.URL) {
 		t.Fatalf("consent %+v", c)
 	}
 	if c := calls(); len(c) != 0 {
@@ -329,7 +329,7 @@ func TestIntegrationAdaptJSONAsksBeforeTheKey(t *testing.T) {
 
 	// -check is the person's yes.
 	out, _ = a4Capture(t, "", func() {
-		err = runIntegration([]string{"adapt", "-json", "-check", "-cwd", project, "semaphore"})
+		err = runIntegration([]string{"adapt", "-json", "-check", "-cwd", project, "woodpecker"})
 	})
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
@@ -341,39 +341,39 @@ func TestIntegrationAdaptJSONAsksBeforeTheKey(t *testing.T) {
 	if l := events[2].Live; l == nil || !l.OK || l.Runs != 3 || l.Project != "me/proj" || l.Branch != "main" {
 		t.Fatalf("live %+v", events[2].Live)
 	}
-	if !events[3].OK || strings.Contains(out, semaphoreKey) {
+	if !events[3].OK || strings.Contains(out, woodpeckerKey) {
 		t.Fatalf("done %+v", events[3])
 	}
 
 	// No project to read: said, not failed.
 	out, _ = a4Capture(t, "", func() {
-		err = runIntegration([]string{"adapt", "-json", "-check", "-cwd", t.TempDir(), "semaphore"})
+		err = runIntegration([]string{"adapt", "-json", "-check", "-cwd", t.TempDir(), "woodpecker"})
 	})
 	events = adaptEvents(t, out)
 	if l := events[2].Live; err != nil || l == nil || l.OK || !strings.Contains(l.Why, "-cwd") {
 		t.Fatalf("no project: %v %+v", err, l)
 	}
 	// A wrong key: what the service said.
-	t.Setenv("SEMAPHORE_TOKEN", "wrong")
+	t.Setenv("WOODPECKER_TOKEN", "wrong")
 	out, _ = a4Capture(t, "", func() {
-		runIntegration([]string{"adapt", "-json", "-check", "-cwd", project, "semaphore"})
+		runIntegration([]string{"adapt", "-json", "-check", "-cwd", project, "woodpecker"})
 	})
 	if l := adaptEvents(t, out)[2].Live; l == nil || l.OK || !strings.Contains(l.Why, "401") {
 		t.Fatalf("wrong key: %+v", l)
 	}
 	// No key at all.
-	t.Setenv("SEMAPHORE_TOKEN", "")
+	t.Setenv("WOODPECKER_TOKEN", "")
 	out, _ = a4Capture(t, "", func() {
-		runIntegration([]string{"adapt", "-json", "-check", "-cwd", project, "semaphore"})
+		runIntegration([]string{"adapt", "-json", "-check", "-cwd", project, "woodpecker"})
 	})
-	if l := adaptEvents(t, out)[2].Live; l == nil || l.OK || !strings.Contains(l.Why, "$SEMAPHORE_TOKEN") {
+	if l := adaptEvents(t, out)[2].Live; l == nil || l.OK || !strings.Contains(l.Why, "$WOODPECKER_TOKEN") {
 		t.Fatalf("no key: %+v", l)
 	}
 }
 
 func TestIntegrationAdaptRefusals(t *testing.T) {
 	integrationEnv(t)
-	site, _ := semaphoreSite(t)
+	site, _ := woodpeckerSite(t)
 	reg := serveRegistry(t)
 	reg.publish(t, testIntegration, 1, acme)
 	for _, c := range []struct {
@@ -437,15 +437,15 @@ func TestIntegrationAdaptSandboxIsSandboxAdapt(t *testing.T) {
 
 func TestIntegrationPublish(t *testing.T) {
 	home, _ := integrationEnv(t)
-	site, calls := semaphoreSite(t)
+	site, calls := woodpeckerSite(t)
 	reg := serveRegistry(t)
 	reg.publish(t, testIntegration, 1, acme) // another integration only
 	project := gitProject(t)
 	old := publishNow
 	publishNow = func() time.Time { return time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { publishNow = old })
-	file := semaphoreFile(site.URL)
-	path := filepath.Join(home, "integrations", "semaphore.toml")
+	file := woodpeckerFile(site.URL)
+	path := filepath.Join(home, "integrations", "woodpecker.toml")
 	os.MkdirAll(filepath.Dir(path), 0o700)
 	var asked []string
 	adaptConfirm = func(q string) bool { asked = append(asked, q); return true }
@@ -457,14 +457,14 @@ func TestIntegrationPublish(t *testing.T) {
 		want  string
 	}{
 		{nil, []string{"publish"}, "usage"},
-		{nil, []string{"publish", "semaphore"}, "no integration semaphore"},
-		{func() { os.WriteFile(path, []byte("format = 3\nname = \"semaphore\"\n"), 0o600) }, []string{"publish", "semaphore"}, "problems to fix first"},
+		{nil, []string{"publish", "woodpecker"}, "no integration woodpecker"},
+		{func() { os.WriteFile(path, []byte("format = 3\nname = \"woodpecker\"\n"), 0o600) }, []string{"publish", "woodpecker"}, "problems to fix first"},
 		{func() {
-			os.WriteFile(path, []byte(strings.Replace(file, "docs = \"https://docs.semaphoreci.test/api\"\n", "", 1)), 0o600)
+			os.WriteFile(path, []byte(strings.Replace(file, "docs = \"https://docs.woodpeckerci.test/api\"\n", "", 1)), 0o600)
 		},
-			[]string{"publish", "semaphore"}, "docs"},
+			[]string{"publish", "woodpecker"}, "docs"},
 		// Published files are ones that worked: no key, no proposal.
-		{func() { os.WriteFile(path, []byte(file), 0o600) }, []string{"publish", "-cwd", project, "semaphore"}, "with your key first"},
+		{func() { os.WriteFile(path, []byte(file), 0o600) }, []string{"publish", "-cwd", project, "woodpecker"}, "with your key first"},
 	} {
 		if c.setup != nil {
 			c.setup()
@@ -476,37 +476,37 @@ func TestIntegrationPublish(t *testing.T) {
 		}
 	}
 
-	t.Setenv("SEMAPHORE_TOKEN", semaphoreKey)
+	t.Setenv("WOODPECKER_TOKEN", woodpeckerKey)
 	// Saying no to where the key goes publishes nothing.
 	adaptConfirm = func(q string) bool { asked = append(asked, q); return false }
 	var err error
-	a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-cwd", project, "semaphore"}) })
+	a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-cwd", project, "woodpecker"}) })
 	if err == nil || !strings.Contains(err.Error(), "nothing published") || len(calls()) != 0 {
 		t.Fatalf("no: %v %q", err, calls())
 	}
-	if !strings.Contains(asked[len(asked)-1], "$SEMAPHORE_TOKEN to "+site.URL) {
+	if !strings.Contains(asked[len(asked)-1], "$WOODPECKER_TOKEN to "+site.URL) {
 		t.Fatalf("asked %q", asked)
 	}
 	adaptConfirm = func(q string) bool { asked = append(asked, q); return true }
 
-	out, _ := a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-dry-run", "-cwd", project, "semaphore"}) })
+	out, _ := a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-dry-run", "-cwd", project, "woodpecker"}) })
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"would propose to Amitgb14/conch-integrations: Add Semaphore (ci)",
-		"--- ci/semaphore/integration.toml", "--- ci/semaphore/meta.json", `"version": 1`, `"checked": null`, `"conch": "`,
+	for _, want := range []string{"would propose to Amitgb14/conch-integrations: Add Woodpecker (ci)",
+		"--- ci/woodpecker/integration.toml", "--- ci/woodpecker/meta.json", `"version": 1`, `"checked": null`, `"conch": "`,
 		`"docs": "https://`, "- operations: runs, failed_log", "read 3 runs of me/proj on main", "with conch "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry run lacks %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, semaphoreKey) {
+	if strings.Contains(out, woodpeckerKey) {
 		t.Fatal("the key is in what would be published")
 	}
 
 	// Through a fork, for somebody who cannot push to the registry.
 	log := fakeGH(t, false)
-	out, _ = a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-json", "-cwd", project, "semaphore"}) })
+	out, _ = a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-json", "-cwd", project, "woodpecker"}) })
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -521,10 +521,10 @@ func TestIntegrationPublish(t *testing.T) {
 	logged := string(b)
 	for _, want := range []string{
 		"api --method POST repos/Amitgb14/conch-integrations/forks",
-		`"ref":"refs/heads/integration-semaphore-20261115-120000"`,
-		"api --method PUT repos/me/conch-integrations/contents/ci/semaphore/integration.toml",
-		"api --method PUT repos/me/conch-integrations/contents/ci/semaphore/meta.json",
-		`"head":"me:integration-semaphore-20261115-120000"`,
+		`"ref":"refs/heads/integration-woodpecker-20261115-120000"`,
+		"api --method PUT repos/me/conch-integrations/contents/ci/woodpecker/integration.toml",
+		"api --method PUT repos/me/conch-integrations/contents/ci/woodpecker/meta.json",
+		`"head":"me:integration-woodpecker-20261115-120000"`,
 		"api --method POST repos/Amitgb14/conch-integrations/pulls",
 		"read 3 runs of me/proj on main", // the live check's result, in the body
 	} {
@@ -533,20 +533,20 @@ func TestIntegrationPublish(t *testing.T) {
 		}
 	}
 	// The file goes as it is, and the key goes nowhere.
-	if !strings.Contains(logged, base64.StdEncoding.EncodeToString([]byte(file))) || strings.Contains(logged, semaphoreKey) {
+	if !strings.Contains(logged, base64.StdEncoding.EncodeToString([]byte(file))) || strings.Contains(logged, woodpeckerKey) {
 		t.Fatal("the file was changed, or the key sent")
 	}
 
 	// Listed already: the next version, and the same file is not proposed again.
 	sum := sha256Hex([]byte(file))
-	listed := integration.Entry{Kind: "ci", Name: "semaphore", Label: "Semaphore", Version: 4, Format: 3, KeyEnv: "SEMAPHORE_TOKEN",
-		File: "integrations/semaphore.toml", SHA256: "old", Revoked: []integration.Revocation{{Version: 5, Reason: "bad"}}}
+	listed := integration.Entry{Kind: "ci", Name: "woodpecker", Label: "Woodpecker", Version: 4, Format: 3, KeyEnv: "WOODPECKER_TOKEN",
+		File: "integrations/woodpecker.toml", SHA256: "old", Revoked: []integration.Revocation{{Version: 5, Reason: "bad"}}}
 	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{listed}})
 	reg.mu.Lock()
 	reg.files["index.json"] = ix
 	reg.mu.Unlock()
 	out, _ = a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-dry-run", "-cwd", project, path}) })
-	if err != nil || !strings.Contains(out, `"version": 6`) || !strings.Contains(out, "Update Semaphore to version 6") {
+	if err != nil || !strings.Contains(out, `"version": 6`) || !strings.Contains(out, "Update Woodpecker to version 6") {
 		t.Fatalf("next version: %v\n%s", err, out)
 	}
 	listed.SHA256 = sum
@@ -554,13 +554,13 @@ func TestIntegrationPublish(t *testing.T) {
 	reg.mu.Lock()
 	reg.files["index.json"] = ix
 	reg.mu.Unlock()
-	a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-cwd", project, "semaphore"}) })
+	a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-cwd", project, "woodpecker"}) })
 	if err == nil || !strings.Contains(err.Error(), "has this file already") {
 		t.Fatalf("same file: %v", err)
 	}
 	// The registry cannot be read: no version can be numbered.
 	t.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1")
-	a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-cwd", project, "semaphore"}) })
+	a4Capture(t, "", func() { err = runIntegration([]string{"publish", "-y", "-cwd", project, "woodpecker"}) })
 	if err == nil || !strings.Contains(err.Error(), "could not read") {
 		t.Fatalf("no registry: %v", err)
 	}

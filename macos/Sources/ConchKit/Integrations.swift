@@ -46,6 +46,9 @@ public struct IntegrationListed: Decodable, Equatable, Sendable {
     public var kind: String
     public var name: String
     public var label: String?
+    /// Something conch's own code reads (GitHub, Linear, Jira), listed so
+    /// the catalog is one place; there is no file to install.
+    public var builtin: Bool?
     public var version: Int
     public var hosts: IntegrationHosts
     public var keyEnv: String?
@@ -59,7 +62,7 @@ public struct IntegrationListed: Decodable, Equatable, Sendable {
     public var signed: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case kind, name, label, version, hosts, operations, tier, checked, revoked, installs, note, signed
+        case kind, name, label, builtin, version, hosts, operations, tier, checked, revoked, installs, note, signed
         case keyEnv = "key_env", userEnv = "user_env"
     }
 
@@ -274,6 +277,13 @@ public enum IntegrationCatalog {
         }
         for e in listed where !seen.contains(e.name) {
             seen.insert(e.name)
+            if e.builtin == true {
+                // conch's own, though this conch's list did not have it: as built in.
+                out.append(IntegrationCard(name: e.name, label: e.label ?? e.name, kind: e.kind, source: "built in", installed: true, builtIn: true,
+                                           standing: .builtIn, auth: authWord(userEnv: nil, builtIn: true, name: e.name),
+                                           summary: e.note ?? builtInSummary[e.name] ?? "", usedIn: usedIn(e.name), wanted: false))
+                continue
+            }
             var standing: IntegrationStanding = e.checked.map { .verified($0.date) } ?? .notChecked
             if let why = e.revokedReason { standing = .revoked(why) }
             out.append(IntegrationCard(name: e.name, label: e.label ?? e.name, kind: e.kind, source: "registry",

@@ -600,3 +600,114 @@ func TestJenkinsEndToEnd(t *testing.T) {
 		t.Fatalf("rerun: %v", err)
 	}
 }
+
+// Bitbucket Pipelines as its REST API documents it
+// (developer.atlassian.com/cloud/bitbucket/rest/api-group-pipelines:
+// pipelines by target.branch, a pipeline's steps, a step's log), with a
+// scoped API token sent as basic auth with the account's email.
+func TestBitbucketPipelinesEndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != "me@example.com" || pass != testKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.EscapedPath() {
+		case "/2.0/repositories/acme/widgets/pipelines/":
+			if r.URL.Query().Get("target.branch") != "rgw-fix" {
+				t.Errorf("pipelines asked as %s", r.URL.RawQuery)
+			}
+			io.WriteString(w, `{"values": [
+			  {"uuid": "{p-2}", "build_number": 12, "state": {"name": "IN_PROGRESS"}, "target": {"commit": {"hash": "abc"}}, "created_on": "2026-11-15T14:10:00Z"},
+			  {"uuid": "{p-1}", "build_number": 11, "state": {"name": "COMPLETED", "result": {"name": "FAILED"}}, "target": {"commit": {"hash": "abc"}},
+			   "created_on": "2026-11-15T14:00:00Z", "completed_on": "2026-11-15T14:04:00Z"}
+			]}`)
+		case "/2.0/repositories/acme/widgets/pipelines/%7Bp-1%7D/steps/":
+			io.WriteString(w, `{"values": [
+			  {"uuid": "{s-1}", "name": "Build", "state": {"name": "COMPLETED", "result": {"name": "SUCCESSFUL"}}},
+			  {"uuid": "{s-2}", "name": "Test", "state": {"name": "COMPLETED", "result": {"name": "FAILED"}}}
+			]}`)
+		case "/2.0/repositories/acme/widgets/pipelines/%7Bp-1%7D/steps/%7Bs-2%7D/log":
+			io.WriteString(w, "+ go test ./...\n--- FAIL: TestWidget\n")
+		default:
+			t.Errorf("unexpected %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	f := shipped(t, "bitbucket-pipelines")
+	f.API = srv.URL + "/2.0"
+	if _, err := f.Connect(testKey, "", ""); err == nil || !strings.Contains(err.Error(), "$BITBUCKET_EMAIL") {
+		t.Fatalf("no email: %v", err)
+	}
+	c, err := f.Connect(testKey, "me@example.com", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	runs, err := c.Runs(ctx, widgets)
+	if err != nil || len(runs) != 2 || runs[0].State != "pending" || runs[1].ID != "{p-1}" || runs[1].State != "fail" ||
+		runs[1].Name != "Pipeline #11" || runs[1].URL != "https://bitbucket.org/acme/widgets/pipelines/results/11" ||
+		runs[1].Finished.Sub(runs[1].Started) != 4*time.Minute {
+		t.Fatalf("runs %+v %v", runs, err)
+	}
+	lg, err := c.FailedLog(ctx, widgets, "{p-1}")
+	if err != nil || lg.Job != "Test" || lg.Text != "+ go test ./...\n--- FAIL: TestWidget\n" {
+		t.Fatalf("log %+v %v", lg, err)
+	}
+	if err := c.Rerun(ctx, widgets, "{p-1}"); err == nil {
+		t.Fatal("Bitbucket has no re-run of what failed, and the file says so")
+	}
+}
+
+// Semaphore as its API documents it (docs.semaphoreci.com/reference/api:
+// a project by name, its pipelines by branch, a detailed pipeline's
+// blocks and jobs, a job's log events), at the organization's own host.
+func TestSemaphoreEndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Token "+testKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1alpha/projects/widgets":
+			io.WriteString(w, `{"metadata": {"id": "proj-1", "name": "widgets"}}`)
+		case "/api/v1alpha/pipelines":
+			if r.URL.Query().Get("project_id") != "proj-1" || r.URL.Query().Get("branch_name") != "rgw-fix" {
+				t.Errorf("pipelines asked as %s", r.URL.RawQuery)
+			}
+			io.WriteString(w, `[{"ppl_id": "ppl-9", "name": "Pipeline", "state": "DONE", "result": "failed", "commit_sha": "abc",
+			  "created_at": {"seconds": 1763215200}, "done_at": {"seconds": 1763215500}}]`)
+		case "/api/v1alpha/pipelines/ppl-9":
+			io.WriteString(w, `{"pipeline": {"ppl_id": "ppl-9"}, "blocks": [
+			  {"name": "Build", "jobs": [{"name": "build", "job_id": "j-1", "result": "PASSED"}]},
+			  {"name": "Test", "jobs": [{"name": "unit", "job_id": "j-2", "result": "FAILED"}, {"name": "lint", "job_id": "j-3", "result": "PASSED"}]}
+			]}`)
+		case "/api/v1alpha/logs/j-2":
+			io.WriteString(w, `{"events": [{"event": "job_started"}, {"event": "cmd_output", "output": "go test ./...\n"},
+			  {"event": "cmd_output", "output": "--- FAIL: TestWidget\n"}, {"event": "job_finished", "result": "failed"}]}`)
+		default:
+			t.Errorf("unexpected %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	f := shipped(t, "semaphore")
+	if _, err := f.Connect(testKey, "", ""); err == nil {
+		t.Fatal("connected with no address for a file that asks for one")
+	}
+	c, err := f.Connect(testKey, "", srv.URL+"/api/v1alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	runs, err := c.Runs(ctx, widgets)
+	if err != nil || len(runs) != 1 || runs[0].ID != "ppl-9" || runs[0].State != "fail" || runs[0].Commit != "abc" ||
+		runs[0].Finished.Sub(runs[0].Started) != 5*time.Minute {
+		t.Fatalf("runs %+v %v", runs, err)
+	}
+	lg, err := c.FailedLog(ctx, widgets, "ppl-9")
+	if err != nil || lg.Job != "unit" || lg.Text != "go test ./...\n--- FAIL: TestWidget\n" {
+		t.Fatalf("log %+v %v", lg, err)
+	}
+}

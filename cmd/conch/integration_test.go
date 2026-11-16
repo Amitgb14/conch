@@ -432,3 +432,23 @@ func TestIntegrationKeyChecksTicketsAndNotify(t *testing.T) {
 		t.Fatalf("elsewhere: %q %v %d", out, err, len(got))
 	}
 }
+
+// A built-in entry in a registry is listed as built in, and install says
+// there is nothing to install rather than asking about hosts.
+func TestIntegrationBuiltInEntry(t *testing.T) {
+	integrationEnv(t)
+	reg := serveRegistry(t)
+	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{
+		{Kind: "tickets", Name: "jira", Label: "Jira", BuiltIn: true, KeyEnv: "JIRA_API_TOKEN"}}})
+	reg.mu.Lock()
+	reg.files["index.json"] = ix
+	reg.mu.Unlock()
+	out, _, err := a4Out(t, func() error { return runIntegration([]string{"search", "jira"}) })
+	if err != nil || !strings.Contains(out, "Jira") || !strings.Contains(out, "built in") || !strings.Contains(out, "conch's own code") {
+		t.Fatalf("search: %q %v", out, err)
+	}
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"install", "-y", "jira"}) })
+	if err == nil || !strings.Contains(err.Error(), "built into conch") || strings.Contains(out, "sends your key") {
+		t.Fatalf("install: %q %v", out, err)
+	}
+}
