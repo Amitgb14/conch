@@ -212,6 +212,18 @@ public struct PRCheck: Decodable, Equatable, Sendable {
     public var name: String
     public var state: String
     public var url: String?
+    /// The service it ran on ("github-actions", "circleci", …) and whether
+    /// conch can read its log (pr.check.source.v1); nil from older servers.
+    public var source: String?
+    public var readable: Bool?
+
+    public init(name: String, state: String, url: String? = nil, source: String? = nil, readable: Bool? = nil) {
+        self.name = name
+        self.state = state
+        self.url = url
+        self.source = source
+        self.readable = readable
+    }
 }
 
 public struct PRInfo: Decodable, Equatable, Sendable {

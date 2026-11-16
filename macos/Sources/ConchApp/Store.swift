@@ -631,6 +631,15 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Runs a red branch's failed CI jobs again: GitHub Actions, or a CI
+    /// integration that can (branch.ci_rerun, through the CLI).
+    func rerunCI(machine: String, project: String, branch: String) {
+        guard let b = binary, let dir = snapshots[machine]?.project(project)?.path else { return }
+        job("Re-running the failed jobs on \(branch)", done: "Re-running the failed jobs on \(branch)") {
+            _ = try await runConch(b, onMachine(machine, ["branch", "rerun-ci", "-cwd", dir, "-branch", branch]))
+        }
+    }
+
     /// What needs a decision, across every machine reached: the TUI's
     /// review queue, as its "N to review" counts it. Built once per change.
     var reviewItems: [ReviewItem] {
@@ -759,6 +768,9 @@ final class Store: ObservableObject {
     /// The Integrations window (IntegrationsWindow.swift).
     var onOpenIntegrations: (() -> Void)?
     func openIntegrations() { onOpenIntegrations?() }
+    /// The Integrations window's install sheet for one, checked in dir.
+    var onInstallIntegration: ((String, String?) -> Void)?
+    func installIntegration(_ name: String, checkIn dir: String?) { onInstallIntegration?(name, dir) }
     /// [verify.intake]'s labels: what means ready for conch in Tickets.
     @Published private(set) var intakeLabels: Set<String> = []
 

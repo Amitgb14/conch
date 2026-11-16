@@ -39,6 +39,13 @@ final class IntegrationsWindow {
         model?.load()
         window?.makeKeyAndOrderFront(nil)
     }
+
+    /// The install sheet for one integration, from a branch's card for a
+    /// red check conch cannot read: checked against that branch's checkout.
+    @MainActor func install(_ name: String, checkIn: String?) {
+        show()
+        model?.installNamed(name, checkIn: checkIn)
+    }
 }
 
 /// Which list the sidebar shows.
@@ -125,6 +132,21 @@ final class IntegrationsModel: ObservableObject {
         Task { @MainActor in
             do {
                 page = try JSONDecoder().decode(IntegrationInfo.self, from: try await runConch(bin, ["integration", "info", "-json", card.name]))
+            } catch {
+                failure = "\(error)"
+            }
+        }
+    }
+
+    /// Opens name's page with its install sheet over it.
+    func installNamed(_ name: String, checkIn: String?) {
+        guard let bin = store.binary else { return }
+        Task { @MainActor in
+            do {
+                let info = try JSONDecoder().decode(IntegrationInfo.self, from: try await runConch(bin, ["integration", "info", "-json", name]))
+                page = info
+                startInstall(info)
+                if let dir = checkIn, !dir.isEmpty { flow?.checkIn = dir }
             } catch {
                 failure = "\(error)"
             }

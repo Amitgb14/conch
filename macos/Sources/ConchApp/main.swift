@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         s.onOpenSystemMonitor = { [weak self] in self?.systemWindow?.show() }
         s.onOpenTickets = { [weak self] in self?.ticketsWindow?.show() }
         s.onOpenIntegrations = { [weak self] in self?.integrationsWindow?.show() }
+        s.onInstallIntegration = { [weak self] name, dir in self?.integrationsWindow?.install(name, checkIn: dir) }
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         s.onConfigChange = { [weak self] in self?.updateThemeMenu() }
     }
