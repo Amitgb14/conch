@@ -66,44 +66,30 @@ func TestStatesLabelsAndPeriods(t *testing.T) {
 			t.Errorf("%+v running = %v, want %v", c.p, got, c.want)
 		}
 	}
-	// Providers are named as people write them, and an unknown one is
-	// capitalised rather than left bare.
+	// Providers are named as people write them — a former built-in's
+	// before its file is here — and an unknown one is capitalised.
+	t.Setenv("CONCH_HOME", t.TempDir())
 	for name, want := range map[string]string{
-		"daytona": "Daytona", "boat": "boat.dev", "e2b": "E2B", "fly": "Fly", "": "",
+		"daytona": "Daytona", "boat": "boat.dev", "fly": "Fly", "": "",
 	} {
 		if got := ProviderLabel(name); got != want {
 			t.Errorf("ProviderLabel(%q) = %q, want %q", name, got, want)
 		}
 	}
-	// boat's machines come in sizes, and those are the sizes create takes.
-	sizes := NewBoat(config.ProviderCfg{}).SizeNames()
-	if strings.Join(sizes, ",") != "small,default,large" {
-		t.Fatalf("boat's sizes: %v", sizes)
-	}
-	sizes[0] = "tampered"
-	if again := NewBoat(config.ProviderCfg{}).SizeNames(); again[0] != "small" {
-		t.Fatalf("the list is not a copy: %v", again)
-	}
 }
 
-// Offered is what a menu makes a sandbox with: every provider conch knows,
-// in order, but Tensorlake, which stays known for its sandboxes' sake.
-func TestOfferedLeavesTensorlakeOut(t *testing.T) {
+// Offered is what a menu makes a sandbox with: every provider installed,
+// in order. Tensorlake was once left out — its gateway lets in only keys
+// registered with the account — and is now a file whose note says so.
+func TestOfferedIsEveryInstalledProvider(t *testing.T) {
 	names := Names
 	t.Cleanup(func() { Names = names })
-	Names = func() []string { return []string{"daytona", "boat", "devin", "tensorlake", "fly"} }
-	if got := strings.Join(Offered(), ","); got != "daytona,boat,devin,fly" {
+	Names = func() []string { return []string{"daytona", "tensorlake", "fly"} }
+	if got := strings.Join(Offered(), ","); got != "daytona,tensorlake,fly" {
 		t.Errorf("offered: %s", got)
-	}
-	if !Known("tensorlake") || !Builtin("tensorlake") {
-		t.Error("tensorlake should stay known")
 	}
 	Names = func() []string { return nil }
 	if got := Offered(); len(got) != 0 {
-		t.Errorf("none known, offered %v", got)
-	}
-	Names = func() []string { return []string{"tensorlake"} }
-	if got := Offered(); len(got) != 0 {
-		t.Errorf("only tensorlake, offered %v", got)
+		t.Errorf("none installed, offered %v", got)
 	}
 }

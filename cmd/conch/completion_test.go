@@ -64,6 +64,9 @@ func TestCompletionKnowsEveryCommand(t *testing.T) {
 
 func TestCompletionCandidates(t *testing.T) {
 	a4Env(t)
+	// conch has no provider of its own: the installed ones are offered.
+	installProviderFile(t, "daytona", "https://app.daytona.io/api")
+	installProviderFile(t, "boat", "https://boat.dev/api/v1")
 	if _, err := remote.SaveMachine(remote.Machine{Label: "busybox", Target: "me@busybox"}); err != nil {
 		t.Fatal(err)
 	}
@@ -92,8 +95,8 @@ func TestCompletionCandidates(t *testing.T) {
 		{[]string{"web", "pair", "-permission"}, "r", []string{"reply"}},
 		{[]string{"web", "permission", "d1"}, "", []string{"view", "reply", "full"}},
 		{[]string{"sandbox"}, "", []string{"-provider", "stats", "providers", "adapt", "provider"}},
-		{[]string{"sandbox", "-provider"}, "", []string{"daytona", "boat", "devin", "tensorlake"}},
-		{[]string{"sandbox", "-provider", "boat"}, "s", []string{"start", "stop", "ssh", "snapshot", "snapshots"}},
+		{[]string{"sandbox", "-provider"}, "", []string{"boat", "daytona"}},
+		{[]string{"sandbox", "-provider", "boat"}, "s", []string{"start", "stop", "ssh", "snapshot", "snapshots", "settings"}},
 		{[]string{"sandbox", "-provider", "boat", "ls"}, "", nil},
 		// A flag's value is not a subcommand: still choosing after `branch`.
 		{[]string{"branch", "-cwd", "/x"}, "p", []string{"push", "pr", "prune"}},

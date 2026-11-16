@@ -183,15 +183,10 @@ func TestAdaptWritesChecksAndSaves(t *testing.T) {
 		!strings.Contains(last.Note, "adapted from its API docs by claude") {
 		t.Fatalf("providers: %+v %v", ps, err)
 	}
-	// Adapting it again is refused while it is a provider, and so is a
-	// built-in's name.
+	// Adapting it again is refused while it is a provider.
 	a4Capture(t, "", func() { err = runSandbox([]string{"adapt", "-name", "acme", site.URL}) })
 	if err == nil || !strings.Contains(err.Error(), "already a provider") {
 		t.Fatalf("again: %v", err)
-	}
-	a4Capture(t, "", func() { err = runSandbox([]string{"adapt", "https://api.daytona.io/sandbox"}) })
-	if err == nil || !strings.Contains(err.Error(), "built in") {
-		t.Fatalf("built in: %v", err)
 	}
 	// A machine on it keeps it from being removed.
 	if _, err := remote.SaveMachine(remote.Machine{Label: "hull", Target: "acme:sbx1"}); err != nil {

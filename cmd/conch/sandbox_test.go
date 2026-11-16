@@ -44,8 +44,7 @@ func newA4Daytona(t *testing.T) *a4Daytona {
 	srv := httptest.NewServer(d)
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k-test")
-	t.Setenv("DAYTONA_API_URL", srv.URL)
-	t.Setenv("DAYTONA_ANALYTICS_URL", srv.URL)
+	installProviderFile(t, "daytona", srv.URL)
 	return d
 }
 
@@ -240,6 +239,7 @@ func TestA4SandboxCreate(t *testing.T) {
 
 func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 	a4Env(t)
+	installProviderFile(t, "daytona", "http://127.0.0.1:1")
 	var err error
 	// No key: nothing is created.
 	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create"}) })
@@ -259,7 +259,7 @@ func TestA4SandboxCreateRefusesBeforeSpending(t *testing.T) {
 		{[]string{"-provider", "daytona", "create", "extra"}, "usage: conch sandbox -provider P create"},
 		{[]string{"-provider", "daytona", "create", "-bogus"}, "flag provided but not defined"},
 		// No provider: there is no default to bill.
-		{[]string{"create"}, "which provider? give -provider NAME (daytona, boat, devin, tensorlake)"},
+		{[]string{"create"}, "which provider? give -provider NAME (installed: daytona)"},
 		{[]string{"create", "-label", "x"}, "which provider?"},
 		{[]string{"ls"}, "which provider?"},
 		{nil, "which provider?"}, // plain conch sandbox lists, and so needs one too
@@ -324,7 +324,7 @@ func TestA4SandboxCreateThatNeverStarts(t *testing.T) {
 	d.createState = "build_failed"
 	var err error
 	_, errOut := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-yes"}) })
-	if err == nil || !strings.Contains(err.Error(), "is build_failed") {
+	if err == nil || !strings.Contains(err.Error(), "build_failed") {
 		t.Fatalf("err %v", err)
 	}
 	if !strings.Contains(errOut, "deleted sandbox sbx1-0123456789") || d.state("sbx1-0123456789") != "" {
@@ -428,7 +428,7 @@ func TestA4SandboxListStartStopRemove(t *testing.T) {
 		{[]string{"-provider", "daytona", "rm", "a", "b"}, "usage: conch sandbox -provider P rm"},
 		{[]string{"-provider", "daytona", "start", "gpu"}, "gpu is not a sandbox"},
 		{[]string{"-provider", "daytona", "rm", "-y", "dev@elsewhere"}, `no sandbox "dev@elsewhere"`},
-		{[]string{"-provider", "daytona", "start", "nope"}, "Sandbox not found"},
+		{[]string{"-provider", "daytona", "start", "nope"}, "no such sandbox"},
 		// Every command names the provider, and a sandbox under another's
 		// is refused (a machine under another's: TestA4SandboxShell).
 		{[]string{"start", "gpu"}, "which provider? give -provider NAME"},
@@ -575,9 +575,23 @@ func TestA4SandboxURL(t *testing.T) {
 }
 
 // conch sandbox usage prints what a sandbox has cost, period by period.
+// Daytona's published file says nothing of usage — its figures are on
+// another host, which a file's key never goes to — so this one is told
+// where the fake keeps them.
 func TestA4SandboxUsage(t *testing.T) {
 	a4Env(t)
 	d := newA4Daytona(t)
+	appendProviderFile(t, "daytona", `
+[usage]
+call = "GET /organization/org-1/sandbox/{id}/usage?from={from}&to={to}"
+items = "[*]"
+from = "startAt"
+to = "endAt"
+cpu = "cpu"
+memory_gib = "ramGB"
+disk_gib = "diskGB"
+cost = "price"
+`)
 	d.set("sb-live", "started")
 	if _, err := remote.SaveMachine(remote.Machine{Label: "live", Target: "daytona:sb-live"}); err != nil {
 		t.Fatal(err)
@@ -634,7 +648,7 @@ func newA4Boat(t *testing.T) *a4Boat {
 	srv := httptest.NewServer(b)
 	t.Cleanup(srv.Close)
 	t.Setenv("BOAT_API_KEY", "boat_test")
-	t.Setenv("BOAT_API_URL", srv.URL)
+	installProviderFile(t, "boat", srv.URL)
 	// A key of conch's own, so nothing has to make one.
 	ssh := filepath.Join(os.Getenv("HOME"), ".ssh")
 	os.MkdirAll(ssh, 0o700)
@@ -748,7 +762,7 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 	// The next command starts clean: without the flag there is no provider
 	// to make one with, and boat is asked nothing.
 	before := b.called()
-	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (daytona, boat, devin, tensorlake)") {
+	if err := runSandbox([]string{"create"}); err == nil || !strings.Contains(err.Error(), "which provider? give -provider NAME (installed: boat)") {
 		t.Fatalf("without the flag: %v", err)
 	}
 	if b.called() != before {
@@ -783,7 +797,7 @@ func TestA4SandboxProviderFlag(t *testing.T) {
 
 	// A provider conch doesn't know, and a flag with nothing after it.
 	for _, c := range []struct{ args, want []string }{
-		{[]string{"-provider", "fly", "ls"}, []string{`unknown sandbox provider "fly"`, "daytona, boat"}},
+		{[]string{"-provider", "fly", "ls"}, []string{`unknown sandbox provider "fly"`, "installed: boat"}},
 		{[]string{"-provider"}, []string{"-provider needs a name"}},
 		{[]string{"--provider=nope", "ls"}, []string{`unknown sandbox provider "nope"`}},
 	} {
@@ -1024,15 +1038,15 @@ func TestA4SandboxStats(t *testing.T) {
 	// the machine as unknown, and the command fails.
 	remote.SaveMachine(remote.Machine{Label: "hull", Target: "boat:bx_1"})
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "1 provider of 4 couldn't be asked") ||
+	if err == nil || !strings.Contains(err.Error(), "1 provider of 2 couldn't be asked") ||
 		!strings.Contains(flat(out), "boat.dev hull hull bx_1 ? -") || !strings.Contains(out, "boat.dev: couldn't ask it:") ||
 		!strings.Contains(out, "Daytona: 3 sandboxes") {
 		t.Fatalf("unknown: %q %v", out, err)
 	}
 	// A provider that is down fails the command too, the other still shown.
-	t.Setenv("DAYTONA_API_URL", "http://127.0.0.1:1")
+	installProviderFile(t, "daytona", "http://127.0.0.1:1")
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"stats"}) })
-	if err == nil || !strings.Contains(err.Error(), "2 providers of 4") || !strings.Contains(out, "Daytona: couldn't ask it:") {
+	if err == nil || !strings.Contains(err.Error(), "2 providers of 2") || !strings.Contains(out, "Daytona: couldn't ask it:") {
 		t.Fatalf("down: %q %v", out, err)
 	}
 }
@@ -1099,61 +1113,21 @@ func TestA4SandboxCreateSaysWhyItCouldNotConnect(t *testing.T) {
 	}
 }
 
-// Devin Cloud is a provider like the others on the command line: it needs
-// its own key, refuses a size before asking Devin for anything, and lists
-// only the sessions conch made.
-func TestA4SandboxDevin(t *testing.T) {
+// Devin Cloud is no longer a sandbox provider: asking for it says so and
+// what to do about a sandbox that is still there, rather than "unknown".
+func TestA4SandboxDevinDropped(t *testing.T) {
 	a4Env(t)
 	var err error
 	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "devin", "ls"}) })
-	if err == nil || !strings.Contains(err.Error(), "$DEVIN_API_KEY") {
-		t.Fatalf("no key: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "Devin Cloud is no longer a sandbox provider") || !strings.Contains(err.Error(), "remove the machine") {
+		t.Fatalf("devin: %v", err)
 	}
-
-	var mu sync.Mutex
-	var calls []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		calls = append(calls, r.Method+" "+r.URL.Path)
-		mu.Unlock()
-		if r.Header.Get("Authorization") != "Bearer cog_test" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		fmt.Fprint(w, `{"items":[{"session_id":"devin-0123456789abcdef","title":"web","status":"running","tags":["conch"]},`+
-			`{"session_id":"devin-theirs","status":"running","tags":[]}],"has_next_page":false}`)
-	}))
-	defer srv.Close()
-	t.Setenv("DEVIN_API_KEY", "cog_test")
-	t.Setenv("DEVIN_API_URL", srv.URL)
-	t.Setenv("DEVIN_ORG_ID", "org-test")
-
-	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "devin", "create", "-cpu", "2"}) })
-	if err == nil || !strings.Contains(err.Error(), "Devin chooses") {
-		t.Fatalf("a size: %v", err)
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "nosuch", "ls"}) })
+	if err == nil || !strings.Contains(err.Error(), "none is installed") {
+		t.Fatalf("an unknown one with none installed: %v", err)
 	}
-	mu.Lock()
-	if len(calls) != 0 {
-		t.Fatalf("Devin was asked: %v", calls)
-	}
-	mu.Unlock()
-	if ms, _ := remote.Machines(); len(ms) != 0 {
-		t.Fatalf("saved %+v", ms)
-	}
-
-	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "devin", "ls"}) })
-	if err != nil || !strings.Contains(out, "devin-0123456789abcdef") || strings.Contains(out, "devin-theirs") {
-		t.Fatalf("ls: %q %v", out, err)
-	}
-	mu.Lock()
-	if len(calls) != 1 || calls[0] != "GET /v3/organizations/org-test/sessions" {
-		t.Fatalf("calls %v", calls)
-	}
-	mu.Unlock()
 }
 
-// A task in a sandbox of its own: made, the project cloned from origin,
-// the agent started there — and refusals before anything costs money.
 func TestA4TaskInASandbox(t *testing.T) {
 	a4Env(t)
 	d := newA4Daytona(t)
@@ -1347,16 +1321,22 @@ func TestA4SandboxRemoveByProviderID(t *testing.T) {
 	}
 }
 
-// conch sandbox providers says which providers have their key here — for a
-// window offering New sandbox… — and what each takes where a snapshot goes.
+// conch sandbox providers says which providers are installed and have
+// their key here — for a window offering New sandbox… — and what each
+// takes where a snapshot goes. conch has none of its own: nothing is
+// installed, nothing is offered.
 func TestSandboxProviders(t *testing.T) {
 	a4Env(t)
-	for _, k := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY"} {
-		t.Setenv(k, "")
-	}
-	t.Setenv("DAYTONA_API_KEY", "k-test")
 	var err error
 	out, _ := a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-json"}) })
+	if err != nil || strings.TrimSpace(out) != "[]" {
+		t.Fatalf("none installed: %q %v", out, err)
+	}
+	installProviderFile(t, "daytona", "https://app.daytona.io/api")
+	installProviderFile(t, "boat", "https://boat.dev/api/v1")
+	installProviderFile(t, "tensorlake", "https://api.tensorlake.ai")
+	t.Setenv("DAYTONA_API_KEY", "k-test")
+	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"providers", "-json"}) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1368,24 +1348,19 @@ func TestSandboxProviders(t *testing.T) {
 	for _, p := range ps {
 		by[p.Name] = p
 	}
-	// Tensorlake is known but not offered: a sandbox made there could not
-	// be set up without a key registered by hand (sandbox.Offered).
-	if len(ps) != 3 || by["daytona"].Name == "" || by["boat"].Name == "" || by["devin"].Name == "" || by["tensorlake"].Name != "" {
+	if len(ps) != 3 || by["devin"].Name != "" {
 		t.Fatalf("providers: %+v", ps)
 	}
-	if d := by["daytona"]; !d.Ready || d.Why != "" || d.Label != "Daytona" {
-		t.Errorf("daytona with its key: %+v", d)
+	if d := by["daytona"]; !d.Ready || d.Why != "" || d.Label != "Daytona" || d.File == "" || !d.Adapted {
+		t.Errorf("daytona with its key, a file of one's own: %+v", d)
 	}
-	if b := by["boat"]; b.Ready || !strings.Contains(b.Why, "BOAT_API_KEY") || len(b.Sizes) == 0 {
+	if b := by["boat"]; b.Ready || !strings.Contains(b.Why, "BOAT_API_KEY") || len(b.Sizes) != 3 || b.Label != "boat.dev" {
 		t.Errorf("boat without its key: %+v", b)
 	}
-	if d := by["devin"]; d.Ready || d.Place == "" || d.Note == "" {
-		t.Errorf("devin: %+v", d)
-	}
-	// Still known: its sandboxes are listed and deleted, and its note says
-	// how to register a key, in the words today's tl takes.
-	if !sandbox.Known("tensorlake") || !strings.Contains(sandbox.NewTensorlake(config.ProviderCfg{}).Note(), "tl sbx ssh keys add --name ") {
-		t.Error("tensorlake is no longer known, or its note lacks --name")
+	// Tensorlake is offered now, its note saying how to register a key in
+	// the words today's tl takes.
+	if tl := by["tensorlake"]; !strings.Contains(tl.Note, "tl sbx ssh keys add") {
+		t.Errorf("tensorlake's note: %+v", tl)
 	}
 	// No -provider needed, and the table says the same.
 	out, _ = a4Capture(t, "", func() { err = runSandbox([]string{"providers"}) })
@@ -1403,9 +1378,15 @@ func TestSandboxProviders(t *testing.T) {
 // "never answered: Permission denied (publickey)" with advice about ssh
 // prompts — which is all a Tensorlake sandbox said, left running.
 func TestRefusedKeyIsSaidPlainly(t *testing.T) {
+	a4Env(t)
+	installProviderFile(t, "tensorlake", "https://api.tensorlake.ai")
+	installProviderFile(t, "daytona", "https://app.daytona.io/api")
 	denied := errors.New("sandbox-53t13lfs never answered: 53t13lfs@sandbox.tensorlake.ai: Permission denied (publickey). (run `conch machine add` in a terminal once to answer ssh prompts, or load your key with ssh-add)")
-	tl := sandbox.NewTensorlake(config.ProviderCfg{})
-	err := refusedKey(tl, denied)
+	tl, err := sandbox.Open("tensorlake", config.SandboxCfg{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = refusedKey(tl, denied)
 	for _, want := range []string{"Tensorlake refused your ssh key", "tl login", "env -u TENSORLAKE_API_KEY tl sbx ssh keys add"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("no %q in %q", want, err)
@@ -1416,9 +1397,10 @@ func TestRefusedKeyIsSaidPlainly(t *testing.T) {
 	if got := refusedKey(tl, other); got != other {
 		t.Fatalf("another failure was reworded: %v", got)
 	}
-	// And a provider that hands its own key over is not one to register a
-	// key with: ssh's words stand.
-	if got := refusedKey(sandbox.NewDaytona(config.ProviderCfg{}), denied); got != denied {
+	// And a provider that hands out its own credential is not one to
+	// register a key with: ssh's words stand.
+	d, _ := sandbox.Open("daytona", config.SandboxCfg{})
+	if got := refusedKey(d, denied); got != denied {
 		t.Fatalf("a provider that authorizes its key was told to register one: %v", got)
 	}
 }
@@ -1493,5 +1475,83 @@ func TestDeletedSandboxesRecord(t *testing.T) {
 	noteDeletedSandbox("daytona", "d", now) // writing over a damaged one
 	if got := deletedSandboxes("daytona", now); !got["d"] {
 		t.Fatalf("after damage: %v", got)
+	}
+}
+
+// conch sandbox -provider P settings says what the provider's file lets be
+// chosen, each setting's choices read live where the file says to (a
+// failure said beside the setting, not instead of the rest), the sizes,
+// and what config.toml chose — for Settings and the New Sandbox sheet.
+func TestSandboxSettings(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	_ = d
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"),
+		[]byte("[sandbox.daytona]\ntarget = \"eu\"\nsnapshot = \"conch-dev\"\ncpu = 2\n"), 0o600)
+	out, _, err := a4Out(t, func() error { return runSandbox([]string{"-provider", "daytona", "settings", "-json"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got sandboxSettingsJSON
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("%q: %v", out, err)
+	}
+	if got.Name != "daytona" || got.Label != "Daytona" || !got.Ready || got.KeyEnv != "DAYTONA_API_KEY" {
+		t.Fatalf("head: %+v", got)
+	}
+	if len(got.Settings) != 2 || got.Settings[0].Key != "region" || len(got.Settings[0].Choices) != 2 || got.Settings[1].Key != "image" || !got.Settings[1].Free {
+		t.Fatalf("settings: %+v", got.Settings)
+	}
+	// The image's choices come from the API; this fake has no snapshot
+	// list, which is said beside it.
+	if got.Settings[1].Error == "" && len(got.Settings[1].Choices) == 0 {
+		t.Fatalf("image choices: %+v", got.Settings[1])
+	}
+	if got.Size.CPU[1] != 4 || len(got.Size.Names) != 0 {
+		t.Fatalf("size: %+v", got.Size)
+	}
+	if got.Chosen.Region != "eu" || got.Chosen.Image != "conch-dev" || got.Chosen.CPU != 2 {
+		t.Fatalf("chosen from the older keys: %+v", got.Chosen)
+	}
+	// A table for people, too.
+	out, _, err = a4Out(t, func() error { return runSandbox([]string{"-provider", "daytona", "settings"}) })
+	if err != nil || !strings.Contains(out, "Region") || !strings.Contains(out, "us, eu") || !strings.Contains(out, "eu (chosen)") {
+		t.Fatalf("table: %q %v", out, err)
+	}
+	if _, _, err := a4Out(t, func() error { return runSandbox([]string{"-provider", "daytona", "settings", "extra"}) }); err == nil {
+		t.Fatal("extra arguments were taken")
+	}
+}
+
+// A sandbox's region, image and size can be chosen for it alone, over what
+// config.toml chose for the provider; one the file does not offer is
+// refused before anything is made.
+func TestA4SandboxCreateChoosesRegionImageSize(t *testing.T) {
+	a4Env(t)
+	d := newA4Daytona(t)
+	a4SandboxMachine(t)
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"), []byte("[sandbox.daytona]\nregion = \"us\"\nimage = \"base\"\n"), 0o600)
+	var err error
+	_, errOut := a4Capture(t, "", func() {
+		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "eu-box", "-region", "eu", "-image", "conch-dev", "-cpu", "2", "-yes"})
+	})
+	if err != nil {
+		t.Fatalf("create: %v\n%s", err, errOut)
+	}
+	if body := d.created[0]; body["target"] != "eu" || body["snapshot"] != "conch-dev" || body["cpu"] != 2.0 {
+		t.Fatalf("create body %v", body)
+	}
+	before := len(d.created)
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-region", "mars"}) })
+	if err == nil || !strings.Contains(err.Error(), "us, eu") || len(d.created) != before {
+		t.Fatalf("a region Daytona has not: %v (%d made)", err, len(d.created)-before)
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-size", "large"}) })
+	if err == nil || !strings.Contains(err.Error(), "no named sizes") || len(d.created) != before {
+		t.Fatalf("a named size on Daytona: %v", err)
+	}
+	a4Capture(t, "", func() { err = runSandbox([]string{"-provider", "daytona", "create", "-image", "a", "-snapshot", "b"}) })
+	if err == nil || !strings.Contains(err.Error(), "-image or -snapshot") {
+		t.Fatalf("both: %v", err)
 	}
 }

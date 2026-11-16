@@ -51,8 +51,11 @@ func takeProvider(args []string) ([]string, error) {
 			out = append(out, args[i])
 			continue
 		}
+		if why, gone := sandbox.Dropped(name); gone {
+			return nil, errors.New(why)
+		}
 		if !sandbox.Known(name) {
-			return nil, fmt.Errorf("unknown sandbox provider %q; conch knows %s", name, strings.Join(sandbox.Names(), ", "))
+			return nil, fmt.Errorf("unknown sandbox provider %q; %s", name, installedWords())
 		}
 		sandboxProvider = name
 	}
@@ -107,6 +110,8 @@ func runSandbox(args []string) error {
 		return sandboxSnapshots(args[1:])
 	case "usage", "cost":
 		return sandboxUsage(args[1:])
+	case "settings":
+		return sandboxSettings(args[1:])
 	case "ssh", "shell", "exec":
 		return sandboxShell(args[1:])
 	}
@@ -122,7 +127,15 @@ func (n *names) Set(v string) error { *n = append(*n, v); return nil }
 // errNoProvider asks for the provider every command but stats needs.
 func errNoProvider() error {
 	return fmt.Errorf("which provider? give -provider NAME (%s), e.g. conch sandbox -provider daytona ls; conch sandbox stats shows them all",
-		strings.Join(sandbox.Names(), ", "))
+		installedWords())
+}
+
+// installedWords names the providers installed here, or says how to get one.
+func installedWords() string {
+	if names := sandbox.Names(); len(names) > 0 {
+		return "installed: " + strings.Join(names, ", ")
+	}
+	return "none is installed: conch sandbox provider search lists the registry's"
 }
 
 // sandboxCmd is a conch sandbox command line to suggest, with the provider
@@ -151,7 +164,10 @@ func openSandboxes() (sandbox.Provider, error) {
 func sandboxCreate(args []string) error {
 	fs := flag.NewFlagSet("sandbox create", flag.ContinueOnError)
 	label := fs.String("label", "", "name shown in the sidebar (default: sandbox-ID)")
-	snapshot := fs.String("snapshot", "", "snapshot to start from (default: [sandbox.daytona] snapshot, or Daytona's)")
+	snapshot := fs.String("snapshot", "", "snapshot or image to start from (default: config.toml's image, or the provider's)")
+	image := fs.String("image", "", "the same as -snapshot")
+	region := fs.String("region", "", "where it runs, one the provider's file offers (default: config.toml's region)")
+	size := fs.String("size", "", "a named size, for a provider whose machines come in them")
 	cpu := fs.Int("cpu", 0, "vCPUs (default: the snapshot's)")
 	memory := fs.Int("memory", 0, "memory in GiB")
 	disk := fs.Int("disk", 0, "disk in GiB")
@@ -169,7 +185,11 @@ func sandboxCreate(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 	defer cancel()
-	saved, sb, c, err := makeSandbox(ctx, *label, sandbox.Spec{Snapshot: *snapshot, CPU: *cpu, Memory: *memory, Disk: *disk}, env, *yes)
+	if *image != "" && *snapshot != "" && *image != *snapshot {
+		return errors.New("give -image or -snapshot, not both: they are the same")
+	}
+	saved, sb, c, err := makeSandbox(ctx, *label, sandbox.Spec{Snapshot: firstSetStr(*image, *snapshot), Region: *region, Size: *size,
+		CPU: *cpu, Memory: *memory, Disk: *disk}, env, *yes)
 	if err != nil {
 		return err
 	}
@@ -1035,7 +1055,6 @@ type providerJSON struct {
 	Sizes []string `json:"sizes,omitempty"`
 	// Place is what its snapshot field takes instead, for one that places
 	// its machines rather than sizing them.
-	Place string `json:"place,omitempty"`
 	// Note is what it says before a sandbox is made: a cost or a limit.
 	Note string `json:"note,omitempty"`
 	// Adapted is a provider described by a file of the person's rather
@@ -1053,11 +1072,12 @@ func sandboxProviders(args []string) error {
 		return errors.New("usage: conch sandbox providers [-json]")
 	}
 	out := []providerJSON{}
+	installed, _ := sandbox.ReadInstalled()
 	for _, name := range sandbox.Offered() {
-		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name)}
-		if !sandbox.Builtin(name) {
-			j.Adapted, j.File = true, sandbox.ProviderFilePath(name)
-		}
+		// Adapted is a file of the person's own rather than one installed
+		// from the registry: conch has no provider of its own.
+		_, fromRegistry := installed[name]
+		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name), Adapted: !fromRegistry, File: sandbox.ProviderFilePath(name)}
 		p, err := remote.OpenProvider(name)
 		if err == nil {
 			err = p.Check()
@@ -1070,9 +1090,6 @@ func sandboxProviders(args []string) error {
 		if p != nil {
 			if ns, ok := sandbox.As[sandbox.NamedSizes](p); ok {
 				j.Sizes = ns.SizeNames()
-			}
-			if pl, ok := p.(sandbox.Placed); ok {
-				j.Place = pl.PlaceHint()
 			}
 			if n, ok := p.(sandbox.Noted); ok {
 				j.Note = n.Note()

@@ -509,7 +509,7 @@ func TestIntegrationBuiltInKeyAndInfo(t *testing.T) {
 
 // Sandbox providers are integrations too: listed by ls with their key's
 // state, by search from the registry, and installed by install through
-// the sandbox installer; one conch has is set up, whatever is listed.
+// the sandbox installer; one installed here is set up, whatever is listed.
 func TestIntegrationSandboxProviders(t *testing.T) {
 	integrationEnv(t)
 	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY", "DEVIN_ORG_ID", "TENSORLAKE_API_KEY", "HCLOUD_TOKEN"} {
@@ -522,6 +522,8 @@ func TestIntegrationSandboxProviders(t *testing.T) {
 	reg.mu.Lock()
 	reg.files["index.json"] = ix
 	reg.mu.Unlock()
+	installProviderFile(t, "daytona", "https://app.daytona.io/api")
+	installProviderFile(t, "boat", "https://boat.dev/api/v1")
 
 	out, _, err := a4Out(t, func() error { return runIntegration([]string{"ls", "-json"}) })
 	var got struct {
@@ -543,7 +545,7 @@ func TestIntegrationSandboxProviders(t *testing.T) {
 	if boat == nil || boat.Label != "boat.dev" || daytona == nil || daytona.Label != "Daytona" {
 		t.Fatalf("sandbox labels in ls: %+v %+v", boat, daytona)
 	}
-	if daytona == nil || daytona.Kind != "sandbox" || daytona.Source != "built in" || !strings.Contains(daytona.State, "DAYTONA_API_KEY") {
+	if daytona == nil || daytona.Kind != "sandbox" || daytona.Source != "a file of your own" || !strings.Contains(daytona.State, "DAYTONA_API_KEY") {
 		t.Fatalf("daytona in ls: %+v", daytona)
 	}
 
@@ -554,13 +556,13 @@ func TestIntegrationSandboxProviders(t *testing.T) {
 
 	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "daytona"}) })
 	var info infoJSON
-	if err != nil || json.Unmarshal([]byte(out), &info) != nil || !info.Installed || info.Source != "built in" || !strings.Contains(info.KeyHelp, "Settings → Sandboxes") {
+	if err != nil || json.Unmarshal([]byte(out), &info) != nil || !info.Installed || info.Source != "installed" || !strings.Contains(info.KeyHelp, "Settings → Sandboxes") {
 		t.Fatalf("info daytona: %s %v", out, err)
 	}
 
-	// Installing one goes to the sandbox installer: a built-in is said to
-	// be built in, as conch sandbox provider install says it.
-	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"install", "-y", "daytona"}) }); err == nil || !strings.Contains(err.Error(), "built into conch") {
+	// Installing one goes to the sandbox installer, which says one is
+	// here already, as conch sandbox provider install says it.
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"install", "-y", "daytona"}) }); err == nil || !strings.Contains(err.Error(), "already a provider here") {
 		t.Fatalf("install daytona: %v", err)
 	}
 }

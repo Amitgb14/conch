@@ -350,7 +350,6 @@ func TestProviderPublish(t *testing.T) {
 		want  string
 	}{
 		{nil, []string{"publish"}, "usage"},
-		{nil, []string{"publish", "daytona"}, "built into conch"},
 		{nil, []string{"publish", "acme"}, "save it first"},
 		{func() { os.WriteFile(sandbox.ProviderFilePath("acme"), []byte("name = \"acme\"\n"), 0o600) }, []string{"publish", "acme"}, "problems to fix first"},
 		{func() {

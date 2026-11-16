@@ -134,6 +134,10 @@ type GetCall struct {
 	// MemoryGiB and DiskGiB (format 4) are for an API that says GiB.
 	MemoryGiB string `toml:"memory_gib"`
 	DiskGiB   string `toml:"disk_gib"`
+	// Desired (format 4) is where the provider is taking the sandbox, read
+	// through [states]: Daytona's says "destroyed" for one deleted a moment
+	// ago that still reports itself started.
+	Desired string `toml:"desired"`
 }
 
 // ListCall lists the account's sandboxes. Items is where the list is in
@@ -176,6 +180,12 @@ type SSHWay struct {
 	// WaitSecs (format 4) is how long to keep asking Access while it gives
 	// no host: a sandbox may answer started a moment before it has one.
 	WaitSecs int `toml:"wait_secs"`
+	// Command (format 4) is an ssh command line in Access's reply, "ssh -p
+	// PORT USER@HOST": its host and port win when it reads, which is how a
+	// self-hosted Daytona's gateway is found.
+	Command string `toml:"command"`
+	// Expires (format 4) is when Access's credential stops working.
+	Expires string `toml:"expires"`
 }
 
 // SSHPort is ssh's port: a number, or (format 3) "{reply.PATH}", read
@@ -672,7 +682,7 @@ func (c *Custom) Note() string {
 	if c.f.AdaptedBy != "" {
 		n += " by " + c.f.AdaptedBy
 	}
-	n += ", not built into conch."
+	n += "."
 	if c.f.SSH.Key == "account" {
 		n += " It lets in the ssh keys registered with your account there: register yours once."
 	}
@@ -892,7 +902,7 @@ func (c *Custom) request(ctx context.Context, method, path string, body any, hea
 		return nil, ErrNotFound
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		msg := tensorlakeMessage(data)
+		msg := replyMessage(data)
 		e := fmt.Sprintf("%s: %s %s answered %d", c.f.Name, method, path, resp.StatusCode)
 		if msg != "" {
 			e += " " + msg
@@ -969,8 +979,16 @@ func (c *Custom) sandbox(v any, id string) Sandbox {
 	if !ok {
 		state = State(raw)
 	}
+	if c.f.Get.Desired != "" && customStates[c.f.States[pickStr(v, c.f.Get.Desired)]].Going() {
+		state = StateDestroyed
+	}
+	reason := pickStr(v, c.f.Get.Reason)
+	// An error by another name (build_failed) keeps the provider's word.
+	if state == StateError && raw != string(StateError) {
+		reason = firstSet(reason, raw)
+	}
 	return Sandbox{
-		ID: id, Name: firstSet(pickStr(v, c.f.Get.Name), id), State: state, Reason: pickStr(v, c.f.Get.Reason),
+		ID: id, Name: firstSet(pickStr(v, c.f.Get.Name), id), State: state, Reason: reason,
 		CPU: int(pickNum(v, c.f.Get.CPU)), Memory: int(pickNum(v, c.f.Get.MemoryMB)/1024 + pickNum(v, c.f.Get.MemoryGiB)),
 		Disk: int(pickNum(v, c.f.Get.DiskMB)/1024 + pickNum(v, c.f.Get.DiskGiB)), Created: pickTime(v, c.f.Get.Created),
 	}
@@ -981,7 +999,7 @@ func (c *Custom) sandbox(v any, id string) Sandbox {
 func (c *Custom) nameFor(label string) string {
 	b := make([]byte, 3)
 	_, _ = rand.Read(b)
-	slug := strings.Trim(tensorlakeNameChars.ReplaceAllString(strings.ToLower(label), "-"), "-")
+	slug := strings.Trim(nameChars.ReplaceAllString(strings.ToLower(label), "-"), "-")
 	if len(slug) > 32 {
 		slug = strings.Trim(slug[:32], "-")
 	}
@@ -1068,7 +1086,13 @@ func (c *Custom) Get(ctx context.Context, id string) (Sandbox, error) {
 	if out == nil {
 		return Sandbox{}, ErrNotFound
 	}
-	return c.sandbox(out, id), nil
+	s := c.sandbox(out, id)
+	if s.State.Going() {
+		// On its way out, and not coming back: said as what callers can
+		// act on, rather than a state they would wait on for ever.
+		return Sandbox{}, ErrNotFound
+	}
+	return s, nil
 }
 
 func (c *Custom) List(ctx context.Context) ([]Sandbox, error) {
@@ -1092,7 +1116,7 @@ func (c *Custom) List(ctx context.Context) ([]Sandbox, error) {
 		}
 		items, _ := Pick(out, c.f.List.Items).([]any)
 		for _, it := range items {
-			if s := c.sandbox(it, pickStr(it, c.f.List.ID)); s.ID != "" && c.mine(it) {
+			if s := c.sandbox(it, pickStr(it, c.f.List.ID)); s.ID != "" && c.mine(it) && !s.State.Going() {
 				list = append(list, s)
 			}
 		}
@@ -1232,6 +1256,14 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 		}
 	}
 	a := Access{User: fill(c.f.SSH.User), Host: fill(c.f.SSH.Host), Port: c.f.SSH.Port.N, PlainUser: c.f.SSH.Key != "none"}
+	if c.f.SSH.Command != "" {
+		if host, port, ok := parseSSHCommand(fill(c.f.SSH.Command), a.User); ok {
+			a.Host, a.Port = host, port
+		}
+	}
+	if c.f.SSH.Expires != "" {
+		a.Expires, _ = time.Parse(time.RFC3339, fill(c.f.SSH.Expires))
+	}
 	if ep := strings.TrimSpace(fill(c.f.SSH.Endpoint)); c.f.SSH.Endpoint != "" && ep != "" {
 		host, port, err := endpoint(ep)
 		if err != nil {
@@ -1352,11 +1384,10 @@ func openCustom(name string, cfg config.SandboxCfg) (Provider, error) {
 	return NewCustom(f, cfg.Of(name)), nil
 }
 
-// IsCustom says whether name is a provider described by a file.
+// IsCustom says whether name is a provider described by a file: every
+// provider is, now that conch has none of its own, so it is whether one
+// loads.
 func IsCustom(name string) bool {
-	if slicesContains(builtin, name) {
-		return false
-	}
 	good, _ := CustomProviders()
 	return slicesContains(good, name)
 }

@@ -312,7 +312,7 @@ func TestIndexFormats(t *testing.T) {
 func TestRegistries(t *testing.T) {
 	t.Setenv("CONCH_PROVIDERS_URL", "")
 	rs := Registries(config.IntegrationsCfg{Registries: []config.RegistryCfg{{Name: "acme", URL: "https://acme.dev/reg/", Key: "k"}, {Name: "empty"}}})
-	if len(rs) != 2 || rs[0].URL != registryURL || rs[1].URL != "https://acme.dev/reg" || rs[1].Key != "k" {
+	if len(rs) != 2 || rs[0].URL != OwnURL() || rs[1].URL != "https://acme.dev/reg" || rs[1].Key != "k" {
 		t.Fatalf("registries %+v", rs)
 	}
 	t.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1/")
@@ -360,5 +360,13 @@ func TestBuiltInEntries(t *testing.T) {
 	}
 	if _, _, err := FetchFile(context.Background(), Registry{Name: "r", URL: "http://127.0.0.1:1"}, jira); err == nil || !strings.Contains(err.Error(), "built into conch") {
 		t.Fatalf("fetching a built-in: %v", err)
+	}
+}
+
+// A test never reaches the real registry, even one that sets no address.
+func TestRegistryIsNeverRealInATest(t *testing.T) {
+	t.Setenv("CONCH_PROVIDERS_URL", "")
+	if got := Registries(config.IntegrationsCfg{})[0].URL; strings.Contains(got, "github.io") {
+		t.Fatalf("a test reads %s", got)
 	}
 }

@@ -334,9 +334,6 @@ func sandboxAdapt(args []string) error {
 	if err := sandbox.CheckName(n); err != nil {
 		return fail(err)
 	}
-	if sandbox.Builtin(n) {
-		return fail(fmt.Errorf("conch has %s built in: set its key in Settings → Sandboxes, or run conch sandbox -provider %s create", sandbox.ProviderLabel(n), n))
-	}
 	if _, err := os.Stat(sandbox.ProviderFilePath(n)); err == nil {
 		return fail(fmt.Errorf("%s is already a provider (%s): remove it first with conch sandbox provider rm %s", n, sandbox.ProviderFilePath(n), n))
 	}
@@ -397,8 +394,8 @@ func sandboxAdapt(args []string) error {
 }
 
 // keylessEnv empties, in the agent's pane, the variables API keys are
-// usually in: the built-in providers', and the one this provider's would
-// likely be called. The agent works from the docs; it has no use for one.
+// usually in: the well-known providers' (Devin Cloud's too, still set in
+// some environments), and the one this provider's would likely be called. The agent works from the docs; it has no use for one.
 func keylessEnv(name string) []string {
 	env := []string{"DAYTONA_API_KEY=", "BOAT_API_KEY=", "DEVIN_API_KEY=", "TENSORLAKE_API_KEY=", "E2B_API_KEY="}
 	v := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
@@ -690,9 +687,6 @@ func providerSave(name string) error {
 	if err := sandbox.CheckName(name); err != nil {
 		return err
 	}
-	if sandbox.Builtin(name) {
-		return fmt.Errorf("%s is built into conch", name)
-	}
 	draft := filepath.Join(draftDir(name), "provider.toml")
 	f, problems, err := sandbox.ReadProviderFile(draft)
 	if errors.Is(err, os.ErrNotExist) {
@@ -721,9 +715,6 @@ func providerSave(name string) error {
 func providerRemove(name string) error {
 	if err := sandbox.CheckName(name); err != nil {
 		return err
-	}
-	if sandbox.Builtin(name) {
-		return fmt.Errorf("%s is built into conch and cannot be removed", name)
 	}
 	path := sandbox.ProviderFilePath(name)
 	if _, err := os.Stat(path); err != nil {

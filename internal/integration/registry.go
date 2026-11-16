@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -52,7 +53,7 @@ type Registry struct {
 
 // Registries are conch's own, then those config.toml adds.
 func Registries(cfg config.IntegrationsCfg) []Registry {
-	own := Registry{Name: "conch-integrations", URL: registryURL, Key: RegistryKey}
+	own := Registry{Name: "conch-integrations", URL: OwnURL(), Key: RegistryKey}
 	if u := os.Getenv("CONCH_PROVIDERS_URL"); u != "" {
 		own.URL, own.Key = strings.TrimRight(u, "/"), os.Getenv("CONCH_PROVIDERS_KEY")
 	}
@@ -63,6 +64,18 @@ func Registries(cfg config.IntegrationsCfg) []Registry {
 		}
 	}
 	return out
+}
+
+// OwnURL is conch-integrations' address — in a test binary, an address
+// nothing answers, unless the test gave one ($CONCH_PROVIDERS_URL): opening
+// a sandbox provider conch once had installs its file from the registry,
+// so a test in any package that opens one would otherwise reach the real
+// registry over the network.
+func OwnURL() string {
+	if testing.Testing() {
+		return "http://127.0.0.1:1/no-registry-in-tests"
+	}
+	return registryURL
 }
 
 // Entry is one file in an index.

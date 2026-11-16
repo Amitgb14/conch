@@ -47,11 +47,11 @@ var settingKeys = []string{"region", "image"}
 // SizeSpec is how big a sandbox can be: named sizes, or limits on vCPUs,
 // memory and disk (each [min, max]).
 type SizeSpec struct {
-	Names     []string `toml:"names"`
-	Default   string   `toml:"default"`
-	CPU       []int    `toml:"cpu"`
-	MemoryGiB []int    `toml:"memory_gib"`
-	DiskGiB   []int    `toml:"disk_gib"`
+	Names     []string `toml:"names" json:"names,omitempty"`
+	Default   string   `toml:"default" json:"default,omitempty"`
+	CPU       []int    `toml:"cpu" json:"cpu,omitempty"`
+	MemoryGiB []int    `toml:"memory_gib" json:"memory_gib,omitempty"`
+	DiskGiB   []int    `toml:"disk_gib" json:"disk_gib,omitempty"`
 }
 
 func (s SizeSpec) limits() bool { return len(s.CPU)+len(s.MemoryGiB)+len(s.DiskGiB) > 0 }
@@ -127,10 +127,12 @@ func (f *ProviderFile) needs4() string {
 		return "[ssh] endpoint"
 	case f.SSH.WaitSecs != 0:
 		return "[ssh] wait_secs"
+	case f.SSH.Command != "" || f.SSH.Expires != "":
+		return "[ssh] command or expires"
 	case f.List.AllMine:
 		return "[list] all_mine"
-	case f.Get.MemoryGiB != "" || f.Get.DiskGiB != "":
-		return "[get] memory_gib or disk_gib"
+	case f.Get.MemoryGiB != "" || f.Get.DiskGiB != "" || f.Get.Desired != "":
+		return "[get] memory_gib, disk_gib or desired"
 	}
 	return ""
 }
@@ -241,8 +243,8 @@ func (f *ProviderFile) problems4() []string {
 	if f.SSH.WaitSecs < 0 || f.SSH.WaitSecs > 600 {
 		add("[ssh] wait_secs %d: 0 to 600", f.SSH.WaitSecs)
 	}
-	if (f.SSH.Endpoint != "" || f.SSH.WaitSecs > 0) && f.SSH.Access.Call == "" {
-		add("[ssh] endpoint and wait_secs read [ssh.access]'s reply, and there is none")
+	if (f.SSH.Endpoint != "" || f.SSH.WaitSecs > 0 || f.SSH.Command != "" || f.SSH.Expires != "") && f.SSH.Access.Call == "" {
+		add("[ssh] endpoint, wait_secs, command and expires read [ssh.access]'s reply, and there is none")
 	}
 	return p
 }
@@ -540,6 +542,32 @@ func itemTemplate(item any, path string) string {
 
 // waitUnit is what [ssh] wait_secs counts in; tests shorten it.
 var waitUnit = time.Second
+
+// parseSSHCommand reads the host and port from a command like
+// "ssh -p 2222 USER@host", for user.
+func parseSSHCommand(cmd, user string) (host string, port int, ok bool) {
+	f := strings.Fields(cmd)
+	if len(f) < 2 || f[0] != "ssh" || user == "" {
+		return "", 0, false
+	}
+	for i := 1; i < len(f); i++ {
+		switch {
+		case f[i] == "-p" && i+1 < len(f):
+			p, err := strconv.Atoi(f[i+1])
+			if err != nil || p <= 0 || p > 65535 {
+				return "", 0, false
+			}
+			port = p
+			i++
+		case strings.HasPrefix(f[i], user+"@"):
+			host = strings.TrimPrefix(f[i], user+"@")
+		}
+	}
+	if host == "" || strings.ContainsAny(host, "@/ ") {
+		return "", 0, false
+	}
+	return host, port, true
+}
 
 // endpoint splits an ssh endpoint, host:port.
 func endpoint(s string) (host string, port int, err error) {

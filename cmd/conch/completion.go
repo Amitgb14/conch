@@ -138,7 +138,7 @@ var compSubcommands = map[string][]compItem{
 		{"create", "make a sandbox"}, {"add", "make an existing sandbox a machine"}, {"ls", "list sandboxes"},
 		{"start", "start one"}, {"stop", "stop one"}, {"rm", "delete one"}, {"ssh", "a shell in one"},
 		{"url", "a link to a port in one"}, {"usage", "what one has used"},
-		{"snapshot", "save one as a snapshot"}, {"snapshots", "list snapshots"},
+		{"snapshot", "save one as a snapshot"}, {"snapshots", "list snapshots"}, {"settings", "what can be chosen for one"},
 	},
 	"web": {
 		{"pair", "pair a phone"}, {"devices", "paired phones"}, {"revoke", "unpair one"}, {"rename", "name one"},

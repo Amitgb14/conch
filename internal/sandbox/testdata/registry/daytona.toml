@@ -23,6 +23,7 @@ reason = "errorReason"
 cpu = "cpu"
 memory_gib = "memory"
 disk_gib = "disk"
+desired = "desiredState"
 created = "createdAt"
 
 [list]
@@ -65,6 +66,9 @@ destroyed = "gone"
 host = "ssh.app.daytona.io"
 user = "{reply.token}"
 key = "none"
+# A self-hosted Daytona's gateway, from the command ssh-access gives.
+command = "{reply.sshCommand}"
+expires = "{reply.expiresAt}"
 [ssh.access]
 call = "POST /sandbox/{id}/ssh-access"
 

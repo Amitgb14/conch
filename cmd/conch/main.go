@@ -226,9 +226,10 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider daytona|boat|devin create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
-                                make a sandbox (Daytona: $DAYTONA_API_KEY, boat.dev: $BOAT_API_KEY,
-                                Devin Cloud: $DEVIN_API_KEY and a signed-in devin CLI)
+  conch sandbox -provider P create [-label L] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+                                make a sandbox with an installed provider (each is a provider file:
+                                conch sandbox provider install daytona, boat, tensorlake, …; its key
+                                in its variable, e.g. $DAYTONA_API_KEY, or Settings → Sandboxes)
                                 and add it as a machine; it runs until stopped, so agents keep
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
@@ -296,6 +297,9 @@ Usage:
                                 what a sandbox has cost, period by period
   conch sandbox -provider P snapshot [-name N] ID | snapshots [-rm NAME]
                                 keep a sandbox to make others from, or list what is kept
+  conch sandbox -provider P settings [-json]
+                                what its provider file lets you choose — a region, a default image,
+                                a size — with the choices it offers, and what config.toml chose
   conch -m MACHINE COMMAND      run a command against a remote machine
   conch -m MACHINE upload [-to DIR [-p]] [-f] PATH...
                                 copy files or folders to a machine — into DIR there (~ is its

@@ -1071,9 +1071,14 @@ func idleStopText(min int) string {
 // conch learns another.
 func (s *settings) sandboxItems(m *Model) []settingItem {
 	if len(sandbox.Names()) == 0 {
+		// conch has no provider of its own: each is a file, installed.
 		return []settingItem{
 			{header: true, label: "Sandboxes", detail: "M → New sandbox… makes one and adds it as a machine"},
-			{label: "  this build knows no sandbox providers"},
+			{label: styleMuted.Render("  No sandbox provider is installed.")},
+			{label: "* Install a provider from the registry…", detail: "Daytona, boat.dev, Tensorlake and more",
+				run: func(m *Model) tea.Cmd { return installProvider(m) }},
+			{label: "+ Add a provider conch doesn't know…", detail: "from its API docs",
+				run: func(m *Model) tea.Cmd { d := newAdaptDialog(*m); m.overlay = d; return d.focusCmd() }},
 		}
 	}
 	if s.provider != "" && slices.Contains(sandbox.Names(), s.provider) {
@@ -1191,21 +1196,7 @@ func (s *settings) providerItems(m *Model, provider string) []settingItem {
 				}))
 		}
 	}
-	// Where a sandbox is made from: a snapshot in a region, or for a
-	// provider that places its machines, the place, which has no region.
-	where := []settingItem{
-		field("Snapshot", firstNonEmpty(cfg.Snapshot, styleMuted.Render(label+"'s default")),
-			"What new sandboxes start from. Empty means "+label+"'s default.",
-			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil }),
-		field("Region", firstNonEmpty(cfg.Target, styleMuted.Render("the account's default")),
-			"Where sandboxes are made, e.g. us or eu. Empty means the account's default.",
-			cfg.Target, func(c *config.ProviderCfg, v string) error { c.Target = v; return nil }),
-	}
-	if hint := sandboxPlaceHint(provider); hint != "" {
-		where = []settingItem{field("Platform", firstNonEmpty(cfg.Snapshot, styleMuted.Render("the organization's default")),
-			"Where new sessions run: "+hint+". Empty means the organization's default.",
-			cfg.Snapshot, func(c *config.ProviderCfg, v string) error { c.Snapshot = v; return nil })}
-	}
+	where := s.whereItems(m, provider, field, set)
 	items := []settingItem{
 		field("API key", keyDetail(cfg.APIKey, keyEnv),
 			"The key itself, kept in config.toml in your home — written 0600, but anything running as you can read it, and it travels with a backup or a synced dotfile. Empty leaves it to the variable below, which is what conch does otherwise.",
@@ -1350,7 +1341,178 @@ func parsePrice(s string) (float64, error) {
 // defaultKeyEnv is the variable a provider reads its key from when the
 // settings name none.
 func defaultKeyEnv(provider string) string {
+	if c := providerFile(provider); c != nil {
+		return c.File().KeyEnv
+	}
 	return strings.ToUpper(provider) + "_API_KEY"
+}
+
+// providerFile is the provider's file, or nil when it cannot be opened (or
+// a test stands in for it).
+func providerFile(provider string) *sandbox.Custom {
+	p, err := openSandboxProvider(provider)
+	if err != nil {
+		return nil
+	}
+	c, _ := p.(*sandbox.Custom)
+	return c
+}
+
+// whereItems are what a provider's file says can be chosen for its new
+// sandboxes: a region and an image ([[setting]]), and a size ([size]),
+// each only where the file declares it — a field the provider would
+// ignore is not offered. A provider that is not a file (a test's) is
+// offered the image and region every provider once was.
+func (s *settings) whereItems(m *Model, provider string,
+	field func(name, detail, help, current string, save func(c *config.ProviderCfg, v string) error) settingItem,
+	set func(change func(c *config.ProviderCfg)) func(m *Model) tea.Cmd) []settingItem {
+	cfg := m.cfg.Sandbox.Of(provider)
+	label := providerLabel(provider)
+	c := providerFile(provider)
+	var items []settingItem
+	setting := func(key string) (sandbox.Setting, bool) {
+		if c == nil {
+			return sandbox.Setting{Key: key, Free: true}, true
+		}
+		for _, st := range c.Settings() {
+			if st.Key == key {
+				return st, true
+			}
+		}
+		return sandbox.Setting{}, false
+	}
+	choices := func(st sandbox.Setting) string {
+		switch {
+		case len(st.Choices) > 0:
+			return " One of " + strings.Join(st.Choices, ", ") + "."
+		case st.ChoicesCall != "":
+			return " conch sandbox -provider " + provider + " settings lists " + label + "'s."
+		}
+		return ""
+	}
+	check := func(key, v string) error {
+		if c == nil {
+			return nil
+		}
+		return c.CheckSetting(key, v)
+	}
+	if st, ok := setting("region"); ok {
+		items = append(items, field(firstNonEmpty(st.Label, "Region"), firstNonEmpty(cfg.RegionOr(), styleMuted.Render(firstNonEmpty(st.Default, "the account's default"))),
+			firstNonEmpty(st.Help, "Where new sandboxes are made.")+choices(st)+" Empty means "+firstNonEmpty(st.Default, "the account's default")+".",
+			cfg.RegionOr(), func(pc *config.ProviderCfg, v string) error {
+				if err := check("region", v); err != nil {
+					return err
+				}
+				pc.Region, pc.Target = v, "" // region takes target's place
+				return nil
+			}))
+	}
+	if st, ok := setting("image"); ok {
+		items = append(items, field(firstNonEmpty(st.Label, "Default image"), firstNonEmpty(cfg.ImageOr(), styleMuted.Render(label+"'s default")),
+			firstNonEmpty(st.Help, "What new sandboxes start from.")+choices(st)+" Empty means "+label+"'s default.",
+			cfg.ImageOr(), func(pc *config.ProviderCfg, v string) error {
+				if err := check("image", v); err != nil {
+					return err
+				}
+				pc.Image, pc.Snapshot = v, "" // image takes snapshot's place
+				return nil
+			}))
+	}
+	if c == nil {
+		return items
+	}
+	z := c.Sizes()
+	switch {
+	case len(z.Names) > 0:
+		// Named sizes are few: enter steps through them, and back to the
+		// provider's own default.
+		cur := firstNonEmpty(cfg.Size, styleMuted.Render(firstNonEmpty(z.Default, label+"'s default")))
+		items = append(items, settingItem{label: "Default size", detail: cur + styleMuted.Render(" · "+strings.Join(z.Names, " | ")),
+			run: set(func(pc *config.ProviderCfg) { pc.Size = nextSize(pc.Size, z.Names) })})
+	case len(z.CPU)+len(z.MemoryGiB)+len(z.DiskGiB) > 0:
+		items = append(items, settingItem{label: "Default size", detail: defaultSizeText(cfg, z), run: func(m *Model) tea.Cmd {
+			pc := m.cfg.Sandbox.Of(provider)
+			d := newDialog(*m, " "+label+" · default size ",
+				[]string{"How big a new sandbox is, within what " + label + " takes (" + limitsText(z) + "). Empty or 0 is " + label + "'s default; the dialog that makes one can change it for that sandbox."},
+				[]string{"vCPUs", "Memory GiB", "Disk GiB"},
+				[]string{intValue(pc.CPU), intValue(pc.Memory), intValue(pc.Disk)})
+			d.back = s
+			d.submit = func(m *Model, v []string) tea.Cmd {
+				pc := m.cfg.Sandbox.Of(provider)
+				var n [3]int
+				for i, name := range []string{"vCPUs", "Memory", "Disk"} {
+					if strings.TrimSpace(v[i]) == "" {
+						continue
+					}
+					got, err := strconv.Atoi(strings.TrimSpace(v[i]))
+					if err != nil || got < 0 {
+						return func() tea.Msg { return errMsg{fmt.Errorf("%s: give a whole number", name)} }
+					}
+					n[i] = got
+				}
+				if err := c.CheckSize("", n[0], n[1], n[2]); err != nil {
+					return func() tea.Msg { return errMsg{err} }
+				}
+				pc.CPU, pc.Memory, pc.Disk = n[0], n[1], n[2]
+				m.cfg.Sandbox.Set(provider, pc)
+				return m.saveConfig()
+			}
+			m.overlay = d
+			return d.focusCmd()
+		}})
+	}
+	return items
+}
+
+// nextSize is the named size after cur, and after the last the provider's
+// own default ("").
+func nextSize(cur string, names []string) string {
+	i := slices.Index(names, cur)
+	if i+1 >= len(names) {
+		if cur == "" {
+			return names[0]
+		}
+		return ""
+	}
+	return names[i+1]
+}
+
+// defaultSizeText says a default size of numbers, or that it is the provider's.
+func defaultSizeText(cfg config.ProviderCfg, z sandbox.SizeSpec) string {
+	var parts []string
+	for _, p := range []struct {
+		n    int
+		unit string
+	}{{cfg.CPU, " vCPU"}, {cfg.Memory, " GiB"}, {cfg.Disk, " GiB disk"}} {
+		if p.n > 0 {
+			parts = append(parts, strconv.Itoa(p.n)+p.unit)
+		}
+	}
+	if len(parts) == 0 {
+		return styleMuted.Render("the provider's default · " + limitsText(z))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// limitsText is the file's limits, as "1–4 vCPU, 1–8 GiB, 1–10 GiB disk".
+func limitsText(z sandbox.SizeSpec) string {
+	var parts []string
+	for _, l := range []struct {
+		v    []int
+		unit string
+	}{{z.CPU, " vCPU"}, {z.MemoryGiB, " GiB"}, {z.DiskGiB, " GiB disk"}} {
+		if len(l.v) == 2 {
+			parts = append(parts, fmt.Sprintf("%d–%d%s", l.v[0], l.v[1], l.unit))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func intValue(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
 }
 
 // envText says what is passed into a new sandbox.

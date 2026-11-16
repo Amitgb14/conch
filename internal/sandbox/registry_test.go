@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/Amitgb14/conch/internal/integration"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -162,8 +163,9 @@ func TestRegistryIndex(t *testing.T) {
 	if _, err := FetchIndex(ctx); err == nil || !strings.Contains(err.Error(), "provider registry") {
 		t.Fatalf("unreachable: %v", err)
 	}
+	// The default is conch-integrations — which a test binary never reads.
 	t.Setenv("CONCH_PROVIDERS_URL", "")
-	if RegistryURL() != registryURL {
+	if !strings.HasSuffix(registryURL, "/conch-integrations") || RegistryURL() != integration.OwnURL() {
 		t.Fatal("the default registry")
 	}
 }
@@ -242,11 +244,10 @@ func TestRegistryFileAndInstall(t *testing.T) {
 		t.Fatal(m)
 	}
 
-	// Refused: a file conch cannot run, a name it has built in, a file
-	// that names another provider.
+	// Refused: a file conch cannot run, a file that names another
+	// provider. (A name conch's own providers had is a file like any other.)
 	for _, c := range []struct{ name, body, want string }{
 		{"acme", "name = \"acme\"\n", "cannot be used here"},
-		{"daytona", registryFile("daytona"), "built into conch"},
 		{"other", registryFile("acme"), `not "other"`},
 		{"acme", "not toml = = =", "acme"},
 	} {

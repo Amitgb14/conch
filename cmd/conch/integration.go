@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -274,13 +275,10 @@ func integrationInfo(args []string) error {
 		}
 	}
 	installedHere := f != nil
-	if kind == integration.KindSandbox && sandbox.Known(name) {
-		// A provider conch has — built in, or a file here — is set up,
-		// whatever the registry lists of it.
-		installedHere, source = true, "built in"
-		if !sandbox.Builtin(name) {
-			source = "installed"
-		}
+	if kind == integration.KindSandbox && slices.Contains(sandbox.Names(), name) {
+		// A provider installed here is set up, whatever the registry lists
+		// of it: conch has none of its own.
+		installedHere, source = true, "installed"
 		keyHelp = firstSetStr(keyHelp, "Its key goes in Settings → Sandboxes, or $"+keyEnv+".")
 	}
 	if *asJSON {
@@ -639,16 +637,13 @@ func integrationList(args []string) error {
 		}
 		rows = append(rows, r)
 	}
-	// Sandbox providers too, as conch sandbox providers sees them: built in,
+	// Sandbox providers too, as conch sandbox providers sees them:
 	// installed from a registry, or a file of the person's own.
 	installed, _ := sandbox.ReadInstalled()
 	for _, name := range sandbox.Names() {
-		r := lsRow{Name: name, Label: sandbox.ProviderLabel(name), Kind: integration.KindSandbox, Version: "-", Source: "built in", State: "ok"}
-		if !sandbox.Builtin(name) {
-			r.Source = "a file of your own"
-			if _, ok := installed[name]; ok {
-				r.Source = "registry"
-			}
+		r := lsRow{Name: name, Label: sandbox.ProviderLabel(name), Kind: integration.KindSandbox, Version: "-", Source: "a file of your own", State: "ok"}
+		if _, ok := installed[name]; ok {
+			r.Source = "registry"
 		}
 		p, err := remote.OpenProvider(name)
 		if err == nil {

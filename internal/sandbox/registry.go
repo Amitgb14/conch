@@ -42,7 +42,7 @@ func RegistryURL() string {
 	if u := os.Getenv("CONCH_PROVIDERS_URL"); u != "" {
 		return strings.TrimRight(u, "/")
 	}
-	return registryURL
+	return integration.OwnURL()
 }
 
 // RegistryEntry is one provider in the index.
@@ -322,9 +322,6 @@ func ParseProviderFile(name string, data []byte) (*ProviderFile, []string, error
 // registry. It is checked first: a file this conch cannot run is refused
 // rather than saved and skipped.
 func InstallProviderFile(name string, data []byte) (*ProviderFile, error) {
-	if Builtin(name) {
-		return nil, fmt.Errorf("%s is built into conch", name)
-	}
 	f, problems, err := ParseProviderFile(name, data)
 	if err != nil {
 		return nil, err

@@ -14,6 +14,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/buildinfo"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 // TestMain doubles as the "remote side" of a fake ssh: when the fake ssh
@@ -277,4 +278,24 @@ func startFakeServer(t *testing.T, hello proto.HelloResult) *fakeServer {
 		}
 	}()
 	return fs
+}
+
+// installProviderFiles puts the provider files conch-integrations publishes
+// (copies in internal/sandbox/testdata/registry) in $CONCH_HOME: conch has
+// no provider of its own, so one is opened through its file.
+func installProviderFiles(t *testing.T, names ...string) {
+	t.Helper()
+	dir := sandbox.ProvidersDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join("..", "sandbox", "testdata", "registry", name+".toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".toml"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

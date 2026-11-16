@@ -54,11 +54,8 @@ func TestRegistryProviderFilesAreGood(t *testing.T) {
 // that arrives late or through a forwarder, resume for start, delete's
 // confirmation, the key authorized, preview, usage and snapshots.
 func TestBoatFile(t *testing.T) {
-	f, _ := newFakeBoat(t)
-	old := waitUnit
-	waitUnit = time.Millisecond
-	t.Cleanup(func() { waitUnit = old })
-	c := publishedFile(t, "boat", os.Getenv("BOAT_API_URL"), config.ProviderCfg{Snapshot: "large"})
+	f, base := newFakeBoat(t)
+	c := publishedFile(t, "boat", base, config.ProviderCfg{Snapshot: "large"})
 	ctx := context.Background()
 
 	s, err := c.Create(ctx, Spec{Name: "web"})
@@ -184,8 +181,8 @@ func TestBoatFile(t *testing.T) {
 // says is conch's (the built-in's, named without conch-), sizes within
 // limits, the signed preview link, and snapshots.
 func TestDaytonaFile(t *testing.T) {
-	f, _ := newFakeDaytona(t)
-	c := publishedFile(t, "daytona", os.Getenv("DAYTONA_API_URL"), config.ProviderCfg{Target: "eu", Snapshot: "conch-dev"})
+	f, base := newFakeDaytona(t)
+	c := publishedFile(t, "daytona", base, config.ProviderCfg{Target: "eu", Snapshot: "conch-dev"})
 	ctx := context.Background()
 
 	s, err := c.Create(ctx, Spec{Name: "api", CPU: 2, Memory: 4})

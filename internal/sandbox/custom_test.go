@@ -85,12 +85,12 @@ func customHome(t *testing.T, name, body string) string {
 }
 
 func TestCustomProviderRunsTheLifecycle(t *testing.T) {
-	f, builtin := newFakeTensorlake(t)
-	customHome(t, "tlake", tensorlakeFile(builtin.base))
-	if !Known("tlake") || !IsCustom("tlake") || Builtin("tlake") || ProviderLabel("tlake") != "Tlake" {
+	f, base := newFakeTensorlake(t)
+	customHome(t, "tlake", tensorlakeFile(base))
+	if !Known("tlake") || !IsCustom("tlake") || ProviderLabel("tlake") != "Tlake" {
 		t.Fatal("the file's provider is not known")
 	}
-	if got := Names(); got[len(got)-1] != "tlake" || got[0] != "daytona" {
+	if got := Names(); len(got) != 1 || got[0] != "tlake" {
 		t.Fatalf("names %v", got)
 	}
 	p, err := Open("tlake", config.SandboxCfg{})
@@ -257,8 +257,8 @@ func TestCustomProvidersSkipsBadFiles(t *testing.T) {
 	if len(bad) != 2 || !strings.Contains(bad["other"], `names "tlake"`) {
 		t.Fatalf("bad %v", bad)
 	}
-	// A built-in's name is the built-in, whatever a file says.
-	if p, err := Open("daytona", config.SandboxCfg{}); err != nil || p.Name() != "daytona" {
+	// A file named for a provider conch once had is that provider.
+	if p, err := Open("daytona", config.SandboxCfg{}); err != nil || !IsCustom("daytona") || p.Name() != "daytona" {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"broken", "nope", "../etc/passwd", ""} {
@@ -269,9 +269,9 @@ func TestCustomProvidersSkipsBadFiles(t *testing.T) {
 			t.Fatalf("knows %q", name)
 		}
 	}
-	// No folder at all: the built-ins alone.
+	// No folder at all: no provider, since conch has none of its own.
 	t.Setenv("CONCH_HOME", t.TempDir())
-	if got := Names(); len(got) != len(builtin) {
+	if got := Names(); len(got) != 0 {
 		t.Fatalf("names %v", got)
 	}
 }
@@ -403,8 +403,8 @@ func TestProviderFileGuideExampleIsGood(t *testing.T) {
 // is gone: a file whose route is wrong gets 404 too, and every caller then
 // forgot a sandbox that went on running and billing.
 func TestCustomDeleteWrongRouteIsNotGone(t *testing.T) {
-	f, builtin := newFakeTensorlake(t)
-	customHome(t, "tlake", strings.Replace(tensorlakeFile(builtin.base), `call = "DELETE /sandboxes/{id}"`, `call = "DELETE /sandbox/{id}"`, 1))
+	f, base := newFakeTensorlake(t)
+	customHome(t, "tlake", strings.Replace(tensorlakeFile(base), `call = "DELETE /sandboxes/{id}"`, `call = "DELETE /sandbox/{id}"`, 1))
 	p, err := Open("tlake", config.SandboxCfg{})
 	if err != nil {
 		t.Fatal(err)

@@ -187,9 +187,6 @@ func installEntry(ctx context.Context, e sandbox.RegistryEntry, yes bool) error 
 	if err := sandbox.CheckName(e.Name); err != nil {
 		return err
 	}
-	if sandbox.Builtin(e.Name) {
-		return fmt.Errorf("%s is built into conch", e.Name)
-	}
 	if e.Format > sandbox.ProviderFormat {
 		return fmt.Errorf("%s's file needs a newer conch (format %d; this one reads up to %d): conch update", e.Name, e.Format, sandbox.ProviderFormat)
 	}
@@ -390,9 +387,6 @@ func providerPublish(args []string) error {
 	name := fs.Arg(0)
 	if err := sandbox.CheckName(name); err != nil {
 		return err
-	}
-	if sandbox.Builtin(name) {
-		return fmt.Errorf("%s is built into conch", name)
 	}
 	path := sandbox.ProviderFilePath(name)
 	data, err := os.ReadFile(path)
