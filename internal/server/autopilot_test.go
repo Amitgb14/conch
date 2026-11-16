@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1439,5 +1440,92 @@ func TestAutopilotResolveTriesAgain(t *testing.T) {
 	s.autopilotResolves()
 	if at, _ := apConflicted(s, key); at != "not this commit" {
 		t.Fatal("a second pass ran beside the first")
+	}
+}
+
+// A note about red CI names whose it was: before the log is read, from
+// the pull request's failing checks; once it is, the workflow, the job
+// and how much was read, from where — as the activity feed reads it.
+func TestAutopilotCINoteNamesTheSource(t *testing.T) {
+	s, p := afterFixture(t)
+	quietPRs(t, p)
+	fakeMergeGH(t)
+	var mu sync.Mutex
+	var notes []proto.AutopilotNote
+	s.autopilot.noted = func(n proto.AutopilotNote) {
+		mu.Lock()
+		notes = append(notes, n)
+		mu.Unlock()
+	}
+	noted := func() []proto.AutopilotNote {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]proto.AutopilotNote(nil), notes...)
+	}
+	s.autopilot.set(proto.AutopilotPolicy{AutoFix: 1})
+	if _, perr := s.createTask(proto.TaskCreateParams{ProjectID: p.id, Prompt: "add the model", Branch: "api/model"}); perr != nil {
+		t.Fatal(perr)
+	}
+	e := branchPane(t, s, p, "api/model")
+	red := []proto.PRCheck{
+		{Name: "lint", State: "pass", Source: "github-actions", Readable: true},
+		{Name: "ci/circleci: build-and-test", State: "fail", Source: "circleci"},
+	}
+
+	// Busy: kept for later, and the note says it was CircleCI's.
+	hook(s, e, "UserPromptSubmit")
+	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "pending", Head: "abc"})
+	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "fail", Head: "abc", Runs: red})
+	a5WaitFor(t, "the note for a busy agent", func() bool { return len(noted()) == 1 })
+	n := noted()[0]
+	if n.CI == nil || n.CI.Source != "circleci" || n.CI.Service != "CircleCI" ||
+		!strings.HasPrefix(n.Text, "CI failed on api/model — CircleCI; it goes to ") {
+		t.Fatalf("busy note: %+v %+v", n, n.CI)
+	}
+
+	// Free: the log is read (Actions, in this fake gh) and the note names
+	// its workflow and what was read.
+	hook(s, e, "Stop")
+	s.autopilotPendingCI()
+	a5WaitFor(t, "the note for the sent log", func() bool { return len(noted()) == 2 })
+	n = noted()[1]
+	if n.Error || n.CI == nil || n.CI.Source != "github-actions" || n.CI.Workflow != "ci" || n.CI.Lines != 1 || n.CI.Host != "x" ||
+		!strings.HasPrefix(n.Text, "CI failed on api/model — GitHub Actions · workflow ci: sent it to ") {
+		t.Fatalf("sent note: %+v %+v", n, n.CI)
+	}
+	a5WaitFor(t, "the log submitted", func() bool { st, _ := agentState(e); return st == proto.AgentIdle })
+
+	// Past the cap: said with the service too.
+	hook(s, e, "Stop")
+	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "pending", Head: "abc"})
+	apPR(s, p, "api/model", proto.PRInfo{Number: 5, Checks: "fail", Head: "abc", Runs: red})
+	a5WaitFor(t, "the capped note", func() bool { return len(noted()) == 3 })
+	if n = noted()[2]; !n.Error || n.CI == nil || n.CI.Service != "CircleCI" || !strings.Contains(n.Text, "auto_fix tried 1 times") {
+		t.Fatalf("capped note: %+v %+v", n, n.CI)
+	}
+}
+
+// Failing checks name the service only when they agree on one.
+func TestFailingCI(t *testing.T) {
+	for _, tc := range []struct {
+		runs []proto.PRCheck
+		want string
+	}{
+		{nil, ""},
+		{[]proto.PRCheck{{State: "pass", Source: "circleci"}}, ""},
+		{[]proto.PRCheck{{State: "fail"}}, ""},
+		{[]proto.PRCheck{{State: "fail", Source: "circleci"}, {State: "fail", Source: "circleci"}}, "circleci"},
+		{[]proto.PRCheck{{State: "fail", Source: "circleci"}, {State: "fail", Source: "jenkins"}}, ""},
+	} {
+		got := failingCI(tc.runs)
+		if tc.want == "" {
+			if got != nil {
+				t.Errorf("%+v: %+v", tc.runs, got)
+			}
+			continue
+		}
+		if got == nil || got.Source != tc.want || got.Service == "" {
+			t.Errorf("%+v: %+v", tc.runs, got)
+		}
 	}
 }
