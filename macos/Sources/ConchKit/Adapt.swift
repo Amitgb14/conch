@@ -39,6 +39,11 @@ public struct AdaptEvent: Decodable, Equatable, Sendable {
     public var problems: [String]?
     public var check: AdaptCheck?
     public var ok: Bool?
+    /// An integration's (`conch integration adapt -json`): its kind, the
+    /// operations its file fills, and what reading the service found.
+    public var kind: String?
+    public var operations: [String]?
+    public var live: IntegrationLiveCheck?
 
     public init(event: String, detail: String? = nil) {
         self.event = event
@@ -69,6 +74,15 @@ public struct AdaptProgress: Equatable, Sendable {
     /// The registry's provider of that name or host, when it has one.
     public var registry = ""
     public var registryDetail = ""
+    /// An integration's draft: its kind, operations and note; whether the
+    /// offline check passed; where the key would go, said before it does
+    /// (consent); and the live check.
+    public var kind = ""
+    public var operations: [String] = []
+    public var note = ""
+    public var offline = false
+    public var consent = ""
+    public var live: IntegrationLiveCheck?
 
     public init() {}
 
@@ -106,10 +120,22 @@ public struct AdaptProgress: Equatable, Sendable {
             file = e.text ?? ""
             path = e.path ?? ""
             mapping = e.mapping ?? []
+            kind = e.kind ?? kind
+            operations = e.operations ?? []
+            note = e.detail ?? ""
+            offline = false
             phase = .review
         case "problems":
             problems = e.problems ?? []
+            offline = false
             phase = .review
+        case "offline":
+            offline = e.ok == true
+            problems = []
+        case "consent":
+            consent = e.detail ?? ""
+        case "live":
+            live = e.live
         case "check":
             check = e.check
         case "done":
@@ -168,4 +194,29 @@ public func adaptName(_ form: AdaptForm) -> String {
     var name = parts[parts.count - 2]
     if parts.count >= 3, name == "co" || name == "com" { name = parts[parts.count - 3] }
     return name
+}
+
+/// What `conch integration adapt -check` found reading the service with
+/// the person's key.
+public struct IntegrationLiveCheck: Decodable, Equatable, Sendable {
+    public var ok: Bool
+    public var runs: Int?
+    public var project: String?
+    public var branch: String?
+    public var why: String?
+    public var keyEnv: String?
+    public var goes: String?
+    enum CodingKeys: String, CodingKey { case ok, runs, project, branch, why, goes, keyEnv = "key_env" }
+    public init(ok: Bool, runs: Int? = nil, project: String? = nil, branch: String? = nil, why: String? = nil) {
+        self.ok = ok
+        self.runs = runs
+        self.project = project
+        self.branch = branch
+        self.why = why
+    }
+    /// The line under Live check.
+    public var words: String {
+        if ok { return "read \(runs ?? 0) runs of \(project ?? "the project") on \(branch ?? "its branch")" }
+        return why ?? "not checked"
+    }
 }

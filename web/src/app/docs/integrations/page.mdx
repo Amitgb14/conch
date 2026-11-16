@@ -46,6 +46,8 @@ conch integration search ci          # what the registries list
 conch integration install NAME       # agree to its hosts, give its key, check it against this project
 conch integration update             # newer versions; new hosts are always asked about
 conch integration check ./mine.toml  # what is wrong with a file
+conch integration adapt URL          # an agent writes a file from the service's API docs
+conch integration publish NAME       # propose yours to the registry
 ```
 
 The full list is in the [command line](/docs/cli#integration) reference.
@@ -95,6 +97,20 @@ call = "GET /runs/{run}/log"
 text = "."
 ```
 
+## Adapting one from its API docs
+
+For a service nobody has written a file for, an agent can:
+
+```sh
+conch integration adapt -kind ci -agent claude -name semaphore https://docs.semaphoreci.com/reference/api-v1alpha
+```
+
+conch downloads the docs into a folder of their own, with the format and the kind's contract, and starts the agent there in a pane of its own (watch it in the tree). It writes `semaphore.toml` and runs `conch integration check` until nothing is wrong. Then conch checks it with your key: one read-only call for this project's runs (`-cwd` names another). The file chose both the key's variable and the host it goes to, so conch says that pair and asks first. **The agent never has your key**: it is not in its prompt or its folder, and the variables keys usually live in are emptied in its pane.
+
+`-revise "…" NAME` asks the agent for a change, `-check NAME` checks with your key again, and `-save NAME` keeps the draft as a file of your own. In Conch.app it is **Integrations → ✦ Adapt from API docs…**: kind, service, docs and agent, then the same steps as a list.
+
+`conch integration publish NAME` proposes a file to the registry. It checks the file with your key first and opens a pull request through `gh`, as you, with the file, its index entry and the check's result. A maintainer reviews it before it is listed.
+
 ## Not yet
 
-These are planned but not here yet: having an agent write a file from a service's API docs, and other kinds of integration (ticket trackers, notifications, code hosts besides GitHub).
+These are planned but not here yet: other kinds of integration (ticket trackers, notifications, code hosts besides GitHub). Until they are, `adapt` writes `ci` files, and sandbox providers through `-kind sandbox`.

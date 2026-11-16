@@ -332,6 +332,8 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch integration remove NAME` | delete an installed integration and its record |
 | `conch integration check [-json] NAME\|FILE` | everything wrong with a file, one line each; exits 1 when anything is |
 | `conch integration guide` | the [file format](/docs/integrations#writing-one), for writing one |
+| `conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...` | [adapt one](/docs/integrations#adapting-one-from-its-api-docs) conch does not know: conch downloads the API docs, an agent (`-agent`, default claude) writes `NAME.toml` to the kind's contract in a pane of its own and runs `conch integration check` until it is clean, then conch reads the project in `DIR`'s runs with your key — after asking, since the file chose the variable and the host. The agent never has the key. A service conch ships or a registry lists is pointed at rather than adapted (`-new` adapts anyway); `-kind sandbox` is `conch sandbox adapt`. `-revise TEXT NAME` asks the agent for a change, `-check NAME` runs the key check, `-save NAME` keeps the draft as a file of your own |
+| `conch integration publish [-dry-run] [-json] [-y] [-cwd DIR] FILE\|NAME` | check the file with your key (asked first, unless `-y`), then open a pull request to the registry through `gh` adding the file and its index entry (kind, version — the next unused one —, hosts, key variable, operations), with the check's result in its body. Your key is never part of it |
 
 See [Integrations](/docs/integrations).
 
