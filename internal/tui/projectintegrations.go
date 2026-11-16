@@ -186,15 +186,26 @@ func (m *Model) projectIntegrationItems(mid, pid string, d proto.IntegrationDete
 }
 
 // teamNames is what saving for the team writes: the names of what the
-// project uses that something here reads. A sandbox is this computer's,
-// not the repository's.
+// project uses that something here reads, and whatever the repository's
+// file already lists, which saving must not drop. A sandbox is this
+// computer's, not the repository's.
 func teamNames(d proto.IntegrationDetect) []string {
 	var out []string
 	seen := map[string]bool{}
+	add := func(n string) {
+		if !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
 	for _, u := range d.Integrations {
-		if u.Installed && u.Kind != integration.KindSandbox && !seen[u.Name] {
-			seen[u.Name] = true
-			out = append(out, u.Name)
+		if u.Installed && u.Kind != integration.KindSandbox {
+			add(u.Name)
+		}
+	}
+	if d.Team != nil && d.Team.Problem == "" {
+		for _, n := range d.Team.Names {
+			add(n)
 		}
 	}
 	return out

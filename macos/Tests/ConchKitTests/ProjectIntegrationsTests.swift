@@ -76,6 +76,10 @@ private func detect(_ s: String = detectJSON) throws -> IntegrationDetect {
     var ignored = d
     ignored.team?.state = "ignored"
     #expect(!ProjectIntegrations.saved(ignored))
+    // Saving over it keeps what it lists.
+    ignored.team?.names = ["gitlab-ci"]
+    #expect(ProjectIntegrations.teamNames(ignored) == ["circleci", "github", "github-actions", "gitlab-ci", "jira"])
+    #expect(ProjectIntegrations.teamNames(broken) == ["circleci", "github", "github-actions", "jira"])
 }
 
 // Connect… from the sheet opens the install sheet at the key (mock 3, step 2).

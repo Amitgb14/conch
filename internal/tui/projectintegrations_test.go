@@ -135,6 +135,12 @@ func TestProjectIntegrationsAsksAboutTheTeamFile(t *testing.T) {
 	if mu := m.overlay.(*menu); !strings.Contains(mu.items[len(mu.items)-2].label+mu.items[len(mu.items)-1].label, "uses = [") {
 		t.Fatalf("damaged: %q", labelsOf(mu.items))
 	}
+	// Saving over a file nobody has answered keeps the names it lists.
+	ask.Team.State = "ignored"
+	ask.Team.Names = []string{"jira", "gitlab-ci"}
+	if got := strings.Join(teamNames(ask), ","); got != "github,circleci,github-actions,jira,gitlab-ci" {
+		t.Fatalf("names: %s", got)
+	}
 	if teamQuestion(nil) != "" || teamQuestion(&proto.IntegrationTeam{State: "ask"}) != "" {
 		t.Fatal("a question about nothing")
 	}
