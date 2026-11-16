@@ -153,7 +153,7 @@ func TestCICardWidths(t *testing.T) {
 
 func TestCICardKeys(t *testing.T) {
 	m := cicardModel()
-	c, peer := a1FakeClient(t, proto.CapCIRerun, proto.CapIntegrationDetect)
+	c, peer := a1FakeClient(t, proto.CapBranchCIRerun, proto.CapIntegrationDetect)
 	m.machines[0].c, m.machines[0].server = c, c.Server
 	m.focus = focusMain
 	cv := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}

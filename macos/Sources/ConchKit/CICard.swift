@@ -65,22 +65,6 @@ public struct CICard: Equatable, Sendable {
     }
 }
 
-/// Something the server's autopilot did, or held back from (autopilot.note).
-public struct AutopilotNote: Decodable, Equatable, Sendable {
-    public var projectID: String
-    public var branch: String
-    public var text: String
-    public var error: Bool?
-    public var merged: Bool?
-    /// The failed CI run it is about, from a server with autopilot.note.ci.v1.
-    public var ci: NoteCI?
-    enum CodingKeys: String, CodingKey { case branch, text, error, merged, ci; case projectID = "project_id" }
-
-    /// The line the activity feed leads with: "CI failed on B — CircleCI
-    /// · workflow W · job J" for a failed run, else what the server said.
-    public var headline: String { ci?.headline(branch: branch) ?? text }
-}
-
 /// A failed CI run as a note names it.
 public struct NoteCI: Decodable, Equatable, Sendable {
     public var source: String?

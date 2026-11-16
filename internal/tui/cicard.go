@@ -139,7 +139,7 @@ func (cv *changesView) rerunCI(m *Model) tea.Cmd {
 	case c == nil:
 		m.setFlash(m.offlineText(cv.machine), true)
 		return nil
-	case !m.hasCapability(cv.machine, proto.CapCIRerun):
+	case !m.hasCapability(cv.machine, proto.CapBranchCIRerun):
 		m.setFlash("the server there predates re-running CI; reload it (conch server reload)", true)
 		return nil
 	}
