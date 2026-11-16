@@ -40,7 +40,7 @@ var RegistryKey = ""
 // registryURL is conch's own registry; $CONCH_PROVIDERS_URL replaces it
 // (with $CONCH_PROVIDERS_KEY its key), for a registry of one's own and for
 // tests.
-const registryURL = "https://amitgb14.github.io/conch-sandbox-providers"
+const registryURL = "https://amitgb14.github.io/conch-integrations"
 
 // Registry is where an index is read from, and the key it must be signed
 // with ("" for none known).
@@ -202,23 +202,9 @@ const IndexFormat = 2
 // FetchIndex reads a registry's index, checking its signature when a key
 // is known for it.
 func FetchIndex(ctx context.Context, r Registry) (*Index, error) {
-	data, _, err := registryGet(ctx, r, "index.json", maxIndex)
+	data, signed, err := FetchIndexData(ctx, r)
 	if err != nil {
 		return nil, err
-	}
-	signed := false
-	if r.Key != "" {
-		sig, status, err := registryGet(ctx, r, "index.json.sig", maxSig)
-		switch {
-		case status == http.StatusNotFound:
-			return nil, fmt.Errorf("the registry %s's index is not signed, and conch knows its key: nothing is read from it", r.Name)
-		case err != nil:
-			return nil, err
-		}
-		if err := Verify(r.Key, data, sig); err != nil {
-			return nil, fmt.Errorf("the registry %s's index: %w: nothing is read from it", r.Name, err)
-		}
-		signed = true
 	}
 	ix, err := ParseIndex(data)
 	if err != nil {
@@ -229,6 +215,30 @@ func FetchIndex(ctx context.Context, r Registry) (*Index, error) {
 		ix.Entries[i].Registry = r.Name
 	}
 	return ix, nil
+}
+
+// FetchIndexData is a registry's index as it came, checked against its
+// signature when a key is known for it — for the sandbox providers'
+// installer too, which reads the same index.
+func FetchIndexData(ctx context.Context, r Registry) ([]byte, bool, error) {
+	data, _, err := registryGet(ctx, r, "index.json", maxIndex)
+	if err != nil {
+		return nil, false, err
+	}
+	if r.Key == "" {
+		return data, false, nil
+	}
+	sig, status, err := registryGet(ctx, r, "index.json.sig", maxSig)
+	switch {
+	case status == http.StatusNotFound:
+		return nil, false, fmt.Errorf("the registry %s's index is not signed, and conch knows its key: nothing is read from it", r.Name)
+	case err != nil:
+		return nil, false, err
+	}
+	if err := Verify(r.Key, data, sig); err != nil {
+		return nil, false, fmt.Errorf("the registry %s's index: %w: nothing is read from it", r.Name, err)
+	}
+	return data, true, nil
 }
 
 // ParseIndex reads an index of either format.

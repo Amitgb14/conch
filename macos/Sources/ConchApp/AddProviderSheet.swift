@@ -502,7 +502,7 @@ struct ProvidersCard: View {
     private func publish(_ p: SandboxProviderInfo) {
         let a = NSAlert()
         a.messageText = "Publish \(p.label) to the provider registry?"
-        a.informativeText = "conch checks the file with your key first, then opens a pull request to github.com/Amitgb14/conch-sandbox-providers through gh, as you. The file and a note of when your key last listed sandboxes with it go; your key does not. It is listed once a maintainer has reviewed it."
+        a.informativeText = "conch checks the file with your key first, then opens a pull request to github.com/Amitgb14/conch-integrations through gh, as you. The file and a note of when your key last listed sandboxes with it go; your key does not. It is listed once a maintainer has reviewed it."
         a.addButton(withTitle: "Publish")
         a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn, let b = store.binary else { return }

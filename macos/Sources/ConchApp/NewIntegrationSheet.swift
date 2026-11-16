@@ -250,7 +250,7 @@ struct NewIntegrationSheet: View {
     private func doPublish() {
         let a = NSAlert()
         a.messageText = "Publish \(form.name) to conch-integrations?"
-        a.informativeText = "conch checks it with your key again (\(progress.consent.isEmpty ? "the key the file names" : progress.consent)), then opens a pull request to github.com/Amitgb14/conch-sandbox-providers through gh, as you: the file, its index entry and the check's result. Your key is not part of it. It is listed once a maintainer has reviewed it."
+        a.informativeText = "conch checks it with your key again (\(progress.consent.isEmpty ? "the key the file names" : progress.consent)), then opens a pull request to github.com/Amitgb14/conch-integrations through gh, as you: the file, its meta.json and the check's result. Your key is not part of it. It is listed once a maintainer has reviewed it."
         a.addButton(withTitle: "Publish")
         a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn, let b = store.binary else { return }

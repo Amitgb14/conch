@@ -16,21 +16,26 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 )
 
 // The registry is a GitHub repository of provider files that people have
-// adapted and checked (github.com/Amitgb14/conch-sandbox-providers). Its
+// adapted and checked (github.com/Amitgb14/conch-integrations, which was
+// conch-sandbox-providers and holds every kind of integration now; the
+// old address is a mirror of its sandbox providers for older conches). Its
 // CI publishes an index of them, and the files themselves, on GitHub
 // Pages; conch installs from there. A file installed from it is recorded
 // in providers/registry.json with its hash, so an update can tell a file
 // somebody edited here from one that is as it came.
 
 // RegistryRepo is where provider files are published to.
-const RegistryRepo = "Amitgb14/conch-sandbox-providers"
+const RegistryRepo = "Amitgb14/conch-integrations"
 
 // registryURL is where the index is read from; $CONCH_PROVIDERS_URL
 // overrides it, for a registry of one's own and for tests.
-const registryURL = "https://amitgb14.github.io/conch-sandbox-providers"
+const registryURL = "https://amitgb14.github.io/conch-integrations"
 
 // RegistryURL is the registry conch reads.
 func RegistryURL() string {
@@ -111,7 +116,7 @@ func (ix *Index) ForHost(host string) (RegistryEntry, bool) {
 
 const (
 	maxIndex    = 1 << 20
-	indexFormat = 1
+	indexFormat = 2
 )
 
 var registryClient = &http.Client{Timeout: 20 * time.Second}
@@ -144,18 +149,42 @@ func registryGet(ctx context.Context, path string, limit int64) ([]byte, error) 
 	return data, nil
 }
 
-// FetchIndex reads the registry's list.
+// FetchIndex reads the registry's list: the same index every kind of
+// integration is in, checked against its signature as theirs is
+// (integration.FetchIndexData), keeping the sandbox providers. Format 1 is
+// the index from before the move; format 2's sandbox entries keep its
+// fields.
 func FetchIndex(ctx context.Context) (*Index, error) {
-	data, err := registryGet(ctx, "index.json", maxIndex)
+	reg := integration.Registries(config.IntegrationsCfg{})[0]
+	reg.URL = RegistryURL()
+	data, _, err := integration.FetchIndexData(ctx, reg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("the provider registry: %w", err)
 	}
 	var ix Index
 	if err := json.Unmarshal(data, &ix); err != nil {
 		return nil, fmt.Errorf("the provider registry's index: %w", err)
 	}
-	if ix.Format != indexFormat {
-		return nil, fmt.Errorf("the provider registry's index is format %d; this conch reads %d: update conch", ix.Format, indexFormat)
+	switch ix.Format {
+	case 1:
+	case 2:
+		var v2 struct {
+			Entries []struct {
+				Kind string `json:"kind"`
+				RegistryEntry
+			} `json:"entries"`
+		}
+		if err := json.Unmarshal(data, &v2); err != nil {
+			return nil, fmt.Errorf("the provider registry's index: %w", err)
+		}
+		ix.Providers = nil
+		for _, e := range v2.Entries {
+			if e.Kind == "sandbox" {
+				ix.Providers = append(ix.Providers, e.RegistryEntry)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("the provider registry's index is format %d; this conch reads up to %d: update conch", ix.Format, indexFormat)
 	}
 	// An entry whose name could not be a provider's is left out: its name
 	// would be made a path here, and no conch could install it anyway.

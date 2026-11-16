@@ -494,10 +494,9 @@ func TestIntegrationPublish(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"would propose to Amitgb14/conch-sandbox-providers: Add Semaphore (ci)",
-		"--- integrations/semaphore.toml", "--- integrations/semaphore.json", `"kind": "ci"`, `"version": 1`, `"format": 3`,
-		`"key_env": "SEMAPHORE_TOKEN"`, `"operations": [`, `"failed_log"`, `"api": "127.0.0.1`, `"file": "integrations/semaphore.toml"`,
-		`"tier": "community"`, "read 3 runs of me/proj on main", "with conch "} {
+	for _, want := range []string{"would propose to Amitgb14/conch-integrations: Add Semaphore (ci)",
+		"--- ci/semaphore/integration.toml", "--- ci/semaphore/meta.json", `"version": 1`, `"checked": null`, `"conch": "`,
+		`"docs": "https://`, "- operations: runs, failed_log", "read 3 runs of me/proj on main", "with conch "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry run lacks %q:\n%s", want, out)
 		}
@@ -522,12 +521,12 @@ func TestIntegrationPublish(t *testing.T) {
 	b, _ := os.ReadFile(log)
 	logged := string(b)
 	for _, want := range []string{
-		"api --method POST repos/Amitgb14/conch-sandbox-providers/forks",
+		"api --method POST repos/Amitgb14/conch-integrations/forks",
 		`"ref":"refs/heads/integration-semaphore-20261115-120000"`,
-		"api --method PUT repos/me/conch-sandbox-providers/contents/integrations/semaphore.toml",
-		"api --method PUT repos/me/conch-sandbox-providers/contents/integrations/semaphore.json",
+		"api --method PUT repos/me/conch-integrations/contents/ci/semaphore/integration.toml",
+		"api --method PUT repos/me/conch-integrations/contents/ci/semaphore/meta.json",
 		`"head":"me:integration-semaphore-20261115-120000"`,
-		"api --method POST repos/Amitgb14/conch-sandbox-providers/pulls",
+		"api --method POST repos/Amitgb14/conch-integrations/pulls",
 		"read 3 runs of me/proj on main", // the live check's result, in the body
 	} {
 		if !strings.Contains(logged, want) {

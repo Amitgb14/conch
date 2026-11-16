@@ -530,13 +530,19 @@ func integrationPublish(args []string) error {
 		return fmt.Errorf("publish checks %s with your key first, and could not: %s", name, live.Why)
 	}
 	today := publishNow().UTC().Format("2006-01-02")
-	path := "integrations/" + name + ".toml"
+	// The registry keeps a folder per kind (conch-integrations: ci/NAME/,
+	// tickets/NAME/, …) holding the file as it is and a meta.json; its CI
+	// builds the index entry from both.
+	path := f.Kind + "/" + name + "/integration.toml"
 	e := integration.Entry{Kind: f.Kind, Name: name, Label: f.DisplayName(), Version: version, Format: f.Format, File: path, SHA256: sum,
 		Hosts: integration.Hosts{API: hostOfURL(f.API), Follow: f.FollowHosts}, KeyEnv: f.KeyEnv, UserEnv: f.Auth.UserEnv,
 		Operations: f.Operations(), Tier: "community", Note: f.Note, Docs: f.Docs,
 		AdaptedBy: firstSetStr(f.AdaptedBy, "a person"), Adapted: firstSetStr(f.Adapted, today)}
-	entryJSON, _ := json.MarshalIndent(e, "", "  ")
-	entryJSON = append(entryJSON, '\n')
+	// Checked stays empty: verified is a maintainer's word, given after
+	// their own run; the submitter's check is in the pull request's body.
+	metaJSON, _ := json.MarshalIndent(integrationMeta{Version: version, AdaptedBy: e.AdaptedBy, Adapted: e.Adapted,
+		Docs: e.Docs, Conch: releaseVersion()}, "", "  ")
+	metaJSON = append(metaJSON, '\n')
 	title := fmt.Sprintf("Add %s (%s)", e.Label, e.Kind)
 	if listed {
 		title = fmt.Sprintf("Update %s to version %d", e.Label, version)
@@ -553,7 +559,7 @@ func integrationPublish(args []string) error {
 		fmt.Fprintf(&body, "\n**Hosts changed**: version %d reached %s.\n", prev.Version, hostWords(prev.Hosts))
 	}
 	body.WriteString("\nProposed with `conch integration publish`.\n")
-	files := []registryFile{{path, data}, {"integrations/" + name + ".json", entryJSON}}
+	files := []registryFile{{path, data}, {f.Kind + "/" + name + "/meta.json", metaJSON}}
 	if *dry {
 		fmt.Printf("would propose to %s: %s\n\n%s", sandbox.RegistryRepo, title, body.String())
 		for _, fl := range files {
@@ -571,4 +577,14 @@ func integrationPublish(args []string) error {
 	}
 	fmt.Printf("proposed %s %d to the registry: %s\nit is listed once a maintainer has reviewed and merged it\n", name, version, pr)
 	return nil
+}
+
+// integrationMeta is an integration's meta.json in the registry.
+type integrationMeta struct {
+	Version   int                  `json:"version"`
+	AdaptedBy string               `json:"adapted_by"`
+	Adapted   string               `json:"adapted"`
+	Docs      string               `json:"docs"`
+	Conch     string               `json:"conch"`
+	Checked   *integration.Checked `json:"checked"`
 }

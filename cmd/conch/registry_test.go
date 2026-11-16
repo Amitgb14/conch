@@ -315,14 +315,14 @@ echo "$*" >> "` + log + `"
 case "$*" in *"--input -"*) cat >> "` + log + `"; echo >> "` + log + `";; esac
 case "$4" in
   user) echo '{"login":"me"}';;
-  repos/Amitgb14/conch-sandbox-providers) echo '{"permissions":{"push":` + p + `}}';;
-  repos/Amitgb14/conch-sandbox-providers/forks) echo '{"full_name":"me/conch-sandbox-providers"}';;
+  repos/Amitgb14/conch-integrations) echo '{"permissions":{"push":` + p + `}}';;
+  repos/Amitgb14/conch-integrations/forks) echo '{"full_name":"me/conch-integrations"}';;
   */merge-upstream) echo '{}';;
   */git/ref/heads/main) echo '{"object":{"sha":"abc123"}}';;
   */git/refs) echo '{}';;
   *"/contents/"*"?ref="*) echo 'gh: Not Found (HTTP 404)' >&2; exit 1;;
   */contents/*) echo '{}';;
-  */pulls) echo '{"html_url":"https://github.com/Amitgb14/conch-sandbox-providers/pull/7"}';;
+  */pulls) echo '{"html_url":"https://github.com/Amitgb14/conch-integrations/pull/7"}';;
   *) echo "unexpected $*" >&2; exit 1;;
 esac
 `
@@ -373,7 +373,7 @@ func TestProviderPublish(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	for _, want := range []string{"would propose to Amitgb14/conch-sandbox-providers: Add Acme", "providers/acme/meta.json",
+	for _, want := range []string{"would propose to Amitgb14/conch-integrations: Add Acme", "sandbox/acme/meta.json",
 		`"checked": {`, `"sandboxes": 2`, `"date": "2026-11-08"`, `"adapted": "2026-11-01"`, "API key goes to `127.0.0.1`"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry run lacks %q:\n%s", want, out)
@@ -401,14 +401,14 @@ func TestProviderPublish(t *testing.T) {
 	b, _ := os.ReadFile(log)
 	calls := string(b)
 	for _, want := range []string{
-		"api --method POST repos/Amitgb14/conch-sandbox-providers/forks",
-		"api --method POST repos/me/conch-sandbox-providers/merge-upstream",
-		"api --method POST repos/me/conch-sandbox-providers/git/refs",
+		"api --method POST repos/Amitgb14/conch-integrations/forks",
+		"api --method POST repos/me/conch-integrations/merge-upstream",
+		"api --method POST repos/me/conch-integrations/git/refs",
 		`"ref":"refs/heads/provider-acme-20261108-120000","sha":"abc123"`,
-		"api --method PUT repos/me/conch-sandbox-providers/contents/providers/acme/provider.toml",
-		"api --method PUT repos/me/conch-sandbox-providers/contents/providers/acme/meta.json",
+		"api --method PUT repos/me/conch-integrations/contents/sandbox/acme/provider.toml",
+		"api --method PUT repos/me/conch-integrations/contents/sandbox/acme/meta.json",
 		`"head":"me:provider-acme-20261108-120000"`,
-		"api --method POST repos/Amitgb14/conch-sandbox-providers/pulls",
+		"api --method POST repos/Amitgb14/conch-integrations/pulls",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("no %q in\n%s", want, calls)
@@ -432,7 +432,7 @@ func TestProviderPublish(t *testing.T) {
 	}
 	b, _ = os.ReadFile(log)
 	if calls = string(b); strings.Contains(calls, "forks") || !strings.Contains(calls, `"head":"provider-acme-20261108-120000"`) ||
-		!strings.Contains(calls, "PUT repos/Amitgb14/conch-sandbox-providers/contents/") {
+		!strings.Contains(calls, "PUT repos/Amitgb14/conch-integrations/contents/") {
 		t.Fatalf("pushed:\n%s", calls)
 	}
 

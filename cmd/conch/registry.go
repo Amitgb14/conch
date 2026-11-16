@@ -434,7 +434,8 @@ func providerPublish(args []string) error {
 	title := "Add " + firstNonEmptyStr(f.Label, name)
 	body := fmt.Sprintf("Adapted by %s from %s and checked with conch %s: the key listed %d sandboxes.\n\n- API key goes to `%s`\n- ssh goes to `%s`\n\nProposed with `conch sandbox provider publish`.\n",
 		meta.AdaptedBy, f.Docs, meta.Conch, ck.All, api, ssh)
-	files := []registryFile{{"providers/" + name + "/provider.toml", data}, {"providers/" + name + "/meta.json", metaJSON}}
+	// The registry keeps a folder per kind; a sandbox provider's is sandbox/.
+	files := []registryFile{{"sandbox/" + name + "/provider.toml", data}, {"sandbox/" + name + "/meta.json", metaJSON}}
 	if *dry {
 		fmt.Printf("would propose to %s: %s\n\n%s", sandbox.RegistryRepo, title, body)
 		for _, fl := range files {

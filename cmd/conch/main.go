@@ -242,7 +242,7 @@ Usage:
                                 check a provider file, print it, make a draft a provider, or forget one
                                 (its sandboxes are left alone)
   conch sandbox provider search [-json] [TERM]
-                                the providers others adapted and published (github.com/Amitgb14/conch-sandbox-providers)
+                                the providers others adapted and published (github.com/Amitgb14/conch-integrations)
   conch sandbox provider install [-y] [NAME]
                                 install one: says where your key and ssh go first, and checks the file's hash
   conch sandbox provider update [-y] [NAME]

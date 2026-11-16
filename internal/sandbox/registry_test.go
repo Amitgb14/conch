@@ -112,7 +112,7 @@ func TestRegistryIndex(t *testing.T) {
 		raw  string
 		want string
 	}{
-		{`{"format": 2, "providers": []}`, "update conch"},
+		{`{"format": 3, "entries": []}`, "update conch"},
 		{`{`, "index"},
 		{strings.Repeat(" ", maxIndex+1), "over"},
 	} {
@@ -123,6 +123,27 @@ func TestRegistryIndex(t *testing.T) {
 			t.Errorf("%.20q: %v", c.raw, err)
 		}
 	}
+	// The one index every kind is in (conch-integrations): its sandbox
+	// entries, with format 1's fields, and nothing of another kind.
+	r.mu.Lock()
+	r.raw = []byte(`{"format": 2, "entries": [
+	  {"kind": "ci", "name": "circleci", "label": "CircleCI", "version": 1, "file": "integrations/circleci.toml", "sha256": "ab", "hosts": {"api": "circleci.com"}},
+	  {"kind": "sandbox", "name": "hetzner", "label": "Hetzner Cloud", "version": 1, "api": "https://api.hetzner.cloud/v1", "api_host": "api.hetzner.cloud",
+	   "ssh_host": "{reply.server.ip}", "key_env": "HCLOUD_TOKEN", "format": 2, "file": "providers/hetzner.toml", "sha256": "cd", "hosts": {"api": "api.hetzner.cloud"}},
+	  {"kind": "sandbox", "name": "../x", "file": "providers/x.toml"}]}`)
+	r.mu.Unlock()
+	if ix, err := FetchIndex(ctx); err != nil || len(ix.Providers) != 1 || ix.Providers[0].Name != "hetzner" ||
+		ix.Providers[0].APIHost != "api.hetzner.cloud" || ix.Providers[0].KeyEnv != "HCLOUD_TOKEN" || ix.Providers[0].File != "providers/hetzner.toml" {
+		t.Fatalf("format 2: %+v %v", ix, err)
+	}
+	// A registry whose key conch knows must have signed its index, for a
+	// sandbox provider's install as for any integration's.
+	t.Setenv("CONCH_PROVIDERS_KEY", "Vn6fFqf0V7oZbqPbZ5hT1FLfLPw3WdOQ7ycwz0iD4Bk=")
+	if _, err := FetchIndex(ctx); err == nil || !strings.Contains(err.Error(), "not signed") {
+		t.Fatalf("unsigned with a key known: %v", err)
+	}
+	t.Setenv("CONCH_PROVIDERS_KEY", "")
+
 	r.mu.Lock()
 	r.raw = []byte(`{"format": 1}`)
 	r.mu.Unlock()
