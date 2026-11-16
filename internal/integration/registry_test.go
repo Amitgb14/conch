@@ -221,7 +221,8 @@ func TestFetchFileRefusals(t *testing.T) {
 	}{
 		"hash":         {func(e *Entry) { e.SHA256 = strings.Repeat("0", 64) }, "its hash differs"},
 		"hosts":        {func(e *Entry) { e.Hosts = Hosts{API: "api.acme.dev"} }, "logs.acme.dev, which the index does not show"},
-		"kind":         {func(e *Entry) { e.Kind = "tickets" }, `kind "tickets"`},
+		"kind":         {func(e *Entry) { e.Kind = KindHost }, `kind "host"`},
+		"other kind":   {func(e *Entry) { e.Kind = KindTickets }, "not what the index lists"},
 		"sandbox":      {func(e *Entry) { e.Kind = KindSandbox }, "conch sandbox provider install"},
 		"newer format": {func(e *Entry) { e.Format = 9 }, "format 9"},
 		"outside":      {func(e *Entry) { e.File = "../secrets" }, "lists acme-ci's file at"},

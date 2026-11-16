@@ -223,7 +223,18 @@ public enum IntegrationFilter: String, CaseIterable, Sendable {
 public enum IntegrationCatalog {
     /// What a kind's file does, in two lines, from its operations.
     public static func summary(kind: String, operations: [String]) -> String {
-        guard kind == "ci" else { return "" }
+        switch kind {
+        case "tickets":
+            var parts = ["Open tickets in the Tickets view", "tasks from a ticket"]
+            if operations.contains("comment") || operations.contains("move") { parts.append("comment and move") }
+            return parts.joined(separator: ", ") + "."
+        case "notify":
+            return operations.contains("send") ? "Agent waiting, done and merged, sent there by conch's server." : ""
+        case "ci":
+            break
+        default:
+            return ""
+        }
         var parts: [String] = []
         if operations.contains("failed_log") { parts.append("A failed job's output to the branch's agent") }
         if operations.contains("rerun") { parts.append("re-run from failed") }

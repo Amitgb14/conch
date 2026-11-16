@@ -138,3 +138,11 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     f3.agreed = true
     #expect(f3.blocker == nil)
 }
+
+@Test func summariesForTicketsAndNotify() {
+    #expect(IntegrationCatalog.summary(kind: "tickets", operations: ["list", "get", "comment", "move"]) == "Open tickets in the Tickets view, tasks from a ticket, comment and move.")
+    #expect(IntegrationCatalog.summary(kind: "tickets", operations: ["list", "get"]) == "Open tickets in the Tickets view, tasks from a ticket.")
+    #expect(IntegrationCatalog.summary(kind: "notify", operations: ["send"]) == "Agent waiting, done and merged, sent there by conch's server.")
+    #expect(IntegrationCatalog.summary(kind: "notify", operations: []) == "")
+    #expect(IntegrationCatalog.summary(kind: "host", operations: ["list"]) == "")
+}

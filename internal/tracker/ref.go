@@ -72,3 +72,31 @@ func fromURL(ref string, u *url.URL) (string, string, error) {
 	}
 	return "", "", fmt.Errorf("%s is not a Linear or Jira ticket's address", ref)
 }
+
+var (
+	fileNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
+	bareKeyRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+)
+
+// CheckRef is ParseRef for a command that hands the ticket to a server
+// which may know more trackers than conch has code for: a tickets
+// integration's NAME:KEY (shortcut:123), or a key alone (123) for a
+// project tied to one, is taken as given and left to the server to make
+// sense of. What is no ticket of anybody's is still refused here.
+func CheckRef(ref string) (tracker, key string, err error) {
+	tracker, key, err = ParseRef(ref)
+	if err == nil {
+		return tracker, key, nil
+	}
+	ref = strings.TrimSpace(ref)
+	if name, k, ok := strings.Cut(ref, ":"); ok {
+		if k = strings.TrimSpace(k); fileNameRE.MatchString(name) && name != Linear && name != Jira && k != "" && !strings.HasPrefix(k, "//") && !strings.ContainsAny(k, " \t") {
+			return name, k, nil
+		}
+		return "", "", err
+	}
+	if bareKeyRE.MatchString(ref) {
+		return "", ref, nil
+	}
+	return "", "", err
+}

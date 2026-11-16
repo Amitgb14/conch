@@ -43,18 +43,7 @@ func (s *settings) integrationItems(m *Model) []settingItem {
 		{header: true, label: "CI"},
 		{label: "  ✓ GitHub Actions", detail: "built in · through gh"},
 	}
-	for _, f := range files {
-		if f.Kind != integration.KindCI {
-			continue
-		}
-		f := f
-		mark := "○"
-		if integrationKey(f.KeyEnv) {
-			mark = "✓"
-		}
-		items = append(items, settingItem{label: "  " + mark + " " + f.DisplayName(), detail: integrationDetail(m, f), page: true,
-			run: func(m *Model) tea.Cmd { s.openPage("integration:" + f.Name); return nil }})
-	}
+	items = append(items, s.fileRows(m, files, integration.KindCI)...)
 	items = append(items,
 		settingItem{header: true, label: "Code hosts"},
 		settingItem{label: "  ✓ GitHub", detail: "built in · through gh"},
@@ -62,6 +51,12 @@ func (s *settings) integrationItems(m *Model) []settingItem {
 		settingItem{label: "  ✓ GitHub Issues", detail: "built in · through gh"},
 		settingItem{label: "  " + trackerMark(m.cfg.Trackers.Linear.APIKey, firstNonEmpty(m.cfg.Trackers.Linear.APIKeyEnv, "LINEAR_API_KEY")) + " Linear", detail: "built in"},
 		settingItem{label: "  " + trackerMark(m.cfg.Trackers.Jira.APIToken, firstNonEmpty(m.cfg.Trackers.Jira.APITokenEnv, "JIRA_API_TOKEN")) + " Jira", detail: "built in"},
+	)
+	items = append(items, s.fileRows(m, files, integration.KindTickets)...)
+	items = append(items, settingItem{header: true, label: "Notifications"},
+		settingItem{label: "  ✓ Desktop", detail: "built in · Settings → Notifications"})
+	items = append(items, s.fileRows(m, files, integration.KindNotify)...)
+	items = append(items,
 		settingItem{},
 		settingItem{label: "* Install one from the registry…", detail: "agree to its hosts, then give its key",
 			run: func(m *Model) tea.Cmd {
@@ -79,6 +74,24 @@ func (s *settings) integrationItems(m *Model) []settingItem {
 		settingItem{},
 		settingItem{label: styleMuted.Render("  A file describes a service's API — never code. Its key goes only to the")},
 		settingItem{label: styleMuted.Render("  hosts it names, and is read from its variable, or the Keychain on a Mac.")})
+}
+
+// fileRows are the files of kind, each opening its page.
+func (s *settings) fileRows(m *Model, files []*integration.File, kind string) []settingItem {
+	var items []settingItem
+	for _, f := range files {
+		if f.Kind != kind {
+			continue
+		}
+		f := f
+		mark := "○"
+		if integrationKey(f.KeyEnv) {
+			mark = "✓"
+		}
+		items = append(items, settingItem{label: "  " + mark + " " + f.DisplayName(), detail: integrationDetail(m, f), page: true,
+			run: func(m *Model) tea.Cmd { s.openPage("integration:" + f.Name); return nil }})
+	}
+	return items
 }
 
 // integrationDetail is a file's line: where it came from, its key, and

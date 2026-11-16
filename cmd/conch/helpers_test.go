@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,19 @@ func TestMain(m *testing.M) {
 	openInBrowser = func(string) error { return nil }
 	// Nor read the real provider registry: adapt asks it first.
 	os.Setenv("CONCH_PROVIDERS_URL", "http://127.0.0.1:1/unused")
+	// Nor reach a tracker or a webhook with the developer's own key: a
+	// server started here sends to every notify integration whose key is
+	// set.
+	for _, k := range []string{"SHORTCUT_API_TOKEN", "SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL", "NTFY_TOPIC_URL"} {
+		os.Unsetenv(k)
+	}
+	// Nor from the developer's Keychain, which a server started here reads
+	// keys from on a Mac: a test that wants one gives a security of its
+	// own. Only on a Mac, where the Keychain is assumed anyway, so the
+	// paths without one stay as they are elsewhere.
+	if runtime.GOOS == "darwin" && os.Getenv("CONCH_SECURITY") == "" {
+		os.Setenv("CONCH_SECURITY", "/nonexistent/security")
+	}
 	switch os.Getenv("A4_HELPER_MODE") {
 	case "main":
 		os.Args = append([]string{"conch"}, os.Args[1:]...)

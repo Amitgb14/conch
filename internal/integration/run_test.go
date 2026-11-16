@@ -267,7 +267,7 @@ func TestConnectRefusals(t *testing.T) {
 	if _, err := f.Connect(testKey, "", ""); !errors.Is(err, ErrNoKey) || !strings.Contains(err.Error(), "$JENKINS_USER") {
 		t.Fatalf("basic with no user: %v", err)
 	}
-	f.Kind = KindTickets
+	f.Kind = KindHost
 	if _, err := f.Connect(testKey, "u", ""); err == nil {
 		t.Fatal("a kind this conch does not run")
 	}

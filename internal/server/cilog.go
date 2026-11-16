@@ -146,25 +146,7 @@ func (pm *projectManager) ciFor(ctx context.Context, p *project, branch string, 
 		case rem.Host == "":
 			ci.why = "the project has no remote to name it by"
 		default:
-			user := ""
-			if f.Auth.UserEnv != "" {
-				user = pm.s.trackerSecret(f.Auth.UserEnv)
-			}
-			base := ""
-			if f.BaseURL == "ask" {
-				base = bases[f.Name]
-				if base == "" && f.API == "" {
-					ci.why = fmt.Sprintf("give its API's address in config.toml, [integrations.base] %s = \"https://…\"", f.Name)
-					break
-				}
-			}
-			conn, err := f.Connect(pm.s.trackerSecret(f.KeyEnv), user, base)
-			if errors.Is(err, integration.ErrNoKey) {
-				ci.why = fmt.Sprintf("set $%s where conch's server runs, or in the Keychain (service conch-mcp, account %s)", f.KeyEnv, f.KeyEnv)
-			} else if err != nil {
-				ci.why = err.Error()
-			}
-			ci.conn = conn
+			ci.conn, ci.why = pm.s.connectFile(f, bases)
 		}
 		out = append(out, ci)
 	}

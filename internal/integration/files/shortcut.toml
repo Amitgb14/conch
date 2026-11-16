@@ -1,0 +1,67 @@
+# Shortcut. A ticket is a story, named by its number; its status is its
+# workflow state, whose name is read from the workflows.
+format = 3
+kind = "tickets"
+name = "shortcut"
+label = "Shortcut"
+api = "https://api.app.shortcut.com/api/v3"
+key_env = "SHORTCUT_API_TOKEN"
+docs = "https://developer.shortcut.com/api/rest/v3"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Shortcut → Settings → Your Account → API Tokens: generate a token."
+note = "A story is named by its number: shortcut:123. Tie a project to it with [[trackers.projects]] tracker = \"shortcut\". Moving takes a workflow state's name (In Review, Done). A link is added as a comment."
+
+[auth]
+header = "Shortcut-Token"
+value = "{key}"
+
+[list]
+items = "data"
+key = "id"
+title = "name"
+description = "description"
+url = "app_url"
+status = "workflow_state_id"
+status_names = "{workflows.[*].states}"
+
+[[list.steps]]
+as = "workflows"
+call = "GET /workflows"
+
+[[list.steps]]
+call = "GET /search/stories?query=!is:done !is:archived&page_size=25&detail=full"
+
+[get]
+key = "id"
+title = "name"
+description = "description"
+url = "app_url"
+status = "workflow_state_id"
+status_names = "{workflows.[*].states}"
+comments = "comments[*deleted=false]"
+comment_body = "text"
+
+[[get.steps]]
+as = "workflows"
+call = "GET /workflows"
+
+[[get.steps]]
+call = "GET /stories/{ticket}"
+
+[comment]
+call = "POST /stories/{ticket}/comments"
+body = { text = "{body}" }
+
+[link]
+call = "POST /stories/{ticket}/comments"
+body = { text = "[{title}]({url})" }
+
+[[move.steps]]
+as = "state"
+call = "GET /workflows"
+pick = "[*].states[*name={status}]"
+
+[[move.steps]]
+call = "PUT /stories/{ticket}"
+body = { workflow_state_id = "{state.0.id}" }

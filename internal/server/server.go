@@ -38,6 +38,9 @@ const frameInterval = 33 * time.Millisecond
 
 // Server owns all panes on this machine.
 type Server struct {
+	// notifyWG counts notifications being sent through notify
+	// integrations, so a test can wait for them.
+	notifyWG sync.WaitGroup
 	// usage is what the agents here saved, read as it is asked for
 	// (usage.history.v1) and kept, so asking again reads only what is new.
 	usage *usage.History

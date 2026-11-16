@@ -23,7 +23,8 @@ func TestMain(m *testing.M) {
 	os.Setenv("CONCH_SECURITY", "/nonexistent/security")
 	// Nor a CI service with the developer's own key: a project here with
 	// a CircleCI or GitLab remote would otherwise be read for real.
-	for _, k := range []string{"CIRCLECI_TOKEN", "GITLAB_TOKEN", "BUILDKITE_TOKEN", "JENKINS_TOKEN", "JENKINS_USER"} {
+	for _, k := range []string{"CIRCLECI_TOKEN", "GITLAB_TOKEN", "BUILDKITE_TOKEN", "JENKINS_TOKEN", "JENKINS_USER",
+		"SHORTCUT_API_TOKEN", "SLACK_WEBHOOK_URL", "DISCORD_WEBHOOK_URL", "NTFY_TOPIC_URL"} {
 		os.Unsetenv(k)
 	}
 	os.Exit(m.Run())

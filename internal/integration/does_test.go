@@ -19,7 +19,7 @@ func TestDoes(t *testing.T) {
 	if got := levels(Does(KindCI, nil)); got != "no no no no built-in " {
 		t.Fatalf("nothing: %q", got)
 	}
-	if Does("tickets", []string{"list"}) != nil {
+	if Does(KindHost, []string{"list"}) != nil {
 		t.Fatal("a kind this conch does not describe yet")
 	}
 }

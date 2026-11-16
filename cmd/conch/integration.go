@@ -21,6 +21,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/integration"
+	"github.com/Amitgb14/conch/internal/tracker"
 )
 
 // conch integration: what conch talks to, besides itself. An integration
@@ -507,12 +508,16 @@ func usedHere(f *integration.File, dir string) string {
 	return ""
 }
 
-// liveCheckHere reads the runs of this project's branch with the key: one
-// read-only call that says the key and the file work.
+// liveCheckHere tries the key: a CI's runs of this project's branch and
+// a tracker's open tickets — one read-only call each — or, for a webhook,
+// a message saying it works, which is the only way to know it does.
 func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) string {
 	root, rem, branch := projectHere(ctx, dir)
-	if root == "" || !f.Uses(root, rem) {
+	if f.Kind == integration.KindCI && (root == "" || !f.Uses(root, rem)) {
 		return "not checked: run conch integration install from a project that uses it, or conch branch fix-ci there"
+	}
+	if f.Kind == integration.KindTickets && f.Project.ID != "" && rem.Host == "" {
+		return "not checked: run it from a project whose tickets these are"
 	}
 	cfg, _ := config.Load()
 	user := ""
@@ -523,7 +528,22 @@ func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) st
 	if err != nil {
 		return "not checked: " + err.Error()
 	}
-	runs, err := conn.Runs(ctx, integration.Target{Remote: rem, Branch: branch})
+	target := integration.Target{Remote: rem, Branch: branch}
+	switch f.Kind {
+	case integration.KindTickets:
+		list, err := conn.Tracker(target).List(ctx, tracker.ListOptions{Limit: 100})
+		if err != nil {
+			return "the check failed: " + err.Error()
+		}
+		return fmt.Sprintf("checked: read %d open tickets on %s", len(list), f.DisplayName())
+	case integration.KindNotify:
+		err := conn.Send(ctx, integration.Message{Title: "conch", Body: "Notifications through " + f.DisplayName() + " work."})
+		if err != nil {
+			return "the check failed: " + err.Error()
+		}
+		return "checked: sent a test message through " + f.DisplayName()
+	}
+	runs, err := conn.Runs(ctx, target)
 	if err != nil {
 		return "the check failed: " + err.Error()
 	}

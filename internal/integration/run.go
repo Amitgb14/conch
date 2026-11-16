@@ -21,6 +21,14 @@ var ErrNothing = errors.New("nothing there")
 // ErrNoKey means the integration's key is not set.
 var ErrNoKey = errors.New("no key")
 
+// StatusError is a reply the service answered with an error status.
+type StatusError struct {
+	Code int
+	msg  string
+}
+
+func (e *StatusError) Error() string { return e.msg }
+
 // maxReply is the most of one reply read; a log of a big suite runs to
 // megabytes, and the caller keeps only its end.
 const maxReply = 16 << 20
@@ -69,9 +77,13 @@ type Conn struct {
 }
 
 // Connect readies the file for calls. base replaces api ("" keeps it);
-// it must be https, or the file's api when there is no base.
+// it must be https, or the file's api when there is no base. For a file
+// whose key is a webhook's address, the key must be an https address on
+// that host: a key pointing anywhere else is refused, not sent to.
 func (f *File) Connect(key, user, base string) (*Conn, error) {
-	if f.Kind != KindCI {
+	switch f.Kind {
+	case KindCI, KindTickets, KindNotify:
+	default:
 		return nil, fmt.Errorf("%s: kind %q is not one this conch runs", f.Name, f.Kind)
 	}
 	key = strings.TrimSpace(key)
@@ -88,6 +100,16 @@ func (f *File) Connect(key, user, base string) (*Conn, error) {
 	}
 	if !webURL(base) {
 		return nil, fmt.Errorf("%s: %q is not an https:// URL", f.Name, base)
+	}
+	if f.urlAuth() {
+		// The address is the secret: what is wrong with it is said
+		// without it.
+		u, err := url.Parse(key)
+		b, _ := url.Parse(base)
+		if err != nil || !webURL(key) || u.User != nil || !strings.EqualFold(u.Host, b.Host) || u.Scheme != b.Scheme {
+			return nil, fmt.Errorf("%s: $%s is not an https address on %s", f.Name, f.KeyEnv, hostOf(base))
+		}
+		return &Conn{f: f, key: key, base: key}, nil
 	}
 	return &Conn{f: f, key: key, user: strings.TrimSpace(user), base: strings.TrimRight(base, "/")}, nil
 }
@@ -331,29 +353,54 @@ func joinLines(parts []string) string {
 // call makes a step's request to the API, with the key.
 func (c *Conn) call(ctx context.Context, s Step, vals map[string]any) ([]byte, error) {
 	method, target, _ := strings.Cut(strings.TrimSpace(s.Call), " ")
+	target = strings.TrimSpace(target)
 	path, query, _ := strings.Cut(target, "?")
 	p, err := fillPath(path, vals)
 	if err != nil {
 		return nil, err
 	}
-	if q := fillQuery(query, vals); q != "" {
-		p += "?" + q
+	q := fillQuery(query, vals)
+	addr := c.base + p
+	if q != "" {
+		addr += "?" + q
+	}
+	if c.f.urlAuth() {
+		// The webhook's own address, with what the call adds to it.
+		u, _ := url.Parse(c.base)
+		u.Path = strings.TrimRight(u.Path, "/") + p
+		if u.RawPath != "" {
+			u.RawPath = strings.TrimRight(u.RawPath, "/") + p
+		}
+		if q != "" {
+			if u.RawQuery != "" {
+				u.RawQuery += "&"
+			}
+			u.RawQuery += q
+		}
+		addr = u.String()
 	}
 	var body io.Reader
-	if s.Body != nil {
-		filled, _ := fillBody(s.Body, vals)
+	contentType := ""
+	switch b := s.Body.(type) {
+	case nil:
+	case string:
+		body, contentType = strings.NewReader(fillText(b, vals)), "text/plain; charset=utf-8"
+	default:
+		filled, _ := fillBody(b, vals)
 		enc, err := json.Marshal(filled)
 		if err != nil {
 			return nil, err
 		}
-		body = bytes.NewReader(enc)
+		body, contentType = bytes.NewReader(enc), "application/json"
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+p, body)
+	req, err := http.NewRequestWithContext(ctx, method, addr, body)
 	if err != nil {
-		return nil, err
+		return nil, scrub(err, c.key)
 	}
 	apiHost := req.URL.Host
 	switch c.f.Auth.Type {
+	case "url":
+		// The address carries it.
 	case "bearer":
 		req.Header.Set("Authorization", "Bearer "+c.key)
 	case "basic":
@@ -368,13 +415,24 @@ func (c *Conn) call(ctx context.Context, s Step, vals map[string]any) ([]byte, e
 	} else {
 		req.Header.Set("Accept", "application/json")
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	for name, tmpl := range s.Headers {
+		// A header is one line: what an agent wrote may hold several.
+		v := strings.Join(strings.Fields(fillText(tmpl, vals)), " ")
+		if v != "" {
+			req.Header.Set(name, v)
+		}
+	}
+	what := method + " " + path
+	if c.f.urlAuth() {
+		what = method + " " + req.URL.Host // never the address: it is the key
 	}
 	// The key may be in a header Go keeps across a redirect (anything but
-	// Authorization), so a redirect may not leave the API's own host and
-	// port.
-	return c.send(req, method+" "+path, func(u *url.URL) bool { return u.Host == apiHost && u.Scheme == req.URL.Scheme })
+	// Authorization), or be the address itself, so a redirect may not
+	// leave the API's own host and port.
+	return c.send(req, what, func(u *url.URL) bool { return u.Host == apiHost && u.Scheme == req.URL.Scheme })
 }
 
 // fetch reads a URL a reply handed back, from a follow host, without the
@@ -416,6 +474,10 @@ func (c *Conn) send(req *http.Request, what string, allowed func(*url.URL) bool)
 	}}
 	resp, err := hc.Do(req)
 	if err != nil {
+		var uerr *url.Error
+		if c.f.urlAuth() && errors.As(err, &uerr) {
+			err = uerr.Err // without the address, which is the key
+		}
 		return nil, fmt.Errorf("%s: %w", what, scrub(err, c.key))
 	}
 	defer resp.Body.Close()
@@ -438,7 +500,7 @@ func (c *Conn) send(req *http.Request, what string, allowed func(*url.URL) bool)
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			e += fmt.Sprintf(" (check $%s)", c.f.KeyEnv)
 		}
-		return nil, errors.New(e)
+		return nil, &StatusError{Code: resp.StatusCode, msg: e}
 	}
 	return data, nil
 }
@@ -542,7 +604,7 @@ func fillBody(v any, vals map[string]any) (any, bool) {
 		}
 		return out, true
 	case []any:
-		var out []any
+		out := []any{} // [] stays [], not null
 		for _, e := range x {
 			if f, ok := fillBody(e, vals); ok {
 				out = append(out, f)

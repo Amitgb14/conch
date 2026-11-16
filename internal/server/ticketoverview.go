@@ -11,6 +11,8 @@ import (
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/ghx"
+	"github.com/Amitgb14/conch/internal/gitx"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/tracker"
 )
@@ -81,11 +83,36 @@ func (s *Server) ticketOverview(op proto.TicketOverviewParams) (proto.TicketOver
 		// A tracker set up for no project in particular: its own group.
 		for _, name := range tracker.Configured(cfg.Trackers, s.trackerSecret) {
 			g := proto.TicketProject{Name: tracker.Title(name)}
-			s.trackerTickets(ctx, cfg.Trackers, name, tracker.Scope(cfg.Trackers, "", "", name), nil, limit, sched, panes, &g)
+			tr, err := tracker.Open(cfg.Trackers, name, s.trackerSecret)
+			s.trackerTickets(ctx, tr, err, name, tracker.Scope(cfg.Trackers, "", "", name), nil, limit, sched, panes, &g)
 			out.Projects = append(out.Projects, g)
 		}
 	}
+	if len(want) == 0 {
+		out.Projects = append(out.Projects, s.unboundFileTickets(ctx, cfg.Trackers, limit, sched, panes)...)
+	}
 	return out, nil
+}
+
+// unboundFileTickets are the tickets integrations set up — their key
+// there — that belong to no repository and no [[trackers.projects]]
+// entry names: a group each, as Linear on its own is.
+func (s *Server) unboundFileTickets(ctx context.Context, cfg config.TrackersCfg, limit int, sched []proto.ScheduledItem, panes []proto.PaneInfo) []proto.TicketProject {
+	named := map[string]bool{}
+	for _, e := range cfg.Projects {
+		named[strings.ToLower(strings.TrimSpace(e.Tracker))] = true
+	}
+	var out []proto.TicketProject
+	for _, f := range integration.Cached() {
+		if f.Kind != integration.KindTickets || f.Project.ID != "" || named[f.Name] || s.trackerSecret(f.KeyEnv) == "" {
+			continue
+		}
+		g := proto.TicketProject{Name: f.DisplayName(), Tickets: []proto.TicketRow{}}
+		tr, err := s.openFileTracker(ctx, f, "")
+		s.trackerTickets(ctx, tr, err, f.Name, "", nil, limit, sched, panes, &g)
+		out = append(out, g)
+	}
+	return out
 }
 
 // projectTickets is one project's GitHub issues and its tracker's tickets.
@@ -112,25 +139,45 @@ func (s *Server) projectTickets(ctx context.Context, cfg config.TrackersCfg, p *
 	default:
 		g.Errors = append(g.Errors, "GitHub: "+err.Error())
 	}
+	tied := ""
 	if e, ok := cfg.ForProject(info.Name, p.root); ok {
 		name := strings.ToLower(strings.TrimSpace(e.Tracker))
+		tied = name
 		area := e.Key
 		if area == "" {
 			area = tracker.Scope(cfg, info.Name, p.root, name)
 		}
-		s.trackerTickets(ctx, cfg, name, area, &info, limit, sched, panes, &g)
+		var tr tracker.Tracker
+		var err error
+		if f := ticketFile(name); f != nil {
+			tr, err = s.openFileTracker(ctx, f, p.root)
+		} else {
+			tr, err = tracker.Open(cfg, name, s.trackerSecret)
+		}
+		s.trackerTickets(ctx, tr, err, name, area, &info, limit, sched, panes, &g)
+	}
+	// A tracker the repository itself shows it uses — GitLab's issues for
+	// a GitLab remote — once its key is set; without the key it is not
+	// set up, and saying so for every such project would be noise.
+	rem, _ := integration.ParseRemote(gitx.RemoteURL(ctx, p.root))
+	for _, f := range integration.Cached() {
+		if f.Kind != integration.KindTickets || f.Name == tied || !f.Uses(p.root, rem) || s.trackerSecret(f.KeyEnv) == "" {
+			continue
+		}
+		tr, err := s.openFileTracker(ctx, f, p.root)
+		s.trackerTickets(ctx, tr, err, f.Name, "", &info, limit, sched, panes, &g)
 	}
 	return g
 }
 
-// trackerTickets adds a tracker's open tickets in area to g.
-func (s *Server) trackerTickets(ctx context.Context, cfg config.TrackersCfg, name, area string, info *proto.ProjectInfo, limit int, sched []proto.ScheduledItem, panes []proto.PaneInfo, g *proto.TicketProject) {
+// trackerTickets adds the open tickets in area of tr — the tracker name
+// opened, or why it could not be — to g.
+func (s *Server) trackerTickets(ctx context.Context, tr tracker.Tracker, err error, name, area string, info *proto.ProjectInfo, limit int, sched []proto.ScheduledItem, panes []proto.PaneInfo, g *proto.TicketProject) {
 	src := name
 	if area != "" {
 		src += " · " + area
 	}
 	g.Sources = append(g.Sources, src)
-	tr, err := tracker.Open(cfg, name, s.trackerSecret)
 	if err != nil {
 		g.Errors = append(g.Errors, err.Error())
 		return
@@ -153,7 +200,7 @@ func (s *Server) trackerTickets(ctx context.Context, cfg config.TrackersCfg, nam
 	}
 	for _, t := range list {
 		key := t.Key
-		row := proto.TicketRow{Source: name, Key: key, Title: t.Title, URL: t.URL, Status: t.Status, Mine: mine[key]}
+		row := proto.TicketRow{Source: name, Key: wireKey(name, key), Title: t.Title, URL: t.URL, Status: t.Status, Mine: mine[key]}
 		if id != "" {
 			row.Doing = doingFor(pi, id, func(it proto.TaskCreateParams) bool {
 				return strings.EqualFold(it.Ticket, key) || strings.HasSuffix(strings.ToLower(it.Ticket), ":"+strings.ToLower(key))
