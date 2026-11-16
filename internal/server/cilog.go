@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -269,9 +270,13 @@ func (pm *projectManager) integrationsOf(projectID string) (proto.IntegrationDet
 	}
 	p.mu.Unlock()
 	files := integration.Cached()
-	out := proto.IntegrationDetect{Integrations: []proto.IntegrationUse{}}
-	for _, d := range integration.Detected(p.root, rem, checks, files) {
-		u := proto.IntegrationUse{Name: d.Name, Label: d.Label, Kind: d.Kind, Why: d.Why, Installed: d.Installed}
+	out := proto.IntegrationDetect{Integrations: []proto.IntegrationUse{}, Team: teamOf(p.root)}
+	found := integration.Detected(p.root, rem, checks, files)
+	if out.Team != nil && out.Team.State == "used" {
+		found = integration.WithTeam(found, out.Team.Names, files)
+	}
+	for _, d := range found {
+		u := proto.IntegrationUse{Name: d.Name, Label: d.Label, Kind: d.Kind, Why: d.Why, Installed: d.Installed, Team: d.Why == integration.TeamFile}
 		switch d.Name {
 		case "github", integration.SourceActions:
 			u.Connected = true // through gh, whose login is its own
@@ -284,6 +289,16 @@ func (pm *projectManager) integrationsOf(projectID string) (proto.IntegrationDet
 			}
 		}
 		out.Integrations = append(out.Integrations, u)
+	}
+	for _, u := range pm.settingsUses(p.snapshot().Name, p.root) {
+		// Settings know a tracker's key and scope better than a name in
+		// the team file does.
+		if i := slices.IndexFunc(out.Integrations, func(o proto.IntegrationUse) bool { return o.Name == u.Name }); i >= 0 {
+			u.Team = out.Integrations[i].Team
+			out.Integrations[i] = u
+		} else {
+			out.Integrations = append(out.Integrations, u)
+		}
 	}
 	return out, nil
 }
