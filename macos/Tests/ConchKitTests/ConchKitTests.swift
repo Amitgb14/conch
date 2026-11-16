@@ -3693,3 +3693,11 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(!pasteStillWanted(asked: pa, now: nil), "freed while the question was up")
     #expect(!pasteStillWanted(asked: pa, now: pb), "replaced by another terminal")
 }
+
+@Test func paneIDChipSaysItWasCopied() {
+    #expect(paneIDChipText("p669", copied: false) == "p669")
+    #expect(paneIDChipText("p669", copied: true) == "✓ p669")
+    #expect(paneIDChipText("busybox:p3", copied: true) == "✓ busybox:p3")
+    #expect(paneIDChipText("", copied: true) == "✓ ")
+    #expect(paneIDCopiedFor > 0 && paneIDCopiedFor <= 3)
+}
