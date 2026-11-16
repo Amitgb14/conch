@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -321,6 +321,12 @@ const CapAutopilotNoteCI = "autopilot.note.ci.v1"
 // uses — its code host, every CI — why conch thinks so, and whether
 // something here reads each and has its key.
 const CapIntegrationDetect = "integration.detect.v1"
+
+// CapIntegrationTeam is integration.team, and integration.detect's Team:
+// a repository's .conch/integrations.toml (names only), read once the
+// person has said to use it, written when they tick "Save … for the team",
+// and the Tickets and Sandboxes rows of a project's integrations.
+const CapIntegrationTeam = "integration.team.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -710,6 +716,9 @@ const (
 	// MethodIntegrationDetect lists the services a project uses
 	// (CapIntegrationDetect).
 	MethodIntegrationDetect = "integration.detect"
+	// MethodIntegrationTeam answers a repository's team file, or writes
+	// or removes it (CapIntegrationTeam).
+	MethodIntegrationTeam = "integration.team"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -2152,11 +2161,45 @@ type IntegrationUse struct {
 	Connected bool   `json:"connected,omitempty"`
 	// KeyEnv is the variable its key is read from, for saying what to set.
 	KeyEnv string `json:"key_env,omitempty"`
+	// Team: the repository's .conch/integrations.toml names it
+	// (CapIntegrationTeam).
+	Team bool `json:"team,omitempty"`
 }
 
 // IntegrationDetect is what integration.detect answers.
 type IntegrationDetect struct {
 	Integrations []IntegrationUse `json:"integrations"`
+	// Team is the repository's .conch/integrations.toml, when it has one
+	// (CapIntegrationTeam).
+	Team *IntegrationTeam `json:"team,omitempty"`
+}
+
+// IntegrationTeam is a repository's .conch/integrations.toml. State is
+// "ask" until the person has answered whether to use what it names —
+// asked once per repository, and again only when it names something new —
+// then "used" or "ignored"; only a used file's names are in Integrations.
+type IntegrationTeam struct {
+	Path    string   `json:"path"`
+	Names   []string `json:"names,omitempty"`
+	State   string   `json:"state"`
+	Problem string   `json:"problem,omitempty"`
+}
+
+// The answers and acts of integration.team.
+const (
+	TeamUse    = "use"
+	TeamIgnore = "ignore"
+	TeamSave   = "save"
+	TeamRemove = "remove"
+)
+
+// IntegrationTeamParams: Action is TeamUse or TeamIgnore (the answer to
+// the file's question), TeamSave (write Names as the file) or TeamRemove
+// (delete it). It answers with the project's integrations afresh.
+type IntegrationTeamParams struct {
+	ProjectID string   `json:"project_id"`
+	Action    string   `json:"action"`
+	Names     []string `json:"names,omitempty"`
 }
 
 // BranchCIRerun says what was re-run.

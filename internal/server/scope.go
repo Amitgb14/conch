@@ -125,6 +125,9 @@ var scoped = map[string]scopeKind{
 	proto.MethodBranchMerge: scopeProject, proto.MethodBranchPRMerge: scopeProject, proto.MethodBranchDiscard: scopeProject, proto.MethodBranchGit: scopeProject,
 	// Running CI again spends the project's Actions minutes.
 	proto.MethodCIRerun: scopeProject, proto.MethodBranchCIRerun: scopeProject, proto.MethodBranchRebaseUndo: scopeProject, proto.MethodBranchResolving: scopeProject,
+	// Writing a file into the project, and answering for the person
+	// whether a repository's word about their keys is taken.
+	proto.MethodIntegrationTeam: scopeProject,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 	// The cloud agent decides what every agent's environment is given.
@@ -435,6 +438,7 @@ var verbs = map[string]string{
 	proto.MethodBranchCIRerun:    "re-run the CI of",
 	proto.MethodBranchRebaseUndo: "undo the rebase of",
 	proto.MethodBranchResolving:  "say who resolves",
+	proto.MethodIntegrationTeam:  "change which integrations it uses",
 	proto.MethodTicketUpdate:     "change a ticket",
 	proto.MethodAgentSkill:       "install or remove the agents' conch skill",
 	proto.MethodProjectFiles:     "change which local files a project copies into its worktrees",
