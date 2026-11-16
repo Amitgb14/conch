@@ -227,12 +227,17 @@ struct ChecksList: View {
                         .help(r.name + (r.state == "pass" ? " — passed" : r.state == "fail" ? " — failed" : " — running"))
                         .accessibilityLabel(r.name + (r.state == "pass" ? ", passed" : r.state == "fail" ? ", failed" : ", running"))
                     Spacer(minLength: 4)
+                    // Where it ran, as the pull request names it.
+                    let at = checkWhere(r)
+                    if !at.isEmpty {
+                        Text(at).font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                    }
                     if let u = r.url.flatMap(URL.init(string:)) {
                         Button { NSWorkspace.shared.open(u) } label: {
                             Image(systemName: "arrow.up.right.square").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                                 .padding(3).contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain).help("Open this check on GitHub")
+                        .buttonStyle(.plain).help("Open this check on " + (r.source.map(ciServiceLabel) ?? "GitHub"))
                     }
                 }
             }
@@ -240,6 +245,50 @@ struct ChecksList: View {
                 Text("and \(ordered.count - limit) more").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             }
         }
+    }
+}
+
+/// A red check conch cannot read (docs/plans/marketplace-mocks m4): what
+/// failed, that the agent was not sent its log, the one action that fixes
+/// it, and why conch thinks the project uses that service. Amber, since
+/// nothing is broken that installing an integration does not mend.
+struct CICardView: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: ChangesModel
+    let card: CICard
+    var compact = false
+
+    var body: some View {
+        let _ = look
+        let who = model.agent.map { $0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn).font(.ui(size: 12))
+                Text(card.text(agent: who)).font(.ui(size: compact ? 12 : 13)).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Button(card.install) { model.installCI() }
+                    .buttonStyle(.borderedProminent).tint(Theme.accentDeep).controlSize(.small)
+                    .disabled(!model.canInstallCI)
+                    .help(model.canInstallCI ? "Install the \(card.service) integration and give it its key" :
+                        "Its server reads these checks: run conch integration install \(card.name) on \(model.store?.label(model.machine) ?? model.machine)")
+                if let u = card.check.url.flatMap(URL.init(string:)) {
+                    Button(card.open) { NSWorkspace.shared.open(u) }.controlSize(.small)
+                }
+                Spacer(minLength: 6)
+                if let f = card.found, !compact {
+                    Text(f).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            if let f = card.found, compact {
+                Text(f).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .padding(compact ? 10 : 14)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warn.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.warn.opacity(0.6)))
+        .accessibilityElement(children: .contain)
+        .task(id: card.check.name) { await model.loadCIUses() }
     }
 }
 
@@ -296,6 +345,7 @@ struct GitOverview: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 banner
+                if let card = model.ciCard { CICardView(model: model, card: card) }
                 if let pr = info?.pr { pullRequest(pr) }
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
@@ -431,6 +481,10 @@ struct GitOverview: View {
                         Button(who.map { "Send the failure to \($0)" } ?? "Start an agent on the failure") { model.fixCI() }
                             .controlSize(.small)
                             .help("The failed run's log, sent to the branch's agent, as the review queue's Fix")
+                    }
+                    if ciCanRerun(pr) {
+                        Button("Re-run failed jobs") { model.rerunCI() }.controlSize(.small)
+                            .help("Run what failed again — on GitHub Actions, or through a CI integration that can")
                     }
                 }
             }
@@ -1299,6 +1353,7 @@ struct GitSide: View {
     func checks(_ pr: PRInfo) -> some View {
         let st = prStatus(pr, base: model.changes?.base ?? "the base", conflicts: model.baseConflicts, baseUnpushed: model.baseUnpushed)
         return GitCard(title: "Checks") {
+            if let card = model.ciCard { CICardView(model: model, card: card, compact: true) }
             HStack(spacing: 8) {
                 Image(systemName: pr.checks == "pass" ? "checkmark.circle.fill" : pr.checks == "fail" ? "xmark.circle.fill" : "clock")
                     .foregroundStyle(pr.checks == "pass" ? Theme.ok : pr.checks == "fail" ? Theme.err : Theme.work)
@@ -1312,6 +1367,10 @@ struct GitSide: View {
             if st.failing {
                 Button(model.agent.map { "Send the failure to \($0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name)" } ?? "Start an agent on the failure") { model.fixCI() }
                     .controlSize(.small)
+            }
+            if ciCanRerun(pr) {
+                Button("Re-run failed jobs") { model.rerunCI() }.controlSize(.small)
+                    .help("Run what failed again — on GitHub Actions, or through a CI integration that can")
             }
             if let u = pr.url.flatMap(URL.init(string:)) { Button("Open #\(pr.number) on GitHub") { NSWorkspace.shared.open(u) }.buttonStyle(.link).font(.ui(size: 12)) }
         }
