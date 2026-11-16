@@ -43,27 +43,45 @@ func (s *Server) trackerSecret(name string) string {
 
 // openTracker is the tracker for ref (a ticket) or want (a tracker's name,
 // for a list), as the project at p — nil for none — is set up, with the
-// team or project its tickets are listed from.
-func (s *Server) openTracker(p *project, ref, want string) (tracker.Tracker, string, *proto.Error) {
+// team or project its tickets are listed from and the key ref names. A
+// tickets integration is one too (integrations.go).
+func (s *Server) openTracker(p *project, ref, want string) (tracker.Tracker, string, string, *proto.Error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, "", proto.Errorf(proto.ErrBadRequest, "config.toml: %v", err)
+		return nil, "", "", proto.Errorf(proto.ErrBadRequest, "config.toml: %v", err)
 	}
 	name, root := "", ""
 	if p != nil {
 		name, root = p.snapshot().Name, p.root
 	}
+	want = strings.ToLower(strings.TrimSpace(want))
+	if f, key, ok := trackerFile(cfg.Trackers, name, root, ref, want); ok {
+		if ref != "" && key == "" {
+			return nil, "", "", proto.Errorf(proto.ErrBadRequest, "no ticket given")
+		}
+		ctx, cancel := trackerCtx()
+		defer cancel()
+		tr, err := s.openFileTracker(ctx, f, root)
+		if err != nil {
+			return nil, "", "", proto.Errorf(proto.ErrBadRequest, "%v", err)
+		}
+		return tr, tracker.Scope(cfg.Trackers, name, root, f.Name), key, nil
+	}
 	var which, scope string
-	if want = strings.ToLower(strings.TrimSpace(want)); want != "" && ref == "" {
+	if want != "" && ref == "" {
 		which, scope = want, tracker.Scope(cfg.Trackers, name, root, want)
 	} else if which, scope, err = tracker.Choose(cfg.Trackers, name, root, ref, s.trackerSecret); err != nil {
-		return nil, "", proto.Errorf(proto.ErrBadRequest, "%v", err)
+		return nil, "", "", proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	tr, err := tracker.Open(cfg.Trackers, which, s.trackerSecret)
 	if err != nil {
-		return nil, "", proto.Errorf(proto.ErrBadRequest, "%v", err)
+		return nil, "", "", proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
-	return tr, scope, nil
+	key := ""
+	if ref != "" {
+		_, key, _ = tracker.ParseRef(ref) // Choose has parsed it already
+	}
+	return tr, scope, key, nil
 }
 
 // ticketProject is the project a ticket method names, nil for none.
@@ -79,7 +97,7 @@ func trackerCtx() (context.Context, context.CancelFunc) {
 }
 
 func ticketInfo(t tracker.Ticket) proto.TicketInfo {
-	out := proto.TicketInfo{Tracker: t.Tracker, Key: t.Key, Title: t.Title, URL: t.URL, Status: t.Status, Body: t.Body}
+	out := proto.TicketInfo{Tracker: t.Tracker, Key: wireKey(t.Tracker, t.Key), Title: t.Title, URL: t.URL, Status: t.Status, Body: t.Body}
 	for _, c := range t.Comments {
 		out.Comments = append(out.Comments, proto.TicketComment{Author: c.Author, Body: c.Body})
 	}
@@ -94,7 +112,7 @@ func (s *Server) tickets(tp proto.TicketsParams) (proto.TicketList, *proto.Error
 	if perr != nil {
 		return proto.TicketList{}, perr
 	}
-	tr, scope, perr := s.openTracker(p, "", tp.Tracker)
+	tr, scope, _, perr := s.openTracker(p, "", tp.Tracker)
 	if perr != nil {
 		return proto.TicketList{}, perr
 	}
@@ -113,11 +131,10 @@ func (s *Server) tickets(tp proto.TicketsParams) (proto.TicketList, *proto.Error
 
 // readTicket opens the tracker for ref and reads the ticket.
 func (s *Server) readTicket(p *project, ref string) (tracker.Tracker, tracker.Ticket, *proto.Error) {
-	tr, _, perr := s.openTracker(p, ref, "")
+	tr, _, key, perr := s.openTracker(p, ref, "")
 	if perr != nil {
 		return nil, tracker.Ticket{}, perr
 	}
-	_, key, _ := tracker.ParseRef(ref) // Choose has parsed it already
 	ctx, cancel := trackerCtx()
 	defer cancel()
 	t, err := tr.Get(ctx, key)
@@ -150,11 +167,10 @@ func (s *Server) ticketUpdate(up proto.TicketUpdateParams) (proto.TicketInfo, *p
 	if perr != nil {
 		return proto.TicketInfo{}, perr
 	}
-	tr, _, perr := s.openTracker(p, up.Ticket, "")
+	tr, _, key, perr := s.openTracker(p, up.Ticket, "")
 	if perr != nil {
 		return proto.TicketInfo{}, perr
 	}
-	_, key, _ := tracker.ParseRef(up.Ticket)
 	ctx, cancel := trackerCtx()
 	defer cancel()
 	var done []string
@@ -185,7 +201,7 @@ func (s *Server) ticketUpdate(up proto.TicketUpdateParams) (proto.TicketInfo, *p
 	t, err := tr.Get(ctx, key)
 	if err != nil {
 		// Done, but not read back: say what is known.
-		return proto.TicketInfo{Tracker: tr.Name(), Key: key, Status: up.Status}, nil
+		return proto.TicketInfo{Tracker: tr.Name(), Key: wireKey(tr.Name(), key), Status: up.Status}, nil
 	}
 	return ticketInfo(t), nil
 }
@@ -205,7 +221,7 @@ func (s *Server) ticketTask(p *project, tp *proto.TaskCreateParams) *proto.Error
 
 // ticketPrompt is what the agent is told about a ticket.
 func ticketPrompt(t tracker.Ticket, extra string) string {
-	name := tracker.Title(t.Tracker)
+	name := trackerTitle(t.Tracker)
 	var b strings.Builder
 	fmt.Fprintf(&b, "Work on %s ticket %s: %s\n", name, t.Key, strings.TrimSpace(t.Title))
 	if t.URL != "" {

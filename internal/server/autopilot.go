@@ -872,6 +872,7 @@ func (s *Server) autopilotMerge(key string) {
 		}
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Merged: true,
 			Text: fmt.Sprintf("merged #%d on GitHub (%s), green", pr.Number, res.Method)})
+		s.notifyMerged(info.Name, branch, pr.Number, pr.URL)
 	}()
 }
 
