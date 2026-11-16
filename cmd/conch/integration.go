@@ -21,6 +21,8 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/integration"
+	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 	"github.com/Amitgb14/conch/internal/tracker"
 )
 
@@ -178,9 +180,6 @@ func integrationSearch(args []string) error {
 	var rows []row
 	for _, ix := range indexes(ctx, os.Stderr) {
 		for _, e := range ix.Search(strings.Join(fs.Args(), " ")) {
-			if e.Kind == integration.KindSandbox {
-				continue // conch sandbox provider search lists those
-			}
 			rows = append(rows, row{e, ix.Signed})
 		}
 	}
@@ -274,8 +273,18 @@ func integrationInfo(args []string) error {
 			source = "ships with conch"
 		}
 	}
+	installedHere := f != nil
+	if kind == integration.KindSandbox && sandbox.Known(name) {
+		// A provider conch has — built in, or a file here — is set up,
+		// whatever the registry lists of it.
+		installedHere, source = true, "built in"
+		if !sandbox.Builtin(name) {
+			source = "installed"
+		}
+		keyHelp = firstSetStr(keyHelp, "Its key goes in Settings → Sandboxes, or $"+keyEnv+".")
+	}
 	if *asJSON {
-		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: f != nil,
+		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: installedHere,
 			Does: integration.Does(kind, ops), Hosts: hosts, KeyEnv: keyEnv, KeyHelp: keyHelp, Note: note, Docs: docs}
 		if f != nil {
 			j.UserEnv, j.AuthType, j.Scopes, j.BaseURL = f.Auth.UserEnv, f.Auth.Type, f.Auth.Scopes, f.BaseURL
@@ -353,6 +362,15 @@ func integrationInstall(args []string) error {
 	}
 	if e.BuiltIn {
 		return fmt.Errorf("%s is built into conch: there is nothing to install (conch integration info %s says how to set it up)", e.DisplayName(), name)
+	}
+	if e.Kind == integration.KindSandbox {
+		// A sandbox provider installs as it always has, with its hosts and
+		// ssh said first; its key goes in Settings → Sandboxes.
+		pargs := []string{name}
+		if *yes {
+			pargs = []string{"-y", name}
+		}
+		return providerInstall(pargs)
 	}
 	if why := e.RevokedReason(e.Version); why != "" {
 		return fmt.Errorf("%s version %d is revoked: %s", name, e.Version, why)
@@ -616,6 +634,26 @@ func integrationList(args []string) error {
 			if keychainHere() {
 				r.State += ", nor in the Keychain"
 			}
+		}
+		rows = append(rows, r)
+	}
+	// Sandbox providers too, as conch sandbox providers sees them: built in,
+	// installed from a registry, or a file of the person's own.
+	installed, _ := sandbox.ReadInstalled()
+	for _, name := range sandbox.Names() {
+		r := lsRow{Name: name, Kind: integration.KindSandbox, Version: "-", Source: "built in", State: "ok"}
+		if !sandbox.Builtin(name) {
+			r.Source = "a file of your own"
+			if _, ok := installed[name]; ok {
+				r.Source = "registry"
+			}
+		}
+		p, err := remote.OpenProvider(name)
+		if err == nil {
+			err = p.Check()
+		}
+		if err != nil {
+			r.State = strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")
 		}
 		rows = append(rows, r)
 	}

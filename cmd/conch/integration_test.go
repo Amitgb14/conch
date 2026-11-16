@@ -506,3 +506,54 @@ func TestIntegrationBuiltInKeyAndInfo(t *testing.T) {
 		t.Fatalf("info github: %v", err)
 	}
 }
+
+// Sandbox providers are integrations too: listed by ls with their key's
+// state, by search from the registry, and installed by install through
+// the sandbox installer; one conch has is set up, whatever is listed.
+func TestIntegrationSandboxProviders(t *testing.T) {
+	integrationEnv(t)
+	for _, v := range []string{"DAYTONA_API_KEY", "BOAT_API_KEY", "DEVIN_API_KEY", "DEVIN_ORG_ID", "TENSORLAKE_API_KEY", "HCLOUD_TOKEN"} {
+		t.Setenv(v, "")
+	}
+	reg := serveRegistry(t)
+	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{
+		{Kind: "sandbox", Name: "hetzner", Label: "Hetzner Cloud", Version: 1, KeyEnv: "HCLOUD_TOKEN", File: "providers/hetzner.toml", Hosts: integration.Hosts{API: "api.hetzner.cloud"}},
+		{Kind: "sandbox", Name: "daytona", Label: "Daytona", Version: 1, KeyEnv: "DAYTONA_API_KEY", File: "providers/daytona.toml", Hosts: integration.Hosts{API: "app.daytona.io"}}}})
+	reg.mu.Lock()
+	reg.files["index.json"] = ix
+	reg.mu.Unlock()
+
+	out, _, err := a4Out(t, func() error { return runIntegration([]string{"ls", "-json"}) })
+	var got struct {
+		Integrations []lsRow `json:"integrations"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil {
+		t.Fatalf("ls: %s %v", out, err)
+	}
+	var daytona *lsRow
+	for i, r := range got.Integrations {
+		if r.Name == "daytona" {
+			daytona = &got.Integrations[i]
+		}
+	}
+	if daytona == nil || daytona.Kind != "sandbox" || daytona.Source != "built in" || !strings.Contains(daytona.State, "DAYTONA_API_KEY") {
+		t.Fatalf("daytona in ls: %+v", daytona)
+	}
+
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"search", "sandbox"}) })
+	if err != nil || !strings.Contains(out, "Hetzner Cloud") || !strings.Contains(out, "sandbox") {
+		t.Fatalf("search: %q %v", out, err)
+	}
+
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "daytona"}) })
+	var info infoJSON
+	if err != nil || json.Unmarshal([]byte(out), &info) != nil || !info.Installed || info.Source != "built in" || !strings.Contains(info.KeyHelp, "Settings → Sandboxes") {
+		t.Fatalf("info daytona: %s %v", out, err)
+	}
+
+	// Installing one goes to the sandbox installer: a built-in is said to
+	// be built in, as conch sandbox provider install says it.
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"install", "-y", "daytona"}) }); err == nil || !strings.Contains(err.Error(), "built into conch") {
+		t.Fatalf("install daytona: %v", err)
+	}
+}
