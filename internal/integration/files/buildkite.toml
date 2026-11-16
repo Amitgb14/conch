@@ -1,0 +1,64 @@
+# Buildkite. A run is a build of the branch at the pull request's head;
+# its failed log is each failed job's log, asked for as text.
+format = 3
+kind = "ci"
+name = "buildkite"
+label = "Buildkite"
+api = "https://api.buildkite.com"
+key_env = "BUILDKITE_TOKEN"
+docs = "https://buildkite.com/docs/apis/rest-api/builds"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Buildkite → Personal Settings → API Access Tokens, with read_builds and read_build_logs (write_builds to rebuild)."
+note = "Reads the organization and pipeline named as the repository's owner and name. A pipeline named otherwise needs a copy of this file with its own paths."
+
+[auth]
+type = "bearer"
+scopes = ["read_builds", "read_build_logs", "write_builds"]
+
+[detect]
+files = [".buildkite/pipeline.yml", ".buildkite/pipeline.yaml"]
+checks = ["buildkite/*"]
+
+[project]
+id = "{owner}/{repo}"
+
+[states]
+passed = "pass"
+failed = "fail"
+failing = "fail"
+running = "pending"
+scheduled = "pending"
+creating = "pending"
+blocked = "pending"
+canceling = "pending"
+canceled = "canceled"
+skipped = "canceled"
+not_run = "canceled"
+
+[runs]
+call = "GET /v2/organizations/{owner}/pipelines/{repo}/builds?branch={branch}&commit={head}&per_page=20"
+items = "[*]"
+id = "number"
+name = "{item.pipeline.name} #{item.number}"
+state = "state"
+commit = "commit"
+url = "web_url"
+started = "started_at"
+finished = "finished_at"
+
+[failed_log]
+job = "{jobs.0.name}"
+
+[[failed_log.steps]]
+as = "jobs"
+call = "GET /v2/organizations/{owner}/pipelines/{repo}/builds/{run}"
+pick = "jobs[*state=failed]"
+
+[[failed_log.steps]]
+each = "jobs"
+call = "GET /v2/organizations/{owner}/pipelines/{repo}/builds/{run}/jobs/{item.id}/log"
+text = "."
+
+[rerun]
+call = "PUT /v2/organizations/{owner}/pipelines/{repo}/builds/{run}/rebuild"

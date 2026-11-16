@@ -492,3 +492,111 @@ func TestFillers(t *testing.T) {
 		t.Fatal("times")
 	}
 }
+
+// fakeBuildkite answers as Buildkite's REST API documents
+// (buildkite.com/docs/apis/rest-api/builds and /jobs: builds by branch and
+// commit, a build's jobs, a job's log as text/plain, rebuild).
+func TestBuildkiteEndToEnd(t *testing.T) {
+	var rebuilt int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+testKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.Method + " " + r.URL.Path {
+		case "GET /v2/organizations/acme/pipelines/widgets/builds":
+			if r.URL.Query().Get("commit") != "abc" || r.URL.Query().Get("branch") != "rgw-fix" {
+				t.Errorf("builds asked as %s", r.URL.RawQuery)
+			}
+			io.WriteString(w, `[{"id": "b-uuid", "number": 57, "state": "failed", "commit": "abc", "web_url": "https://buildkite.com/acme/widgets/builds/57",
+			  "pipeline": {"name": "Widgets"}, "started_at": "2026-11-15T14:00:00.000Z", "finished_at": "2026-11-15T14:05:00.000Z"}]`)
+		case "GET /v2/organizations/acme/pipelines/widgets/builds/57":
+			io.WriteString(w, `{"number": 57, "jobs": [{"id": "j1", "name": ":go: test", "state": "failed"}, {"id": "j2", "name": "lint", "state": "passed"}, {"type": "waiter"}]}`)
+		case "GET /v2/organizations/acme/pipelines/widgets/builds/57/jobs/j1/log":
+			if !strings.Contains(r.Header.Get("Accept"), "text/plain") {
+				t.Errorf("a log asked for as %q", r.Header.Get("Accept"))
+			}
+			io.WriteString(w, "--- FAIL: TestWidget\n")
+		case "PUT /v2/organizations/acme/pipelines/widgets/builds/57/rebuild":
+			rebuilt++
+			io.WriteString(w, `{"number": 58}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	f := shipped(t, "buildkite")
+	f.API = srv.URL
+	c, err := f.Connect(testKey, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	runs, err := c.Runs(ctx, widgets)
+	if err != nil || len(runs) != 1 || runs[0].ID != "57" || runs[0].State != "fail" || runs[0].Name != "Widgets #57" ||
+		runs[0].Finished.Sub(runs[0].Started) != 5*time.Minute {
+		t.Fatalf("runs %+v %v", runs, err)
+	}
+	lg, err := c.FailedLog(ctx, widgets, "57")
+	if err != nil || lg.Job != ":go: test" || lg.Text != "--- FAIL: TestWidget\n" {
+		t.Fatalf("log %+v %v", lg, err)
+	}
+	if err := c.Rerun(ctx, widgets, "57"); err != nil || rebuilt != 1 {
+		t.Fatalf("rebuild: %v (%d)", err, rebuilt)
+	}
+}
+
+// fakeJenkins answers as Jenkins's remote access API documents
+// (jenkins.io/doc/book/using/remote-access-api: /api/json with tree,
+// consoleText), for a multibranch job, with basic auth.
+func TestJenkinsEndToEnd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != "amit" || pass != testKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/job/widgets/job/rgw-fix/api/json":
+			if !strings.HasPrefix(r.URL.Query().Get("tree"), "builds[number,result") {
+				t.Errorf("tree %q", r.URL.Query().Get("tree"))
+			}
+			io.WriteString(w, `{"builds": [
+			  {"number": 12, "result": null, "url": "https://ci.corp/job/widgets/job/rgw-fix/12/", "timestamp": 1763215200000, "actions": []},
+			  {"number": 11, "result": "FAILURE", "url": "https://ci.corp/job/widgets/job/rgw-fix/11/", "timestamp": 1763211600000,
+			   "actions": [{"_class": "hudson.model.CauseAction"}, {"_class": "hudson.plugins.git.util.BuildData", "lastBuiltRevision": {"SHA1": "abc"}}]}
+			]}`)
+		case "/job/widgets/job/rgw-fix/11/consoleText":
+			io.WriteString(w, "+ make test\nFAIL\nFinished: FAILURE\n")
+		default:
+			t.Errorf("unexpected %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	f := shipped(t, "jenkins")
+	if _, err := f.Connect(testKey, "amit", ""); err == nil {
+		t.Fatal("connected with no address for a file that asks for one")
+	}
+	if _, err := f.Connect(testKey, "", srv.URL); err == nil || !strings.Contains(err.Error(), "$JENKINS_USER") {
+		t.Fatalf("no user: %v", err)
+	}
+	c, err := f.Connect(testKey, "amit", srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	runs, err := c.Runs(ctx, widgets)
+	if err != nil || len(runs) != 2 || runs[0].State != "pending" || runs[1].ID != "11" || runs[1].State != "fail" ||
+		runs[1].Commit != "abc" || runs[1].Name != "widgets #11" || runs[1].Started.Unix() != 1763211600 {
+		t.Fatalf("runs %+v %v", runs, err)
+	}
+	lg, err := c.FailedLog(ctx, widgets, "11")
+	if err != nil || lg.Text != "+ make test\nFAIL\nFinished: FAILURE\n" {
+		t.Fatalf("log %+v %v", lg, err)
+	}
+	if err := c.Rerun(ctx, widgets, "11"); err == nil || !strings.Contains(err.Error(), "cannot re-run") {
+		t.Fatalf("rerun: %v", err)
+	}
+}

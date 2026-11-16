@@ -1,0 +1,46 @@
+# Jenkins, as a multibranch pipeline: a run is a build of the branch's
+# job; its failed log is the build's console. Jenkins runs on your own
+# machine, so its address is asked for.
+format = 3
+kind = "ci"
+name = "jenkins"
+label = "Jenkins"
+base_url = "ask"
+key_env = "JENKINS_TOKEN"
+docs = "https://www.jenkins.io/doc/book/using/remote-access-api/"
+adapted_by = "claude"
+adapted = "2026-11-15"
+key_help = "Jenkins → your name → Security → API Token → Add new token; the user name goes in $JENKINS_USER."
+note = "Give the address in config.toml: [integrations.base] jenkins = \"https://jenkins.example.com\". Reads the multibranch job named as the repository; a branch with / in its name is not found yet. Re-running depends on plugins (Rebuild, Replay), so this file does not."
+
+[auth]
+type = "basic"
+user_env = "JENKINS_USER"
+
+[detect]
+files = ["Jenkinsfile"]
+checks = ["continuous-integration/jenkins/*"]
+
+[project]
+id = "{repo}"
+
+[states]
+SUCCESS = "pass"
+FAILURE = "fail"
+UNSTABLE = "fail"
+ABORTED = "canceled"
+NOT_BUILT = "canceled"
+
+[runs]
+call = "GET /job/{project}/job/{branch}/api/json?tree=builds[number,result,url,timestamp,actions[_class,lastBuiltRevision[SHA1]]]{0,20}"
+items = "builds"
+id = "number"
+name = "{project} #{item.number}"
+state = "result"
+commit = "actions[_class=hudson.plugins.git.util.BuildData].lastBuiltRevision.SHA1"
+url = "url"
+started = "timestamp"
+
+[failed_log]
+call = "GET /job/{project}/job/{branch}/{run}/consoleText"
+text = "."

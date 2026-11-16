@@ -26,8 +26,11 @@ func TestCheckSource(t *testing.T) {
 		{"ci/circleci: build-and-test", "", nil, "circleci", false},        // known, nothing installed
 		{"build", "https://app.circleci.com/x", nil, "circleci", false},    // by its link alone
 		{"lint", "https://gitlab.com/grp/w/-/pipelines/41", shippedOnly, "gitlab-ci", true},
-		{"buildkite/widgets", "https://buildkite.com/acme/widgets/builds/9", shippedOnly, "buildkite", false},
+		{"buildkite/widgets", "https://buildkite.com/acme/widgets/builds/9", shippedOnly, "buildkite", true},
+		{"buildkite/widgets", "", nil, "buildkite", false},
+		{"Pipeline #12", "https://bitbucket.org/acme/widgets/pipelines/results/12", shippedOnly, "bitbucket-pipelines", false},
 		{"continuous-integration/jenkins/pr-merge", "https://ci.corp/job/widgets/PR-4/1/", nil, "jenkins", false},
+		{"continuous-integration/jenkins/pr-merge", "https://ci.corp/job/widgets/PR-4/1/", shippedOnly, "jenkins", true},
 		{"acme/unit", "https://ci.acme.dev/r/1", withAcme, "acme-ci", true}, // a file's checks glob
 		{"unit", "https://api.acme.dev/runs/1", withAcme, "acme-ci", true},  // its API's host
 		{"something", "https://ci.notacme.dev/x", withAcme, "", false},      // a look-alike host
