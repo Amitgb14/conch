@@ -311,6 +311,17 @@ public enum IntegrationCatalog {
         return out
     }
 
+    /// What an empty list says: a search that found nothing, else why
+    /// there is nothing (Verified, while no file has been checked live).
+    public static func emptyWords(filter: IntegrationFilter, query: String) -> String {
+        if !query.isEmpty { return "No integration matches." }
+        switch filter {
+        case .verified: return "None is verified yet: an integration is verified once it has been checked live against its service."
+        case .community: return "No community integration yet."
+        default: return "Nothing here yet."
+        }
+    }
+
     static let labels = ["github": "GitHub", "github-actions": "GitHub Actions", "github-issues": "GitHub Issues", "linear": "Linear", "jira": "Jira",
                          "circleci": "CircleCI", "gitlab-ci": "GitLab CI", "buildkite": "Buildkite", "jenkins": "Jenkins"]
     static let builtInSummary = [

@@ -198,13 +198,13 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
 @Test func integrationLogos() {
     for name in ["circleci", "gitlab-ci", "buildkite", "jenkins", "bitbucket-pipelines", "semaphore",
                  "github", "github-actions", "github-issues", "linear", "jira", "shortcut", "gitlab-issues",
-                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "devin", "boat", "daytona", "tensorlake"] {
+                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "devin", "boat", "daytona", "tensorlake", "instabox"] {
         let logo = IntegrationLogos.logo(name)
         #expect(logo != nil, "\(name) has no logo")
         #expect((IntegrationLogos.ops(name)?.count ?? 0) > 3, "\(name)'s path draws nothing")
         #expect(logo.flatMap { UInt32($0.hex, radix: 16) } != nil, "\(name)'s colour \(logo?.hex ?? "")")
     }
-    #expect(IntegrationLogos.logo("instabox") == nil && IntegrationLogos.ops("instabox") == nil)
+    #expect(IntegrationLogos.logo("acme-ci") == nil && IntegrationLogos.ops("acme-ci") == nil)
 }
 
 // Sandboxes and notifications are where work runs and what it tells you,
@@ -247,4 +247,12 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let cards = IntegrationCatalog.cards(here: here, listed: [], uses: [:])
     #expect(cards.first(where: { $0.name == "boat" })?.label == "boat.dev")
     #expect(cards.first(where: { $0.name == "instabox" })?.label == "instabox")
+}
+
+// An empty list says why: Verified is empty while nothing has been checked
+// live, which "Nothing here yet." did not say.
+@Test func integrationEmptyWords() {
+    #expect(IntegrationCatalog.emptyWords(filter: .verified, query: "").contains("checked live"))
+    #expect(IntegrationCatalog.emptyWords(filter: .all, query: "") == "Nothing here yet.")
+    #expect(IntegrationCatalog.emptyWords(filter: .verified, query: "zzz") == "No integration matches.")
 }

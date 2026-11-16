@@ -300,6 +300,8 @@ struct IntegrationsView: View {
                         .foregroundStyle(model.filter == f ? Theme.accent : Theme.text2)
                         .padding(.horizontal, 9).padding(.vertical, 3)
                         .overlay(Capsule().stroke(model.filter == f ? Theme.accent : Theme.line))
+                        // No focus ring: a square drawn round All read as a second choice.
+                        .focusable(false)
                 }
                 if model.loading { ProgressView().controlSize(.small) }
                 Button("Refresh") { model.load() }.disabled(model.loading)
@@ -329,7 +331,7 @@ struct IntegrationsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     let shown = model.shown
                     if shown.isEmpty && !model.loading {
-                        Text(model.query.isEmpty ? "Nothing here yet." : "No integration matches.").foregroundStyle(Theme.muted).padding(20)
+                        Text(IntegrationCatalog.emptyWords(filter: model.filter, query: model.query)).foregroundStyle(Theme.muted).padding(20)
                     }
                     ForEach(IntegrationKind.allCases, id: \.self) { k in
                         let of = shown.filter { $0.kind == k.rawValue }
