@@ -201,6 +201,36 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
     }
 }
 
+/// One of the registry's kinds — a folder of it — and what people call it,
+/// as `conch integration icons -json` gives them. A kind this conch has
+/// no code for is still listed; its cards say they need a newer conch.
+public struct IntegrationKindInfo: Decodable, Equatable, Hashable, Sendable {
+    public var kind: String
+    public var label: String
+    public var about: String?
+    public init(kind: String, label: String, about: String? = nil) {
+        self.kind = kind
+        self.label = label
+        self.about = about
+    }
+    /// Whether this conch reads integrations of this kind.
+    public var known: Bool { IntegrationKind(rawValue: kind) != nil }
+}
+
+/// The registry's kinds and each integration's icon, downloaded and
+/// checked by conch: `conch integration icons -json`.
+public struct IntegrationIcons: Decodable, Equatable, Sendable {
+    public var kinds: [IntegrationKindInfo]?
+    /// A file here for each integration that has an icon, by name.
+    public var icons: [String: String]?
+    public var cached: Bool?
+    public var problems: [String]?
+    public init(kinds: [IntegrationKindInfo]? = nil, icons: [String: String]? = nil) {
+        self.kinds = kinds
+        self.icons = icons
+    }
+}
+
 /// A card's standing: the chip in its footer.
 public enum IntegrationStanding: Equatable, Sendable {
     case builtIn, installed, verified(String), notChecked, revoked(String)
@@ -340,11 +370,22 @@ public enum IntegrationCatalog {
         "jira": "Tickets to tasks, comments and links.",
     ]
 
+    /// The kinds the sidebar lists, in order: the registry's, else conch's
+    /// own five (a conch whose registry predates kinds, or that has not
+    /// read it yet), then any kind a card has that neither names.
+    public static func kinds(_ registry: [IntegrationKindInfo]?, cards: [IntegrationCard]) -> [IntegrationKindInfo] {
+        var out = registry?.isEmpty == false ? registry! : IntegrationKind.allCases.map { IntegrationKindInfo(kind: $0.rawValue, label: $0.title, about: $0.purpose) }
+        for k in cards.map(\.kind) where !out.contains(where: { $0.kind == k }) {
+            out.append(IntegrationKindInfo(kind: k, label: k.prefix(1).uppercased() + k.dropFirst()))
+        }
+        return out
+    }
+
     /// The cards a filter, a kind (nil for every kind) and a search keep.
-    public static func filter(_ cards: [IntegrationCard], filter: IntegrationFilter, kind: IntegrationKind?, query: String) -> [IntegrationCard] {
+    public static func filter(_ cards: [IntegrationCard], filter: IntegrationFilter, kind: String?, query: String) -> [IntegrationCard] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return cards.filter { c in
-            if let k = kind, c.kind != k.rawValue { return false }
+            if let k = kind, c.kind != k { return false }
             switch filter {
             case .all: break
             case .verified: if case .verified = c.standing {} else { return false }
@@ -356,8 +397,8 @@ public enum IntegrationCatalog {
     }
 
     /// The sidebar's `installed / listed` for a kind.
-    public static func count(_ cards: [IntegrationCard], kind: IntegrationKind) -> (installed: Int, listed: Int) {
-        let of = cards.filter { $0.kind == kind.rawValue }
+    public static func count(_ cards: [IntegrationCard], kind: String) -> (installed: Int, listed: Int) {
+        let of = cards.filter { $0.kind == kind }
         return (of.filter(\.installed).count, of.count)
     }
 

@@ -53,7 +53,7 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let (here, listed, uses) = try decoded()
     let cards = IntegrationCatalog.cards(here: here, listed: listed, uses: uses)
     let names = { (f: IntegrationFilter, k: IntegrationKind?, q: String) in
-        IntegrationCatalog.filter(cards, filter: f, kind: k, query: q).map(\.name).sorted()
+        IntegrationCatalog.filter(cards, filter: f, kind: k?.rawValue, query: q).map(\.name).sorted()
     }
     #expect(names(.verified, nil, "") == ["semaphore"])
     #expect(names(.community, nil, "") == ["drone"])
@@ -62,9 +62,9 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(names(.all, nil, "circle") == ["circleci"])
     #expect(names(.all, nil, "  Jenk ") == ["jenkins"])
     #expect(names(.all, nil, "nothing") == [])
-    let ci = IntegrationCatalog.count(cards, kind: .ci)
+    let ci = IntegrationCatalog.count(cards, kind: "ci")
     #expect(ci.installed == 5 && ci.listed == 8)
-    #expect(IntegrationCatalog.count(cards, kind: .notify) == (0, 0))
+    #expect(IntegrationCatalog.count(cards, kind: "notify") == (0, 0))
 }
 
 @Test func integrationBanner() throws {
@@ -193,18 +193,18 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(!daytona.offersKey)
 }
 
-// Every integration conch ships or lists as built in has its own logo, a
-// path that draws and a brand colour; one with none keeps its initial.
-@Test func integrationLogos() {
-    for name in ["circleci", "gitlab-ci", "buildkite", "jenkins", "bitbucket-pipelines", "semaphore",
-                 "github", "github-actions", "github-issues", "linear", "jira", "shortcut", "gitlab-issues",
-                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "boat", "daytona", "tensorlake", "instabox"] {
-        let logo = IntegrationLogos.logo(name)
-        #expect(logo != nil, "\(name) has no logo")
-        #expect((IntegrationLogos.ops(name)?.count ?? 0) > 3, "\(name)'s path draws nothing")
-        #expect(logo.flatMap { UInt32($0.hex, radix: 16) } != nil, "\(name)'s colour \(logo?.hex ?? "")")
-    }
-    #expect(IntegrationLogos.logo("acme-ci") == nil && IntegrationLogos.ops("acme-ci") == nil)
+// The sidebar's kinds are the registry's, in its order with its names;
+// before it is read, conch's own five; and a kind only a card has is
+// listed too. A kind conch has no code for is not "known".
+@Test func integrationKindsFromTheRegistry() throws {
+    let icons = try JSONDecoder().decode(IntegrationIcons.self, from: Data(#"{"kinds":[{"kind":"ci","label":"CI","about":"checks"},{"kind":"deploy","label":"Deploys"}],"icons":{"circleci":"/h/icons/circleci-0123456789ab.svg"}}"#.utf8))
+    #expect(icons.icons?["circleci"]?.hasSuffix(".svg") == true)
+    let card = IntegrationCard(name: "drone", label: "Drone", kind: "build", source: "registry", installed: false, builtIn: false, standing: .notChecked, auth: "token", summary: "", usedIn: [], wanted: false)
+    let ks = IntegrationCatalog.kinds(icons.kinds, cards: [card])
+    #expect(ks.map(\.kind) == ["ci", "deploy", "build"] && ks[1].label == "Deploys" && ks[2].label == "Build")
+    #expect(ks[0].known && !ks[1].known)
+    let none = IntegrationCatalog.kinds(nil, cards: [])
+    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify"] && none[3].label == "Sandboxes")
 }
 
 // Sandboxes and notifications are where work runs and what it tells you,

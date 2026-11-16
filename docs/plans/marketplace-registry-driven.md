@@ -1,6 +1,14 @@
 # The catalog drawn from the registry
 
-Status: proposal, 2026-11-16. Nothing here is built yet.
+Status: built 2026-11-16 — conch-integrations PR #8 (icons for every
+kind, built-in icon folders, `kinds` from the folders) and this branch
+(`integration.FetchIcon`, the cached index, `conch integration icons`,
+Conch.app drawing them; `IntegrationLogos.swift` deleted).
+
+Decided by the owner: icons are `KIND/NAME/icon.svg` (or `.png`) files
+conch downloads and checks against the index's hash, not inlined; the
+compiled-in logo table is deleted, not kept as a fallback; the kinds are
+the registry's folders, a new folder a new kind.
 
 ## Why
 

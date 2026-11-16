@@ -59,13 +59,14 @@ final class IntegrationsWindow {
         show()
         model?.page = nil
         model?.only = nil
-        model?.section = .kind(kind)
+        model?.section = .kind(kind.rawValue)
     }
 }
 
 /// Which list the sidebar shows.
 enum IntegrationsSection: Hashable {
-    case discover, installed, kind(IntegrationKind)
+    /// A kind by its name: the registry's folders decide the kinds.
+    case discover, installed, kind(String)
 }
 
 @MainActor
@@ -85,13 +86,22 @@ final class IntegrationsModel: ObservableObject {
     @Published var loading = false
     @Published var failure = ""
     @Published var registryNote = ""
+    /// The registry's kinds and each integration's icon, as conch
+    /// downloaded them (conch integration icons).
+    @Published var icons: IntegrationIcons?
 
     init(store: Store) { self.store = store }
 
     var cards: [IntegrationCard] { IntegrationCatalog.cards(here: here, listed: listed, uses: uses) }
 
+    /// The sidebar's kinds: the registry's, in its order.
+    var kinds: [IntegrationKindInfo] { IntegrationCatalog.kinds(icons?.kinds, cards: cards) }
+
+    /// An integration's icon, as a file here.
+    func icon(_ name: String) -> String? { icons?.icons?[name] }
+
     var shown: [IntegrationCard] {
-        var kind: IntegrationKind?
+        var kind: String?
         var cs = cards
         switch section {
         case .discover: break
@@ -125,6 +135,11 @@ final class IntegrationsModel: ObservableObject {
                 registryNote = "The registries could not be read: \(error)"
             }
             await detect()
+            // Icons last: the cards are already up, and draw them once here.
+            if let out = try? await runConch(bin, ["integration", "icons", "-json"]),
+               let got = try? JSONDecoder().decode(IntegrationIcons.self, from: out) {
+                icons = got
+            }
         }
     }
 
@@ -251,9 +266,9 @@ struct IntegrationsView: View {
                 item("Discover", .discover, nil)
                 item("Installed", .installed, cards.filter(\.installed).count)
                 heading("Kinds")
-                ForEach(IntegrationKind.allCases, id: \.self) { k in
-                    let n = IntegrationCatalog.count(cards, kind: k)
-                    item(k.title, .kind(k), nil, note: "\(n.installed) / \(n.listed)")
+                ForEach(model.kinds, id: \.kind) { k in
+                    let n = IntegrationCatalog.count(cards, kind: k.kind)
+                    item(k.label, .kind(k.kind), nil, note: "\(n.installed) / \(n.listed)")
                 }
                 heading("Registry")
                 Text("conch-integrations").font(.ui(size: 12.5)).foregroundStyle(Theme.text2).padding(.horizontal, 9).padding(.vertical, 5)
@@ -336,12 +351,12 @@ struct IntegrationsView: View {
                     if shown.isEmpty && !model.loading {
                         Text(IntegrationCatalog.emptyWords(filter: model.filter, query: model.query)).foregroundStyle(Theme.muted).padding(20)
                     }
-                    ForEach(IntegrationKind.allCases, id: \.self) { k in
-                        let of = shown.filter { $0.kind == k.rawValue }
+                    ForEach(model.kinds, id: \.kind) { k in
+                        let of = shown.filter { $0.kind == k.kind }
                         if !of.isEmpty {
-                            (Text(k.title).bold() + Text("  " + k.purpose).foregroundColor(Theme.muted)).font(.ui(size: 12.5))
+                            (Text(k.label).bold() + Text("  " + (k.about ?? "")).foregroundColor(Theme.muted)).font(.ui(size: 12.5))
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                                ForEach(of) { c in IntegrationCardView(card: c) { model.open(c) } }
+                                ForEach(of) { c in IntegrationCardView(card: c, icon: model.icon(c.name), newer: !k.known) { model.open(c) } }
                             }
                         }
                     }
@@ -356,6 +371,10 @@ struct IntegrationsView: View {
 /// A card: its mark, name, kind and source, what it does, and its chips.
 struct IntegrationCardView: View {
     let card: IntegrationCard
+    /// Its icon, as a file here.
+    var icon: String?
+    /// Of a kind this conch has no code for: shown, not installable.
+    var newer = false
     let open: () -> Void
     @Environment(\.conchTheme) private var theme
 
@@ -364,7 +383,7 @@ struct IntegrationCardView: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 9) {
-                    IntegrationMark(name: card.name, label: card.label, size: 34)
+                    IntegrationMark(label: card.label, icon: icon, size: 34)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(card.label).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
                         Text("\(kindWord(card.kind)) · \(card.source)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
@@ -375,10 +394,14 @@ struct IntegrationCardView: View {
                 }
                 .font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(3).frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
                 HStack(spacing: 5) {
-                    chip(card.standing.words, standingColor)
-                    chip(card.auth, Theme.muted)
+                    if newer {
+                        chip("needs a newer conch", Theme.muted)
+                    } else {
+                        chip(card.standing.words, standingColor)
+                        chip(card.auth, Theme.muted)
+                    }
                     Spacer()
-                    if !card.installed || card.wanted {
+                    if !newer && (!card.installed || card.wanted) {
                         Text(card.installed ? "Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
                             .foregroundStyle(card.wanted ? Color.white : Theme.text)
                             .padding(.horizontal, 10).padding(.vertical, 3)
@@ -420,27 +443,42 @@ func kindWord(_ kind: String) -> String {
     }
 }
 
-/// A service's mark: its own logo, white on a rounded square in its brand
-/// colour (IntegrationLogos), or its initial where conch has no logo.
+/// A service's mark: its own icon, from the registry (conch integration
+/// icons downloads and checks it), or its initial where it has none.
 struct IntegrationMark: View {
-    let name: String
     let label: String
+    /// The icon's file here.
+    let icon: String?
     let size: CGFloat
     @Environment(\.conchTheme) private var theme
 
     var body: some View {
         let _ = theme
-        let logo = IntegrationLogos.logo(name)
-        return RoundedRectangle(cornerRadius: size * 0.24).fill(logo.flatMap { UInt32($0.hex, radix: 16) }.map { Color(nsColor: NSColor(hex: $0)) } ?? Theme.raise)
+        return RoundedRectangle(cornerRadius: size * 0.24).fill(Theme.raise)
             .frame(width: size, height: size)
             .overlay {
-                if let ops = IntegrationLogos.ops(name) {
-                    Lucide(ops: ops).fill(.white, style: FillStyle(eoFill: logo?.evenOdd ?? false))
-                        .frame(width: size * 0.58, height: size * 0.58)
+                if let img = IntegrationIconCache.image(icon) {
+                    Image(nsImage: img).resizable().interpolation(.high).scaledToFit()
+                        .frame(width: size, height: size)
+                        .clipShape(RoundedRectangle(cornerRadius: size * 0.24))
                 } else {
                     Text(String(label.prefix(1)).uppercased()).font(.ui(size: size * 0.45, weight: .bold)).foregroundStyle(Theme.text2)
                 }
             }
+    }
+}
+
+/// Icons read once: a card is drawn on every redraw of the grid. A file is
+/// named by its hash, so a new icon is a new path.
+@MainActor
+enum IntegrationIconCache {
+    private static var images: [String: NSImage] = [:]
+    static func image(_ path: String?) -> NSImage? {
+        guard let path else { return nil }
+        if let i = images[path] { return i }
+        guard let i = NSImage(contentsOfFile: path) else { return nil }
+        images[path] = i
+        return i
     }
 }
 
@@ -461,7 +499,7 @@ struct IntegrationPage: View {
                         .background(RoundedRectangle(cornerRadius: 7).fill(Theme.err))
                 }
                 HStack(alignment: .center, spacing: 12) {
-                    IntegrationMark(name: info.name, label: info.label, size: 52)
+                    IntegrationMark(label: info.label, icon: model.icon(info.name), size: 52)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(info.label).font(.ui(size: 20, weight: .semibold))
                         Text(subtitle).font(.ui(size: 12)).foregroundStyle(Theme.muted)

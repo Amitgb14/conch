@@ -107,6 +107,8 @@ The full list is in the [command line](/docs/cli#integration) reference.
 
 Integrations are published to a registry: a GitHub repository whose CI publishes an index of the files, and the files themselves. Each version is pinned by its hash and never replaced. When conch knows a registry's key, its index must be signed (`index.json.sig`, ed25519), or nothing is read from it. An index read without a key is marked *unsigned*. A registry can revoke a version. conch then stops using it and `conch integration ls` says why.
 
+The registry also decides what the catalog shows: its top-level folders are the kinds (Code hosts, CI, Sandboxes…, named in its `kinds.json`), and each integration's folder holds its icon. conch downloads an icon once, checks it against the index's hash and keeps it; `conch integration icons` lists them. A kind this conch has no code for is shown as needing a newer conch.
+
 Your company can run its own registry:
 
 ```toml
