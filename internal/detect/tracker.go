@@ -157,6 +157,9 @@ func hookState(ev HookEvent) (state string, ok bool) {
 		return "", false
 	case "Stop", "StopFailure":
 		return StateIdle, true
+	// Codex: stopped by the person, which ends the turn.
+	case "Interrupt":
+		return StateIdle, true
 
 	// Gemini CLI hooks.
 	case "BeforeAgent", "BeforeTool", "AfterTool", "BeforeModel", "PreCompress":

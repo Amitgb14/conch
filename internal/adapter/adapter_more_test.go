@@ -135,10 +135,11 @@ func TestA6CommandShapes(t *testing.T) {
 	reg, dir := a6Registry(t)
 	codex, _ := reg.Get("codex")
 	cmd := codex.Command("/bin/bash", "   ")
-	if len(cmd) != 3 || cmd[0] != "/bin/bash" || cmd[1] != "-lc" || cmd[2] != `PATH="$HOME/.local/bin:$PATH"; exec codex` {
+	hooks := codexHooksFlag("/usr/local/bin/conch")
+	if len(cmd) != 3 || cmd[0] != "/bin/bash" || cmd[1] != "-lc" || cmd[2] != `PATH="$HOME/.local/bin:$PATH"; exec codex `+hooks {
 		t.Fatalf("codex command: %q", cmd)
 	}
-	if cmd := codex.Command("sh", " --full-auto "); cmd[2] != `PATH="$HOME/.local/bin:$PATH"; exec codex --full-auto` {
+	if cmd := codex.Command("sh", " --full-auto "); cmd[2] != `PATH="$HOME/.local/bin:$PATH"; exec codex `+hooks+` --full-auto` {
 		t.Fatalf("codex with args: %q", cmd)
 	}
 	opencode, _ := reg.Get("opencode")

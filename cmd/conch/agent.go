@@ -123,7 +123,7 @@ func agentInstall(agent string) error {
 // (some agents read hook output as instructions), always exits 0, and gives
 // up quickly. Outside a conch pane it does nothing.
 //
-//	conch report claude-hook | gemini-hook   (hook JSON on stdin)
+//	conch report claude-hook | gemini-hook | codex-hook   (hook JSON on stdin)
 //	conch report opencode EVENT              (from conch's OpenCode plugin)
 func runReport(args []string) {
 	if len(args) > 0 && args[0] == "claude-status" {
@@ -138,7 +138,7 @@ func runReport(args []string) {
 	switch {
 	case args[0] == "opencode" && len(args) >= 2:
 		params.Agent, params.Event = "opencode", args[1]
-	case args[0] == "claude-hook" || args[0] == "gemini-hook":
+	case args[0] == "claude-hook" || args[0] == "gemini-hook" || args[0] == "codex-hook":
 		var in struct {
 			Event            string          `json:"hook_event_name"`
 			SessionID        string          `json:"session_id"`
