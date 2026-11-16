@@ -88,7 +88,7 @@ func New(exe, dir string) (Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := Registry{claude, newCodex(), gemini, opencode, newDevin(), newCopilot(), newCline(), newQwen(), newGoose()}
+	r := Registry{claude, newCodex(exe), gemini, opencode, newDevin(), newCopilot(), newCline(), newQwen(), newGoose()}
 	// Agents described by a manifest come after the supported ones, in the
 	// order their files sort. A manifest that cannot be read is reported
 	// and skipped: one bad file must not cost the agents around it.
@@ -375,12 +375,14 @@ echo "Start it from conch and log in: open the link it shows on any computer and
 
 // ---- Codex ----
 
-// newCodex launches OpenAI's Codex CLI. Its per-launch hooks need a trust
-// bypass and its notify setting would replace the user's own, so conch
-// injects nothing and reads the terminal title and screen instead.
-func newCodex() *cliAgent {
+// newCodex launches OpenAI's Codex CLI with conch's hooks given for that
+// launch alone (codexHooksFlag), which Codex adds to the person's own.
+// Where Codex runs no hooks — an older one, or hooks turned off — conch
+// reads the terminal title and screen, as it always has.
+func newCodex(exe string) *cliAgent {
 	return &cliAgent{
 		name: "codex", label: "Codex", binary: "codex",
+		flags:  codexHooksFlag(exe),
 		resume: "resume %s", resumeLast: "resume --last",
 		dirs: []string{"$HOME/.local/bin"},
 		install: withDownloader("Codex", "https://chatgpt.com/codex/install.sh", "sh", "CODEX_NON_INTERACTIVE=1") + `
