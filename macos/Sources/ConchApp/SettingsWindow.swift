@@ -660,7 +660,7 @@ struct SectionForm: View {
                 // config.toml's part, and alone the page read as empty.
                 Button { model.store.openIntegrations() } label: {
                     HStack(spacing: 12) {
-                        LucideIcon("server", color: Theme.accent, size: 16)
+                        LucideIcon("blocks", color: Theme.accent, size: 16)
                             .frame(width: 32, height: 32).background(RoundedRectangle(cornerRadius: 8).fill(Theme.accentDeep.opacity(0.3)))
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Browse integrations").font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text)

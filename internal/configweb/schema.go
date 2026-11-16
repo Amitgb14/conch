@@ -322,7 +322,7 @@ func Schema(c Choices) []Section {
 			Fields: []Field{
 				{Key: "", Label: "Providers", Kind: KindKeyed, KeyLabel: "Provider", Fields: provider, Suggest: c.Providers},
 			}},
-		{ID: "integrations", Key: "integrations", Title: "Integrations", Icon: "server", Description: "Where integration files come from, and the address of a service you run yourself.",
+		{ID: "integrations", Key: "integrations", Title: "Integrations", Icon: "blocks", Description: "Where integration files come from, and the address of a service you run yourself.",
 			Fields: []Field{
 				{Key: "registries", Label: "Registries", Kind: KindTables, Help: "Registries besides conch's own; each is trusted by its key, and an index it has not signed is said to be unsigned.", Fields: []Field{
 					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "acme"},
@@ -391,10 +391,10 @@ func cloudSection(on bool) Section {
 	enabled := Field{Key: "enabled", Label: "Enabled", Kind: KindBool,
 		Help: "Offers Conch Cloud: conch login, cloud machines, and moving a project to one. Not enabled in this release; CONCH_CLOUD=1 or 0 in the environment overrides this."}
 	if !on {
-		return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server",
+		return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "cloud",
 			Description: "Not enabled in this release. Turn it on to try it.", Fields: []Field{enabled}}
 	}
-	return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "server", Description: "Cloud machines that keep your agents working with the laptop closed.",
+	return Section{ID: "cloud", Key: "cloud", Title: "Conch Cloud", Icon: "cloud", Description: "Cloud machines that keep your agents working with the laptop closed.",
 		Fields: []Field{
 			enabled,
 			{Key: "api", Label: "Server", Kind: KindString, Placeholder: "https://api.cloud.conch.dev",
