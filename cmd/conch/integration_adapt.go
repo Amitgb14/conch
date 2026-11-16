@@ -236,7 +236,7 @@ func integrationAdapt(args []string) error {
 	}
 	c, ok := integration.Contract(k)
 	if !ok {
-		return fail(fmt.Errorf("this conch reads no %s integration files yet: it reads ci files (and sandbox providers, with -kind sandbox)", k))
+		return fail(fmt.Errorf("this conch reads no %s integration files yet: it reads ci, tickets and notify files (and sandbox providers, with -kind sandbox)", k))
 	}
 	if fs.NArg() == 0 {
 		return usage

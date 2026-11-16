@@ -381,8 +381,7 @@ func TestIntegrationAdaptRefusals(t *testing.T) {
 		want string
 	}{
 		{[]string{"adapt"}, "usage"},
-		{[]string{"adapt", "-kind", "tickets", site.URL}, "no tickets integration files yet"},
-		{[]string{"adapt", "-kind", "notify", site.URL}, "no notify integration files yet"},
+		{[]string{"adapt", "-kind", "host", site.URL}, "no host integration files yet"},
 		{[]string{"adapt", "-kind", "weird", site.URL}, "kind"},
 		{[]string{"adapt", "-name", "Bad Name", site.URL}, "not an integration name"},
 		{[]string{"adapt", "http://10.0.0.1:8080/x"}, "say it with -name"},

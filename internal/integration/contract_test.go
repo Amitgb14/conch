@@ -23,7 +23,23 @@ func TestContract(t *testing.T) {
 	if again, _ := Contract(KindCI); again.Required[0] != "runs" {
 		t.Fatal("the contract was changed through its copy")
 	}
-	for _, k := range []string{"", KindTickets, KindNotify, KindHost, KindSandbox, "nope"} {
+	// Tickets and notifications have contracts of their own since T12, each
+	// operation said in words for the agent adapting one.
+	for kind, want := range map[string][]string{KindTickets: {"[list] (required)", "[get] (required)", "[mine]", "[comment]", "[link]", "[move]"}, KindNotify: {"[send] (required)"}} {
+		c, ok := Contract(kind)
+		if !ok {
+			t.Fatalf("%s: no contract", kind)
+		}
+		for _, w := range want {
+			if !strings.Contains(c.Text, w) {
+				t.Errorf("%s: no %q in\n%s", kind, w, c.Text)
+			}
+		}
+		if strings.Contains(c.Text, "]: \n") || strings.Contains(c.Text, "(required): \n") {
+			t.Errorf("%s: an operation with no words:\n%s", kind, c.Text)
+		}
+	}
+	for _, k := range []string{"", KindHost, KindSandbox, "nope"} {
 		if _, ok := Contract(k); ok {
 			t.Errorf("%q has a contract in this conch", k)
 		}

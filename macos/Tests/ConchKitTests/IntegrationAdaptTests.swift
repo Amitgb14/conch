@@ -30,9 +30,11 @@ import Testing
     f.anyway = true
     if case .success(let a) = f.arguments() { #expect(a.contains("-new")) } else { Issue.record("anyway") }
     // Kinds conch does not adapt yet, and a docs address that is not one.
-    for k in [IntegrationKind.host, .tickets, .notify] {
+    f.kind = .host
+    if case .success = f.arguments() { Issue.record("a code host adapted") }
+    for k in [IntegrationKind.tickets, .notify] {
         f.kind = k
-        if case .success = f.arguments() { Issue.record("\(k) adapted") }
+        if case .failure(let e) = f.arguments() { Issue.record("\(k) refused: \(e)") }
     }
     f.kind = .ci
     for bad in ["", "docs.semaphoreci.com", "ftp://x.test/a", "https://"] {

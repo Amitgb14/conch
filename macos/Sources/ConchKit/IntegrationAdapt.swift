@@ -20,7 +20,7 @@ public struct IntegrationAdaptForm: Equatable, Sendable {
     public init() {}
 
     /// The kinds this conch adapts; the others are shown, and say so.
-    public static let adaptable: Set<IntegrationKind> = [.ci, .sandbox]
+    public static let adaptable: Set<IntegrationKind> = [.ci, .tickets, .notify, .sandbox]
 
     /// The integration's name: the service as typed, made a name, else
     /// the docs' host as conch reads it (docs.semaphoreci.com is semaphoreci).
@@ -35,7 +35,7 @@ public struct IntegrationAdaptForm: Equatable, Sendable {
 
     public func arguments() -> Result<[String], NewSandboxError> {
         guard Self.adaptable.contains(kind) else {
-            return .failure(.problem("conch adapts CI services and sandbox providers so far; \(kind.title.lowercased()) are still to come"))
+            return .failure(.problem("conch adapts CI services, ticket trackers, notifications and sandbox providers so far; \(kind.title.lowercased()) are still to come"))
         }
         let u = docs.trimmingCharacters(in: .whitespaces)
         guard let parsed = URL(string: u), let scheme = parsed.scheme, ["http", "https"].contains(scheme), parsed.host != nil else {

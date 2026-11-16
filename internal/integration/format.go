@@ -230,6 +230,13 @@ var opPurpose = map[string]string{
 	"failed_log": "what a failed run printed, {run} its id: the text a branch's agent is sent",
 	"rerun":      "re-run what failed in run {run}",
 	"stats":      "recent runs with their durations, for the CI panel",
+	"list":       "the open tickets, {scope} the team or project and {limit} how many: the Tickets view",
+	"mine":       "as list, the open tickets assigned to the key's person",
+	"get":        "one ticket, {ticket}, with its comments: a task's prompt",
+	"comment":    "add {body} as a comment on ticket {ticket}",
+	"link":       "attach {url} (titled {title}) to ticket {ticket}: a branch or pull request",
+	"move":       "move ticket {ticket} to {status}, as the person typed it",
+	"send":       "send {title}, {body} and {url}: an agent waiting or done, a pull request merged",
 }
 
 // KindContract is what a kind's file fills, for whoever writes one.
