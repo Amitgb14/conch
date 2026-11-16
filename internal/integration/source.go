@@ -42,6 +42,9 @@ func Label(source string, files []*File) string {
 			return k.label
 		}
 	}
+	if b, ok := builtins[source]; ok {
+		return b.label
+	}
 	return source
 }
 
