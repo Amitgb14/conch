@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -228,6 +229,29 @@ func BundleAll(ctx context.Context, root, file string) error {
 	return err
 }
 
+// bundleObjectFormat is the hash a bundle's objects are named by. A v3
+// bundle says so in an @object-format line of its header; one that does
+// not, and every v2 bundle, is SHA-1. The header ends at its first empty
+// line, before the pack.
+func bundleObjectFormat(file string) string {
+	f, err := os.Open(file)
+	if err != nil {
+		return "sha1"
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" {
+			break
+		}
+		if v, ok := strings.CutPrefix(line, "@object-format="); ok && v != "" {
+			return v
+		}
+	}
+	return "sha1"
+}
+
 // InitFromBundle makes dir, which must not exist yet or be empty, a new
 // repository holding every branch and tag of bundle, with branch checked
 // out — or, when it has no such branch, its first. It has no remote: a
@@ -236,7 +260,10 @@ func InitFromBundle(ctx context.Context, bundle, dir, branch string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	if _, err := run(ctx, dir, "init", "-q"); err != nil {
+	// The new repository takes the bundle's hash, not this git's default:
+	// SHA-1 objects cannot be fetched into a SHA-256 repository, and git 3
+	// makes SHA-256 ones.
+	if _, err := run(ctx, dir, "init", "-q", "--object-format="+bundleObjectFormat(bundle)); err != nil {
 		return err
 	}
 	if _, err := run(ctx, dir, "bundle", "verify", "-q", bundle); err != nil {

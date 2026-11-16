@@ -204,7 +204,8 @@ func (s *Server) noteOnce(key, what, text string, isErr bool) {
 		return
 	}
 	projectID, branch, _ := strings.Cut(key, "\x00")
-	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text, Error: isErr})
+	kind := map[string]string{"check": proto.ActivityCheck, "ready": proto.ActivityShip, "resolve": proto.ActivityResolve}[what]
+	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text, Error: isErr, Kind: kind})
 }
 
 // unsay forgets the last thing said about a branch's what, so it is said
@@ -267,6 +268,9 @@ func (s *Server) askToResolve(p *project, branch string, rw rewrite, files []str
 		note(fmt.Sprintf("%s conflicts with %s, and asking %s to resolve it failed: %s", branch, rw.Base, agent.DisplayName(), perr.Message), true)
 		return
 	}
+	ask := newAsk(ctx, p, branch, wt.Path, agent.ID, "autopilot")
+	ask.Files = files // what the rebase onto the remote's base stopped on
+	s.projects.noteResolveAsk(p, branch, ask)
 	note(fmt.Sprintf("%s conflicts with %s in %s: asked %s to resolve it", branch, rw.Base, strings.Join(files, ", "), agent.DisplayName()), false)
 }
 
@@ -338,7 +342,7 @@ func (s *Server) shipRewrite(p *project, branch, dir string, rw rewrite, prNumbe
 	a.mu.Unlock()
 	s.projects.request(p)
 	s.projects.requestPRs(p)
-	s.autopilotNote(proto.AutopilotNote{ProjectID: p.id, Branch: branch,
+	s.autopilotNote(proto.AutopilotNote{ProjectID: p.id, Branch: branch, Kind: proto.ActivityResolve,
 		Text: fmt.Sprintf("pushed %s, rebased onto %s, to #%d", branch, rw.Base, prNumber)})
 	return ""
 }

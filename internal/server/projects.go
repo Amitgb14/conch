@@ -166,7 +166,10 @@ type project struct {
 	// is older than info and is not applied (refresh).
 	gen uint64
 
-	prs        map[string]proto.PRInfo // by head branch
+	prs map[string]proto.PRInfo // by head branch
+	// ciJobs are finished Actions runs' jobs, by run and attempt, read
+	// for the CI panel: they never change, so each is asked for once.
+	ciJobs     map[ciRunKey][]ghx.Job
 	prStatus   string
 	prAt       time.Time // last fetch
 	prNext     time.Time // no fetch before this (after errors)
@@ -179,6 +182,9 @@ type project struct {
 	prOpen       map[string]bool
 	baseOwed     map[string]bool
 	baseFetching bool
+	// asks are the agents asked to resolve a branch's conflict, by
+	// branch (resolving.go).
+	asks map[string]resolveAsk
 }
 
 type catalog struct {
@@ -628,6 +634,7 @@ func (pm *projectManager) apply(p *project, info proto.ProjectInfo, stamp string
 	}
 	p.gen++
 	p.applyPRs(&info)
+	p.applyAsks(&info, time.Now(), true)
 	old := p.info
 	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
 	info.Setup = old.Setup
@@ -902,6 +909,7 @@ func (p *project) load() proto.ProjectInfo {
 			wi.Operation = op
 			if wt.Detached && rebasing != "" {
 				wi.Branch = rebasing
+				wi.Rebasing = rebasing
 			}
 		}
 		if st, err := gitx.WorktreeStatus(ctx, wt.Path); err == nil {

@@ -34,6 +34,9 @@ func (pm *projectManager) log(lp proto.LogParams) (proto.LogResult, *proto.Error
 		return proto.LogResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	res := proto.LogResult{Commits: make([]proto.LogCommit, 0, len(commits)), More: more, Remotes: gitx.Remotes(ctx, p.root)}
+	if f := gitx.Format(ctx, p.root); f.Objects != "" {
+		res.Format = &proto.RepoFormat{Objects: f.Objects, Refs: f.Refs}
+	}
 	for _, c := range commits {
 		res.Commits = append(res.Commits, proto.LogCommit{Hash: c.Hash, Parents: c.Parents, Subject: c.Subject,
 			Author: c.Author, Time: c.Time, Refs: c.Refs})

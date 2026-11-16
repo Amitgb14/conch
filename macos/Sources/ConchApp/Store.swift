@@ -58,6 +58,9 @@ final class Store: ObservableObject {
     @Published var installingAgents: Set<String> = []
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
+    /// Counts the autopilot's notes from each machine, so a feed showing
+    /// that machine's reads its list again when one arrives.
+    @Published var autopilotTick: [String: Int] = [:]
     /// The machines whose TUI tabs this launch has taken in.
     private var viewAdopted: Set<String> = []
     /// Files the palette's search found, for the query they were found for.
@@ -1776,6 +1779,8 @@ final class Store: ObservableObject {
             terminals.removeValue(forKey: k)?.stop()
             defer { updateBadge() }
             questions.removeValue(forKey: k)
+        case "autopilot.note":
+            autopilotTick[machine, default: 0] += 1
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
                 // A project added since the connection was counted, or one
@@ -3191,10 +3196,12 @@ final class Store: ObservableObject {
 
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
     /// of its own, as the TUI's c and n do.
-    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?) {
+    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?, prompt: String? = nil,
+                 started: ((PaneInfo) -> Void)? = nil) {
         guard let c = conns[machine] else { return }
         struct Create: Encodable {
             var agent: String?
+            var prompt: String?
             var cwd: String?
             var no_project: Bool?
             var cols: Int?
@@ -3204,12 +3211,13 @@ final class Store: ObservableObject {
         Task {
             if let agent, !(await readyAgent(agent, on: machine)) { return }
             do {
-                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true,
+                let p = try await c.call("pane.create", Create(agent: agent, prompt: prompt, cwd: cwd, no_project: inProject ? nil : true,
                                                                cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))
                 focusTerminal()
+                started?(p)
             } catch {
                 self.error = "Could not start \(agent ?? "a terminal"): \(error)"
             }
@@ -3398,6 +3406,7 @@ final class Store: ObservableObject {
             var prompt: String
             var agent: String?
             var branch: String?
+            var base: String?
         }
         let branch = d.branch.trimmingCharacters(in: .whitespaces)
         taskDraft = nil
@@ -3405,7 +3414,8 @@ final class Store: ObservableObject {
             if !d.agent.isEmpty, !(await readyAgent(d.agent, on: m)) { return }
             do {
                 let p = try await c.call("task.create", Params(project_id: pr, prompt: d.prompt, agent: d.agent,
-                                                               branch: branch.isEmpty ? nil : branch), as: PaneInfo.self)
+                                                               branch: branch.isEmpty ? nil : branch,
+                                                               base: d.base.isEmpty ? nil : d.base), as: PaneInfo.self)
                 snapshots[m, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: m, pane: p)
                 layout.open(key(m, p.id))
@@ -3435,6 +3445,60 @@ final class Store: ObservableObject {
         Task {
             do { try await c.call("pane.rename", Params(id: id, name: name.trimmingCharacters(in: .whitespaces))) } catch { self.error = "\(error)" }
         }
+    }
+
+    /// Asks an agent to resolve a branch's conflict with the base: the
+    /// branch's own agent when it has one running (prompted as if typed),
+    /// else a new one of `start` in the branch's worktree, given the same
+    /// words as its first message.
+    func askToResolve(machine: String, project: String, branch: GraphBranch, start: String? = nil) {
+        guard let c = conns[machine], let pr = snapshots[machine]?.project(project) else { return }
+        let text = resolvePrompt(branch: branch.name, base: pr.base ?? "the base", files: branch.conflicts, stopped: branch.stopped)
+        if start == nil, let a = branch.agent {
+            guard c.hello?.capabilities?.contains("agent.prompt.v1") == true else {
+                error = "The server on \(label(machine)) predates prompting an agent; reload it"
+                return
+            }
+            struct Params: Encodable { var id: String; var text: String }
+            Task {
+                do {
+                    try await c.call("agent.prompt", Params(id: a.id, text: text))
+                    self.say("Asked \(a.displayName) to resolve \(branch.name)")
+                    self.noteResolving(machine: machine, project: project, branch: branch.name, pane: a.id)
+                } catch { self.error = "\(error)" }
+            }
+            return
+        }
+        guard let path = branchWorktree(pr, branch.name)?.path else {
+            error = "\(branch.name) has no worktree to start an agent in"
+            return
+        }
+        newPane(machine: machine, cwd: path, inProject: true, agent: start ?? startable(on: machine).first?.name, prompt: text) { p in
+            self.noteResolving(machine: machine, project: project, branch: branch.name, pane: p.id)
+        }
+    }
+
+    /// Tells the server which agent is resolving branch's conflict, so the
+    /// graph says it is at it — in every client, and after the autopilot
+    /// looks. An older server keeps no asks: the graph then goes by an
+    /// agent working in the stopped worktree.
+    func noteResolving(machine: String, project: String, branch: String, pane: String) {
+        guard let c = conns[machine], c.hello?.capabilities?.contains("branch.resolving.v1") == true else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var pane_id: String }
+        Task {
+            do { try await c.call("branch.resolving", P(project_id: project, branch: branch, pane_id: pane)) } catch {
+                NSLog("conch: saying %@ resolves %@: %@", pane, branch, "\(error)")
+            }
+        }
+    }
+
+    /// Opens the task sheet to hand a commit to an agent: a new branch
+    /// starting at that commit.
+    func handCommit(machine: String, project: String, hash: String, subject: String) {
+        var d = TaskDraft(project: key(machine, project), agent: startable(on: machine).first?.name ?? "claude")
+        d.base = hash
+        d.baseLabel = "\(hash.prefix(8)) · \(subject)"
+        taskDraft = d
     }
 
     /// Sends an agent a message, as the TUI's Prompt… does: the server
@@ -3645,6 +3709,11 @@ struct TaskDraft: Identifiable {
     var ticket = ""
     /// When it starts: "" now, else as `conch task -at` and the rest take it.
     var when = ""
+    /// What its branch starts from: "" for the project's base, else a
+    /// commit or branch — a commit handed to an agent from the graph —
+    /// and how to name it in the sheet.
+    var base = ""
+    var baseLabel = ""
     /// The team it joins: a name, "-" for none, "" for its rules'.
     var team = ""
 }

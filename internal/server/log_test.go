@@ -2,8 +2,10 @@ package server_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -41,6 +43,11 @@ func TestProjectLog(t *testing.T) {
 	if len(res.Commits) != 1 || !res.More || res.Commits[0].Subject != "on feat" {
 		t.Errorf("limit 1: %+v", res)
 	}
+	// The repository's format comes with it: a SHA-1 repository with the
+	// files backend, as git 2 makes them.
+	if res.Format == nil || res.Format.Objects != "sha1" || res.Format.Refs != "files" {
+		t.Errorf("format: %+v", res.Format)
+	}
 }
 
 // An unknown project is an error, as everywhere else; so is one that is
@@ -59,5 +66,59 @@ func TestProjectLogRefusals(t *testing.T) {
 	waitProject(t, c, func(p proto.ProjectInfo) bool { return p.Path == plain })
 	if err := call(t, c, proto.MethodProjectLog, proto.LogParams{ProjectID: proj.ID}, nil); err == nil {
 		t.Error("not a repository: no error")
+	}
+}
+
+// A rebase that stops on a conflict detaches the worktree's HEAD, so git
+// names no branch there; the worktree says which branch the rebase is
+// rewriting, or a client could not tell whose conflict it is.
+func TestWorktreeRebasingBranch(t *testing.T) {
+	c, proj, repo, wt, _ := harvestFixture(t)
+	git(t, wt, "config", "user.name", "t")
+	git(t, wt, "config", "user.email", "t@example.com")
+	os.WriteFile(filepath.Join(wt, "a.txt"), []byte("feat\n"), 0o644)
+	git(t, wt, "commit", "-q", "-am", "on feat")
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("main\n"), 0o644)
+	git(t, repo, "commit", "-q", "-am", "on main")
+	if out, err := exec.Command("git", "-C", wt, "rebase", "main").CombinedOutput(); err == nil {
+		t.Fatalf("rebase did not stop: %s", out)
+	}
+	call(t, c, proto.MethodProjectRefresh, proto.ProjectRef{ID: proj.ID}, nil)
+	p := waitProject(t, c, func(p proto.ProjectInfo) bool {
+		for _, w := range p.Worktrees {
+			// Its conflicts are the files the rebase stopped on.
+			if w.Path == wt && w.Rebasing == "feat" && w.Status != nil && w.Status.Conflicts > 0 && slices.Equal(w.Conflicts, []string{"a.txt"}) {
+				return true
+			}
+		}
+		return false
+	})
+	for _, w := range p.Worktrees {
+		if w.Main && w.Rebasing != "" {
+			t.Errorf("the main checkout is not rebasing: %+v", w)
+		}
+	}
+}
+
+// A commit handed to an agent from the graph: the new branch starts at
+// that commit, not at the base's newest.
+func TestWorktreeFromCommit(t *testing.T) {
+	c, proj, repo, _, _ := harvestFixture(t)
+	head := func(dir string) string {
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	first := head(repo)
+	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("later\n"), 0o644)
+	git(t, repo, "commit", "-q", "-am", "later")
+	var res proto.WorktreeResult
+	if err := call(t, c, proto.MethodWorktreeAdd, proto.WorktreeAddParams{ProjectID: proj.ID, Branch: "from-old", Base: first}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if got := head(res.Path); got != first {
+		t.Errorf("the branch starts at %s, want %s", got, first)
 	}
 }

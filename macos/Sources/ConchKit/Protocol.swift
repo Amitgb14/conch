@@ -204,12 +204,35 @@ public struct WorktreeInfo: Decodable, Equatable, Sendable {
     /// "revert" or "am". Mid-rebase, branch is the branch being rebased,
     /// though git has detached HEAD (worktree.operation.v1).
     public var operation: String?
+    /// The branch a rebase left unfinished here is rewriting: git detaches
+    /// HEAD meanwhile. A server with worktree.operation.v1 names it as
+    /// branch too; an older one leaves branch nil. nil from older still.
+    public var rebasing: String?
+    /// The agent asked to resolve the branch's conflict, while it is
+    /// there (branch.resolving.v1). nil from an older server.
+    public var resolve: ResolveAsk?
 
     public init(path: String, branch: String?, main: Bool? = nil, port: Int? = nil) {
         self.path = path
         self.branch = branch
         self.main = main
         self.port = port
+    }
+}
+
+/// An agent asked to resolve a branch's conflict: its pane, who asked
+/// ("autopilot", or nil for the person), when, and the files then.
+public struct ResolveAsk: Decodable, Equatable, Sendable {
+    public var pane: String
+    public var by: String?
+    public var at: Date?
+    public var files: [String]?
+
+    public init(pane: String, by: String? = nil, at: Date? = nil, files: [String]? = nil) {
+        self.pane = pane
+        self.by = by
+        self.at = at
+        self.files = files
     }
 }
 

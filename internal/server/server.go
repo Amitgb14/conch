@@ -455,7 +455,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true,
 	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodBranchStale: true, proto.MethodBranchPrune: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
@@ -1037,6 +1037,48 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.changes(cp)
+
+	case proto.MethodAutopilotActivity:
+		ap, perr := decode[proto.AutopilotActivityParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.autopilotActivity(ap), nil
+
+	case proto.MethodCIStats:
+		sp, perr := decode[proto.CIStatsParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.ciStats(sp)
+
+	case proto.MethodCIRerun:
+		rp, perr := decode[proto.CIRerunParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.ciRerun(rp)
+
+	case proto.MethodBranchRebased:
+		rp, perr := decode[proto.BranchRebasedParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchRebased(rp)
+
+	case proto.MethodBranchRebaseUndo:
+		up, perr := decode[proto.BranchRebaseUndoParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.undoRebase(up)
+
+	case proto.MethodBranchResolving:
+		rp, perr := decode[proto.BranchResolvingParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.branchResolving(rp)
 
 	case proto.MethodProjectLog:
 		lp, perr := decode[proto.LogParams](msg)
