@@ -23,10 +23,9 @@ type FailedRun struct {
 // the run has since been retried.
 var ErrNoFailedRun = errors.New("no failed GitHub Actions run on this branch")
 
-// FailedLog finds the newest failed Actions run on branch in the
-// repository at dir — at commit head when given, so a run about older work
-// is not mistaken for this one — and fetches its failed steps' log.
-func FailedLog(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+// newestFailed is the newest failed Actions run on branch, at head when
+// given, so a run about older work is not mistaken for this one.
+func newestFailed(ctx context.Context, dir, branch, head string) (FailedRun, error) {
 	out, err := run(ctx, dir, "run", "list", "--branch", branch, "--limit", "20",
 		"--json", "databaseId,workflowName,url,headSha,conclusion")
 	if err != nil {
@@ -49,11 +48,36 @@ func FailedLog(ctx context.Context, dir, branch, head string) (FailedRun, error)
 		if head != "" && r.HeadSha != "" && r.HeadSha != head {
 			continue
 		}
-		log, err := run(ctx, dir, "run", "view", strconv.FormatInt(r.ID, 10), "--log-failed")
-		if err != nil {
-			return FailedRun{}, err
-		}
-		return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL, Log: string(log)}, nil
+		return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL}, nil
 	}
 	return FailedRun{}, ErrNoFailedRun
+}
+
+// FailedLog finds the newest failed Actions run on branch in the
+// repository at dir — at commit head when given — and fetches its failed
+// steps' log.
+func FailedLog(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+	r, err := newestFailed(ctx, dir, branch, head)
+	if err != nil {
+		return FailedRun{}, err
+	}
+	log, err := run(ctx, dir, "run", "view", strconv.FormatInt(r.ID, 10), "--log-failed")
+	if err != nil {
+		return FailedRun{}, err
+	}
+	r.Log = string(log)
+	return r, nil
+}
+
+// RerunFailed re-runs the failed jobs of the newest failed Actions run on
+// branch, at head when given.
+func RerunFailed(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+	r, err := newestFailed(ctx, dir, branch, head)
+	if err != nil {
+		return FailedRun{}, err
+	}
+	if _, err := run(ctx, dir, "run", "rerun", strconv.FormatInt(r.ID, 10), "--failed"); err != nil {
+		return FailedRun{}, err
+	}
+	return r, nil
 }

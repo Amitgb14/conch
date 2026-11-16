@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapCISources, CapPRCheckSource, CapCIRerun,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -261,6 +261,19 @@ const CapAutopilotTriage = "autopilot.triage.v1"
 // CapBranchPrune is branch.stale and branch.prune: local branches nobody
 // has committed to for a while, and deleting them.
 const CapBranchPrune = "branch.prune.v1"
+
+// CapCISources is branch.ci_log reading a failure from a CI integration
+// (CircleCI, GitLab CI, …) when GitHub Actions has none, and saying in
+// BranchCILog.Source whose it was.
+const CapCISources = "ci.sources.v1"
+
+// CapPRCheckSource is PRCheck.Source and Readable: which service a check
+// came from, and whether conch can read its log.
+const CapPRCheckSource = "pr.check.source.v1"
+
+// CapCIRerun is branch.ci_rerun: re-run what failed in a branch's CI, on
+// GitHub Actions or through a CI integration.
+const CapCIRerun = "branch.ci_rerun.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -628,6 +641,9 @@ const (
 	// MethodBranchCILog is the log of the failed steps of a branch's
 	// newest failed GitHub Actions run (CapBranchCILog).
 	MethodBranchCILog = "branch.ci_log"
+	// MethodBranchCIRerun re-runs what failed in a branch's newest failed
+	// run (CapCIRerun).
+	MethodBranchCIRerun = "branch.ci_rerun"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -953,6 +969,11 @@ type PRCheck struct {
 	Name  string `json:"name"`
 	State string `json:"state"`
 	URL   string `json:"url,omitempty"`
+	// Source is the service it came from ("github-actions", "circleci",
+	// …; "" for one conch does not know) and Readable whether conch can
+	// read its log (CapPRCheckSource).
+	Source   string `json:"source,omitempty"`
+	Readable bool   `json:"readable,omitempty"`
 }
 
 // WorktreeInfo is a checkout of the project.
@@ -1843,6 +1864,20 @@ type BranchCILog struct {
 	Workflow string `json:"workflow,omitempty"`
 	URL      string `json:"url,omitempty"`
 	Log      string `json:"log"`
+	// Source is whose run it was — "github-actions", or a CI integration's
+	// name — and Service how people write it; Job what failed in it, where
+	// the service says. Absent from servers before CapCISources.
+	Source  string `json:"source,omitempty"`
+	Service string `json:"service,omitempty"`
+	Job     string `json:"job,omitempty"`
+}
+
+// BranchCIRerun says what was re-run.
+type BranchCIRerun struct {
+	Source  string `json:"source"`
+	Service string `json:"service,omitempty"`
+	Run     string `json:"run"`
+	URL     string `json:"url,omitempty"`
 }
 
 // BranchGitParams runs Commands, one after another, in the worktree where

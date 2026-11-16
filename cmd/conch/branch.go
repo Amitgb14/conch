@@ -25,9 +25,14 @@ const branchUsage = `Usage:
   conch branch merge  [-cwd DIR] [-branch B] [-no-squash] [-m MESSAGE]
   conch branch discard [-cwd DIR] [-branch B] [-force] [-n]
   conch branch fix-ci [-cwd DIR] [-branch B] [-agent A]
+  conch branch rerun-ci [-cwd DIR] [-branch B]
   conch branch prune  [-cwd DIR] [-days N] [-y] [-force] [BRANCH...]
 
 Without -branch, the branch checked out in DIR (the current directory) is used.
+
+fix-ci reads the failure from GitHub Actions, or — when Actions has none —
+from the CI integration the project uses (conch integration ls); rerun-ci
+re-runs what failed in the same run.
 
 prune deletes local branches with no commit in the last N days (30), or the
 ones named among them. Without -y it only prints what it would delete. It
@@ -158,6 +163,8 @@ func runBranch(args []string) error {
 		return branchDiscard(args)
 	case "fix-ci":
 		return branchFixCI(args)
+	case "rerun-ci":
+		return branchRerunCI(args)
 	case "prune":
 		return branchPrune(args)
 	case "help", "-h", "--help":
@@ -323,7 +330,7 @@ func branchFixCI(args []string) error {
 		if err := call(c, proto.MethodAgentPrompt, proto.AgentPromptParams{ID: agent.ID, Text: prompt}, &res); err != nil {
 			return err
 		}
-		fmt.Printf("sent CI's failure to %s (%s)\n", agent.DisplayName(), agent.ID)
+		fmt.Printf("sent %s's failure to %s (%s)\n", ciName(lg), agent.DisplayName(), agent.ID)
 		return nil
 	}
 	name := *agentName
@@ -334,8 +341,49 @@ func branchFixCI(args []string) error {
 	if err := call(c, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: name, Prompt: prompt, Cwd: dir}, &info); err != nil {
 		return err
 	}
-	fmt.Printf("started %s on %s with CI's failure (%s)\n", orDash(info.DisplayName()), branch, info.ID)
+	fmt.Printf("started %s on %s with %s's failure (%s)\n", orDash(info.DisplayName()), branch, ciName(lg), info.ID)
 	return nil
+}
+
+// ciName is whose run failed, as people write it; "CI" from a server that
+// does not say.
+func ciName(lg proto.BranchCILog) string {
+	if lg.Service != "" {
+		return lg.Service
+	}
+	return "CI"
+}
+
+// branchRerunCI re-runs what failed in a branch's newest failed run, on
+// GitHub Actions or through the project's CI integration.
+func branchRerunCI(args []string) error {
+	bf := newBranchFlags("rerun-ci")
+	c, id, branch, err := bf.open(args)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if missing := c.MissingCapabilities([]string{proto.CapCIRerun}); len(missing) > 0 {
+		return fmt.Errorf("the conch server (pid %d) predates re-running CI; reload it with `conch server reload`", c.Server.PID)
+	}
+	var rr proto.BranchCIRerun
+	if err := callFor(c, proto.MethodBranchCIRerun, proto.BranchCILogParams{ProjectID: id, Branch: branch}, &rr, harvestWait); err != nil {
+		return err
+	}
+	fmt.Printf("re-running what failed in %s run %s on %s\n", firstSetStr(rr.Service, rr.Source), rr.Run, branch)
+	if rr.URL != "" {
+		fmt.Println(rr.URL)
+	}
+	return nil
+}
+
+func firstSetStr(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func branchDiscard(args []string) error {

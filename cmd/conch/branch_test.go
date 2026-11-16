@@ -636,6 +636,70 @@ func TestBranchFixCI(t *testing.T) {
 	}
 }
 
+// fix-ci names the service a failure came from when the server says;
+// rerun-ci re-runs it, and an older server is told to reload.
+func TestBranchCIFromAnIntegration(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	wt := filepath.Join(root, "api.worktrees", "feat")
+	os.MkdirAll(wt, 0o755)
+	seen := newA4Var(map[string]proto.Message{})
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		got := seen.Get()
+		got[msg.Method] = msg
+		seen.Set(got)
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "api", Root: root, Git: true, Base: "main", Worktree: wt, Branch: "feat"}, nil
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{{ID: "p4", Name: "claude", State: proto.PaneRunning, ProjectID: "api", Branch: "feat",
+				Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentDone}}}}, nil
+		case proto.MethodBranchCILog:
+			return proto.BranchCILog{Workflow: "build-and-test", Job: "unittest-rgw", Source: "circleci", Service: "CircleCI", Log: "--- FAIL: TestRGW"}, nil
+		case proto.MethodAgentPrompt:
+			return proto.AgentPromptResult{ID: "p4", Agent: "claude", Turn: 2}, nil
+		case proto.MethodBranchCIRerun:
+			return proto.BranchCIRerun{Source: "circleci", Service: "CircleCI", Run: "w1", URL: "https://app.circleci.com/x"}, nil
+		}
+		return nil, proto.Errorf(proto.ErrUnknown, "?")
+	})
+	t.Chdir(wt)
+	out, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci"}) })
+	if err != nil || !strings.HasPrefix(out, "sent CircleCI's failure to ") {
+		t.Fatalf("fix-ci: %q %v", out, err)
+	}
+	var ap proto.AgentPromptParams
+	json.Unmarshal(seen.Get()[proto.MethodAgentPrompt].Params, &ap)
+	if !strings.Contains(ap.Text, "CI on CircleCI (build-and-test · unittest-rgw) failed") {
+		t.Fatalf("prompt %q", ap.Text)
+	}
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"rerun-ci"}) })
+	if err != nil || out != "re-running what failed in CircleCI run w1 on feat\nhttps://app.circleci.com/x\n" {
+		t.Fatalf("rerun-ci: %q %v", out, err)
+	}
+	var rp proto.BranchCILogParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchCIRerun].Params, &rp)
+	if rp.ProjectID != "api" || rp.Branch != "feat" {
+		t.Fatalf("rerun params %+v", rp)
+	}
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var kept []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapCIRerun {
+				kept = append(kept, c)
+			}
+		}
+		h.Capabilities = kept
+		return h
+	})
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"rerun-ci"}) }); err == nil || !strings.Contains(err.Error(), "predates re-running CI") {
+		t.Fatalf("old server: %v", err)
+	}
+}
+
 // TestBranchPruneCommand: conch branch prune is a dry run until -y, keeps
 // the base, a checked-out branch and one that loses commits (until
 // -force), passes -days on, narrows to the branches named, and says which

@@ -21,6 +21,11 @@ func TestMain(m *testing.M) {
 	// No test reaches the developer's Keychain (secrets.go): one that
 	// wants a token gives a security of its own.
 	os.Setenv("CONCH_SECURITY", "/nonexistent/security")
+	// Nor a CI service with the developer's own key: a project here with
+	// a CircleCI or GitLab remote would otherwise be read for real.
+	for _, k := range []string{"CIRCLECI_TOKEN", "GITLAB_TOKEN", "BUILDKITE_TOKEN", "JENKINS_TOKEN", "JENKINS_USER"} {
+		os.Unsetenv(k)
+	}
 	os.Exit(m.Run())
 }
 

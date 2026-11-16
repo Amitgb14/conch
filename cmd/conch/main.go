@@ -202,7 +202,9 @@ Usage:
                                 delete local branches with no commit in N days (30) that
                                 lose nothing; a dry run without -y
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
-                                in its worktree with it), as f in the review queue
+                                in its worktree with it), as f in the review queue: GitHub
+                                Actions, else the project's CI integration (CircleCI, GitLab CI)
+  conch branch rerun-ci         re-run what failed in a branch's newest failed CI run
   conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
                                 FILE[:LINE] NOTE, rm ID, send [-agent A] them to it, or

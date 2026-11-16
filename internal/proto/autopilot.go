@@ -189,12 +189,30 @@ func FailurePrompt(what, command string, exit int, output string) string {
 // CIFailurePrompt is FailurePrompt for a failed CI run, with a link to it.
 func CIFailurePrompt(log BranchCILog) string {
 	what := "CI"
-	if log.Workflow != "" {
-		what = "CI (" + log.Workflow + ")"
+	if log.Source != "" && log.Source != "github-actions" {
+		what = "CI on " + firstOf(log.Service, log.Source)
+	}
+	var detail []string
+	for _, d := range []string{log.Workflow, log.Job} {
+		if d != "" {
+			detail = append(detail, d)
+		}
+	}
+	if len(detail) > 0 {
+		what += " (" + strings.Join(detail, " · ") + ")"
 	}
 	text := FailurePrompt(what, "", 0, FailureTail(strings.Split(log.Log, "\n")))
 	if log.URL != "" {
 		text += "\n\nThe run: " + log.URL
 	}
 	return text
+}
+
+func firstOf(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

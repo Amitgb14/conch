@@ -85,3 +85,22 @@ func TestPRChecks(t *testing.T) {
 		t.Fatal("the check terminal's name changed: older TUIs adopt the server's checks by it")
 	}
 }
+
+// A failure on another CI reads as an Actions one, with the service and
+// job named; Actions itself keeps today's words.
+func TestCIFailurePromptNamesTheSource(t *testing.T) {
+	p := CIFailurePrompt(BranchCILog{Workflow: "build-and-test", Job: "unittest-rgw", Source: "circleci", Service: "CircleCI",
+		URL: "https://app.circleci.com/x", Log: "make check\nFAIL\n"})
+	for _, want := range []string{"CI on CircleCI (build-and-test · unittest-rgw) failed on this branch", "FAIL", "The run: https://app.circleci.com/x"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt lacks %q:\n%s", want, p)
+		}
+	}
+	p = CIFailurePrompt(BranchCILog{Workflow: "ci", Source: "github-actions", Service: "GitHub Actions", Log: "x"})
+	if !strings.HasPrefix(p, "CI (ci) failed on this branch") {
+		t.Fatalf("actions: %s", p)
+	}
+	if p := CIFailurePrompt(BranchCILog{Source: "gitlab-ci", Job: "test", Log: "x"}); !strings.HasPrefix(p, "CI on gitlab-ci (test) failed") {
+		t.Fatalf("no service label: %s", p)
+	}
+}
