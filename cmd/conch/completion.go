@@ -54,6 +54,7 @@ var compCommands = []compItem{
 	{"agent", "install, set up and drive agents"},
 	{"machine", "run agents on another machine, over ssh"},
 	{"sandbox", "hosted sandboxes as machines"},
+	{"integration", "CI services and more, from the registries"},
 	{"upload", "copy files to a machine"},
 	{"download", "copy files from a machine"},
 	{"web", "answer your agents from a phone"},
@@ -123,6 +124,8 @@ var compSubcommands = map[string][]compItem{
 		{"rename", "give one a new label"}, {"upgrade", "put this conch on it"}, {"hosts", "hosts from your ssh config"},
 	},
 	"sandbox": {{"-provider", "the provider to act on"}, {"stats", "every provider's sandboxes"}, {"providers", "the providers, and which have a key"}, {"adapt", "a provider conch doesn't know, from its API docs"}, {"provider", "check, install, update or publish a provider file"}},
+	"integration": {{"search", "what the registries list"}, {"info", "what one does, where your key goes"}, {"install", "install one"}, {"ls", "every integration here"},
+		{"update", "take newer versions"}, {"remove", "delete an installed one"}, {"check", "what is wrong with a file"}, {"guide", "the file format"}},
 	"sandbox -provider": {
 		{"create", "make a sandbox"}, {"add", "make an existing sandbox a machine"}, {"ls", "list sandboxes"},
 		{"start", "start one"}, {"stop", "stop one"}, {"rm", "delete one"}, {"ssh", "a shell in one"},

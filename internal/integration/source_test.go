@@ -78,3 +78,22 @@ func TestCachedAndForget(t *testing.T) {
 	}
 	Forget()
 }
+
+func TestSource(t *testing.T) {
+	home := isolate(t)
+	data, shipped, err := Source("circleci")
+	if err != nil || !shipped || len(data) == 0 {
+		t.Fatalf("shipped: %v %v", shipped, err)
+	}
+	os.MkdirAll(filepath.Join(home, "integrations"), 0o755)
+	os.WriteFile(filepath.Join(home, "integrations", "circleci.toml"), []byte("mine"), 0o600)
+	if data, shipped, err := Source("circleci"); err != nil || shipped || string(data) != "mine" {
+		t.Fatalf("installed: %q %v %v", data, shipped, err)
+	}
+	if _, _, err := Source("nothing-here"); err == nil {
+		t.Fatal("an unknown name")
+	}
+	if _, _, err := Source("../etc"); err == nil {
+		t.Fatal("a path for a name")
+	}
+}

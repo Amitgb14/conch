@@ -21,7 +21,7 @@ import (
 
 // helpAliases are the other names a command answers to.
 var helpAliases = map[string]string{
-	"ls": "status", "worktrees": "worktree", "machines": "machine", "sandboxes": "sandbox", "--skill": "skill",
+	"ls": "status", "worktrees": "worktree", "machines": "machine", "sandboxes": "sandbox", "integrations": "integration", "--skill": "skill",
 }
 
 // helpDocs is where on the CLI page a command is written up, for the ones
@@ -157,7 +157,7 @@ func unknownCommand(word string) string {
 
 // nearestCommand is the command a mistyped word most likely meant, or "".
 func nearestCommand(word string) string {
-	names := append(compWords(offeredCommands()), "ls", "worktrees", "machines", "sandboxes")
+	names := append(compWords(offeredCommands()), "ls", "worktrees", "machines", "sandboxes", "integrations")
 	return helpCommand(nearestWord(word, names))
 }
 

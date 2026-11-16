@@ -319,6 +319,21 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 `ID` is the machine's ID or label, the provider's own sandbox ID, or `PROVIDER:ID`; it must belong to the provider `-provider` names. See [Sandboxes](/docs/sandboxes).
 
+### integration
+
+| Command | Description |
+| --- | --- |
+| `conch integration search [-json] [KIND\|WORDS]` | what the [registries](/docs/integrations#registries) list: each integration's kind, whether a maintainer has run it live, and the hosts it reaches. An index that is not signed says so |
+| `conch integration info NAME` | what it does in conch, the hosts your key goes to (and the ones it reads without it), how to make its key, who wrote it |
+| `conch integration install [-y] [-key-stdin] NAME` | say the hosts and the key's variable and ask (`-y` doesn't), check the file's hash and that it reaches nothing else, then ask for the key without echoing it (`-key-stdin` reads it) and keep it in the Keychain on a Mac — elsewhere it says the variable to set; then one read-only call against this project's branch. A revoked version is refused |
+| `conch integration ls [-json] [-cwd DIR]` | every integration here: built in (GitHub, GitHub Actions, GitHub Issues, Linear, Jira), shipped with conch, installed or of your own, its version, its key's state and whether the project in `DIR` uses it; a file that is not used says why (revoked, a problem in it) |
+| `conch integration update [-y] [NAME]` | take newer versions of what you installed; a file edited here is left alone, and a version reaching new hosts is asked about even with `-y` |
+| `conch integration remove NAME` | delete an installed integration and its record |
+| `conch integration check [-json] NAME\|FILE` | everything wrong with a file, one line each; exits 1 when anything is |
+| `conch integration guide` | the [file format](/docs/integrations#writing-one), for writing one |
+
+See [Integrations](/docs/integrations).
+
 ### web
 
 ```sh

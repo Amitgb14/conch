@@ -1,0 +1,94 @@
+export const metadata = { title: "Integrations", description: "Read CircleCI, GitLab CI, Buildkite and Jenkins failures the way conch reads GitHub Actions." }
+
+# Integrations
+
+conch reads GitHub through `gh`: pull requests, their checks, and what a failed GitHub Actions run printed. An **integration** lets conch read another service the same way. The first kind is **CI**: when a pull request turns red on CircleCI, GitLab CI, Buildkite or Jenkins, `conch branch fix-ci` and the autopilot's `auto_fix` hand the failed job's output to the branch's agent, just as they do for Actions. `conch branch rerun-ci` re-runs what failed.
+
+An integration is a **file, not a plugin**. It describes a service's HTTP API: which call lists a branch's runs, where the failed job's log is, and how the key is sent. conch's own code decides what to do with the answers. A file can't run a program. All it can do is send your key to the hosts it names, and conch shows you those hosts before anything is installed.
+
+## What ships with conch
+
+| Integration | Key | Where the key comes from | Reads | Re-runs |
+| --- | --- | --- | --- | --- |
+| CircleCI | `$CIRCLECI_TOKEN`, a personal API token | CircleCI → User Settings → Personal API Tokens | the failed steps of the failed job, from CircleCI's log host (without your key) | the workflow, from failed |
+| GitLab CI | `$GITLAB_TOKEN`, with `read_api` (`api` to retry) | GitLab → Preferences → Access tokens | each failed job's trace | the pipeline |
+| Buildkite | `$BUILDKITE_TOKEN`, scopes `read_builds read_build_logs write_builds` | Buildkite → Personal Settings → API Access Tokens | each failed job's log | the build |
+| Jenkins | `$JENKINS_TOKEN`, with your user in `$JENKINS_USER` | Jenkins → your name → Security → API Token | the build's console | — (it depends on plugins) |
+
+Each key is read from the environment of the machine where conch's server runs, then from the Keychain on a Mac (service `conch-mcp`, account named after the variable, where `conch integration install` puts it). conch never writes a key to a file.
+
+conch finds which integration a project uses in three ways: a file in the checkout (`.circleci/config.yml`, `.gitlab-ci.yml`, `.buildkite/pipeline.yml`, `Jenkinsfile`), its remote's host (`gitlab.com`), or the pull request's checks (`ci/circleci: …`). GitHub Actions is always asked first.
+
+A service you run yourself (Jenkins, a self-managed GitLab) needs its address in `config.toml`:
+
+```toml
+[integrations.base]
+jenkins = "https://jenkins.example.com"
+gitlab-ci = "https://gitlab.example.com/api/v4"
+```
+
+## When a check can't be read
+
+If the failure came from a service conch recognises but has no integration for, such as Bitbucket Pipelines, `fix-ci` says *Bitbucket Pipelines: install its integration to read its log*. It doesn't stop at "no failed GitHub Actions run". If an integration is there but its key isn't, the message names the variable to set.
+
+## Commands
+
+```sh
+conch integration ls                 # every integration here, its key's state, and whether this project uses it
+conch integration info circleci      # what it does in conch, where your key goes
+conch integration search ci          # what the registries list
+conch integration install NAME       # agree to its hosts, give its key, check it against this project
+conch integration update             # newer versions; new hosts are always asked about
+conch integration check ./mine.toml  # what is wrong with a file
+```
+
+The full list is in the [command line](/docs/cli#integration) reference.
+
+## Registries
+
+Integrations are published to a registry: a GitHub repository whose CI publishes an index of the files, and the files themselves. Each version is pinned by its hash and never replaced. When conch knows a registry's key, its index must be signed (`index.json.sig`, ed25519), or nothing is read from it. An index read without a key is marked *unsigned*. A registry can revoke a version. conch then stops using it and `conch integration ls` says why.
+
+Your company can run its own registry:
+
+```toml
+[[integrations.registries]]
+name = "acme"
+url = "https://acme.github.io/conch-integrations"
+key = "BASE64 ED25519 PUBLIC KEY"
+```
+
+## Writing one
+
+A file of your own goes in `~/.config/conch/integrations/NAME.toml` and replaces one conch ships with the same name. `conch integration guide` prints the format with an example. `conch integration check FILE` lists everything wrong with a file, so fix what it reports until it reports nothing. In short:
+
+```toml
+format = 3
+kind = "ci"
+name = "acme-ci"
+api = "https://api.acme.dev"
+key_env = "ACME_TOKEN"
+
+[detect]
+files = [".acme.yml"]
+
+[project]
+id = "{owner}/{repo}"
+
+[states]
+ok = "pass"
+broken = "fail"
+
+[runs]
+call = "GET /runs?branch={branch}&commit={head}"
+items = "runs"
+id = "id"
+state = "status"
+
+[failed_log]
+call = "GET /runs/{run}/log"
+text = "."
+```
+
+## Not yet
+
+These are planned but not here yet: an Integrations window in Conch.app and the TUI, having an agent write a file from a service's API docs, and other kinds of integration (ticket trackers, notifications, code hosts besides GitHub).

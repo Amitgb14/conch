@@ -251,6 +251,19 @@ Usage:
   conch sandbox provider publish [-dry-run] [-json] NAME
                                 check a provider of yours with your key, then propose it to the registry
                                 as a pull request through gh (your key is never part of it)
+  conch integration search [-json] [KIND|WORDS]
+                                CI services and more conch can talk to, from the registries
+                                (each a file describing an API, never code)
+  conch integration info NAME   what it does in conch, where your key goes, who wrote it
+  conch integration install [-y] [-key-stdin] NAME
+                                says the hosts your key goes to first, checks the file's hash,
+                                asks for the key (kept in the Keychain on a Mac) and checks it here
+  conch integration ls [-json] [-cwd DIR]
+                                every integration here — built in, shipped, installed — its key's
+                                state and whether this project uses it
+  conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide
+                                take newer versions (new hosts always asked), delete one, check a
+                                file, or print the format to write one
   conch sandbox stats           every provider's sandboxes, their state and size, and a line
                                 per provider (-provider P narrows it to one)
   conch sandbox -provider P ls | start ID | stop [-y] ID | rm [-y] ID
@@ -482,6 +495,8 @@ func main() {
 		err = runMachine(args)
 	case "sandbox", "sandboxes":
 		err = runSandbox(args)
+	case "integration", "integrations":
+		err = runIntegration(args)
 	case "bridge":
 		err = runBridge()
 	case "update":
