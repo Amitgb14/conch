@@ -3743,3 +3743,11 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     f.memory = "4"
     #expect(try f.arguments(for: p).get() == ["sandbox", "-provider", "instabox", "create", "-template", "agent-browser", "-cpu", "2", "-memory", "4"])
 }
+
+@Test func paneIDChipSaysItWasCopied() {
+    #expect(paneIDChipText("p669", copied: false) == "p669")
+    #expect(paneIDChipText("p669", copied: true) == "✓ p669")
+    #expect(paneIDChipText("busybox:p3", copied: true) == "✓ busybox:p3")
+    #expect(paneIDChipText("", copied: true) == "✓ ")
+    #expect(paneIDCopiedFor > 0 && paneIDCopiedFor <= 3)
+}

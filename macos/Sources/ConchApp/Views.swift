@@ -2047,23 +2047,39 @@ struct PaneIDChip: View {
     @ObservedObject var store: Store
     let ref: String
     @State private var hover = false
+    @State private var copied = false
 
     var body: some View {
-        Text(ref)
+        Text(paneIDChipText(ref, copied: copied))
             .font(.ui(size: 10.5, design: .monospaced))
-            .foregroundStyle(hover ? Theme.text : Theme.muted)
+            .foregroundStyle(copied ? Theme.ok : hover ? Theme.text : Theme.muted)
             .lineLimit(1)
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 4).fill(hover ? Theme.raise : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.line, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(copied ? Theme.ok : Theme.line, lineWidth: 1))
             .contentShape(Rectangle())
             .onHover { hover = $0 }
-            .onTapGesture { store.copyPaneRef(ref) }
+            .onTapGesture { copy() }
             .help("Copy \(ref) — conch read \(ref), conch send \(ref) …")
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Copy pane ID \(ref)")
-            .accessibilityAction { store.copyPaneRef(ref) }
+            .accessibilityAction { copy() }
+            .animation(.easeOut(duration: 0.15), value: copied)
     }
+
+    /// Copies the ID and says so on the chip itself for a moment; a second
+    /// click inside that moment starts it again rather than ending early.
+    private func copy() {
+        store.copyPaneRef(ref)
+        copied = true
+        let at = Date()
+        clickedAt = at
+        DispatchQueue.main.asyncAfter(deadline: .now() + paneIDCopiedFor) {
+            if clickedAt == at { copied = false }
+        }
+    }
+
+    @State private var clickedAt = Date.distantPast
 }
 
 struct PaneCard: View {
