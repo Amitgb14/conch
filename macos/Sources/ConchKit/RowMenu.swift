@@ -227,6 +227,17 @@ public func paneRef(machine: String, label: String?, pane: String, among: [Machi
     return machine + ":" + pane
 }
 
+/// What a pane's ID chip says: the ID, and for a moment after a click
+/// "✓" before it, so the click is answered where it was made rather than
+/// only in the status bar at the bottom of the window. The ID stays, so the
+/// chip barely changes width and the header does not jump.
+public func paneIDChipText(_ ref: String, copied: Bool) -> String {
+    copied ? "✓ " + ref : ref
+}
+
+/// How long a pane's ID chip says it was copied, in seconds.
+public let paneIDCopiedFor: Double = 1.5
+
 extension Snapshot {
     /// Whether a broadcast from scope has anyone to go to.
     func hasRunning(_ scope: BroadcastScope) -> Bool { !broadcastTargets(scope).isEmpty }
