@@ -691,14 +691,18 @@ public struct BranchDiscardResult: Decodable, Equatable, Sendable {
 }
 
 /// A sandbox machine's own menu items, as the TUI's sandbox rows offer:
-/// start one that is not running, stop or delete it, and what it has cost.
-public func sandboxMenu(machine: String, running: Bool) -> [RowMenuItem] {
+/// start one that is not running, stop or delete it, and what it has cost
+/// — each only where the provider can (its capabilities; nil can all).
+public func sandboxMenu(machine: String, running: Bool, capabilities caps: IntegrationCapabilities? = nil) -> [RowMenuItem] {
     var out: [RowMenuItem] = [.divider]
-    out.append(running ? RowMenuItem("Stop Sandbox…", .sandbox(machine: machine, verb: "stop"))
-                       : RowMenuItem("Start Sandbox", .sandbox(machine: machine, verb: "start")))
-    out += [RowMenuItem("What It Has Cost", .sandbox(machine: machine, verb: "usage")),
-            RowMenuItem("Delete Sandbox…", .sandbox(machine: machine, verb: "rm"))]
-    return out
+    if running {
+        if caps.can("stop") { out.append(RowMenuItem("Stop Sandbox…", .sandbox(machine: machine, verb: "stop"))) }
+    } else if caps.can("start") {
+        out.append(RowMenuItem("Start Sandbox", .sandbox(machine: machine, verb: "start")))
+    }
+    if caps.can("usage") { out.append(RowMenuItem("What It Has Cost", .sandbox(machine: machine, verb: "usage"))) }
+    if caps.can("delete") { out.append(RowMenuItem("Delete Sandbox…", .sandbox(machine: machine, verb: "rm"))) }
+    return out.count == 1 ? [] : out
 }
 
 /// A Conch Cloud machine's own items: sleep or wake, and deleting it —

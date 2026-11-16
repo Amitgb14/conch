@@ -180,9 +180,10 @@ struct NewSandboxSheet: View {
                     Spacer()
                 }
             }
-            if st == nil || st?.setting("image") != nil {
+            let shape = NewSandboxFields(provider: p, settings: st)
+            if shape.image {
                 let image = st?.setting("image")
-                row(image?.label ?? "Image") {
+                row(shape.imageLabel) {
                     input("optional: \(p.label)'s default", $form.snapshot)
                     if let image, !image.choices.isEmpty {
                         Menu {
@@ -193,28 +194,28 @@ struct NewSandboxSheet: View {
                     }
                 }
             }
-            switch p.takes {
-            case .snapshot:
-                let z = st?.size
-                if let st, !st.sizeChoices.isEmpty {
-                    // The sizes the plan allows, as the provider said them.
-                    row("Size") {
-                        Picker("", selection: sizeBinding) {
-                            Text("Default").tag("")
-                            ForEach(st.sizeChoices, id: \.self) { o in Text(o.words).tag(sizeKey(o)) }
-                        }
-                        .labelsHidden().pickerStyle(.menu).fixedSize()
-                        Spacer()
+            switch shape.size {
+            case .none:
+                EmptyView()
+            case .plan:
+                // The sizes the plan allows, as the provider said them.
+                row("Size") {
+                    Picker("", selection: sizeBinding) {
+                        Text("Default").tag("")
+                        ForEach(st?.sizeChoices ?? [], id: \.self) { o in Text(o.words).tag(sizeKey(o)) }
                     }
-                } else {
-                    row("Size") {
-                        if st?.takesPart("cpu") ?? true { number("vCPU", $form.cpu, z?.cpu) }
-                        if st?.takesPart("memory") ?? true { number("GiB", $form.memory, z?.memoryGib) }
-                        if st?.takesPart("disk") ?? true { number("GiB disk", $form.disk, z?.diskGib) }
-                        Spacer(minLength: 0)
-                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                    Spacer()
                 }
-            case .sizes(let sizes):
+            case .numbers(let parts):
+                let z = st?.size
+                row("Size") {
+                    if parts.contains("cpu") { number("vCPU", $form.cpu, z?.cpu) }
+                    if parts.contains("memory") { number("GiB", $form.memory, z?.memoryGib) }
+                    if parts.contains("disk") { number("GiB disk", $form.disk, z?.diskGib) }
+                    Spacer(minLength: 0)
+                }
+            case .names(let sizes):
                 row("Size") {
                     Picker("", selection: $form.size) {
                         Text("Default").tag("")

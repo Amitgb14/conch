@@ -62,9 +62,13 @@ public struct IntegrationListed: Decodable, Equatable, Sendable {
     public var installs: Int?
     public var note: String?
     public var signed: Bool?
+    /// What it can do, worked out by the registry; nil from an older one.
+    public var capabilities: IntegrationCapabilities?
+    /// Listed and not installable yet: a sandbox provider with no ssh.
+    public var off: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case kind, name, label, builtin, version, hosts, operations, tier, checked, revoked, installs, note, signed
+        case kind, name, label, builtin, version, hosts, operations, tier, checked, revoked, installs, note, signed, capabilities, off
         case keyEnv = "key_env", userEnv = "user_env"
     }
 
@@ -113,9 +117,13 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var adapted: String?
     public var sha256: String?
     public var installs: Int?
+    /// What it can do: the registry's, or the installed file's.
+    public var capabilities: IntegrationCapabilities?
+    /// Listed and not installable yet: a sandbox provider with no ssh.
+    public var off: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case name, label, kind, source, installed, builtin, registry, version, signed, tier, checked, revoked, hosts, scopes, note, docs, sha256, installs, adapted
+        case name, label, kind, source, installed, builtin, registry, version, signed, tier, checked, revoked, hosts, scopes, note, docs, sha256, installs, adapted, capabilities, off
         case doesList = "does"
         case keyEnv = "key_env", userEnv = "user_env", authType = "auth_type", baseURL = "base_url", keyHelp = "key_help", keySet = "key_set", adaptedBy = "adapted_by"
     }
@@ -130,7 +138,7 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     /// that takes a key, Install for one not here; nothing for a built-in
     /// with no key of conch's (GitHub's, through gh), or a revoked one.
     public var offersKey: Bool {
-        revoked == nil && !(builtin == true && keyEnv.isEmpty)
+        revoked == nil && off != true && !(builtin == true && keyEnv.isEmpty)
     }
 
     /// A sandbox provider: installed by the sandbox installer, its key
@@ -263,6 +271,8 @@ public struct IntegrationCard: Equatable, Identifiable, Sendable {
     /// card a detection points to, drawn with the accent and a primary
     /// Install.
     public var wanted: Bool
+    /// Listed and not installable yet: a sandbox provider with no ssh.
+    public var off: Bool = false
     public var id: String { name }
 
     public var community: Bool { source != "built in" && source != "ships with conch" && standing == .notChecked }
@@ -274,9 +284,16 @@ public enum IntegrationFilter: String, CaseIterable, Sendable {
 }
 
 public enum IntegrationCatalog {
-    /// What a kind's file does, in two lines, from its operations.
-    public static func summary(kind: String, operations: [String]) -> String {
+    /// What a kind's file does, in two lines, from its operations — or
+    /// for a sandbox provider, from what the registry says it can do.
+    public static func summary(kind: String, operations: [String], capabilities caps: IntegrationCapabilities? = nil) -> String {
         switch kind {
+        case "sandbox":
+            guard let c = caps else { return "" }
+            if c.ssh == nil { return "Listed, not installable yet: its file has no ssh, so conch could make its sandboxes and never reach them." }
+            var s = "Sandboxes conch makes, starts and stops"
+            if !c.extras.isEmpty { s += ", with " + c.extras.joined(separator: " and ") }
+            return s + ". ssh: " + c.sshWords + "."
         case "tickets":
             var parts = ["Open tickets in the Tickets view", "tasks from a ticket"]
             if operations.contains("comment") || operations.contains("move") { parts.append("comment and move") }
@@ -300,6 +317,13 @@ public enum IntegrationCatalog {
         if builtIn { return name == "linear" || name == "jira" ? "API key" : "gh login" }
         if let u = userEnv, !u.isEmpty { return "user + token" }
         return "token"
+    }
+
+    /// authWord for a listed entry, whose capabilities may say it needs a
+    /// user where the entry names no variable.
+    static func authWord(_ e: IntegrationListed) -> String {
+        if e.capabilities?.needs?.contains("user") == true { return "user + token" }
+        return authWord(userEnv: e.userEnv, builtIn: false, name: e.name)
     }
 
     /// Every card: this computer's integrations, then what the registries
@@ -326,7 +350,7 @@ public enum IntegrationCatalog {
                                        installed: true, builtIn: builtIn, standing: standing,
                                        auth: authWord(userEnv: entry?.userEnv ?? (h.name == "jenkins" ? "JENKINS_USER" : nil), builtIn: builtIn, name: h.name),
                                        summary: builtIn ? (builtInSummary[h.name] ?? entry?.note ?? "")
-                                           : entry.map { summary(kind: $0.kind, operations: $0.operations ?? []) } ?? "",
+                                           : entry.map { summary(kind: $0.kind, operations: $0.operations ?? $0.capabilities?.operations ?? [], capabilities: $0.capabilities) } ?? "",
                                        usedIn: usedIn(h.name), wanted: !builtIn && wantedNow(h.name)))
         }
         for e in listed where !seen.contains(e.name) {
@@ -342,9 +366,9 @@ public enum IntegrationCatalog {
             if let why = e.revokedReason { standing = .revoked(why) }
             out.append(IntegrationCard(name: e.name, label: e.label ?? e.name, kind: e.kind, source: "registry",
                                        installed: false, builtIn: false, standing: standing,
-                                       auth: authWord(userEnv: e.userEnv, builtIn: false, name: e.name),
-                                       summary: summary(kind: e.kind, operations: e.operations ?? []),
-                                       usedIn: usedIn(e.name), wanted: wantedNow(e.name)))
+                                       auth: authWord(e),
+                                       summary: summary(kind: e.kind, operations: e.operations ?? e.capabilities?.operations ?? [], capabilities: e.capabilities),
+                                       usedIn: usedIn(e.name), wanted: e.off != true && wantedNow(e.name), off: e.off == true))
         }
         return out
     }
