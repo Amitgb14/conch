@@ -43,10 +43,10 @@ T5, D in the docs each task writes).
 
 | Task | Status | What is there |
 | --- | --- | --- |
-| T1 format + engine | **in progress** | `internal/integration`: a `ci` file's keys, `Problems()` (every problem, not the first), remote parsing; the format guide `format.md`. Not yet: running steps, format 3 shared with sandbox files, `[auth]`, `base_url`, `[states]`, `runs`/`rerun` |
+| T1 format + engine | **done** | `internal/integration`: format 3 (`format.go`, guide `format.md`, its example tested clean), `Problems()`, one path grammar shared with sandbox files (`pick.go`), the engine (`run.go`: `Connect`, `Runs`, `Stats`, `FailedLog`, `Rerun`), hosts enforced in code. Left on purpose: the sandbox's own request code stays in `internal/sandbox` (its 404-means-gone, its errors naming Settings → Sandboxes); the key's lookup (environment, then Keychain) is the server's `trackerSecret` and T5's, not the engine's — `Connect` takes the key |
 | T2 registry v2 | not started | |
 | T3 CI kind | not started | |
-| T4 CI files | **started** | `files/circleci.toml`, `files/gitlab-ci.toml` shipped inside conch until T2's registry exists, `failed_log` only, checked offline by a test; not run against a server yet |
+| T4 CI files | **started** | `files/circleci.toml`, `files/gitlab-ci.toml` shipped inside conch until T2's registry exists: `runs`, `failed_log`, `rerun`, every documented state, run against fake servers shaped like the vendors' APIs. Buildkite and Jenkins not yet |
 | T5 CLI | not started | |
 | T6 detection | **started** | `[detect] files` and `remotes`, `File.Uses`, `For(kind, root, remote)`; not `checks`, not the server method, not `.conch/integrations.toml` |
 | T7–T13 | not started | |
