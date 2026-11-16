@@ -295,8 +295,10 @@ func TestPickSelectors(t *testing.T) {
 }
 
 // A conch's sandbox parser is what an older conch reads every provider
-// file with, so it must refuse an integration file (format 3) rather than
-// read a CI file as a sandbox provider with nothing in it.
+// file with, so it must refuse an integration file rather than read a CI
+// file as a sandbox provider with nothing in it. Sandbox files have a
+// format 3 of their own (headers), so the refusal is by the integration's
+// keys, kind first, not by its number.
 func TestProviderFileRefusesAnIntegrationFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "circleci.toml")
 	src := "format = 3\nkind = \"ci\"\nname = \"circleci\"\napi = \"https://circleci.com\"\nkey_env = \"CIRCLECI_TOKEN\"\nfollow_hosts = [\"logs.example\"]\n[runs]\ncall = \"GET /x\"\n"
@@ -305,7 +307,7 @@ func TestProviderFileRefusesAnIntegrationFile(t *testing.T) {
 	}
 	_, problems, err := ReadProviderFile(path)
 	all := strings.Join(problems, "\n")
-	if err == nil && (!strings.Contains(all, "format 3") || !strings.Contains(all, "unknown key kind")) {
+	if err == nil && !strings.Contains(all, "unknown key kind") {
 		t.Fatalf("an integration file read as a sandbox provider: %v", problems)
 	}
 }
