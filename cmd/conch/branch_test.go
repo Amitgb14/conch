@@ -695,7 +695,7 @@ func TestBranchCIFromAnIntegration(t *testing.T) {
 		h := currentHello(n)
 		var kept []string
 		for _, c := range h.Capabilities {
-			if c != proto.CapCIRerun {
+			if c != proto.CapBranchCIRerun {
 				kept = append(kept, c)
 			}
 		}

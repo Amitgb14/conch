@@ -229,7 +229,7 @@ func (r *ciRig) call(method string, out any) error {
 
 func TestCILogFromCircleCI(t *testing.T) {
 	r := newCIRig(t, true, circleCheck)
-	if miss := r.c.MissingCapabilities([]string{proto.CapCISources, proto.CapPRCheckSource, proto.CapCIRerun}); len(miss) > 0 {
+	if miss := r.c.MissingCapabilities([]string{proto.CapCISources, proto.CapPRCheckSource, proto.CapBranchCIRerun}); len(miss) > 0 {
 		t.Fatalf("capabilities missing: %v", miss)
 	}
 	if ch := r.check(); ch.Source != "circleci" || !ch.Readable {

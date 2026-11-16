@@ -63,9 +63,9 @@ func (pm *projectManager) ciLog(lp proto.BranchCILogParams) (proto.BranchCILog, 
 	return proto.BranchCILog{}, proto.Errorf(proto.ErrNotFound, "%s", strings.Join(notes, "; "))
 }
 
-// ciRerun re-runs what failed in a branch's newest failed run: on GitHub
+// branchCIRerun re-runs what failed in a branch's newest failed run: on GitHub
 // Actions through gh, else through the first CI integration with one.
-func (pm *projectManager) ciRerun(lp proto.BranchCILogParams) (proto.BranchCIRerun, *proto.Error) {
+func (pm *projectManager) branchCIRerun(lp proto.BranchCILogParams) (proto.BranchCIRerun, *proto.Error) {
 	p, perr := pm.gitProject(lp.ProjectID)
 	if perr != nil {
 		return proto.BranchCIRerun{}, perr
