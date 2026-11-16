@@ -39,6 +39,21 @@ final class IntegrationsWindow {
         model?.load()
         window?.makeKeyAndOrderFront(nil)
     }
+
+    /// The install sheet for one, at its key when it is installed: a
+    /// project's sheet's Connect… and Install….
+    @MainActor func connect(_ name: String) {
+        show()
+        model?.connect(name)
+    }
+
+    /// The window at a kind: a project's sheet's Browse….
+    @MainActor func show(kind: IntegrationKind) {
+        show()
+        model?.page = nil
+        model?.only = nil
+        model?.section = .kind(kind)
+    }
 }
 
 /// Which list the sidebar shows.
@@ -125,6 +140,27 @@ final class IntegrationsModel: ObservableObject {
         Task { @MainActor in
             do {
                 page = try JSONDecoder().decode(IntegrationInfo.self, from: try await runConch(bin, ["integration", "info", "-json", card.name]))
+            } catch {
+                failure = "\(error)"
+            }
+        }
+    }
+
+    /// Opens one's page with its install sheet over it, at the key when
+    /// it is installed already.
+    func connect(_ name: String) {
+        guard let bin = store.binary else {
+            failure = "conch itself was not found, so the integrations cannot be read."
+            return
+        }
+        Task { @MainActor in
+            do {
+                let info = try JSONDecoder().decode(IntegrationInfo.self, from: try await runConch(bin, ["integration", "info", "-json", name]))
+                page = info
+                guard info.revoked == nil else { return }
+                var f = IntegrationInstallFlow(connecting: info)
+                f.checkIn = uses.first(where: { $0.value.contains { $0.name == info.name } }).flatMap { paths[$0.key] }
+                flow = f
             } catch {
                 failure = "\(error)"
             }

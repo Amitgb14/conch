@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         systemWindow = system
         ticketsWindow = TicketsWindow(store: store)
         integrationsWindow = IntegrationsWindow(store: store)
+        projectIntegrations = ProjectIntegrationsWindow { [weak self] in self?.integrationsWindow }
         if UserDefaults.standard.bool(forKey: "background") {
             // -background YES: opened behind whatever is in front and not
             // made active, for a scripted run beside somebody at work —
@@ -153,6 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         s.onOpenSystemMonitor = { [weak self] in self?.systemWindow?.show() }
         s.onOpenTickets = { [weak self] in self?.ticketsWindow?.show() }
         s.onOpenIntegrations = { [weak self] in self?.integrationsWindow?.show() }
+        s.onOpenProjectIntegrations = { [weak self, weak s] pk in
+            if let s { self?.projectIntegrations?.show(project: pk, store: s) }
+        }
         // "Same as conch (Night Owl)" names conch's theme as it changes.
         s.onConfigChange = { [weak self] in self?.updateThemeMenu() }
     }
@@ -497,6 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var systemWindow: SystemMonitorWindow?
     var ticketsWindow: TicketsWindow?
     var integrationsWindow: IntegrationsWindow?
+    var projectIntegrations: ProjectIntegrationsWindow?
 
     @objc func chooseTheme(_ sender: NSMenuItem) {
         for s in AppWindows.shared.stores { s.chooseTheme(sender.representedObject as? String ?? "") }

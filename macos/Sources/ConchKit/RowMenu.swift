@@ -102,6 +102,9 @@ public enum RowAction: Equatable, Sendable {
     case saveHost(pane: String)
     /// What the agents load in a checkout (the TUI's i), in a tab.
     case agentSetup(project: String, dir: String)
+    /// What a project is hosted on, which CI and tracker it uses (mock 5),
+    /// in a sheet of its own.
+    case integrations(project: String)
     /// A hosted sandbox started, stopped, deleted or its cost asked for
     /// (conch sandbox VERB), by its machine.
     case sandbox(machine: String, verb: String)
@@ -218,7 +221,8 @@ extension Snapshot {
     /// whether Conch Cloud is enabled (cloudEnabled), for Move to it.
     public func menu(for node: TreeNode, machine: String, machineOnline: Bool = true, label: String? = nil,
                      among: [MachineEntry] = [], folders: [String: [Folder]] = [:], savedHosts: [SavedHost] = [],
-                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false) -> [RowMenuItem] {
+                     canGroup: Bool = true, canGroupTask: Bool = true, offerCloud: Bool = false,
+                     integrations: Bool = false) -> [RowMenuItem] {
         var out: [RowMenuItem] = []
         switch node.kind {
         case .agent(let k), .terminal(let k):
@@ -305,6 +309,9 @@ extension Snapshot {
             if pr.git != false { out.append(RowMenuItem("Commit Graph", .commits(project: pk, branch: nil))) }
             if pr.git == false { out.append(RowMenuItem("Initialize Git…", .gitInit(project: pk))) }
             out.append(RowMenuItem("Agent Setup", .agentSetup(project: pk, dir: pr.path)))
+            // A server with integration.detect.v1; a git project, since
+            // what it uses is read off its remote and checkout.
+            if integrations && pr.git != false { out.append(RowMenuItem("Integrations…", .integrations(project: pk))) }
             if hasRunning(.project(pk)) { out.append(RowMenuItem("Broadcast to Its Agents…", .broadcast(.project(pk)))) }
             out += [.divider, RowMenuItem("Open in New Window", .openWindow(project: pk))]
             out += [.divider, RowMenuItem("Copy Path", .copy(pr.path))]

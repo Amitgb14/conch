@@ -759,6 +759,8 @@ final class Store: ObservableObject {
     /// The Integrations window (IntegrationsWindow.swift).
     var onOpenIntegrations: (() -> Void)?
     func openIntegrations() { onOpenIntegrations?() }
+    /// A project's integrations (ProjectIntegrationsSheet.swift), by its key.
+    var onOpenProjectIntegrations: ((String) -> Void)?
     /// [verify.intake]'s labels: what means ready for conch in Tickets.
     @Published private(set) var intakeLabels: Set<String> = []
 
@@ -2617,7 +2619,8 @@ final class Store: ObservableObject {
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
-                           offerCloud: offersCloud)
+                           offerCloud: offersCloud,
+                           integrations: conns[m]?.hello?.capabilities?.contains("integration.detect.v1") == true)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2741,6 +2744,7 @@ final class Store: ObservableObject {
         case .connectHost(let h): connectSaved(h)
         case .sandbox(let m, let verb): sandbox(m, verb)
         case .cloud(let m, let verb): cloudVerb(m, verb)
+        case .integrations(let pk): onOpenProjectIntegrations?(pk)
         case .agentSetup(let pk, let dir):
             let (m, pid) = unkey(pk)
             let k = setupKey(m, pid, dir: dir)
