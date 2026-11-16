@@ -18,6 +18,8 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
     /// and where the file is.
     public var adapted: Bool?
     public var file: String?
+    /// What it can do; nil from a conch that did not say.
+    public var capabilities: IntegrationCapabilities?
     public var id: String { name }
 
     /// Whether its row offers Set key…: one that is not ready, which is a
@@ -30,7 +32,9 @@ public struct SandboxProviderInfo: Decodable, Equatable, Sendable, Identifiable 
     /// Where its file came from, for its row.
     public var origin: String { adapted == true ? "your file" : "registry" }
 
-    public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, note: String? = nil, adapted: Bool? = nil, file: String? = nil) {
+    public init(name: String, label: String, ready: Bool, why: String? = nil, sizes: [String]? = nil, note: String? = nil, adapted: Bool? = nil, file: String? = nil,
+                capabilities: IntegrationCapabilities? = nil) {
+        self.capabilities = capabilities
         self.name = name
         self.label = label
         self.ready = ready
@@ -118,8 +122,11 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
     public var sizeError: String?
     /// The parts of a size the provider's create sends: cpu, memory, disk.
     public var takes: [String]?
+    /// What the provider can do and what its create takes; nil from a
+    /// conch that did not say.
+    public var capabilities: IntegrationCapabilities?
     enum CodingKeys: String, CodingKey {
-        case name, label, ready, why, settings, size, chosen, sizes, takes
+        case name, label, ready, why, settings, size, chosen, sizes, takes, capabilities
         case sizeError = "size_error"
     }
 
@@ -129,7 +136,10 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
 
     /// Whether the provider takes this part of a size at create; an older
     /// conch that said nothing takes every part.
-    public func takesPart(_ part: String) -> Bool { takes.map { $0.contains(part) } ?? true }
+    public func takesPart(_ part: String) -> Bool {
+        if let c = capabilities { return c.takesPart(part) }
+        return takes.map { $0.contains(part) } ?? true
+    }
 
     public func setting(_ key: String) -> Setting? { settings.first { $0.key == key } }
 
@@ -202,9 +212,11 @@ public struct NewSandboxForm: Equatable, Sendable {
             args += ["-size", size]
         }
         if case .snapshot = p.takes {
-            for (flag, value, what) in [("-cpu", cpu, "vCPUs"), ("-memory", memory, "memory"), ("-disk", disk, "disk")] {
+            for (flag, value, what, part) in [("-cpu", cpu, "vCPUs", "cpu"), ("-memory", memory, "memory", "memory"), ("-disk", disk, "disk", "disk")] {
                 let v = value.trimmingCharacters(in: .whitespaces)
-                if v.isEmpty { continue }
+                // A part its create does not send is not asked for, and
+                // one Settings chose for it once is not passed on.
+                if v.isEmpty || p.capabilities.map({ !$0.takesPart(part) }) == true { continue }
                 guard let n = Int(v), n > 0 else { return .failure(.problem("\(what): a whole number above 0, or empty for the snapshot's")) }
                 args += [flag, String(n)]
             }
@@ -216,4 +228,52 @@ public struct NewSandboxForm: Equatable, Sendable {
 public enum NewSandboxError: Error, Equatable, Sendable {
     case problem(String)
     public var message: String { if case .problem(let m) = self { return m }; return "" }
+}
+
+/// What New Sandbox… asks for, from what the provider's create takes:
+/// an image only where its file offers images, a snapshot where create
+/// sends one, and a size the way the provider sizes — its names, its
+/// plan's sizes, or numbers for just the parts it takes. A conch that
+/// said nothing of capabilities gets the fields it always did.
+public struct NewSandboxFields: Equatable, Sendable {
+    public enum Size: Equatable, Sendable {
+        case none
+        case names([String])
+        /// The sizes the provider's plan allows (settings' sizeChoices).
+        case plan
+        /// Numbers, for these parts: cpu, memory, disk.
+        case numbers([String])
+    }
+    /// Whether to ask what it starts from, and what to call that.
+    public var image: Bool
+    public var imageLabel: String
+    public var size: Size
+
+    public init(provider p: SandboxProviderInfo, settings st: SandboxSettingsInfo?) {
+        let caps = st?.capabilities ?? p.capabilities
+        let imageSetting = st?.setting("image")
+        if let s = imageSetting {
+            image = true
+            imageLabel = s.label
+        } else if let caps {
+            let offersImage = (caps.settings ?? []).contains("image")
+            image = offersImage || caps.takes("snapshot")
+            imageLabel = offersImage ? "Image" : "Snapshot"
+        } else {
+            image = st == nil
+            imageLabel = "Image"
+        }
+        let parts = ["cpu", "memory", "disk"]
+        let names = p.sizes ?? st?.size.names ?? []
+        if !names.isEmpty {
+            size = .names(names)
+        } else if let st, !st.sizeChoices.isEmpty {
+            size = .plan
+        } else if let caps {
+            let taken = parts.filter { caps.takesPart($0) }
+            size = taken.isEmpty ? .none : .numbers(taken)
+        } else {
+            size = .numbers(parts.filter { st?.takesPart($0) ?? true })
+        }
+    }
 }

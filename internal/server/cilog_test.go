@@ -229,10 +229,10 @@ func (r *ciRig) call(method string, out any) error {
 
 func TestCILogFromCircleCI(t *testing.T) {
 	r := newCIRig(t, true, circleCheck)
-	if miss := r.c.MissingCapabilities([]string{proto.CapCISources, proto.CapPRCheckSource, proto.CapBranchCIRerun}); len(miss) > 0 {
+	if miss := r.c.MissingCapabilities([]string{proto.CapCISources, proto.CapPRCheckSource, proto.CapBranchCIRerun, proto.CapPRCheckRerun}); len(miss) > 0 {
 		t.Fatalf("capabilities missing: %v", miss)
 	}
-	if ch := r.check(); ch.Source != "circleci" || !ch.Readable {
+	if ch := r.check(); ch.Source != "circleci" || !ch.Readable || !ch.Rerun {
 		t.Fatalf("the check: %+v", ch)
 	}
 	// No key: the message says which variable, and nothing is asked.
@@ -265,7 +265,7 @@ func TestCILogFromCircleCI(t *testing.T) {
 // red check is named, and the message says what would read it.
 func TestCILogNamesAServiceWithNoIntegration(t *testing.T) {
 	r := newCIRig(t, false, `{"__typename":"StatusContext","context":"Azure Pipelines","state":"FAILURE","targetUrl":"https://dev.azure.com/acme/widgets/_build/results?buildId=12"}`)
-	if ch := r.check(); ch.Source != "azure-pipelines" || ch.Readable {
+	if ch := r.check(); ch.Source != "azure-pipelines" || ch.Readable || ch.Rerun {
 		t.Fatalf("the check: %+v", ch)
 	}
 	err := r.call(proto.MethodBranchCILog, nil)

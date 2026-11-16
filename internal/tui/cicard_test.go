@@ -269,3 +269,37 @@ func TestCICardDetect(t *testing.T) {
 		t.Fatal("asked an older server")
 	}
 }
+
+// A server that says which checks can be run again is taken at its word:
+// r on a branch whose failing check's integration has no re-run says so
+// and asks nothing.
+func TestCICardRerunFollowsTheChecks(t *testing.T) {
+	m := cicardModel()
+	c, peer := a1FakeClient(t, proto.CapBranchCIRerun, proto.CapIntegrationDetect, proto.CapPRCheckRerun)
+	m.machines[0].c, m.machines[0].server = c, c.Server
+	cv := &changesView{machine: localMachine, projectID: "r1", branch: "feat"}
+	pr := m.branchPR(localMachine, "r1", "feat")
+	if pr == nil || len(pr.Runs) == 0 {
+		t.Fatal("no pull request with checks")
+	}
+	for i := range pr.Runs {
+		pr.Runs[i].Rerun = false
+	}
+	m.flash = ""
+	if cmd := cv.rerunCI(m); cmd != nil {
+		t.Fatal("asked the server to re-run what it said cannot be")
+	}
+	if !strings.Contains(m.flash, "cannot re-run from conch") {
+		t.Fatalf("said %q", m.flash)
+	}
+	// One that can: asked.
+	for i := range pr.Runs {
+		if pr.Runs[i].State == "fail" {
+			pr.Runs[i].Rerun = true
+		}
+	}
+	peer.setResult(proto.MethodBranchCIRerun, proto.BranchCIRerun{Source: "circleci", Service: "CircleCI", Run: "w1"})
+	if msgs := a2Run(cv.rerunCI(m)); len(msgs) != 1 || !strings.Contains(fmt.Sprint(msgs[0]), "re-running CircleCI") {
+		t.Fatalf("rerun said %v", msgs)
+	}
+}

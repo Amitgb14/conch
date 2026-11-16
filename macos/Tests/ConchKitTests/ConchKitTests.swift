@@ -3751,3 +3751,92 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(paneIDChipText("", copied: true) == "✓ ")
     #expect(paneIDCopiedFor > 0 && paneIDCopiedFor <= 3)
 }
+
+// A sandbox's menu offers only what its provider can do; a provider that
+// said nothing offers everything, as before.
+@Test func sandboxMenuFollowsCapabilities() {
+    let some = IntegrationCapabilities(operations: ["create", "get", "list", "stop", "delete"])
+    #expect(sandboxMenu(machine: "sbx", running: true, capabilities: some).map(\.action) ==
+            [.divider, .sandbox(machine: "sbx", verb: "stop"), .sandbox(machine: "sbx", verb: "rm")])
+    // Stopped, with no start: nothing to start it with.
+    #expect(!sandboxMenu(machine: "sbx", running: false, capabilities: some).contains { $0.action == .sandbox(machine: "sbx", verb: "start") })
+    // Nothing it can do here: no divider on its own either.
+    #expect(sandboxMenu(machine: "sbx", running: false, capabilities: IntegrationCapabilities(operations: ["create"])).isEmpty)
+    #expect(sandboxMenu(machine: "sbx", running: false, capabilities: nil).count == 4)
+}
+
+// conch's JSON for a provider's capabilities reads, an off one too, and an
+// integration's card and page carry them.
+@Test func capabilitiesDecode() throws {
+    let box = try JSONDecoder().decode(IntegrationCapabilities.self, from: Data("""
+    {"operations":["create","get","list","start","stop","delete"],"ssh":{"key":"none","access":true,"port":"reply"},
+     "create":["auto_stop_secs","cpu","env","memory_mb","name","snapshot"],"settings":[],"lifetime":false,
+     "states":["error"],"list":{"paged":true,"all_mine":false},"auth":{"type":"header","header":"X-API-Key"},"needs":["key"]}
+    """.utf8))
+    #expect(box.can("start") && !box.can("preview") && box.takesPart("memory") && !box.takesPart("disk") && box.takes("snapshot"))
+    #expect(box.sshWords == "a token the provider gives for each connection, on the port its API names" && box.extras.isEmpty)
+    let off = try JSONDecoder().decode(IntegrationCapabilities.self, from: Data(#"{"operations":["create"],"ssh":null}"#.utf8))
+    #expect(off.ssh == nil && off.sshWords == "no ssh yet" && !off.takes("cpu"))
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data("""
+    [{"kind":"sandbox","name":"archil","version":1,"hosts":{"api":"a"},"off":true,"capabilities":{"operations":["create"]}},
+     {"kind":"ci","name":"x","version":1,"hosts":{"api":"b"}}]
+    """.utf8))
+    #expect(listed[0].off == true && listed[0].capabilities?.can("create") == true && listed[1].capabilities == nil)
+}
+
+// New Sandbox asks for what the provider's create takes and no more.
+@Test func newSandboxFieldsFollowCapabilities() throws {
+    func settings(_ json: String) throws -> SandboxSettingsInfo {
+        try JSONDecoder().decode(SandboxSettingsInfo.self, from: Data(json.utf8))
+    }
+    // InstaBox before its sizes are read: a snapshot, vCPU and memory, no disk.
+    let insta = IntegrationCapabilities(operations: ["create"], create: ["cpu", "memory_mb", "snapshot", "name"], settings: [])
+    let p = SandboxProviderInfo(name: "instabox", label: "InstaBox", ready: true, capabilities: insta)
+    var f = NewSandboxFields(provider: p, settings: nil)
+    #expect(f.image && f.imageLabel == "Snapshot" && f.size == .numbers(["cpu", "memory"]))
+    // Read: the plan's sizes.
+    let st = try settings(#"{"name":"instabox","label":"InstaBox","ready":true,"settings":[],"size":{},"chosen":{},"sizes":[{"cpu":4,"memory":8}],"capabilities":{"operations":["create"],"create":["cpu","memory_mb"]}}"#)
+    f = NewSandboxFields(provider: p, settings: st)
+    #expect(!f.image && f.size == .plan)
+    // A provider that takes neither an image nor a size: just the name.
+    let bare = SandboxProviderInfo(name: "hetzner", label: "Hetzner", ready: true, capabilities: IntegrationCapabilities(operations: ["create"], create: ["name"]))
+    f = NewSandboxFields(provider: bare, settings: nil)
+    #expect(!f.image && f.size == .none)
+    // Daytona: its image setting, limits for all three.
+    let day = try settings(#"{"name":"daytona","label":"Daytona","ready":true,"settings":[{"key":"image","label":"Image","choices":[]}],"size":{"cpu":[1,4]},"chosen":{},"capabilities":{"operations":["create"],"create":["cpu","memory_gib","disk_gib","image"],"settings":["image"],"size":"limits"}}"#)
+    f = NewSandboxFields(provider: SandboxProviderInfo(name: "daytona", label: "Daytona", ready: true), settings: day)
+    #expect(f.image && f.imageLabel == "Image" && f.size == .numbers(["cpu", "memory", "disk"]))
+    // Named sizes win.
+    f = NewSandboxFields(provider: SandboxProviderInfo(name: "boat", label: "boat.dev", ready: true, sizes: ["small", "large"]), settings: nil)
+    #expect(f.size == .names(["small", "large"]))
+    // A conch that said nothing: the fields there always were.
+    f = NewSandboxFields(provider: SandboxProviderInfo(name: "old", label: "Old", ready: true), settings: nil)
+    #expect(f.image && f.size == .numbers(["cpu", "memory", "disk"]))
+
+    // A disk Settings once chose is not sent to a provider whose create takes none.
+    var form = NewSandboxForm(provider: "instabox")
+    form.cpu = "4"; form.memory = "8"; form.disk = "20"
+    #expect(try form.arguments(for: p).get() == ["sandbox", "-provider", "instabox", "create", "-cpu", "4", "-memory", "8"])
+}
+
+// A card says what a provider can do from its capabilities; a disabled one
+// is marked and never wanted, and a capability's user need shows in its chip.
+@Test func cardsFromCapabilities() throws {
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data("""
+    [{"kind":"sandbox","name":"boat","version":1,"hosts":{"api":"boat.dev"},
+      "capabilities":{"operations":["create","start","snapshot_save","preview"],"ssh":{"key":"authorize","port":"endpoint"}}},
+     {"kind":"sandbox","name":"archil","version":1,"hosts":{"api":"a"},"off":true,"capabilities":{"operations":["create"],"ssh":null}},
+     {"kind":"ci","name":"jenkins","version":1,"hosts":{"api":"j"},"capabilities":{"operations":["runs","failed_log"],"needs":["base_url","key","user"]}},
+     {"kind":"sandbox","name":"old","version":1,"hosts":{"api":"o"}}]
+    """.utf8))
+    let use = try JSONDecoder().decode(IntegrationUse.self, from: Data(#"{"name":"archil","label":"Archil","kind":"ci","why":"x","installed":false}"#.utf8))
+    let uses = ["app": [use]]
+    let cards = IntegrationCatalog.cards(here: nil, listed: listed, uses: uses)
+    let boat = try #require(cards.first { $0.name == "boat" })
+    #expect(boat.summary == "Sandboxes conch makes, starts and stops, with snapshots and preview links. ssh: a key conch hands it, through the provider's forwarder." && !boat.off)
+    let archil = try #require(cards.first { $0.name == "archil" })
+    #expect(archil.off && !archil.wanted && archil.summary.contains("not installable yet"))
+    let jenkins = try #require(cards.first { $0.name == "jenkins" })
+    #expect(jenkins.auth == "user + token" && jenkins.summary.contains("failed job"))
+    #expect(cards.first { $0.name == "old" }?.summary == "")
+}

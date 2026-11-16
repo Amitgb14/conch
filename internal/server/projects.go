@@ -1105,7 +1105,7 @@ func prChecks(runs []ghx.Check) []proto.PRCheck {
 	files := integration.Cached()
 	for i, r := range runs {
 		src, readable := integration.CheckSource(r.Name, r.URL, files)
-		out[i] = proto.PRCheck{Name: r.Name, State: r.State, URL: r.URL, Source: src, Readable: readable}
+		out[i] = proto.PRCheck{Name: r.Name, State: r.State, URL: r.URL, Source: src, Readable: readable, Rerun: integration.CanRerun(src, files)}
 	}
 	return out
 }

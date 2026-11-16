@@ -409,12 +409,14 @@ struct IntegrationCardView: View {
                 HStack(spacing: 5) {
                     if newer {
                         chip("needs a newer conch", Theme.muted)
+                    } else if card.off {
+                        chip("no ssh yet", Theme.muted)
                     } else {
                         chip(card.standing.words, standingColor)
                         chip(card.auth, Theme.muted)
                     }
                     Spacer()
-                    if !newer && (!card.installed || card.wanted) {
+                    if !newer && !card.off && (!card.installed || card.wanted) {
                         Text(card.installed ? "Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
                             .foregroundStyle(card.wanted ? Color.white : Theme.text)
                             .padding(.horizontal, 10).padding(.vertical, 3)
@@ -539,6 +541,18 @@ struct IntegrationPage: View {
                                     }
                                 }
                                 .padding(.vertical, 3)
+                            }
+                        }
+                        if let c = info.capabilities {
+                            box("What it can do") {
+                                if info.off == true {
+                                    Text("Not installable yet: its file has no ssh, so conch could make its sandboxes and never reach them.")
+                                        .font(.ui(size: 12)).foregroundStyle(Theme.warn)
+                                }
+                                row("can", c.operations.joined(separator: ", "))
+                                if info.isSandbox { row("ssh", c.sshWords) }
+                                if let n = c.needs, !n.isEmpty { row("you supply", n.map { ["key": "API key", "base_url": "server address", "user": "user name"][$0] ?? $0 }.joined(separator: ", ")) }
+                                if info.isSandbox, let cr = c.create, !cr.isEmpty { row("asks for", cr.joined(separator: ", ")) }
                             }
                         }
                         if let help = info.keyHelp {

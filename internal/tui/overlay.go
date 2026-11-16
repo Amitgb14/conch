@@ -302,8 +302,13 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		}
 		title = mach.label
 		mid := mach.id
-		_, _, isSandbox := mach.sandbox()
+		provider, _, isSandbox := mach.sandbox()
 		_, isCloud := mach.cloudID()
+		// What the provider can do: a menu offers nothing it cannot.
+		can := func(string) bool { return true }
+		if isSandbox {
+			can = sandboxCapabilities(provider).Can
+		}
 		switch {
 		case isCloud && mach.busy != "":
 			return &menu{title: title, x: x, y: y, items: []menuItem{{"", mach.busy + "…", func(*Model) tea.Cmd { return nil }}}}
@@ -312,7 +317,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 		case isSandbox && mach.busy != "":
 			return &menu{title: title, x: x, y: y, items: []menuItem{{"", mach.busy + "…", func(*Model) tea.Cmd { return nil }}}}
 		case isSandbox && mach.sandboxState != "":
-			items = append(items, menuItem{"s", "Start sandbox", func(m *Model) tea.Cmd { return m.sandboxOp(mid, "start") }})
+			if can("start") {
+				items = append(items, menuItem{"s", "Start sandbox", func(m *Model) tea.Cmd { return m.sandboxOp(mid, "start") }})
+			}
 		case mach.state == stateAttention && mid != localMachine:
 			items = append(items, menuItem{"i", "Install / upgrade conch there", func(m *Model) tea.Cmd { return m.reconnect(mid, true) }})
 		case mach.state == stateOffline && mid == localMachine:
@@ -346,13 +353,21 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 			}})
 		}
 		if isSandbox {
-			if mach.state == stateOnline {
+			if mach.state == stateOnline && can("preview") {
 				items = append(items, menuItem{"o", "Open a port in the browser…", func(m *Model) tea.Cmd { return m.openSandboxPort(mid) }})
+			}
+			if mach.state == stateOnline && can("stop") {
 				items = append(items, menuItem{"S", "Stop sandbox…", func(m *Model) tea.Cmd { m.confirmStopSandbox(mid); return nil }})
 			}
-			items = append(items, menuItem{"K", "Keep a snapshot…", func(m *Model) tea.Cmd { return m.openSnapshotDialog(mid) }})
-			items = append(items, menuItem{"$", "What it has cost…", func(m *Model) tea.Cmd { return m.openSandboxUsage(mid) }})
-			items = append(items, menuItem{"D", "Delete sandbox…", func(m *Model) tea.Cmd { m.confirmDeleteSandbox(mid); return nil }})
+			if can("snapshot_save") {
+				items = append(items, menuItem{"K", "Keep a snapshot…", func(m *Model) tea.Cmd { return m.openSnapshotDialog(mid) }})
+			}
+			if can("usage") {
+				items = append(items, menuItem{"$", "What it has cost…", func(m *Model) tea.Cmd { return m.openSandboxUsage(mid) }})
+			}
+			if can("delete") {
+				items = append(items, menuItem{"D", "Delete sandbox…", func(m *Model) tea.Cmd { m.confirmDeleteSandbox(mid); return nil }})
+			}
 		}
 		if isCloud && mach.state == stateOnline {
 			items = append(items, menuItem{"S", "Sleep", func(m *Model) tea.Cmd { return m.cloudOp(mid, "sleep", false) }})

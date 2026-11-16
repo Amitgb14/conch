@@ -134,6 +134,22 @@ func findEntry(ixs []*integration.Index, name string) (integration.Entry, *integ
 	return integration.Entry{}, nil, false
 }
 
+// findDisabled is the entry for name a registry lists but cannot offer
+// yet: a sandbox provider with no ssh.
+func findDisabled(ixs []*integration.Index, name string) (integration.Entry, *integration.Index, bool) {
+	for _, ix := range ixs {
+		for _, e := range ix.Disabled {
+			if e.Name == name {
+				return e, ix, true
+			}
+		}
+	}
+	return integration.Entry{}, nil, false
+}
+
+// offWords is why an entry cannot be installed yet.
+const offWords = "no ssh yet"
+
 func registryNamed(name string) (integration.Registry, bool) {
 	for _, r := range integrationRegistries() {
 		if r.Name == name {
@@ -183,11 +199,17 @@ func integrationSearch(args []string) error {
 	type row struct {
 		integration.Entry
 		Signed bool `json:"signed"`
+		// Off is listed and cannot be installed yet (no ssh yet).
+		Off bool `json:"off,omitempty"`
 	}
 	var rows []row
+	term := strings.Join(fs.Args(), " ")
 	for _, ix := range indexes(ctx, os.Stderr) {
-		for _, e := range ix.Search(strings.Join(fs.Args(), " ")) {
-			rows = append(rows, row{e, ix.Signed})
+		for _, e := range ix.Search(term) {
+			rows = append(rows, row{e, ix.Signed, false})
+		}
+		for _, e := range ix.SearchDisabled(term) {
+			rows = append(rows, row{e, ix.Signed, true})
 		}
 	}
 	if *asJSON {
@@ -203,7 +225,11 @@ func integrationSearch(args []string) error {
 		if r.BuiltIn {
 			where = "conch's own code"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", firstSetStr(r.Label, r.Name), r.Kind, standing(r.Entry, r.Signed), where)
+		st := standing(r.Entry, r.Signed)
+		if r.Off {
+			st = offWords
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", firstSetStr(r.Label, r.Name), r.Kind, st, where, r.Capabilities.OperationWords(r.Kind))
 	}
 	return tw.Flush()
 }
@@ -237,6 +263,11 @@ type infoJSON struct {
 	Adapted   string                `json:"adapted,omitempty"`
 	SHA256    string                `json:"sha256,omitempty"`
 	Installs  int                   `json:"installs,omitempty"`
+	// Capabilities are what it can do: the registry's for one it lists,
+	// else worked out from the file installed here; none for a built-in.
+	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
+	// Off is one the registry lists and cannot offer yet (no ssh yet).
+	Off bool `json:"off,omitempty"`
 }
 
 func integrationInfo(args []string) error {
@@ -264,7 +295,13 @@ func integrationInfo(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	e, ix, listed := findEntry(indexes(ctx, io.Discard), name)
+	ixs := indexes(ctx, io.Discard)
+	e, ix, listed := findEntry(ixs, name)
+	off := false
+	if !listed {
+		e, ix, listed = findDisabled(ixs, name)
+		off = listed
+	}
 	// A sandbox provider installed here — from the registry, or a file of
 	// one's own no registry lists — is described by its own file.
 	ownSandbox := false
@@ -306,6 +343,13 @@ func integrationInfo(args []string) error {
 		ops = sandboxOps(name)
 		keyHelp = firstSetStr(keyHelp, "Give its key here (kept in the Keychain), in Settings → Sandboxes, or in $"+keyEnv+".")
 	}
+	caps := e.Capabilities
+	switch {
+	case kind == integration.KindSandbox && installedHere:
+		caps = sandbox.CapabilitiesOf(name)
+	case f != nil:
+		caps = integration.CapabilitiesOf(f)
+	}
 	// A sandbox provider's key may be in config.toml too: the provider says.
 	sandboxKeyed := false
 	if kind == integration.KindSandbox && installedHere {
@@ -315,7 +359,8 @@ func integrationInfo(args []string) error {
 	}
 	if *asJSON {
 		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: installedHere,
-			Does: integration.Does(kind, ops), Hosts: hosts, KeyEnv: keyEnv, KeyHelp: keyHelp, Note: note, Docs: docs}
+			Does: integration.Does(kind, ops), Hosts: hosts, KeyEnv: keyEnv, KeyHelp: keyHelp, Note: note, Docs: docs,
+			Capabilities: caps, Off: off}
 		if f != nil {
 			j.UserEnv, j.AuthType, j.Scopes, j.BaseURL = f.Auth.UserEnv, f.Auth.Type, f.Auth.Scopes, f.BaseURL
 			j.AdaptedBy, j.Adapted = f.AdaptedBy, f.Adapted
@@ -339,6 +384,18 @@ func integrationInfo(args []string) error {
 		fmt.Printf("registry %s, version %d · %s\n", e.Registry, e.Version, standing(e, ix.Signed))
 		if why := e.RevokedReason(e.Version); why != "" {
 			fmt.Printf("REVOKED: %s\n", why)
+		}
+	}
+	if off {
+		fmt.Println("Not installable yet: " + offWords + ", so conch could make its sandboxes and never reach them.")
+	}
+	if caps != nil {
+		fmt.Println("\nWhat it can do: " + caps.OperationWords(kind))
+		if w := caps.SSHWords(kind); w != "" {
+			fmt.Println("ssh: " + w)
+		}
+		if w := caps.NeedsWords(); w != "" {
+			fmt.Println("You supply " + w)
 		}
 	}
 	fmt.Println("\nWhat it does in conch")
@@ -389,8 +446,12 @@ func integrationInstall(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	e, ix, ok := findEntry(indexes(ctx, os.Stderr), name)
+	ixs := indexes(ctx, os.Stderr)
+	e, ix, ok := findEntry(ixs, name)
 	if !ok {
+		if off, _, ok := findDisabled(ixs, name); ok {
+			return fmt.Errorf("%s is listed but cannot be installed yet: %s, so conch could make its sandboxes and never reach them", off.DisplayName(), offWords)
+		}
 		return fmt.Errorf("no registry lists %s: conch integration search lists what they have", name)
 	}
 	if e.BuiltIn {
@@ -789,6 +850,12 @@ func integrationUpdate(args []string) error {
 			fmt.Printf("%s: its registry %s no longer lists it\n", n, rec.Registry)
 			continue
 		case e.Version <= rec.Version:
+			// Installed before the registry said what it can do: it says now.
+			if rec.Capabilities == nil && e.Capabilities != nil && e.SHA256 == rec.SHA256 {
+				if err := integration.KeepCapabilities(n, e.Capabilities); err != nil {
+					return err
+				}
+			}
 			fmt.Printf("%s: up to date (%d)\n", n, rec.Version)
 			continue
 		case e.RevokedReason(e.Version) != "":
@@ -1042,21 +1109,17 @@ func builtinKey(b builtinIntegration, fromStdin bool) error {
 // sandboxOps is what an installed sandbox provider's file describes
 // beside the machine, as integration.Does names them.
 func sandboxOps(name string) []string {
-	p, err := remote.OpenProvider(name)
-	if err != nil {
+	c := sandbox.CapabilitiesOf(name)
+	if c == nil {
 		return nil
 	}
 	var ops []string
-	if _, ok := sandbox.As[sandbox.Snapshotter](p); ok {
-		ops = append(ops, "snapshot")
+	for _, o := range []struct{ op, does string }{{"snapshot_save", "snapshot"}, {"preview", "preview"}, {"usage", "usage"}} {
+		if c.Can(o.op) {
+			ops = append(ops, o.does)
+		}
 	}
-	if _, ok := sandbox.As[sandbox.Previewer](p); ok {
-		ops = append(ops, "preview")
-	}
-	if _, ok := sandbox.As[sandbox.Metered](p); ok {
-		ops = append(ops, "usage")
-	}
-	if c, ok := p.(*sandbox.Custom); ok && (len(c.Settings()) > 0 || len(c.Sizes().Names)+len(c.Sizes().CPU)+len(c.Sizes().MemoryGiB)+len(c.Sizes().DiskGiB) > 0) {
+	if len(c.Settings) > 0 || c.Size != "" {
 		ops = append(ops, "settings")
 	}
 	return ops

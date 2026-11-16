@@ -246,13 +246,17 @@ public struct PRCheck: Decodable, Equatable, Sendable {
     /// conch can read its log (pr.check.source.v1); nil from older servers.
     public var source: String?
     public var readable: Bool?
+    /// Whether conch can run it again: Actions, or an integration whose
+    /// file has a re-run (pr.check.rerun.v1); nil from older servers.
+    public var rerun: Bool?
 
-    public init(name: String, state: String, url: String? = nil, source: String? = nil, readable: Bool? = nil) {
+    public init(name: String, state: String, url: String? = nil, source: String? = nil, readable: Bool? = nil, rerun: Bool? = nil) {
         self.name = name
         self.state = state
         self.url = url
         self.source = source
         self.readable = readable
+        self.rerun = rerun
     }
 }
 

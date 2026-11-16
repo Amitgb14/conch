@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
@@ -23,6 +24,15 @@ type cmdRegistry struct {
 	mu      sync.Mutex
 	entries []sandbox.RegistryEntry
 	files   map[string]string
+	// disabled, when there are any, makes the index format 2, which
+	// lists them.
+	disabled []sandbox.RegistryEntry
+}
+
+// v2Entry is a format 2 index's entry of a sandbox provider.
+type v2Entry struct {
+	Kind string `json:"kind"`
+	sandbox.RegistryEntry
 }
 
 func newCmdRegistry(t *testing.T) *cmdRegistry {
@@ -32,6 +42,21 @@ func newCmdRegistry(t *testing.T) *cmdRegistry {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		path := strings.TrimPrefix(req.URL.Path, "/")
+		if path == "index.json" && len(r.disabled) > 0 {
+			ix := struct {
+				Format   int       `json:"format"`
+				Entries  []v2Entry `json:"entries"`
+				Disabled []v2Entry `json:"disabled"`
+			}{Format: 2}
+			for _, e := range r.entries {
+				ix.Entries = append(ix.Entries, v2Entry{"sandbox", e})
+			}
+			for _, e := range r.disabled {
+				ix.Disabled = append(ix.Disabled, v2Entry{"sandbox", e})
+			}
+			json.NewEncoder(w).Encode(ix)
+			return
+		}
 		if path == "index.json" {
 			json.NewEncoder(w).Encode(sandbox.Index{Format: 1, Providers: r.entries})
 			return
@@ -72,6 +97,98 @@ func (r *cmdRegistry) publish(name, body string, change func(*sandbox.RegistryEn
 	}
 	r.entries = append(r.entries, e)
 	return e
+}
+
+// Search and install say what the registry says a provider can do, and a
+// provider it lists as disabled is shown and not installed.
+func TestProviderCapabilitiesSaid(t *testing.T) {
+	a4Env(t)
+	site := adaptSite(t)
+	reg := newCmdRegistry(t)
+	caps := &integration.Capabilities{Operations: []string{"create", "get", "list", "start", "stop", "delete", "snapshot_save", "preview"},
+		SSH: &integration.SSHCaps{Key: "none", Access: true, Port: "reply"}, Create: []string{"cpu", "name"}, Needs: []string{"key"}}
+	reg.publish("acme", adaptFile(site.URL), func(e *sandbox.RegistryEntry) { e.Capabilities = caps })
+	reg.publish("plain", strings.Replace(adaptFile(site.URL), `name = "acme"`, `name = "plain"`, 1), func(e *sandbox.RegistryEntry) { e.Label = "Plain" })
+	reg.disabled = []sandbox.RegistryEntry{{Name: "dark", Label: "Dark", APIHost: "api.dark.test", Format: 3,
+		Capabilities: &integration.Capabilities{Operations: []string{"create"}}}}
+
+	out, _ := a4Capture(t, "", func() {
+		if err := sandboxProviderCmd([]string{"search"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	lines := strings.Split(out, "\n")
+	row := func(name string) string {
+		for _, l := range lines {
+			if strings.HasPrefix(l, name+" ") {
+				return l
+			}
+		}
+		t.Fatalf("no row for %s:\n%s", name, out)
+		return ""
+	}
+	if !strings.Contains(out, "CAN") || !strings.Contains(row("acme"), "snapshots, preview links") {
+		t.Errorf("acme's row:\n%s", out)
+	}
+	if !strings.Contains(row("plain"), " - ") {
+		t.Errorf("plain, which says nothing, says something:\n%s", out)
+	}
+	if !strings.Contains(row("dark"), "no ssh yet") {
+		t.Errorf("dark is not marked:\n%s", out)
+	}
+	out, _ = a4Capture(t, "", func() { sandboxProviderCmd([]string{"search", "-json"}) })
+	var found []searchJSON
+	if err := json.Unmarshal([]byte(out), &found); err != nil || len(found) != 3 {
+		t.Fatalf("search -json: %s %v", out, err)
+	}
+	for _, f := range found {
+		switch f.Name {
+		case "acme":
+			if f.Capabilities == nil || f.Capabilities.SSH.Port != "reply" || f.Off || !f.Usable {
+				t.Errorf("acme: %+v", f)
+			}
+		case "dark":
+			if !f.Off || f.Usable {
+				t.Errorf("dark: %+v", f)
+			}
+		case "plain":
+			if f.Capabilities != nil || f.Off {
+				t.Errorf("plain: %+v", f)
+			}
+		}
+	}
+
+	// Install says it before asking, and keeps it with the record.
+	var err error
+	out, _ = a4Capture(t, "", func() { err = sandboxProviderCmd([]string{"install", "-y", "acme"}) })
+	if err != nil || !strings.Contains(out, "it can                       create, start, stop, delete, snapshots, preview links") ||
+		!strings.Contains(out, "a token the provider gives for each connection, on the port its API names") || !strings.Contains(out, "you supply                   an API key") {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	if got := sandbox.CapabilitiesOf("acme"); !got.Can("preview") || got.Can("usage") {
+		t.Errorf("acme's kept: %+v", got)
+	}
+	err = sandboxProviderCmd([]string{"install", "-y", "dark"})
+	if err == nil || !strings.Contains(err.Error(), "cannot be installed yet") || !strings.Contains(err.Error(), "no ssh") {
+		t.Errorf("dark installed: %v", err)
+	}
+
+	// One installed before the registry said gets them at its next update.
+	a4Capture(t, "", func() { err = sandboxProviderCmd([]string{"install", "-y", "plain"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg.publish("plain", strings.Replace(adaptFile(site.URL), `name = "acme"`, `name = "plain"`, 1), func(e *sandbox.RegistryEntry) {
+		e.Label = "Plain"
+		e.Capabilities = &integration.Capabilities{Operations: []string{"create", "future_op"}}
+	})
+	a4Capture(t, "", func() { err = sandboxProviderCmd([]string{"update", "-y", "plain"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sandbox.CapabilitiesOf("plain"); !got.Can("future_op") {
+		t.Errorf("update did not keep plain's: %+v", got)
+	}
 }
 
 func TestProviderSearchAndInstall(t *testing.T) {

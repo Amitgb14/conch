@@ -62,6 +62,9 @@ type RegistryEntry struct {
 	Docs      string         `json:"docs"`
 	Conch     string         `json:"conch"`
 	Checked   *RegistryCheck `json:"checked"`
+	// Capabilities are what the registry worked out the file can do; nil
+	// in an index from before them.
+	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
 }
 
 // RegistryCheck is the last time somebody's key listed sandboxes with a
@@ -76,6 +79,9 @@ type RegistryCheck struct {
 type Index struct {
 	Format    int             `json:"format"`
 	Providers []RegistryEntry `json:"providers"`
+	// Disabled are listed and cannot be installed yet: no [ssh], so conch
+	// could make their sandboxes and never reach them.
+	Disabled []RegistryEntry `json:"-"`
 }
 
 // Find is the entry for name.
@@ -90,10 +96,24 @@ func (ix *Index) Find(name string) (RegistryEntry, bool) {
 
 // Search is the entries whose name, label or API host holds term, every
 // one for an empty term.
-func (ix *Index) Search(term string) []RegistryEntry {
+func (ix *Index) Search(term string) []RegistryEntry { return searchEntries(ix.Providers, term) }
+
+// SearchDisabled is Search over the providers that cannot be installed yet.
+func (ix *Index) SearchDisabled(term string) []RegistryEntry { return searchEntries(ix.Disabled, term) }
+
+// FindDisabled is the disabled entry for name.
+func (ix *Index) FindDisabled(name string) (RegistryEntry, bool) {
+	i := slices.IndexFunc(ix.Disabled, func(e RegistryEntry) bool { return e.Name == name })
+	if i < 0 {
+		return RegistryEntry{}, false
+	}
+	return ix.Disabled[i], true
+}
+
+func searchEntries(entries []RegistryEntry, term string) []RegistryEntry {
 	term = strings.ToLower(strings.TrimSpace(term))
 	var out []RegistryEntry
-	for _, e := range ix.Providers {
+	for _, e := range entries {
 		if term == "" || strings.Contains(e.Name, term) || strings.Contains(strings.ToLower(e.Label), term) || strings.Contains(e.APIHost, term) {
 			out = append(out, e)
 		}
@@ -168,11 +188,13 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 	switch ix.Format {
 	case 1:
 	case 2:
+		type entry struct {
+			Kind string `json:"kind"`
+			RegistryEntry
+		}
 		var v2 struct {
-			Entries []struct {
-				Kind string `json:"kind"`
-				RegistryEntry
-			} `json:"entries"`
+			Entries  []entry `json:"entries"`
+			Disabled []entry `json:"disabled"`
 		}
 		if err := json.Unmarshal(data, &v2); err != nil {
 			return nil, fmt.Errorf("the provider registry's index: %w", err)
@@ -183,13 +205,21 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 				ix.Providers = append(ix.Providers, e.RegistryEntry)
 			}
 		}
+		for _, e := range v2.Disabled {
+			if e.Kind == "sandbox" {
+				ix.Disabled = append(ix.Disabled, e.RegistryEntry)
+			}
+		}
 	default:
 		return nil, fmt.Errorf("the provider registry's index is format %d; this conch reads up to %d: update conch", ix.Format, indexFormat)
 	}
 	// An entry whose name could not be a provider's is left out: its name
 	// would be made a path here, and no conch could install it anyway.
-	ix.Providers = slices.DeleteFunc(ix.Providers, func(e RegistryEntry) bool { return CheckName(e.Name) != nil })
+	bad := func(e RegistryEntry) bool { return CheckName(e.Name) != nil }
+	ix.Providers = slices.DeleteFunc(ix.Providers, bad)
+	ix.Disabled = slices.DeleteFunc(ix.Disabled, bad)
 	sort.Slice(ix.Providers, func(i, j int) bool { return ix.Providers[i].Name < ix.Providers[j].Name })
+	sort.Slice(ix.Disabled, func(i, j int) bool { return ix.Disabled[i].Name < ix.Disabled[j].Name })
 	return &ix, nil
 }
 
@@ -225,6 +255,9 @@ type Installed struct {
 	AuthHeader string `json:"auth_header,omitempty"`
 	AuthValue  string `json:"auth_value,omitempty"`
 	Installed  string `json:"installed"`
+	// Capabilities are the registry's for the file as it came
+	// (CapabilitiesOf); nil for one installed before it said.
+	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
 }
 
 // FileKey is how a provider file sends a key: the variable it is read
@@ -322,6 +355,12 @@ func ParseProviderFile(name string, data []byte) (*ProviderFile, []string, error
 // registry. It is checked first: a file this conch cannot run is refused
 // rather than saved and skipped.
 func InstallProviderFile(name string, data []byte) (*ProviderFile, error) {
+	return InstallRegistryFile(name, data, nil)
+}
+
+// InstallRegistryFile is InstallProviderFile keeping what the registry's
+// index said the file can do with its record.
+func InstallRegistryFile(name string, data []byte, caps *integration.Capabilities) (*ProviderFile, error) {
 	f, problems, err := ParseProviderFile(name, data)
 	if err != nil {
 		return nil, err
@@ -340,8 +379,24 @@ func InstallProviderFile(name string, data []byte) (*ProviderFile, error) {
 	api, ssh := FileHosts(f)
 	env, h, v := FileKey(f)
 	m[name] = Installed{SHA256: hex.EncodeToString(sum[:]), APIHost: api, SSHHost: ssh, KeyEnv: env, AuthHeader: h, AuthValue: v,
-		Installed: time.Now().UTC().Format("2006-01-02")}
+		Installed: time.Now().UTC().Format("2006-01-02"), Capabilities: caps}
 	return f, writeInstalled(m)
+}
+
+// KeepCapabilities records what the registry says name's file can do, for
+// one installed before it said.
+func KeepCapabilities(name string, caps *integration.Capabilities) error {
+	m, err := ReadInstalled()
+	if err != nil {
+		return err
+	}
+	in, ok := m[name]
+	if !ok {
+		return nil
+	}
+	in.Capabilities = caps
+	m[name] = in
+	return writeInstalled(m)
 }
 
 // ForgetInstalled drops name from the record, when its file is removed.

@@ -109,6 +109,8 @@ Integrations are published to a registry: a GitHub repository whose CI publishes
 
 The registry also decides what the catalog shows: its top-level folders are the kinds (Code hosts, CI, Sandboxes…, named in its `kinds.json`), and each integration's folder holds its icon. conch downloads an icon once, checks it against the index's hash and keeps it; `conch integration icons` lists them. A kind this conch has no code for is shown as needing a newer conch.
 
+Each entry carries what it can do (`capabilities`, worked out from its file when the index is built): its operations, how its key is sent, what you supply (a key, a server's address, a user) and, for a CI, whether it can re-run. The cards and `conch integration info` show it, and conch offers Re-run only for a failing check whose integration can.
+
 Your company can run its own registry:
 
 ```toml

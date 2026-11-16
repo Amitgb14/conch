@@ -33,6 +33,11 @@ func (mach *machine) sandbox() (provider, id string, ok bool) {
 	return remote.ParseSandboxTarget(mach.target)
 }
 
+// sandboxCapabilities is what a provider can do (sandbox.CapabilitiesOf):
+// a sandbox's menu offers that and nothing more. nil — no file — can
+// everything, and the provider's file decides.
+var sandboxCapabilities = sandbox.CapabilitiesOf
+
 // sandboxDoneMsg ends a start, stop or delete of a machine's sandbox.
 type sandboxDoneMsg struct {
 	machine string
