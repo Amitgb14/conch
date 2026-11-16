@@ -134,7 +134,16 @@ key = "RGW"
 snapshot = "x"
 [sandbox.nobody-knows]
 snapshot = "y"
+[sandbox.boat]
+size = "large"
 `), 0o600)
+	// Daytona is installed; boat.dev is set up in Settings but has no file.
+	os.MkdirAll(filepath.Join(os.Getenv("CONCH_HOME"), "providers"), 0o700)
+	if data, err := os.ReadFile(filepath.Join("..", "sandbox", "testdata", "registry", "daytona.toml")); err != nil {
+		t.Fatal(err)
+	} else {
+		os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "providers", "daytona.toml"), data, 0o600)
+	}
 	t.Setenv("JIRA_API_TOKEN", "")
 	d = detect()
 	j, _ := use(d, "jira")
@@ -146,6 +155,9 @@ snapshot = "y"
 	}
 	if _, ok := use(d, "nobody-knows"); ok {
 		t.Fatal("a sandbox conch does not know")
+	}
+	if _, ok := use(d, "boat"); ok {
+		t.Fatal("a provider with settings and no file is not set up")
 	}
 	t.Setenv("JIRA_API_TOKEN", "tok")
 	if j, _ := use(detect(), "jira"); !j.Connected {

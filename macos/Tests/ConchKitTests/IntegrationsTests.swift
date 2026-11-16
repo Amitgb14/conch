@@ -256,3 +256,23 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(IntegrationCatalog.emptyWords(filter: .all, query: "") == "Nothing here yet.")
     #expect(IntegrationCatalog.emptyWords(filter: .verified, query: "zzz") == "No integration matches.")
 }
+
+// A sandbox provider's page opens whatever conch says it does: an older
+// conch said null, which once failed the whole page.
+@Test func integrationInfoWithNullDoes() throws {
+    for does in [#""does":null,"#, "", #""does":[{"what":"A machine in the cloud for agents","where":"M","level":"yes"}],"#] {
+        let j = #"{"name":"boat","label":"boat.dev","kind":"sandbox","source":"registry conch-integrations","installed":false,"# + does + #""hosts":{"api":"boat.dev"},"key_env":"BOAT_API_KEY","key_set":false}"#
+        let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(j.utf8))
+        #expect(info.does.count == (does.contains("machine") ? 1 : 0))
+    }
+}
+
+// A sandbox card names no projects: Settings sets one up for every project
+// at once, so "Used in" listed them all, on a provider not even installed.
+@Test func sandboxCardsNameNoProjects() throws {
+    let here = try JSONDecoder().decode(IntegrationList.self, from: Data(#"{"integrations":[{"name":"daytona","label":"Daytona","kind":"sandbox","version":"-","source":"registry","state":"ok"}]}"#.utf8))
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data(#"[{"kind":"sandbox","name":"boat","label":"boat.dev","version":1,"hosts":{"api":"boat.dev"}}]"#.utf8))
+    let use = try JSONDecoder().decode([IntegrationUse].self, from: Data(#"[{"name":"daytona","label":"Daytona","kind":"sandbox","why":"for tasks run off this machine","installed":true},{"name":"boat","label":"boat.dev","kind":"sandbox","why":"for tasks run off this machine","installed":true}]"#.utf8))
+    let cards = IntegrationCatalog.cards(here: here, listed: listed, uses: ["ceph": use, "conch": use])
+    for c in cards { #expect(c.usedIn.isEmpty && !c.wanted, "\(c.name)") }
+}

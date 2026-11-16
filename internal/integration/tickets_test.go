@@ -386,7 +386,7 @@ func TestDoesTicketsAndNotify(t *testing.T) {
 	if n := Does(KindNotify, []string{"send"}); len(n) == 0 || n[0].Level != "yes" {
 		t.Fatalf("notify: %+v", n)
 	}
-	if Does(KindHost, nil) != nil {
+	if len(Does(KindHost, nil)) != 0 {
 		t.Fatal("host")
 	}
 }

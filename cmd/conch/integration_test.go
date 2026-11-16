@@ -559,6 +559,19 @@ func TestIntegrationSandboxProviders(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &info) != nil || !info.Installed || info.Source != "installed" || !strings.Contains(info.KeyHelp, "Settings → Sandboxes") {
 		t.Fatalf("info daytona: %s %v", out, err)
 	}
+	// What it does, from its file: never null, which Conch.app could not read.
+	levels := map[string]string{}
+	for _, f := range info.Does {
+		levels[f.What] = f.Level
+	}
+	if !strings.Contains(out, `"does":[`) || levels["Keep one to make others from"] != "yes" || levels["A link to a port inside"] != "yes" ||
+		levels["What a sandbox has cost, as billed"] != "no" || levels["A region, an image or a size to choose"] != "yes" {
+		t.Fatalf("daytona does: %s", out)
+	}
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "hetzner"}) })
+	if !strings.Contains(out, `"does":[`) {
+		t.Fatalf("a registry sandbox's does: %s", out)
+	}
 
 	// Installing one goes to the sandbox installer, which says one is
 	// here already, as conch sandbox provider install says it.

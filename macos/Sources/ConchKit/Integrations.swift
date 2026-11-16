@@ -94,7 +94,11 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var tier: String?
     public var checked: IntegrationChecked?
     public var revoked: String?
-    public var does: [IntegrationFeature]
+    /// What it does in conch. A conch that said null (a sandbox provider,
+    /// before it said what one does) is read as nothing, not as a page
+    /// that cannot be opened.
+    public var does: [IntegrationFeature] { doesList ?? [] }
+    var doesList: [IntegrationFeature]?
     public var hosts: IntegrationHosts
     public var keyEnv: String
     public var userEnv: String?
@@ -111,7 +115,8 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var installs: Int?
 
     enum CodingKeys: String, CodingKey {
-        case name, label, kind, source, installed, builtin, registry, version, signed, tier, checked, revoked, does, hosts, scopes, note, docs, sha256, installs, adapted
+        case name, label, kind, source, installed, builtin, registry, version, signed, tier, checked, revoked, hosts, scopes, note, docs, sha256, installs, adapted
+        case doesList = "does"
         case keyEnv = "key_env", userEnv = "user_env", authType = "auth_type", baseURL = "base_url", keyHelp = "key_help", keySet = "key_set", adaptedBy = "adapted_by"
     }
 
@@ -272,11 +277,14 @@ public enum IntegrationCatalog {
     public static func cards(here: IntegrationList?, listed: [IntegrationListed], uses: [String: [IntegrationUse]]) -> [IntegrationCard] {
         var out: [IntegrationCard] = []
         var seen = Set<String>()
+        // A sandbox is the machine's, not a project's: Settings sets one up
+        // for every project at once, so "used in" would name them all.
+        let projectUse: (IntegrationUse, String) -> Bool = { u, name in u.name == name && u.kind != IntegrationKind.sandbox.rawValue }
         let usedIn: (String) -> [String] = { name in
-            uses.filter { $0.value.contains(where: { $0.name == name }) }.map(\.key).sorted()
+            uses.filter { $0.value.contains(where: { projectUse($0, name) }) }.map(\.key).sorted()
         }
         let wantedNow: (String) -> Bool = { name in
-            uses.values.contains { $0.contains { $0.name == name && ($0.installed != true || $0.connected != true) } }
+            uses.values.contains { $0.contains { projectUse($0, name) && ($0.installed != true || $0.connected != true) } }
         }
         for h in here?.integrations ?? [] {
             seen.insert(h.name)

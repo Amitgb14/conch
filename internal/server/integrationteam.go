@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -154,8 +155,11 @@ func (pm *projectManager) settingsUses(name, root string) []proto.IntegrationUse
 		out = append(out, u)
 	}
 	var boxes []string
+	installed := sandbox.Names()
 	for n := range cfg.Sandbox {
-		if sandbox.Known(n) {
+		// Installed: a table in config.toml for a provider with no file
+		// (boat.dev's, from before providers were files) sets up nothing.
+		if slices.Contains(installed, n) {
 			boxes = append(boxes, n)
 		}
 	}

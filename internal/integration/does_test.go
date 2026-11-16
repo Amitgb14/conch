@@ -19,7 +19,22 @@ func TestDoes(t *testing.T) {
 	if got := levels(Does(KindCI, nil)); got != "no no no no built-in " {
 		t.Fatalf("nothing: %q", got)
 	}
-	if Does(KindHost, []string{"list"}) != nil {
+	if len(Does(KindHost, []string{"list"})) != 0 {
 		t.Fatal("a kind this conch does not describe yet")
+	}
+}
+
+// A sandbox provider says what it does — a machine always, and what its
+// file describes beside — and no kind says null, which Conch.app read as
+// a page it could not open.
+func TestDoesSandboxAndNeverNull(t *testing.T) {
+	got := Does(KindSandbox, []string{"snapshot", "preview"})
+	if len(got) != 5 || got[0].Level != "yes" || got[1].Level != "yes" || got[2].Level != "yes" || got[3].Level != "no" {
+		t.Fatalf("sandbox: %+v", got)
+	}
+	for _, k := range []string{KindSandbox, KindHost, "nothing"} {
+		if Does(k, nil) == nil {
+			t.Errorf("%s: nil", k)
+		}
 	}
 }

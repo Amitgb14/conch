@@ -35,9 +35,20 @@ func Does(kind string, ops []string) []Feature {
 		return []Feature{
 			{"Agent waiting, agent done, pull request merged", "Sent by conch's server, as the desktop notifications are, whether or not conch is open", level(has("send"))},
 		}
+	case KindSandbox:
+		// What a sandbox provider's file describes beside the machine: its
+		// operations are the format-4 tables it has.
+		return []Feature{
+			{"A machine in the cloud for agents", "M → New sandbox…, conch sandbox create: conch installed there, and it in the sidebar", "yes"},
+			{"Keep one to make others from", "Keep a snapshot…, conch sandbox snapshot", level(has("snapshot"))},
+			{"A link to a port inside", "Open a port in the browser…, conch sandbox url", level(has("preview"))},
+			{"What a sandbox has cost, as billed", "What it has cost…, conch sandbox usage; without it, the prices set in Settings", level(has("usage"))},
+			{"A region, an image or a size to choose", "Settings → Sandboxes and New Sandbox…", level(has("settings"))},
+		}
 	case KindCI:
 	default:
-		return nil
+		// Never nil: a list of nothing is read as such, where null was not.
+		return []Feature{}
 	}
 	out := []Feature{
 		{"A failed job's output goes to the branch's agent", "The autopilot's auto_fix, conch branch fix-ci, and the review queue's f", level(has("failed_log"))},

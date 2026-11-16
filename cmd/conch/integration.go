@@ -279,6 +279,7 @@ func integrationInfo(args []string) error {
 		// A provider installed here is set up, whatever the registry lists
 		// of it: conch has none of its own.
 		installedHere, source = true, "installed"
+		ops = sandboxOps(name)
 		keyHelp = firstSetStr(keyHelp, "Its key goes in Settings → Sandboxes, or $"+keyEnv+".")
 	}
 	if *asJSON {
@@ -950,4 +951,27 @@ func builtinKey(b builtinIntegration, fromStdin bool) error {
 		fmt.Println("Jira also needs your site's address and your email: Settings → Trackers (or [trackers.jira] in config.toml)")
 	}
 	return nil
+}
+
+// sandboxOps is what an installed sandbox provider's file describes
+// beside the machine, as integration.Does names them.
+func sandboxOps(name string) []string {
+	p, err := remote.OpenProvider(name)
+	if err != nil {
+		return nil
+	}
+	var ops []string
+	if _, ok := sandbox.As[sandbox.Snapshotter](p); ok {
+		ops = append(ops, "snapshot")
+	}
+	if _, ok := sandbox.As[sandbox.Previewer](p); ok {
+		ops = append(ops, "preview")
+	}
+	if _, ok := sandbox.As[sandbox.Metered](p); ok {
+		ops = append(ops, "usage")
+	}
+	if c, ok := p.(*sandbox.Custom); ok && (len(c.Settings()) > 0 || len(c.Sizes().Names)+len(c.Sizes().CPU)+len(c.Sizes().MemoryGiB)+len(c.Sizes().DiskGiB) > 0) {
+		ops = append(ops, "settings")
+	}
+	return ops
 }
