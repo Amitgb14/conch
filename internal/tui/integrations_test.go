@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -49,10 +50,20 @@ func TestIntegrationsTab(t *testing.T) {
 	}
 	items := rowsByLabel(s.tabItems(m))
 	for _, want := range []string{"✓ GitHub Actions", "○ CircleCI", "✓ GitLab CI", "○ Buildkite", "○ Jenkins", "✓ GitHub", "✓ GitHub Issues", "○ Linear", "○ Jira",
+		"○ Shortcut", "✓ GitLab issues", "Notifications", "✓ Desktop", "○ Slack", "○ Discord", "○ ntfy",
 		"* Install one from the registry…", "↻ Update installed ones…"} {
 		if _, ok := items[want]; !ok {
 			t.Errorf("no row %q", want)
 		}
+	}
+	// Each under its kind: trackers after Jira, webhooks after the desktop.
+	var order []string
+	for _, it := range s.tabItems(m) {
+		order = append(order, strings.TrimSpace(ansi.Strip(it.label)))
+	}
+	at := func(l string) int { return slices.Index(order, l) }
+	if !(at("○ Jira") < at("○ Shortcut") && at("○ Shortcut") < at("Notifications") && at("Notifications") < at("○ Slack") && at("○ CircleCI") < at("Code hosts")) {
+		t.Errorf("order: %q", order)
 	}
 	if d := ansi.Strip(items["○ CircleCI"].detail); !strings.Contains(d, "ships with conch") || !strings.Contains(d, "$CIRCLECI_TOKEN not set") || !strings.Contains(d, "used by ceph") {
 		t.Fatalf("circleci: %q", d)
