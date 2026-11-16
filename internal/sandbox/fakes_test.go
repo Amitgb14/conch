@@ -90,15 +90,6 @@ func newFakeBoat(t *testing.T) (*fakeBoat, string) {
 	return f, srv.URL
 }
 
-// add puts a sandbox in place that walks through states as it is looked at.
-func (f *fakeBoat) add(id string, states ...string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.boxes[id] = &boatSandbox{ID: id, Name: id, State: states[0], Type: "default", VCPU: 4, MemGB: 8,
-		IP: "203.0.113.5", Subdomain: "frazil-pneuma-rallye", CreatedAt: "2026-09-26T10:00:00Z"}
-	f.states[id] = states[1:]
-}
-
 func (f *fakeBoat) state(id string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -108,12 +99,6 @@ func (f *fakeBoat) state(id string) string {
 	return "gone"
 }
 
-func (f *fakeBoat) called() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.calls...)
-}
-
 // The fake is read by the server's own goroutines, so a test changes it
 // only through these.
 
@@ -121,15 +106,6 @@ func (f *fakeBoat) with(fn func()) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	fn()
-}
-
-// refuse makes the next call to key fail with status, answering msg.
-func (f *fakeBoat) refuse(key, msg string, status ...int) {
-	f.with(func() { f.failMsg, f.fail[key] = msg, status })
-}
-
-func (f *fakeBoat) allow() {
-	f.with(func() { f.failMsg, f.fail = "", map[string][]int{} })
 }
 
 func (f *fakeBoat) body(key string) []byte {
@@ -324,24 +300,6 @@ func newFakeDaytona(t *testing.T) (*fakeDaytona, string) {
 	return f, srv.URL + "/api"
 }
 
-// add puts a sandbox in place that will walk through states.
-func (f *fakeDaytona) add(id string, states ...State) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.boxes[id] = &fakeBox{sandbox: daytonaSandbox{ID: id, Name: id, State: states[0]}, states: states[1:]}
-}
-
-// then queues more states for a sandbox, as an action would cause.
-func (f *fakeDaytona) then(id string, states ...State) {
-	f.boxes[id].states = append(f.boxes[id].states, states...)
-}
-
-func (f *fakeDaytona) called() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.calls...)
-}
-
 func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.Method + " " + strings.TrimPrefix(r.URL.Path, "/api")
 	f.mu.Lock()
@@ -505,12 +463,6 @@ func (f *fakeTensorlake) status(id string) string {
 		return b["status"].(string)
 	}
 	return "gone"
-}
-
-func (f *fakeTensorlake) called() []string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]string(nil), f.calls...)
 }
 
 func (f *fakeTensorlake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
