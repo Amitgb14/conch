@@ -14,7 +14,10 @@ import (
 	"sync"
 	"testing"
 
+	"errors"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/integration"
+	"github.com/Amitgb14/conch/internal/sandbox"
 )
 
 const testIntegration = `format = 3
@@ -631,5 +634,47 @@ func TestIntegrationIcons(t *testing.T) {
 	got = iconsJSON{}
 	if json.Unmarshal([]byte(out), &got) != nil || len(got.Kinds) != 5 || got.Kinds[3].Kind != "sandbox" {
 		t.Fatalf("no kinds: %s", out)
+	}
+}
+
+// A sandbox provider's key given in Integrations goes in the Keychain, as
+// every integration's does — the install sheet once took it and kept it
+// nowhere — and the provider reads it there when config.toml and the
+// environment have none.
+func TestSandboxKeyInTheKeychain(t *testing.T) {
+	_, stored := integrationEnv(t)
+	t.Setenv("DAYTONA_API_KEY", "")
+	installProviderFile(t, "daytona", "https://app.daytona.io/api")
+	var err error
+	out, _ := a4Capture(t, "dtn_secret\n", func() { err = runIntegration([]string{"key", "-stdin", "daytona"}) })
+	if err != nil {
+		t.Fatalf("key: %v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(stored); !strings.Contains(string(b), `-a DAYTONA_API_KEY -w "dtn_secret"`) {
+		t.Fatalf("stored %q (said %q)", b, out)
+	}
+	// Opened as the server opens it: the Keychain is asked when nothing
+	// else has the key.
+	old := sandbox.KeyLookup
+	t.Cleanup(func() { sandbox.KeyLookup = old })
+	sandbox.KeyLookup = keychainKey
+	p, err := sandbox.Open("daytona", config.SandboxCfg{})
+	if err != nil || !errors.Is(p.Check(), sandbox.ErrNotConfigured) {
+		t.Fatalf("no key anywhere: %v %v", err, p.Check())
+	}
+	os.WriteFile(filepath.Join(filepath.Dir(os.Getenv("CONCH_SECURITY")), "has"), []byte("dtn_secret\n"), 0o600)
+	forgetKeychainKeys()
+	if p, _ = sandbox.Open("daytona", config.SandboxCfg{}); p.Check() != nil {
+		t.Fatalf("the Keychain's key: %v", p.Check())
+	}
+	// Its page says the key is set, and where to give one.
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "daytona"}) })
+	var info infoJSON
+	if json.Unmarshal([]byte(out), &info) != nil || !info.KeySet || !strings.Contains(info.KeyHelp, "Keychain") ||
+		info.Source != "a file of your own" || info.AdaptedBy != "claude" || info.Hosts.API != "app.daytona.io" {
+		t.Fatalf("info: %s %v", out, err)
+	}
+	if err := runIntegration([]string{"key", "-stdin", "nosuch"}); err == nil {
+		t.Fatal("a key for nothing installed")
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/doctor"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sandbox"
 	"github.com/Amitgb14/conch/internal/server"
 	"github.com/Amitgb14/conch/internal/tui"
 	"github.com/Amitgb14/conch/internal/update"
@@ -450,6 +451,10 @@ func main() {
 	}
 	buildinfo.Build() // hash the executable now, before a rebuild can replace it
 	buildinfo.ResolveVersion()
+	// A sandbox provider's key may be in the Keychain, where Integrations
+	// keeps the keys it is given. Set here, not in an init, so no test
+	// binary reads the developer's Keychain.
+	sandbox.KeyLookup = keychainKey
 	log.SetFlags(log.LstdFlags)
 	args := os.Args[1:]
 	for len(args) >= 2 && (args[0] == "-m" || args[0] == "--machine") {

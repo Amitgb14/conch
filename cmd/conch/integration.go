@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -264,12 +265,27 @@ func integrationInfo(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	e, ix, listed := findEntry(indexes(ctx, io.Discard), name)
-	if f == nil && !listed {
+	// A sandbox provider installed here — from the registry, or a file of
+	// one's own no registry lists — is described by its own file.
+	ownSandbox := false
+	if pf, problems, err := sandbox.ReadProviderFile(sandbox.ProviderFilePath(name)); err == nil && len(problems) == 0 && f == nil {
+		api, ssh := sandbox.FileHosts(pf)
+		if !listed {
+			e = integration.Entry{Kind: integration.KindSandbox, Name: name, Label: sandbox.ProviderLabel(name), Note: pf.Note, Docs: pf.Docs,
+				AdaptedBy: pf.AdaptedBy, Adapted: pf.Adapted}
+			ownSandbox = true
+		}
+		e.Kind, e.KeyEnv, e.Hosts = integration.KindSandbox, pf.KeyEnv, integration.Hosts{API: api, SSH: ssh}
+	}
+	if f == nil && !listed && !ownSandbox {
 		return fmt.Errorf("no integration %s here or in a registry: conch integration search lists them", name)
 	}
 	kind, label, ops, hosts := e.Kind, e.Label, e.Operations, e.Hosts
 	keyEnv, note, docs := e.KeyEnv, e.Note, e.Docs
 	source := "registry " + e.Registry
+	if ownSandbox {
+		source = "a file of your own"
+	}
 	keyHelp := ""
 	if f != nil {
 		kind, label, ops, keyEnv, note, docs, keyHelp = f.Kind, f.DisplayName(), f.Operations(), f.KeyEnv, f.Note, f.Docs, f.KeyHelp
@@ -283,9 +299,19 @@ func integrationInfo(args []string) error {
 	if kind == integration.KindSandbox && slices.Contains(sandbox.Names(), name) {
 		// A provider installed here is set up, whatever the registry lists
 		// of it: conch has none of its own.
-		installedHere, source = true, "installed"
+		installedHere = true
+		if !ownSandbox {
+			source = "installed"
+		}
 		ops = sandboxOps(name)
-		keyHelp = firstSetStr(keyHelp, "Its key goes in Settings → Sandboxes, or $"+keyEnv+".")
+		keyHelp = firstSetStr(keyHelp, "Give its key here (kept in the Keychain), in Settings → Sandboxes, or in $"+keyEnv+".")
+	}
+	// A sandbox provider's key may be in config.toml too: the provider says.
+	sandboxKeyed := false
+	if kind == integration.KindSandbox && installedHere {
+		if p, err := remote.OpenProvider(name); err == nil && p.Check() == nil {
+			sandboxKeyed = true
+		}
 	}
 	if *asJSON {
 		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: installedHere,
@@ -294,7 +320,10 @@ func integrationInfo(args []string) error {
 			j.UserEnv, j.AuthType, j.Scopes, j.BaseURL = f.Auth.UserEnv, f.Auth.Type, f.Auth.Scopes, f.BaseURL
 			j.AdaptedBy, j.Adapted = f.AdaptedBy, f.Adapted
 		}
-		j.KeySet = keyEnv != "" && keyFor(keyEnv) != ""
+		j.KeySet = sandboxKeyed || keyEnv != "" && keyFor(keyEnv) != ""
+		if ownSandbox {
+			j.AdaptedBy, j.Adapted = e.AdaptedBy, e.Adapted
+		}
 		if listed {
 			j.Registry, j.Version, j.Signed, j.Tier, j.Checked = e.Registry, e.Version, ix.Signed, e.Tier, e.Checked
 			j.Revoked, j.SHA256, j.Installs = e.RevokedReason(e.Version), e.SHA256, e.Installs
@@ -374,7 +403,14 @@ func integrationInstall(args []string) error {
 		if *yes {
 			pargs = []string{"-y", name}
 		}
-		return providerInstall(pargs)
+		if err := providerInstall(pargs); err != nil {
+			return err
+		}
+		// A key given with it is kept as any integration's is.
+		if *keyStdin {
+			return sandboxKey(name, true)
+		}
+		return nil
 	}
 	if why := e.RevokedReason(e.Version); why != "" {
 		return fmt.Errorf("%s version %d is revoked: %s", name, e.Version, why)
@@ -494,6 +530,48 @@ func keychainSet(account, key string) error {
 		return fmt.Errorf("%v: %s", err, strings.ReplaceAll(strings.TrimSpace(string(out)), key, "…"))
 	}
 	return nil
+}
+
+// keychainKey is a key from the Keychain alone, kept a while: a sandbox
+// provider is opened at every redraw of the tree, and asking security each
+// time would be a process each.
+func keychainKey(name string) string {
+	if !keychainHere() || name == "" {
+		return ""
+	}
+	keychainCache.Lock()
+	defer keychainCache.Unlock()
+	if e, ok := keychainCache.m[name]; ok && time.Since(e.at) < keychainFor {
+		return e.key
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, securityBin(), "find-generic-password", "-s", "conch-mcp", "-a", name, "-w").Output()
+	if keychainCache.m == nil {
+		keychainCache.m = map[string]keychainEntry{}
+	}
+	key := strings.TrimSpace(string(out))
+	keychainCache.m[name] = keychainEntry{key, time.Now()}
+	return key
+}
+
+type keychainEntry struct {
+	key string
+	at  time.Time
+}
+
+var keychainCache struct {
+	sync.Mutex
+	m map[string]keychainEntry
+}
+
+const keychainFor = 30 * time.Second
+
+// forgetKeychainKeys drops what keychainKey kept, after a key is stored.
+func forgetKeychainKeys() {
+	keychainCache.Lock()
+	keychainCache.m = nil
+	keychainCache.Unlock()
 }
 
 // keyFor is a key's variable here, then the Keychain.
@@ -826,6 +904,9 @@ func integrationKey(args []string) error {
 	if b, ok := builtinNamed(fs.Arg(0)); ok {
 		return builtinKey(b, *fromStdin)
 	}
+	if slices.Contains(sandbox.Names(), fs.Arg(0)) {
+		return sandboxKey(fs.Arg(0), *fromStdin)
+	}
 	data, _, err := integration.Source(fs.Arg(0))
 	if err != nil {
 		return err
@@ -979,4 +1060,33 @@ func sandboxOps(name string) []string {
 		ops = append(ops, "settings")
 	}
 	return ops
+}
+
+// sandboxKey keeps an installed sandbox provider's key in the Keychain,
+// under the variable its file reads, where the provider finds it when
+// config.toml and the environment have none.
+func sandboxKey(name string, fromStdin bool) error {
+	f, problems, err := sandbox.ReadProviderFile(sandbox.ProviderFilePath(name))
+	if err != nil || len(problems) > 0 {
+		return fmt.Errorf("%s cannot be used: %v %s", name, err, strings.Join(problems, "; "))
+	}
+	if keyFor(f.KeyEnv) != "" && !fromStdin {
+		fmt.Printf("%s's key is set already ($%s, or the Keychain)\n", sandbox.ProviderLabel(name), f.KeyEnv)
+		return nil
+	}
+	key, err := askKey(&integration.File{Name: name, Label: sandbox.ProviderLabel(name), KeyEnv: f.KeyEnv}, fromStdin)
+	forgetKeychainKeys()
+	if err != nil || key == "" {
+		return err
+	}
+	p, err := remote.OpenProvider(name)
+	if err != nil {
+		return err
+	}
+	if err := p.Check(); err != nil {
+		fmt.Println("not checked:", err)
+		return nil
+	}
+	fmt.Printf("checked: %s has its key\n", sandbox.ProviderLabel(name))
+	return nil
 }

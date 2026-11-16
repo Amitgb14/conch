@@ -178,8 +178,9 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(!revoked.offersKey)
 }
 
-// A sandbox provider from the registry installs as one, with no key asked
-// here; one conch has already offers no key, which Settings → Sandboxes keeps.
+// A sandbox provider takes its key here as every integration does: given
+// with the install, or later (Connect), on stdin, into the Keychain. The
+// sheet once installed it with no key and dropped what was typed.
 @Test func integrationSandboxFlow() throws {
     let hetzner = try JSONDecoder().decode(IntegrationInfo.self, from: Data("""
     {"name":"hetzner","label":"Hetzner Cloud","kind":"sandbox","source":"registry conch-integrations","installed":false,"does":[],"hosts":{"api":"api.hetzner.cloud"},"key_env":"HCLOUD_TOKEN","key_set":false}
@@ -187,10 +188,12 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(hetzner.isSandbox && hetzner.offersKey)
     var f = IntegrationInstallFlow(info: hetzner)
     f.agreed = true
-    #expect(f.blocker == nil && f.arguments == ["integration", "install", "-y", "hetzner"])
+    // The key may wait: a sandbox provider can be installed without one.
+    #expect(f.blocker == nil && f.arguments == ["integration", "install", "-y", "-key-stdin", "hetzner"])
     var daytona = hetzner
     daytona.name = "daytona"; daytona.installed = true
-    #expect(!daytona.offersKey)
+    #expect(daytona.offersKey)
+    #expect(IntegrationInstallFlow(connecting: daytona).arguments == ["integration", "key", "-stdin", "daytona"])
 }
 
 // The sidebar's kinds are the registry's, in its order with its names;

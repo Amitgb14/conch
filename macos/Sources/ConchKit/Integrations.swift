@@ -130,11 +130,11 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     /// that takes a key, Install for one not here; nothing for a built-in
     /// with no key of conch's (GitHub's, through gh), or a revoked one.
     public var offersKey: Bool {
-        revoked == nil && !(builtin == true && keyEnv.isEmpty) && !(isSandbox && installed)
+        revoked == nil && !(builtin == true && keyEnv.isEmpty)
     }
 
-    /// A sandbox provider: installed as one, its key kept in Settings →
-    /// Sandboxes rather than given here.
+    /// A sandbox provider: installed by the sandbox installer, its key
+    /// kept in the Keychain as any integration's (or in Settings).
     public var isSandbox: Bool { kind == IntegrationKind.sandbox.rawValue }
 
     /// The verified chip in full: "✓ verified 2026-11-12 with conch 0.2.1 (12 pipelines read)".
@@ -488,7 +488,6 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
     /// The conch command install runs; the key goes on its stdin, never
     /// in these.
     public var arguments: [String] {
-        if info.isSandbox { return ["integration", "install", "-y", info.name] }
         var args = info.installed ? ["integration", "key", "-stdin"] : ["integration", "install", "-y", "-key-stdin"]
         if asksBase && !base.isEmpty { args += ["-base", base] }
         if let dir = checkIn, !dir.isEmpty { args += ["-cwd", dir] }

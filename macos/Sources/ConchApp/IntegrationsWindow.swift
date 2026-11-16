@@ -191,6 +191,18 @@ final class IntegrationsModel: ObservableObject {
         }
     }
 
+    /// Reads the open page again: after an install, or the sheet closing,
+    /// it said Install over a provider that was installed.
+    func refreshPage() {
+        guard let name = page?.name, let bin = store.binary else { return }
+        Task { @MainActor in
+            if let info = try? JSONDecoder().decode(IntegrationInfo.self, from: try await runConch(bin, ["integration", "info", "-json", name])),
+               page?.name == name {
+                page = info
+            }
+        }
+    }
+
     func startInstall(_ info: IntegrationInfo) {
         var f = IntegrationInstallFlow(info: info)
         f.checkIn = uses.first(where: { $0.value.contains { $0.name == info.name } }).flatMap { paths[$0.key] }
@@ -223,6 +235,7 @@ final class IntegrationsModel: ObservableObject {
             flow = done
             loading = false
             load()
+            refreshPage()
         }
     }
 }
@@ -249,7 +262,7 @@ struct IntegrationsView: View {
         // No focus squares: AppKit drew one round whichever button took the
         // keyboard first (All, then Refresh), which read as chosen.
         .focusEffectDisabled()
-        .sheet(isPresented: Binding(get: { model.flow != nil }, set: { if !$0 { model.flow = nil } })) {
+        .sheet(isPresented: Binding(get: { model.flow != nil }, set: { if !$0 { model.flow = nil } }), onDismiss: { model.load(); model.refreshPage() }) {
             IntegrationInstallSheet(model: model)
         }
         .sheet(isPresented: $adapting) {

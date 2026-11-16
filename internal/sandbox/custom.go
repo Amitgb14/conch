@@ -61,6 +61,12 @@ const ProviderFormat = 4
 // person's own key, else conch's), since that is where keys are found.
 var PublicKey func(ctx context.Context) (string, error)
 
+// KeyLookup finds a key by its variable's name somewhere besides the
+// environment — the Keychain, where Integrations keeps the keys it is
+// given — for a provider whose key is in neither config.toml nor the
+// environment. conch's main sets it; nil (every test) asks nothing.
+var KeyLookup func(keyEnv string) string
+
 // ProviderFile is the shape of a provider file.
 type ProviderFile struct {
 	// Format is 1 when left out.
@@ -648,6 +654,9 @@ func NewCustom(f *ProviderFile, cfg config.ProviderCfg) *Custom {
 	c.key = strings.TrimSpace(cfg.APIKey)
 	if c.key == "" {
 		c.key = strings.TrimSpace(os.Getenv(keyEnv))
+	}
+	if c.key == "" && KeyLookup != nil {
+		c.key = strings.TrimSpace(KeyLookup(keyEnv))
 	}
 	if cfg.APIURL != "" {
 		f.API = cfg.APIURL
