@@ -44,7 +44,7 @@ T5, D in the docs each task writes).
 | Task | Status | What is there |
 | --- | --- | --- |
 | T1 format + engine | **done** | `internal/integration`: format 3 (`format.go`, guide `format.md`, its example tested clean), `Problems()`, one path grammar shared with sandbox files (`pick.go`), the engine (`run.go`: `Connect`, `Runs`, `Stats`, `FailedLog`, `Rerun`), hosts enforced in code. Left on purpose: the sandbox's own request code stays in `internal/sandbox` (its 404-means-gone, its errors naming Settings → Sandboxes); the key's lookup (environment, then Keychain) is the server's `trackerSecret` and T5's, not the engine's — `Connect` takes the key |
-| T2 registry v2 | not started | |
+| T2 registry v2 | not started | key custody decided (below); T3 goes first meanwhile |
 | T3 CI kind | not started | |
 | T4 CI files | **started** | `files/circleci.toml`, `files/gitlab-ci.toml` shipped inside conch until T2's registry exists: `runs`, `failed_log`, `rerun`, every documented state, run against fake servers shaped like the vendors' APIs. Buildkite and Jenkins not yet |
 | T5 CLI | not started | |
@@ -185,6 +185,13 @@ registry for every kind.
 - Rename the repository to `conch-integrations` only when its maintainer
   says so (ask in the PR); until then keep the URL, add a `kind` to every
   entry.
+
+**Decided (owner, 2026-11-15): key custody.** The private key is a secret
+of the registry repository's Actions, which sign `index.json` on every
+publish; a script in conch makes the pair locally and prints the public
+half to compile in. Until the registry's CI signs, conch still reads an
+unsigned index and says *unsigned* wherever it shows the source; once the
+signed index is live, a release turns unsigned into a refusal.
 
 **Acceptance.** Tests with a fake registry (`httptest`) for: install,
 update, hosts changed, edited locally, revoked, bad signature, unknown
