@@ -37,6 +37,9 @@ final class SettingsModel: ObservableObject {
     /// How the trackers stand (ticket.check), for Trackers' cards; nil
     /// until asked, or from a server that predates the check.
     @Published var trackers: TicketCheckResult?
+    /// What each installed sandbox provider's file lets be chosen, by name:
+    /// its card below shows those fields, with the file's choices.
+    @Published var sandboxSettings: [String: SandboxSettingsInfo] = [:]
     @Published var trackersChecking = false
     @Published var trackersFailure = ""
 
@@ -674,10 +677,10 @@ struct SectionForm: View {
                 .buttonStyle(.plain)
                 if !fields.isEmpty { card(nil, fields) }
             case "sandbox":
-                // Which providers there are, built in and adapted, and the
-                // way to add one conch does not know.
+                // Which providers are installed, and the ways to get one;
+                // each one's card below shows what its file lets be chosen.
                 if !fields.isEmpty { card(nil, fields) }
-                ProvidersCard(store: model.store, saves: model.saves) { name, label in
+                ProvidersCard(store: model.store, model: model, saves: model.saves) { name, label in
                     // Its card in the list below, made if it has none, and
                     // opened at the API key.
                     guard let t = tables.first(where: { $0.kind == "keyed" }) else { return }

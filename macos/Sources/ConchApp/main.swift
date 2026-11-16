@@ -153,7 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         s.onOpenSettings = { [weak self] in self?.settingsWindow?.show(section: $0) }
         s.onOpenSystemMonitor = { [weak self] in self?.systemWindow?.show() }
         s.onOpenTickets = { [weak self] in self?.ticketsWindow?.show() }
-        s.onOpenIntegrations = { [weak self] in self?.integrationsWindow?.show() }
+        s.onOpenIntegrations = { [weak self] kind in
+            if let kind { self?.integrationsWindow?.show(kind: kind) } else { self?.integrationsWindow?.show() }
+        }
         s.onInstallIntegration = { [weak self] name, dir in self?.integrationsWindow?.install(name, checkIn: dir) }
         s.onOpenProjectIntegrations = { [weak self, weak s] pk in
             if let s { self?.projectIntegrations?.show(project: pk, store: s) }

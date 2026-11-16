@@ -4,8 +4,8 @@ import Foundation
 /// 24×24 path from Simple Icons (simpleicons.org, CC0, 15.11.0) and the
 /// brand colour it gives, filled with the nonzero rule. The logos are
 /// their owners' trademarks, shown to say which service an integration
-/// talks to, as a catalog of them does. Devin Cloud's is the Devin mark
-/// AgentLogos has. One with none here keeps a square of its initial.
+/// talks to, as a catalog of them does. One with none here keeps a
+/// square of its initial.
 public enum IntegrationLogos {
     public struct Logo: Sendable {
         public var path: String
@@ -16,9 +16,7 @@ public enum IntegrationLogos {
 
     /// The logo for an integration by its name, nil for one with none.
     public static func logo(_ name: String) -> Logo? {
-        if let l = logos[name] { return l }
-        if name == "devin", let d = AgentLogos.logo("devin") { return Logo(path: d.path, hex: "0294DE", evenOdd: d.evenOdd) }
-        return nil
+        logos[name]
     }
 
     /// Its path, read once: a card is drawn on every redraw of the grid.

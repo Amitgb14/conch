@@ -774,8 +774,9 @@ final class Store: ObservableObject {
     var onOpenTickets: (() -> Void)?
     func openTickets() { onOpenTickets?() }
     /// The Integrations window (IntegrationsWindow.swift).
-    var onOpenIntegrations: (() -> Void)?
-    func openIntegrations() { onOpenIntegrations?() }
+    /// At a kind, when one is given: Settings → Sandboxes' Browse sandboxes.
+    var onOpenIntegrations: ((IntegrationKind?) -> Void)?
+    func openIntegrations(kind: IntegrationKind? = nil) { onOpenIntegrations?(kind) }
     /// The Integrations window's install sheet for one, checked in dir.
     var onInstallIntegration: ((String, String?) -> Void)?
     func installIntegration(_ name: String, checkIn dir: String?) { onInstallIntegration?(name, dir) }

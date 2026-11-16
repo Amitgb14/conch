@@ -188,6 +188,8 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
 
     /// The provider when this machine is a hosted sandbox (its target is
     /// "provider:id", as remote.ParseSandboxTarget reads it), else nil.
+    /// devin stays, though Devin Cloud was dropped: such a machine is still
+    /// a sandbox, whose provider says it is gone, not an ssh host.
     public var sandboxProvider: String? {
         guard let t = target, let colon = t.firstIndex(of: ":") else { return nil }
         let p = String(t[..<colon]), id = t[t.index(after: colon)...]

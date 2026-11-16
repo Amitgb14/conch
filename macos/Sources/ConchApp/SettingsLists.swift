@@ -203,6 +203,22 @@ struct KeyedList: View {
         name = ""
     }
 
+    /// An entry's fields. A sandbox provider's are what its file declares
+    /// — a region, an image, a size — with its choices offered, beside
+    /// conch's own; every field until the file has been read.
+    func entryFields(_ n: String) -> [SettingsField] {
+        let all = field.fields ?? []
+        guard section.key == "sandbox", let info = model.sandboxSettings[n] else { return all }
+        return all.compactMap { sub in
+            var value: String?
+            if case .string(let v)? = model.form?.value(section, sub, at: .entry(table: field.key, name: n)) { value = v }
+            guard info.shows(sub.key, value: value) else { return nil }
+            var f = sub
+            if let s = info.suggestions(sub.key) { f.suggest = s }
+            return f
+        }
+    }
+
     func card(_ n: String) -> some View {
         let isOpen = open.contains(n)
         let known = (field.suggest ?? []).contains(n)
@@ -226,7 +242,7 @@ struct KeyedList: View {
             .contentShape(Rectangle())
             .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { if isOpen { open.remove(n) } else { open.insert(n) } } }
             if isOpen {
-                ForEach(field.fields ?? [], id: \.key) { sub in
+                ForEach(entryFields(n), id: \.key) { sub in
                     FieldRow(model: model, section: section, field: sub, place: .entry(table: field.key, name: n))
                 }
             }

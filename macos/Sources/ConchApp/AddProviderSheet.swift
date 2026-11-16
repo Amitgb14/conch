@@ -428,15 +428,19 @@ struct AddProviderSheet: View {
     }
 }
 
-/// The providers conch has, built in and adapted, with the way to add one
-/// it does not know: the Sandboxes section of Settings.
+/// The providers installed here — from the registry, or files of the
+/// person's own; conch has none of its own — with the ways to get one: the
+/// Sandboxes section of Settings.
 struct ProvidersCard: View {
     @ObservedObject var store: Store
+    /// Where what each provider's file lets be chosen is kept, for the
+    /// cards below.
+    var model: SettingsModel? = nil
     /// The settings window's saves: a key saved below is read again, so a
     /// provider's row says it is ready without leaving the page. It read
     /// once, when the page opened, and stayed grey after a key was saved.
     var saves = 0
-    /// Opens a built-in provider's card for its key (name, label).
+    /// Opens a provider's card for its key (name, label).
     var setKey: ((String, String) -> Void)?
     @Environment(\.conchTheme) private var theme
     @State private var providers: [SandboxProviderInfo] = []
@@ -449,6 +453,18 @@ struct ProvidersCard: View {
         let _ = theme
         SettingsCard(title: "Providers", trailing: AnyView(Button("Add provider…") { adding = true }.controlSize(.small))) {
             VStack(alignment: .leading, spacing: 0) {
+                if providers.isEmpty {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("No sandbox provider is installed").font(.ui(size: 13, weight: .medium))
+                            Text("Install one from the registry — Daytona, boat.dev, Tensorlake and more — or add one from its API docs.")
+                                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Button("Browse sandboxes") { store.openIntegrations(kind: .sandbox) }.controlSize(.small)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                }
                 ForEach(providers) { p in
                     HStack(spacing: 10) {
                         Circle().fill(p.ready ? Theme.ok : Theme.muted.opacity(0.6)).frame(width: 7, height: 7)
@@ -458,7 +474,7 @@ struct ProvidersCard: View {
                                 .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(2)
                         }
                         Spacer()
-                        Text(p.adapted == true ? "adapted" : "built in").font(.ui(size: 10.5))
+                        Text(p.origin).font(.ui(size: 10.5))
                             .foregroundStyle(p.adapted == true ? Theme.warn : Theme.muted)
                             .padding(.horizontal, 7).padding(.vertical, 1)
                             .overlay(Capsule().stroke(p.adapted == true ? Theme.warn.opacity(0.5) : Theme.line))
@@ -470,8 +486,8 @@ struct ProvidersCard: View {
                             Button(publishing == p.name ? "Publishing…" : "Publish…") { publish(p) }.controlSize(.small)
                                 .disabled(publishing != nil)
                                 .help("Propose it to the provider registry, for others to install")
-                            Button("Remove") { remove(p) }.controlSize(.small)
                         }
+                        Button("Remove") { remove(p) }.controlSize(.small)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 9)
                 }
@@ -496,6 +512,18 @@ struct ProvidersCard: View {
         if let out = try? await runConch(b, ["sandbox", "providers", "-json"]),
            let ps = try? JSONDecoder().decode([SandboxProviderInfo].self, from: out) {
             providers = ps
+            // Each one's settings, side by side: one reads its choices from
+            // the provider, which can take a few seconds.
+            guard let model else { return }
+            await withTaskGroup(of: (String, SandboxSettingsInfo?).self) { g in
+                for p in ps {
+                    g.addTask {
+                        let out = try? await runConch(b, ["sandbox", "-provider", p.name, "settings", "-json"])
+                        return (p.name, out.flatMap { try? JSONDecoder().decode(SandboxSettingsInfo.self, from: $0) })
+                    }
+                }
+                for await (name, info) in g { if let info { model.sandboxSettings[name] = info } }
+            }
         }
     }
 

@@ -198,7 +198,7 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
 @Test func integrationLogos() {
     for name in ["circleci", "gitlab-ci", "buildkite", "jenkins", "bitbucket-pipelines", "semaphore",
                  "github", "github-actions", "github-issues", "linear", "jira", "shortcut", "gitlab-issues",
-                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "devin", "boat", "daytona", "tensorlake", "instabox"] {
+                 "slack", "discord", "ntfy", "digitalocean", "hetzner", "boat", "daytona", "tensorlake", "instabox"] {
         let logo = IntegrationLogos.logo(name)
         #expect(logo != nil, "\(name) has no logo")
         #expect((IntegrationLogos.ops(name)?.count ?? 0) > 3, "\(name)'s path draws nothing")
