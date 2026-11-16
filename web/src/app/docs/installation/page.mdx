@@ -10,6 +10,10 @@ conch is a single binary for macOS and Linux; install it one of four ways and up
 
 </Callout>
 
+On Linux, `conch app install` puts conch in the desktop's applications, opening in a terminal of its own (ghostty, kitty, foot or alacritty). On Windows, run the Linux binary inside WSL 2 from Windows Terminal: conch has no native Windows build, since it rests on Unix pseudo-terminals.
+
+Under WSL, links conch opens go to Windows' browser (through `wslview` if wslu is installed); copying uses the terminal's own clipboard escape, which Windows Terminal honours.
+
 ## Install script
 
 Installs `~/.local/bin/conch` and adds conch to your desktop's applications (`CONCH_APP=no` skips that).

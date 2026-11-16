@@ -1,0 +1,17 @@
+{"from":"app","message":{"type":"hello","data":{"app":"conch-linux","version":"0.1.0","os":"linux"}}}
+{"from":"bridge","message":{"type":"hello","data":{"protocol":1,"conch":"0.2.1","capabilities":["desktop.v1"]}}}
+{"from":"bridge","message":{"type":"snapshot","seq":1,"data":{"machines":[{"id":"local","label":"this computer","state":"online"},{"id":"busybox","label":"busybox","state":"connecting"}],"projects":[{"key":"local:x1","machine":"local","id":"x1","name":"conch","path":"/home/amit/conch"}],"panes":[{"key":"local:p1","machine":"local","id":"p1","name":"zsh","state":"running"},{"key":"local:p2","machine":"local","id":"p2","name":"claude","title":"✳ Fix the parser","project":"local:x1","branch":"fix-parser","state":"running","agent":{"name":"claude","state":"working","since":"2026-11-15T12:00:00Z"}}]}}}
+{"from":"bridge","message":{"type":"patch","seq":2,"data":{"machines":{"set":[{"id":"busybox","label":"busybox","state":"online"}]},"projects":{"set":[{"key":"busybox:x1","machine":"busybox","id":"x1","name":"api","path":"/srv/api"}]},"panes":{"set":[{"key":"busybox:p1","machine":"busybox","id":"p1","name":"codex","project":"busybox:x1","branch":"main","state":"running","agent":{"name":"codex","state":"idle","since":"2026-11-15T12:00:05Z"}}]}}}}
+{"from":"bridge","message":{"type":"patch","seq":3,"data":{"panes":{"set":[{"key":"local:p2","machine":"local","id":"p2","name":"claude","title":"✳ Fix the parser","project":"local:x1","branch":"fix-parser","state":"running","agent":{"name":"claude","state":"waiting","since":"2026-11-15T12:01:00Z"}}]}}}}
+{"from":"bridge","message":{"type":"notify","data":{"kind":"waiting","pane":"local:p2","title":"claude is waiting for you","body":"✳ Fix the parser"}}}
+{"from":"app","message":{"type":"intent","id":"1","intent":"pane.attach","data":{"pane":"local:p2"}}}
+{"from":"bridge","message":{"type":"result","id":"1","ok":true,"data":{"argv":["/usr/local/bin/conch","attach","p2"]}}}
+{"from":"app","message":{"type":"intent","id":"2","intent":"pane.new","data":{"machine":"busybox","command":["/bin/sh"]}}}
+{"from":"bridge","message":{"type":"patch","seq":4,"data":{"panes":{"set":[{"key":"busybox:p2","machine":"busybox","id":"p2","name":"sh","state":"running"}]}}}}
+{"from":"bridge","message":{"type":"result","id":"2","ok":true,"data":{"pane":"busybox:p2"}}}
+{"from":"app","message":{"type":"intent","id":"3","intent":"pane.close","data":{"pane":"local:p1"}}}
+{"from":"bridge","message":{"type":"result","id":"3","ok":true}}
+{"from":"bridge","message":{"type":"patch","seq":5,"data":{"panes":{"remove":["local:p1"]}}}}
+{"from":"app","message":{"type":"intent","id":"4","intent":"pane.new","data":{"machine":"gone"}}}
+{"from":"bridge","message":{"type":"result","id":"4","error":"no machine \"gone\""}}
+{"from":"bridge","message":{"type":"patch","seq":6,"data":{"machines":{"set":[{"id":"busybox","label":"busybox","state":"offline","detail":"connection refused"}]},"projects":{"remove":["busybox:x1"]},"panes":{"remove":["busybox:p1","busybox:p2"]}}}}

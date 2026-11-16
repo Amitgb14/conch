@@ -87,6 +87,9 @@ Usage:
                                 terminal the program's own output to draw, not conch's screen;
                                 -view (with -raw) never resizes the pane or takes its size
   conch close ID                close a pane
+  conch desktop [-every D]      the bridge a desktop app talks to on stdin and stdout: every
+                                machine's panes and agents as JSON lines (the Linux and
+                                Windows apps); -every is how often it looks for changes
   conch rename ID [NAME]        name a pane; without NAME it gets its own back. Every
                                 command taking a pane ID takes its name too
   conch redraw ID               draw a pane's screen again (after a program left stale text)
@@ -503,6 +506,8 @@ func main() {
 		err = runSandbox(args)
 	case "bridge":
 		err = runBridge()
+	case "desktop":
+		err = runDesktop(args)
 	case "update":
 		err = runUpdate(args)
 	case "upload":

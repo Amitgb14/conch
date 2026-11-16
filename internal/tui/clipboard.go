@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Amitgb14/conch/internal/desktop"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -78,10 +79,4 @@ func openURL(url string) tea.Cmd {
 
 // openInBrowser hands a link to the desktop. A variable for the same
 // reason as putClipboard: tests must not open windows.
-var openInBrowser = func(url string) error {
-	tool := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		tool = "open"
-	}
-	return exec.Command(tool, url).Start()
-}
+var openInBrowser = desktop.Open

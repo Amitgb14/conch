@@ -40,6 +40,7 @@ var compCommands = []compItem{
 	{"send", "type into a pane"},
 	{"wait", "wait until an agent is done"},
 	{"close", "close a pane"},
+	{"desktop", "the bridge a desktop app talks to"},
 	{"rename", "name a pane"},
 	{"redraw", "draw a pane's screen again"},
 	{"view", "what the terminal is showing"},

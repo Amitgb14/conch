@@ -125,6 +125,15 @@ conch -m busybox attach p3    # one on another machine
 
 With `-raw` the terminal gets what the program wrote rather than conch's screen of it, so it draws the pane itself: its own scrollback, selection, search, images and cursor shapes. This is how the Mac app's Ghostty shows a pane. It starts with output that rebuilds the history and screen, then follows the program as it writes. The questions conch already answers for the program — where the cursor is, what the terminal is, its colours — are taken out, so the program is not answered twice; the ones only this terminal can answer, such as whether it draws images, still reach it. The pane's size is still settled by the server between everyone showing it: this terminal draws the output at the pane's size, and typing here makes it this terminal's. Its own answers and the pointer just moving take nothing. `-view` (with `-raw`) only looks: it never resizes the pane or takes its size. Against a server too old for it, `-raw` is the plain attach.
 
+### desktop
+
+```sh
+conch desktop                 # the bridge a desktop app runs, on stdin and stdout
+wsl.exe -d Ubuntu conch desktop   # the same, started by an app on Windows
+```
+
+`conch desktop` is what a desktop app starts and talks to: JSON lines on its stdin and stdout, never a port. It makes sure this computer's server runs and reaches every machine, then sends the app every machine's projects and panes with their agents, followed by only what changes, and a notice when an agent waits, finishes or fails. The app starts, closes and shows panes through it; showing one is the `conch attach` command the bridge hands back, run in the app's own terminal. It ends when the app closes its end. It is for the Linux and Windows apps that are planned, not something to type.
+
 ### When an agent runs these commands
 
 An agent in a conch pane can drive conch with the same commands — start a reviewer, prompt it, read its answer. `conch agent skill -apply` teaches it how, and when to stop and ask you; [Agents working together](/docs/agents-together) walks through it with examples. What it may *change* is kept to its own work:
@@ -599,6 +608,7 @@ These are run by conch itself, not by you:
 | Command | Used by |
 | --- | --- |
 | `conch bridge` | a remote client over ssh: connects stdio to this machine's server, starting it if needed |
+| `conch desktop` | a desktop app: the bridge it talks to on stdio, every machine's panes and agents as JSON lines |
 | `conch report` | agent hooks and plugins, to report state to the server |
 
 ## Conch Cloud commands

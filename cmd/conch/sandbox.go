@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/desktop"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/sandbox"
@@ -697,13 +697,7 @@ func periodWhat(p sandbox.UsagePeriod) string {
 
 // openInBrowser hands a link to the desktop. A variable so tests can check
 // what would open without a window appearing on whoever runs them.
-var openInBrowser = func(url string) error {
-	tool := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		tool = "open"
-	}
-	return exec.Command(tool, url).Start()
-}
+var openInBrowser = desktop.Open
 
 // sandboxUsage prints what a sandbox has cost, and where it went.
 func sandboxUsage(args []string) error {
