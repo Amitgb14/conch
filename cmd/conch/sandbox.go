@@ -17,6 +17,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/sandbox"
@@ -89,6 +90,9 @@ func runSandbox(args []string) error {
 	if sandboxProvider == "" {
 		return errNoProvider()
 	}
+	if err := sandboxCan(sandboxProvider, args[0]); err != nil {
+		return err
+	}
 	switch args[0] {
 	case "create", "new":
 		return sandboxCreate(args[1:])
@@ -116,6 +120,31 @@ func runSandbox(args []string) error {
 		return sandboxShell(args[1:])
 	}
 	return unknownSubcommand("sandbox", args[0])
+}
+
+// verbOps are the operation each verb needs of a provider, as the
+// registry names them.
+var verbOps = map[string]string{
+	"create": "create", "new": "create", "start": "start", "stop": "stop", "rm": "delete", "remove": "delete", "delete": "delete",
+	"url": "preview", "preview": "preview", "snapshot": "snapshot_save", "snapshots": "snapshot_list", "usage": "usage", "cost": "usage",
+}
+
+// sandboxCan refuses a verb the provider cannot do, by what it says it
+// can (sandbox.CapabilitiesOf); one that says nothing is left to its file.
+func sandboxCan(provider, verb string) error {
+	op, ok := verbOps[verb]
+	if !ok {
+		return nil
+	}
+	if c := sandbox.CapabilitiesOf(provider); !c.Can(op) {
+		return fmt.Errorf("%s cannot %s: its file has no %s", sandbox.ProviderLabel(provider), verbWords[op], op)
+	}
+	return nil
+}
+
+var verbWords = map[string]string{
+	"create": "make sandboxes", "start": "start a sandbox", "stop": "stop a sandbox", "delete": "delete a sandbox",
+	"preview": "give a link to a port", "snapshot_save": "keep snapshots", "snapshot_list": "list snapshots", "usage": "say what a sandbox has cost",
 }
 
 // names collects a repeated flag.
@@ -1062,6 +1091,9 @@ type providerJSON struct {
 	// than built in, and File is where that file is.
 	Adapted bool   `json:"adapted,omitempty"`
 	File    string `json:"file,omitempty"`
+	// Capabilities are what it can do (sandbox.CapabilitiesOf): the
+	// sandbox menus offer only those.
+	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
 }
 
 // sandboxProviders lists the providers conch offers for making a sandbox
@@ -1078,7 +1110,8 @@ func sandboxProviders(args []string) error {
 		// Adapted is a file of the person's own rather than one installed
 		// from the registry: conch has no provider of its own.
 		_, fromRegistry := installed[name]
-		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name), Adapted: !fromRegistry, File: sandbox.ProviderFilePath(name)}
+		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name), Adapted: !fromRegistry, File: sandbox.ProviderFilePath(name),
+			Capabilities: sandbox.CapabilitiesOf(name)}
 		p, err := remote.OpenProvider(name)
 		if err == nil {
 			err = p.Check()

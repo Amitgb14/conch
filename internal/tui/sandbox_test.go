@@ -14,6 +14,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/sandbox"
@@ -125,7 +126,10 @@ func useSandboxProvider(t *testing.T, p sandbox.Provider) {
 	t.Helper()
 	old := openSandboxProvider
 	openSandboxProvider = func(string) (sandbox.Provider, error) { return p, nil }
-	t.Cleanup(func() { openSandboxProvider = old })
+	// The stand-in decides what it can do, not the file it stands in for.
+	oldCaps := sandboxCapabilities
+	sandboxCapabilities = func(string) *integration.Capabilities { return nil }
+	t.Cleanup(func() { openSandboxProvider, sandboxCapabilities = old, oldCaps })
 }
 
 // sandboxModel is a model with a saved sandbox machine and an ssh one.
@@ -1523,4 +1527,51 @@ func TestReceiveUsage(t *testing.T) {
 	}
 	// A machine that has gone is not remembered at all.
 	m.receiveUsage(sandboxUsageMsg{machine: "nope", usage: u})
+}
+
+// A sandbox's menu offers only what its provider can do: no Start, Stop,
+// port, snapshot, cost or delete the provider says it has not.
+func TestSandboxMenuFollowsCapabilities(t *testing.T) {
+	m, mach := sandboxModel(t)
+	useSandboxProvider(t, &sbProvider{})
+	r := row{id: machineID(mach.id), kind: kindMachine, machine: mach.id}
+	all := []string{"o Open a port in the browser…", "S Stop sandbox…", "K Keep a snapshot…", "$ What it has cost…", "D Delete sandbox…"}
+
+	var caps *integration.Capabilities // nil: the file decides, so all are offered
+	old := sandboxCapabilities
+	sandboxCapabilities = func(string) *integration.Capabilities { return caps }
+	t.Cleanup(func() { sandboxCapabilities = old })
+
+	mach.state = stateOnline
+	m.rebuild()
+	labels := a2MenuLabels(newRowMenu(*m, r, 0, 0))
+	for _, l := range all {
+		if !strings.Contains(labels, l) {
+			t.Errorf("with nothing said, %q is not offered: %s", l, labels)
+		}
+	}
+
+	caps = &integration.Capabilities{Operations: []string{"create", "get", "list", "stop", "delete"}}
+	labels = a2MenuLabels(newRowMenu(*m, r, 0, 0))
+	for _, l := range []string{"S Stop sandbox…", "D Delete sandbox…"} {
+		if !strings.Contains(labels, l) {
+			t.Errorf("%q is not offered: %s", l, labels)
+		}
+	}
+	for _, l := range []string{"o Open a port", "K Keep a snapshot", "$ What it has cost"} {
+		if strings.Contains(labels, l) {
+			t.Errorf("%q is offered by a provider that cannot: %s", l, labels)
+		}
+	}
+
+	// Stopped: Start only for one that can.
+	mach.state, mach.sandboxState = stateAttention, sandbox.StateStopped
+	m.rebuild()
+	if labels := a2MenuLabels(newRowMenu(*m, r, 0, 0)); strings.Contains(labels, "Start sandbox") {
+		t.Errorf("Start offered with no start: %s", labels)
+	}
+	caps.Operations = append(caps.Operations, "start")
+	if labels := a2MenuLabels(newRowMenu(*m, r, 0, 0)); !strings.Contains(labels, "s Start sandbox") {
+		t.Errorf("Start not offered: %s", labels)
+	}
 }

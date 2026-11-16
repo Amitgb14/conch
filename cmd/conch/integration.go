@@ -1109,21 +1109,17 @@ func builtinKey(b builtinIntegration, fromStdin bool) error {
 // sandboxOps is what an installed sandbox provider's file describes
 // beside the machine, as integration.Does names them.
 func sandboxOps(name string) []string {
-	p, err := remote.OpenProvider(name)
-	if err != nil {
+	c := sandbox.CapabilitiesOf(name)
+	if c == nil {
 		return nil
 	}
 	var ops []string
-	if _, ok := sandbox.As[sandbox.Snapshotter](p); ok {
-		ops = append(ops, "snapshot")
+	for _, o := range []struct{ op, does string }{{"snapshot_save", "snapshot"}, {"preview", "preview"}, {"usage", "usage"}} {
+		if c.Can(o.op) {
+			ops = append(ops, o.does)
+		}
 	}
-	if _, ok := sandbox.As[sandbox.Previewer](p); ok {
-		ops = append(ops, "preview")
-	}
-	if _, ok := sandbox.As[sandbox.Metered](p); ok {
-		ops = append(ops, "usage")
-	}
-	if c, ok := p.(*sandbox.Custom); ok && (len(c.Settings()) > 0 || len(c.Sizes().Names)+len(c.Sizes().CPU)+len(c.Sizes().MemoryGiB)+len(c.Sizes().DiskGiB) > 0) {
+	if len(c.Settings) > 0 || c.Size != "" {
 		ops = append(ops, "settings")
 	}
 	return ops

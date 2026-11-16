@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/remote"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
@@ -35,6 +36,9 @@ type sandboxSettingsJSON struct {
 	Life   int                   `json:"life_mins,omitempty"`
 	Chosen sandboxChosenJSON     `json:"chosen"`
 	Can    sandboxSettingsCanFor `json:"can"`
+	// Capabilities are what the provider can do, and what its create
+	// takes: the New Sandbox sheet asks for those and nothing else.
+	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
 }
 
 type sandboxSettingJSON struct {
@@ -97,9 +101,14 @@ func sandboxSettings(args []string) error {
 	if l, ok := sandbox.As[sandbox.Lifetime](p); ok {
 		out.Life = int(l.Life().Minutes())
 	}
+	caps := sandbox.CapabilitiesOf(sandboxProvider)
+	out.Capabilities = caps
 	_, out.Can.Snapshots = sandbox.As[sandbox.Snapshotter](p)
 	_, out.Can.Preview = sandbox.As[sandbox.Previewer](p)
 	_, out.Can.Usage = sandbox.As[sandbox.Metered](p)
+	out.Can.Snapshots = out.Can.Snapshots && caps.Can("snapshot_save")
+	out.Can.Preview = out.Can.Preview && caps.Can("preview")
+	out.Can.Usage = out.Can.Usage && caps.Can("usage")
 	for _, s := range c.Settings() {
 		j := sandboxSettingJSON{Key: s.Key, Label: firstSetStr(s.Label, s.Key), Help: s.Help, Default: s.Default, Free: s.Free, Choices: []sandbox.Choice{}}
 		// A list read from the provider needs the key; without it the
