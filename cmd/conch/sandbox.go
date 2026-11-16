@@ -168,6 +168,7 @@ func sandboxCreate(args []string) error {
 	image := fs.String("image", "", "the same as -snapshot")
 	region := fs.String("region", "", "where it runs, one the provider's file offers (default: config.toml's region)")
 	size := fs.String("size", "", "a named size, for a provider whose machines come in them")
+	template := fs.String("template", "", "what to make it from, for a provider whose file offers templates (default: config.toml's)")
 	cpu := fs.Int("cpu", 0, "vCPUs (default: the snapshot's)")
 	memory := fs.Int("memory", 0, "memory in GiB")
 	disk := fs.Int("disk", 0, "disk in GiB")
@@ -188,7 +189,7 @@ func sandboxCreate(args []string) error {
 	if *image != "" && *snapshot != "" && *image != *snapshot {
 		return errors.New("give -image or -snapshot, not both: they are the same")
 	}
-	saved, sb, c, err := makeSandbox(ctx, *label, sandbox.Spec{Snapshot: firstSetStr(*image, *snapshot), Region: *region, Size: *size,
+	saved, sb, c, err := makeSandbox(ctx, *label, sandbox.Spec{Snapshot: firstSetStr(*image, *snapshot), Region: *region, Size: *size, Template: *template,
 		CPU: *cpu, Memory: *memory, Disk: *disk}, env, *yes)
 	if err != nil {
 		return err

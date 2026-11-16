@@ -356,6 +356,9 @@ type ProviderCfg struct {
 	Image  string `toml:"image,omitempty"`
 	// Size is a named size, for a provider whose machines come in them.
 	Size string `toml:"size,omitempty"`
+	// Template is what new sandboxes are made from, for a provider whose
+	// file offers templates (InstaBox's); "" is its default.
+	Template string `toml:"template,omitempty"`
 	// CPU, Memory and Disk are the default size in vCPUs and GiB, for a
 	// provider whose file gives limits instead of names; 0 is its default.
 	CPU    int `toml:"cpu,omitempty"`

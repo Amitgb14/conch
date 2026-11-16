@@ -19,16 +19,22 @@ import (
 // sandboxes, and what config.toml chose: Conch.app's Settings → Sandboxes
 // and New Sandbox sheet draw it.
 type sandboxSettingsJSON struct {
-	Name     string                `json:"name"`
-	Label    string                `json:"label"`
-	KeyEnv   string                `json:"key_env"`
-	Ready    bool                  `json:"ready"`
-	Why      string                `json:"why,omitempty"`
-	Settings []sandboxSettingJSON  `json:"settings"`
-	Size     sandbox.SizeSpec      `json:"size"`
-	Life     int                   `json:"life_mins,omitempty"`
-	Chosen   sandboxChosenJSON     `json:"chosen"`
-	Can      sandboxSettingsCanFor `json:"can"`
+	Name     string               `json:"name"`
+	Label    string               `json:"label"`
+	KeyEnv   string               `json:"key_env"`
+	Ready    bool                 `json:"ready"`
+	Why      string               `json:"why,omitempty"`
+	Settings []sandboxSettingJSON `json:"settings"`
+	Size     sandbox.SizeSpec     `json:"size"`
+	// Sizes are what the account may make, read from the provider; SizeError
+	// why they could not be.
+	Sizes     []sandbox.SizeOption `json:"sizes,omitempty"`
+	SizeError string               `json:"size_error,omitempty"`
+	// Takes are the parts of a size the provider's create sends.
+	Takes  []string              `json:"takes"`
+	Life   int                   `json:"life_mins,omitempty"`
+	Chosen sandboxChosenJSON     `json:"chosen"`
+	Can    sandboxSettingsCanFor `json:"can"`
 }
 
 type sandboxSettingJSON struct {
@@ -44,12 +50,13 @@ type sandboxSettingJSON struct {
 }
 
 type sandboxChosenJSON struct {
-	Region string `json:"region,omitempty"`
-	Image  string `json:"image,omitempty"`
-	Size   string `json:"size,omitempty"`
-	CPU    int    `json:"cpu,omitempty"`
-	Memory int    `json:"memory,omitempty"`
-	Disk   int    `json:"disk,omitempty"`
+	Region   string `json:"region,omitempty"`
+	Template string `json:"template,omitempty"`
+	Image    string `json:"image,omitempty"`
+	Size     string `json:"size,omitempty"`
+	CPU      int    `json:"cpu,omitempty"`
+	Memory   int    `json:"memory,omitempty"`
+	Disk     int    `json:"disk,omitempty"`
 }
 
 // sandboxSettingsCanFor is what else the file describes.
@@ -80,7 +87,8 @@ func sandboxSettings(args []string) error {
 	pc := cfg.Sandbox.Of(sandboxProvider)
 	out := sandboxSettingsJSON{Name: sandboxProvider, Label: sandbox.ProviderLabel(sandboxProvider),
 		KeyEnv: firstSetStr(pc.APIKeyEnv, c.File().KeyEnv), Settings: []sandboxSettingJSON{}, Size: c.Sizes(),
-		Chosen: sandboxChosenJSON{Region: pc.RegionOr(), Image: pc.ImageOr(), Size: pc.Size, CPU: pc.CPU, Memory: pc.Memory, Disk: pc.Disk}}
+		Chosen: sandboxChosenJSON{Region: pc.RegionOr(), Template: pc.Template, Image: pc.ImageOr(), Size: pc.Size, CPU: pc.CPU, Memory: pc.Memory, Disk: pc.Disk},
+		Takes:  c.Takes()}
 	if err := c.Check(); err != nil {
 		out.Why = strings.TrimPrefix(err.Error(), sandbox.ErrNotConfigured.Error()+": ")
 	} else {
@@ -108,12 +116,20 @@ func sandboxSettings(args []string) error {
 		}
 		out.Settings = append(out.Settings, j)
 	}
+	if out.Ready && c.Sizes().Choices.Call != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), choicesWait)
+		out.Sizes, err = c.SizeOptions(ctx)
+		cancel()
+		if err != nil {
+			out.SizeError = err.Error()
+		}
+	}
 	if asJSON {
 		return json.NewEncoder(os.Stdout).Encode(out)
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(tw, "SETTING\tCHOICES\tNOW")
-	chosen := map[string]string{"region": out.Chosen.Region, "image": out.Chosen.Image}
+	chosen := map[string]string{"region": out.Chosen.Region, "image": out.Chosen.Image, "template": out.Chosen.Template}
 	for _, s := range out.Settings {
 		var vals []string
 		for _, ch := range s.Choices {
@@ -133,12 +149,34 @@ func sandboxSettings(args []string) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Label, list, now)
 	}
 	switch z := out.Size; {
+	case len(out.Sizes) > 0 || out.SizeError != "":
+		var opts []string
+		for _, o := range out.Sizes {
+			opts = append(opts, sizeOptionWords(o))
+		}
+		list := strings.Join(opts, ", ")
+		if out.SizeError != "" {
+			list = "(couldn't read them: " + out.SizeError + ")"
+		}
+		fmt.Fprintf(tw, "Size\t%s\t%s\n", list, sizeNow(out.Chosen))
 	case len(z.Names) > 0:
 		fmt.Fprintf(tw, "Size\t%s\t%s\n", strings.Join(z.Names, ", "), firstSetStr(out.Chosen.Size, "the default"))
 	case len(z.CPU)+len(z.MemoryGiB)+len(z.DiskGiB) > 0:
 		fmt.Fprintf(tw, "Size\t%s\t%s\n", sizeLimits(z), sizeNow(out.Chosen))
 	}
 	return tw.Flush()
+}
+
+// sizeOptionWords is a size as people read it: "4 vCPU · 8 GiB".
+func sizeOptionWords(o sandbox.SizeOption) string {
+	s := fmt.Sprintf("%d vCPU", o.CPU)
+	if o.Memory > 0 {
+		s += fmt.Sprintf(" · %d GiB", o.Memory)
+	}
+	if o.Disk > 0 {
+		s += fmt.Sprintf(" · %d GiB disk", o.Disk)
+	}
+	return s
 }
 
 func sizeLimits(z sandbox.SizeSpec) string {

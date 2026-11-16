@@ -82,8 +82,23 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
         /// Limits rather than names.
         public var limits: Bool { (cpu ?? []).count + (memoryGib ?? []).count + (diskGib ?? []).count > 0 }
     }
+    /// One size the provider's plan allows, as it said it.
+    public struct SizeOption: Decodable, Equatable, Hashable, Sendable {
+        public var cpu: Int
+        public var memory: Int?
+        public var disk: Int?
+        public init(cpu: Int, memory: Int? = nil, disk: Int? = nil) { self.cpu = cpu; self.memory = memory; self.disk = disk }
+        /// "4 vCPU · 8 GiB".
+        public var words: String {
+            var s = "\(cpu) vCPU"
+            if let m = memory, m > 0 { s += " · \(m) GiB" }
+            if let d = disk, d > 0 { s += " · \(d) GiB disk" }
+            return s
+        }
+    }
     public struct Chosen: Decodable, Equatable, Sendable {
         public var region: String?
+        public var template: String?
         public var image: String?
         public var size: String?
         public var cpu: Int?
@@ -97,6 +112,24 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
     public var settings: [Setting]
     public var size: Size
     public var chosen: Chosen
+    /// The sizes the account may make, read from the provider; sizeError
+    /// why they could not be.
+    public var sizes: [SizeOption]?
+    public var sizeError: String?
+    /// The parts of a size the provider's create sends: cpu, memory, disk.
+    public var takes: [String]?
+    enum CodingKeys: String, CodingKey {
+        case name, label, ready, why, settings, size, chosen, sizes, takes
+        case sizeError = "size_error"
+    }
+
+    /// Whether a size is chosen from what the provider offers rather than
+    /// typed as numbers.
+    public var sizeChoices: [SizeOption] { sizes ?? [] }
+
+    /// Whether the provider takes this part of a size at create; an older
+    /// conch that said nothing takes every part.
+    public func takesPart(_ part: String) -> Bool { takes.map { $0.contains(part) } ?? true }
 
     public func setting(_ key: String) -> Setting? { settings.first { $0.key == key } }
 
@@ -108,10 +141,11 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
         switch key {
         case "region": return setting("region") != nil
         case "image": return setting("image") != nil
+        case "template": return setting("template") != nil
         case "size": return !(size.names ?? []).isEmpty
-        case "cpu": return (size.cpu ?? []).count == 2
-        case "memory": return (size.memoryGib ?? []).count == 2
-        case "disk": return (size.diskGib ?? []).count == 2
+        case "cpu": return (size.cpu ?? []).count == 2 || (sizes != nil && takesPart("cpu"))
+        case "memory": return (size.memoryGib ?? []).count == 2 || (sizes != nil && takesPart("memory"))
+        case "disk": return (size.diskGib ?? []).count == 2 || (sizes != nil && takesPart("disk"))
         case "target", "snapshot": return !(value ?? "").isEmpty
         default: return true
         }
@@ -121,7 +155,7 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
     /// named sizes.
     public func suggestions(_ key: String) -> [String]? {
         switch key {
-        case "region", "image":
+        case "region", "image", "template":
             guard let s = setting(key), !s.choices.isEmpty else { return nil }
             return s.values
         case "size": return size.names
@@ -138,6 +172,8 @@ public struct NewSandboxForm: Equatable, Sendable {
     public var snapshot = ""
     /// Where it runs, for a provider whose file offers regions.
     public var region = ""
+    /// What it is made from, for a provider whose file offers templates.
+    public var template = ""
     /// A named size, for a provider whose machines come in them.
     public var size = ""
     public var cpu = ""
@@ -159,6 +195,8 @@ public struct NewSandboxForm: Equatable, Sendable {
         if !s.isEmpty { args += ["-snapshot", s] }
         let r = region.trimmingCharacters(in: .whitespaces)
         if !r.isEmpty { args += ["-region", r] }
+        let tp = template.trimmingCharacters(in: .whitespaces)
+        if !tp.isEmpty { args += ["-template", tp] }
         if case .sizes(let names) = p.takes, !size.isEmpty {
             guard names.contains(size) else { return .failure(.problem("size: one of \(names.joined(separator: ", "))")) }
             args += ["-size", size]

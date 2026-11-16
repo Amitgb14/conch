@@ -88,11 +88,14 @@ type Spec struct {
 	// runs, and a named size for a provider whose machines come in them.
 	Region string
 	Size   string
-	CPU    int // vCPUs
-	Memory int // GiB
-	Disk   int // GiB
-	Env    map[string]string
-	Labels map[string]string
+	// Template is what the provider makes the machine from, where its file
+	// offers templates beside images or snapshots (InstaBox's).
+	Template string
+	CPU      int // vCPUs
+	Memory   int // GiB
+	Disk     int // GiB
+	Env      map[string]string
+	Labels   map[string]string
 	// AutoStop is the minutes without activity before the provider stops
 	// the sandbox; 0 never does.
 	AutoStop int

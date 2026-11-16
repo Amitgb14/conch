@@ -42,7 +42,7 @@ type Setting struct {
 
 // settingKeys are the settings a file may declare, each a placeholder in
 // its calls.
-var settingKeys = []string{"region", "image"}
+var settingKeys = []string{"region", "image", "template"}
 
 // SizeSpec is how big a sandbox can be: named sizes, or limits on vCPUs,
 // memory and disk (each [min, max]).
@@ -52,6 +52,29 @@ type SizeSpec struct {
 	CPU       []int    `toml:"cpu" json:"cpu,omitempty"`
 	MemoryGiB []int    `toml:"memory_gib" json:"memory_gib,omitempty"`
 	DiskGiB   []int    `toml:"disk_gib" json:"disk_gib,omitempty"`
+	// Choices reads the sizes the account may make from the API — a plan
+	// that allows 4 vCPU / 8 GiB and nothing else, say — each item one
+	// size, as {cpu} {memory_*} {disk_*}.
+	Choices SizeChoices `toml:"choices" json:"-"`
+}
+
+// SizeChoices is where the sizes are: Call's reply, the list at Items,
+// and in each item its vCPUs, memory (in MiB or GiB) and disk (GiB).
+type SizeChoices struct {
+	Call      string `toml:"call"`
+	Items     string `toml:"items"`
+	CPU       string `toml:"cpu"`
+	MemoryMB  string `toml:"memory_mb"`
+	MemoryGiB string `toml:"memory_gib"`
+	DiskGiB   string `toml:"disk_gib"`
+}
+
+// SizeOption is one size the provider offers, in vCPUs and GiB; 0 is a
+// part it does not say.
+type SizeOption struct {
+	CPU    int `json:"cpu"`
+	Memory int `json:"memory,omitempty"`
+	Disk   int `json:"disk,omitempty"`
 }
 
 func (s SizeSpec) limits() bool { return len(s.CPU)+len(s.MemoryGiB)+len(s.DiskGiB) > 0 }
@@ -113,7 +136,7 @@ func (f *ProviderFile) needs4() string {
 	switch {
 	case len(f.Settings) > 0:
 		return "[[setting]]"
-	case len(f.Size.Names) > 0 || f.Size.limits():
+	case len(f.Size.Names) > 0 || f.Size.limits() || f.Size.Choices.Call != "":
 		return "[size]"
 	case f.Lifetime.DefaultMins != 0 || f.Lifetime.MaxMins != 0:
 		return "[lifetime]"
@@ -177,6 +200,22 @@ func (f *ProviderFile) problems4() []string {
 	}
 	if len(f.Size.Names) > 0 && f.Size.limits() {
 		add("[size]: names, or cpu, memory_gib and disk_gib limits, not both")
+	}
+	if z := f.Size.Choices; z.Call != "" {
+		if err := checkCall(z.Call); err != nil {
+			add("[size.choices] call: %v", err)
+		} else if !strings.HasPrefix(z.Call, "GET ") {
+			add("[size.choices] call: a GET, since sizes are only read")
+		}
+		if z.Items == "" || z.CPU == "" {
+			add("[size.choices] items and cpu: where the list is, and each size's vCPUs")
+		}
+		if z.MemoryMB != "" && z.MemoryGiB != "" {
+			add("[size.choices]: memory_mb or memory_gib, not both")
+		}
+		if len(f.Size.Names) > 0 {
+			add("[size]: names, or choices read from the API, not both")
+		}
 	}
 	if slices.Contains(f.Size.Names, "") {
 		add("[size] names: an empty one")
@@ -250,7 +289,7 @@ func (f *ProviderFile) problems4() []string {
 }
 
 // placeholders4 are what format 4's calls may say beyond format 3's.
-var placeholders4 = []string{"{region}", "{image}", "{size}", "{ttl_secs}", "{port}", "{expires_secs}",
+var placeholders4 = []string{"{region}", "{image}", "{template}", "{size}", "{ttl_secs}", "{port}", "{expires_secs}",
 	"{snapshot_name}", "{from}", "{to}"}
 
 // As is p as capability T — Previewer, Snapshotter, Metered, NamedSizes,
@@ -384,6 +423,54 @@ func (c *Custom) CheckSize(name string, cpu, mem, disk int) error {
 		}
 	}
 	return nil
+}
+
+// SizeOptions are the sizes the account may make, read from the provider
+// as [size.choices] says; none for a file that reads none.
+func (c *Custom) SizeOptions(ctx context.Context) ([]SizeOption, error) {
+	z := c.f.Size.Choices
+	if z.Call == "" {
+		return nil, nil
+	}
+	reply, err := c.do(ctx, Call{Call: z.Call}, vars{})
+	if err != nil {
+		return nil, fmt.Errorf("%s's sizes: %w", c.label(), err)
+	}
+	items, ok := Pick(reply, z.Items).([]any)
+	if !ok {
+		return nil, fmt.Errorf("%s's sizes: %q is not a list in the reply", c.label(), z.Items)
+	}
+	var out []SizeOption
+	for _, it := range items {
+		o := SizeOption{CPU: int(pickNum(it, z.CPU)), Disk: int(pickNum(it, z.DiskGiB))}
+		if z.MemoryMB != "" {
+			o.Memory = int(pickNum(it, z.MemoryMB) / 1024)
+		} else {
+			o.Memory = int(pickNum(it, z.MemoryGiB))
+		}
+		if o.CPU > 0 && !slices.Contains(out, o) {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
+// Takes are the sizes' parts the create call sends — cpu, memory, disk —
+// so a form asks for no number the provider would never see.
+func (c *Custom) Takes() []string {
+	var out []string
+	for _, t := range []struct {
+		part string
+		ph   []string
+	}{{"cpu", []string{"{cpu}"}}, {"memory", []string{"{memory_gib}", "{memory_mb}"}}, {"disk", []string{"{disk_gib}", "{disk_mb}"}}} {
+		for _, p := range t.ph {
+			if bodyUses(c.f.Create.Body, p) {
+				out = append(out, t.part)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // SizeNames are the file's named sizes, smallest first.

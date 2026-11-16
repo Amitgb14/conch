@@ -227,7 +227,7 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider P create [-label L] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
                                 make a sandbox with an installed provider (each is a provider file:
                                 conch sandbox provider install daytona, boat, tensorlake, …; its key
                                 in its variable, e.g. $DAYTONA_API_KEY, or Settings → Sandboxes)

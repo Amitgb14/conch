@@ -442,7 +442,9 @@ func (f *ProviderFile) headerSets() []headerSet {
 // placeholders a header value may use: {uuid} is new for every request.
 // Never {key}: the key goes in auth_header alone, so a file cannot send it
 // anywhere a person reading the file would not look for it.
-var headerPlaceholders = map[string]bool{"{id}": true, "{name}": true, "{uuid}": true}
+// headerPlaceholders a header may use: format 4's snapshot and preview
+// calls add their own, a snapshot's delete confirmed by its name.
+var headerPlaceholders = map[string]bool{"{id}": true, "{name}": true, "{uuid}": true, "{snapshot_name}": true, "{port}": true}
 
 var headerName = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 
@@ -477,7 +479,7 @@ func (f *ProviderFile) checkHeaders(h map[string]string) []string {
 			}
 		}
 		if len(bad) > 0 {
-			p = append(p, fmt.Sprintf("%s: unknown placeholder %s (a header may use {id}, {name}, {uuid})", k, strings.Join(bad, ", ")))
+			p = append(p, fmt.Sprintf("%s: unknown placeholder %s (a header may use {id}, {name}, {uuid}, {snapshot_name}, {port})", k, strings.Join(bad, ", ")))
 		}
 	}
 	return p
@@ -641,9 +643,9 @@ type Custom struct {
 	hc  *http.Client
 	// What config.toml chose for new sandboxes (format 4's settings and
 	// size), and the life one is given, in minutes.
-	region, image, size string
-	cpu, mem, disk      int
-	autoStop            int
+	region, image, size, template string
+	cpu, mem, disk                int
+	autoStop                      int
 }
 
 // NewCustom returns the provider f describes, with its key from cfg or
@@ -661,7 +663,7 @@ func NewCustom(f *ProviderFile, cfg config.ProviderCfg) *Custom {
 	if cfg.APIURL != "" {
 		f.API = cfg.APIURL
 	}
-	c.region, c.image, c.size = cfg.RegionOr(), cfg.ImageOr(), cfg.Size
+	c.region, c.image, c.size, c.template = cfg.RegionOr(), cfg.ImageOr(), cfg.Size, cfg.Template
 	c.cpu, c.mem, c.disk, c.autoStop = cfg.CPU, cfg.Memory, cfg.Disk, cfg.AutoStop
 	// A size name in the image's place is what conch's own boat.dev
 	// provider read there (snapshot = "large"), so it is still a size.
@@ -1027,14 +1029,14 @@ func (c *Custom) Create(ctx context.Context, spec Spec) (Sandbox, error) {
 	if err := c.CheckSize(spec.Size, spec.CPU, spec.Memory, spec.Disk); err != nil {
 		return Sandbox{}, err
 	}
-	for _, s := range [][2]string{{"region", spec.Region}, {"image", spec.Snapshot}} {
+	for _, s := range [][2]string{{"region", spec.Region}, {"image", spec.Snapshot}, {"template", spec.Template}} {
 		if err := c.CheckSetting(s[0], s[1]); err != nil {
 			return Sandbox{}, err
 		}
 	}
 	v := vars{"{name}": name, "{label}": spec.Name, "{cpu}": spec.CPU, "{memory_gib}": spec.Memory,
 		"{memory_mb}": spec.Memory * 1024, "{disk_gib}": spec.Disk, "{disk_mb}": spec.Disk * 1024,
-		"{snapshot}": spec.Snapshot, "{image}": spec.Snapshot, "{region}": spec.Region, "{size}": spec.Size,
+		"{snapshot}": spec.Snapshot, "{image}": spec.Snapshot, "{region}": spec.Region, "{size}": spec.Size, "{template}": spec.Template,
 		"{env}": spec.Env, "{auto_stop_secs}": spec.AutoStop * 60}
 	if c.f.Lifetime.DefaultMins > 0 {
 		v["{ttl_secs}"] = int(c.ttl(spec.AutoStop).Seconds())
@@ -1068,6 +1070,7 @@ func (c *Custom) withDefaults(spec Spec) Spec {
 		spec.Size, spec.Snapshot = spec.Snapshot, ""
 	}
 	spec.Region = firstSet(spec.Region, c.region)
+	spec.Template = firstSet(spec.Template, c.template)
 	spec.Snapshot = firstSet(spec.Snapshot, c.image)
 	if spec.CPU == 0 && spec.Memory == 0 && spec.Disk == 0 && spec.Size == "" {
 		spec.Size, spec.CPU, spec.Memory, spec.Disk = firstSet(c.size, c.f.Size.Default), c.cpu, c.mem, c.disk

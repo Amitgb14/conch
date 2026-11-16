@@ -159,6 +159,17 @@ struct NewSandboxSheet: View {
             row("Name", first: true) {
                 input("optional: how the sidebar names it", $form.label)
             }
+            if let t = st?.setting("template") {
+                row(t.label) {
+                    Picker("", selection: $form.template) {
+                        Text(t.default.map { "Default (\($0))" } ?? "Default").tag("")
+                        ForEach(t.choices, id: \.value) { c in Text(c.name.map { "\(c.value) — \($0)" } ?? c.value).tag(c.value) }
+                        if !form.template.isEmpty && !t.values.contains(form.template) { Text(form.template).tag(form.template) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                    Spacer()
+                }
+            }
             if let r = st?.setting("region") {
                 row(r.label) {
                     Picker("", selection: $form.region) {
@@ -185,11 +196,23 @@ struct NewSandboxSheet: View {
             switch p.takes {
             case .snapshot:
                 let z = st?.size
-                row("Size") {
-                    number("vCPU", $form.cpu, z?.cpu)
-                    number("GiB", $form.memory, z?.memoryGib)
-                    number("GiB disk", $form.disk, z?.diskGib)
-                    Spacer(minLength: 0)
+                if let st, !st.sizeChoices.isEmpty {
+                    // The sizes the plan allows, as the provider said them.
+                    row("Size") {
+                        Picker("", selection: sizeBinding) {
+                            Text("Default").tag("")
+                            ForEach(st.sizeChoices, id: \.self) { o in Text(o.words).tag(sizeKey(o)) }
+                        }
+                        .labelsHidden().pickerStyle(.menu).fixedSize()
+                        Spacer()
+                    }
+                } else {
+                    row("Size") {
+                        if st?.takesPart("cpu") ?? true { number("vCPU", $form.cpu, z?.cpu) }
+                        if st?.takesPart("memory") ?? true { number("GiB", $form.memory, z?.memoryGib) }
+                        if st?.takesPart("disk") ?? true { number("GiB disk", $form.disk, z?.diskGib) }
+                        Spacer(minLength: 0)
+                    }
                 }
             case .sizes(let sizes):
                 row("Size") {
@@ -204,7 +227,7 @@ struct NewSandboxSheet: View {
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
-        if let e = st?.settings.compactMap(\.error).first {
+        if let e = st?.sizeError ?? st?.settings.compactMap(\.error).first {
             Text("Couldn't read \(p.label)'s choices: \(e)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
@@ -222,6 +245,20 @@ struct NewSandboxSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.well))
         }
+    }
+
+    /// A size picked from the provider's list, kept in the form's numbers.
+    private func sizeKey(_ o: SandboxSettingsInfo.SizeOption) -> String { "\(o.cpu)/\(o.memory ?? 0)/\(o.disk ?? 0)" }
+    private var sizeBinding: Binding<String> {
+        Binding(get: {
+            form.cpu.isEmpty ? "" : "\(form.cpu)/\(form.memory.isEmpty ? "0" : form.memory)/\(form.disk.isEmpty ? "0" : form.disk)"
+        }, set: { v in
+            let p = v.split(separator: "/").map(String.init)
+            guard p.count == 3 else { form.cpu = ""; form.memory = ""; form.disk = ""; return }
+            form.cpu = p[0]
+            form.memory = p[1] == "0" ? "" : p[1]
+            form.disk = p[2] == "0" ? "" : p[2]
+        })
     }
 
     /// A row of the sandbox's card: its label at the left, a line above it
@@ -287,6 +324,7 @@ struct NewSandboxSheet: View {
               let st = try? JSONDecoder().decode(SandboxSettingsInfo.self, from: out), form.provider == name else { return }
         settings = st
         form.region = st.chosen.region ?? ""
+        form.template = st.chosen.template ?? ""
         form.snapshot = st.chosen.image ?? ""
         form.size = st.chosen.size ?? ""
         form.cpu = st.chosen.cpu.map(String.init) ?? ""

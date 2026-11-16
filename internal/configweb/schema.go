@@ -142,6 +142,7 @@ func Schema(c Choices) []Section {
 			Help: "Overrides the provider's API address: its base, e.g. https://api.tensorlake.ai — not a path under it such as …/sandboxes."},
 		{Key: "region", Label: "Region", Kind: KindString, Placeholder: "the account default", Help: "One of the regions the provider's file lists, e.g. us or eu."},
 		{Key: "image", Label: "Default image", Kind: KindString, Placeholder: "the provider's own", Help: "The image or snapshot new sandboxes start from."},
+		{Key: "template", Label: "Default template", Kind: KindString, Placeholder: "the provider's own", Help: "For a provider that makes machines from templates, e.g. agent-browser."},
 		{Key: "size", Label: "Default size", Kind: KindString, Placeholder: "the provider's own", Help: "For a provider whose machines come in named sizes, e.g. small or large."},
 		{Key: "cpu", Label: "Default vCPUs", Kind: KindInt, Min: intp(0), Help: "Within the limits the provider's file gives; 0 is its default."},
 		{Key: "memory", Label: "Default memory (GiB)", Kind: KindInt, Min: intp(0), Help: "Within the limits the provider's file gives; 0 is its default."},

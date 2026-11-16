@@ -1407,6 +1407,17 @@ func (s *settings) whereItems(m *Model, provider string,
 				return nil
 			}))
 	}
+	if st, ok := setting("template"); ok && c != nil {
+		items = append(items, field(firstNonEmpty(st.Label, "Template"), firstNonEmpty(cfg.Template, styleMuted.Render(firstNonEmpty(st.Default, label+"'s default"))),
+			firstNonEmpty(st.Help, "What new sandboxes are made from.")+choices(st)+" Empty means "+firstNonEmpty(st.Default, label+"'s default")+".",
+			cfg.Template, func(pc *config.ProviderCfg, v string) error {
+				if err := check("template", v); err != nil {
+					return err
+				}
+				pc.Template = v
+				return nil
+			}))
+	}
 	if st, ok := setting("image"); ok {
 		items = append(items, field(firstNonEmpty(st.Label, "Default image"), firstNonEmpty(cfg.ImageOr(), styleMuted.Render(label+"'s default")),
 			firstNonEmpty(st.Help, "What new sandboxes start from.")+choices(st)+" Empty means "+label+"'s default.",
@@ -1429,26 +1440,27 @@ func (s *settings) whereItems(m *Model, provider string,
 		cur := firstNonEmpty(cfg.Size, styleMuted.Render(firstNonEmpty(z.Default, label+"'s default")))
 		items = append(items, settingItem{label: "Default size", detail: cur + styleMuted.Render(" · "+strings.Join(z.Names, " | ")),
 			run: set(func(pc *config.ProviderCfg) { pc.Size = nextSize(pc.Size, z.Names) })})
-	case len(z.CPU)+len(z.MemoryGiB)+len(z.DiskGiB) > 0:
+	case z.Choices.Call != "" || len(z.CPU)+len(z.MemoryGiB)+len(z.DiskGiB) > 0:
+		takes := c.Takes()
 		items = append(items, settingItem{label: "Default size", detail: defaultSizeText(cfg, z), run: func(m *Model) tea.Cmd {
 			pc := m.cfg.Sandbox.Of(provider)
 			d := newDialog(*m, " "+label+" · default size ",
-				[]string{"How big a new sandbox is, within what " + label + " takes (" + limitsText(z) + "). Empty or 0 is " + label + "'s default; the dialog that makes one can change it for that sandbox."},
-				[]string{"vCPUs", "Memory GiB", "Disk GiB"},
-				[]string{intValue(pc.CPU), intValue(pc.Memory), intValue(pc.Disk)})
+				[]string{"How big a new sandbox is, within what " + label + " takes (" + firstNonEmpty(limitsText(z), "the sizes your plan allows: conch sandbox -provider "+provider+" settings lists them") + "). Empty or 0 is " + label + "'s default; the dialog that makes one can change it for that sandbox."},
+				sizeLabels(takes),
+				sizeValues(takes, pc))
 			d.back = s
 			d.submit = func(m *Model, v []string) tea.Cmd {
 				pc := m.cfg.Sandbox.Of(provider)
 				var n [3]int
-				for i, name := range []string{"vCPUs", "Memory", "Disk"} {
+				for i, part := range takes {
 					if strings.TrimSpace(v[i]) == "" {
 						continue
 					}
 					got, err := strconv.Atoi(strings.TrimSpace(v[i]))
 					if err != nil || got < 0 {
-						return func() tea.Msg { return errMsg{fmt.Errorf("%s: give a whole number", name)} }
+						return func() tea.Msg { return errMsg{fmt.Errorf("%s: give a whole number", sizeLabel[part])} }
 					}
-					n[i] = got
+					n[slices.Index([]string{"cpu", "memory", "disk"}, part)] = got
 				}
 				if err := c.CheckSize("", n[0], n[1], n[2]); err != nil {
 					return func() tea.Msg { return errMsg{err} }
@@ -1462,6 +1474,28 @@ func (s *settings) whereItems(m *Model, provider string,
 		}})
 	}
 	return items
+}
+
+// sizeLabel is a part of a size as a field names it.
+var sizeLabel = map[string]string{"cpu": "vCPUs", "memory": "Memory GiB", "disk": "Disk GiB"}
+
+// sizeLabels and sizeValues are the fields of the parts a provider takes:
+// no Disk for one that takes none at create.
+func sizeLabels(takes []string) []string {
+	out := make([]string, 0, len(takes))
+	for _, t := range takes {
+		out = append(out, sizeLabel[t])
+	}
+	return out
+}
+
+func sizeValues(takes []string, pc config.ProviderCfg) []string {
+	v := map[string]int{"cpu": pc.CPU, "memory": pc.Memory, "disk": pc.Disk}
+	out := make([]string, 0, len(takes))
+	for _, t := range takes {
+		out = append(out, intValue(v[t]))
+	}
+	return out
 }
 
 // nextSize is the named size after cur, and after the last the provider's

@@ -149,7 +149,7 @@ sandbox provider can do. A file that uses any of it starts with
 format = 4
 
 [[setting]]                   # shown in Settings → Sandboxes and the New Sandbox sheet
-key = "region"                # region or image: {region} and {image} in calls
+key = "region"                # region, image or template: {region} {image} {template} in calls
 label = "Region"
 choices = ["us", "eu"]        # a fixed list, or read from the API:
 # choices_call = "GET /regions"; items = "items"; value = "id"; name = "label"
@@ -160,6 +160,10 @@ choices = ["us", "eu"]        # a fixed list, or read from the API:
 names = ["small", "default", "large"]
 # …or limits, [min, max], on {cpu} {memory_gib} {disk_gib}:
 # cpu = [1, 4]; memory_gib = [1, 8]; disk_gib = [3, 10]
+# …or the sizes the account's plan allows, read from the API, each item
+# one size, offered as a list ("4 vCPU · 8 GiB"):
+# [size.choices]
+# call = "GET /v1/orgs"; items = "orgs.0.allowedSpecs"; cpu = "vcpus"; memory_mb = "memMiB"
 
 [lifetime]                    # a sandbox given a life when it is made: {ttl_secs}
 default_mins = 120            # in [create] body, and [start] body for a resume
@@ -198,6 +202,10 @@ And beside what earlier formats have:
   label `[create]` puts on them), so names are not checked and `{name}`
   need not be sent.
 - `[get] memory_gib` and `disk_gib`, for an API that says GiB.
+- A header may use its operation's placeholders too: `{snapshot_name}`
+  (a snapshot's delete confirmed by its name) and `{port}`.
+- Only the parts of a size `[create] body` sends are asked for: a provider
+  that takes no disk at create is not offered one.
 - Every call's path may use the placeholders its operation has; one left
   empty in a query (`?region={region}`) drops that parameter.
 

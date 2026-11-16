@@ -3720,3 +3720,26 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(!pasteStillWanted(asked: pa, now: nil), "freed while the question was up")
     #expect(!pasteStillWanted(asked: pa, now: pb), "replaced by another terminal")
 }
+
+// InstaBox's settings: the sizes its plan allows, read live; a template;
+// and no disk, which it takes none of at create. The form sends the
+// template and the chosen size as numbers.
+@Test func instaboxSettingsAndForm() throws {
+    let j = #"{"name":"instabox","label":"InstaBox","ready":true,"settings":[{"key":"template","label":"Template","default":"agent-browser","choices":[{"value":"agent-browser","name":"Agent browser"},{"value":"ci"}]}],"size":{},"sizes":[{"cpu":2,"memory":4},{"cpu":4,"memory":8}],"takes":["cpu","memory"],"chosen":{"template":"ci","cpu":4,"memory":8}}"#
+    let st = try JSONDecoder().decode(SandboxSettingsInfo.self, from: Data(j.utf8))
+    #expect(st.sizeChoices.map(\.words) == ["2 vCPU · 4 GiB", "4 vCPU · 8 GiB"])
+    #expect(st.chosen.template == "ci" && st.setting("template")?.values == ["agent-browser", "ci"])
+    #expect(st.shows("template") && st.shows("cpu") && st.shows("memory") && !st.shows("disk") && !st.shows("region"))
+    #expect(st.suggestions("template") == ["agent-browser", "ci"])
+    #expect(st.takesPart("memory") && !st.takesPart("disk"))
+    // A size that could not be read is said; an older conch's says nothing.
+    let bad = try JSONDecoder().decode(SandboxSettingsInfo.self, from: Data(#"{"name":"instabox","label":"InstaBox","ready":true,"settings":[],"size":{},"size_error":"answered 500","chosen":{}}"#.utf8))
+    #expect(bad.sizeError == "answered 500" && bad.sizeChoices.isEmpty && bad.takesPart("disk"))
+
+    let p = SandboxProviderInfo(name: "instabox", label: "InstaBox", ready: true)
+    var f = NewSandboxForm(provider: "instabox")
+    f.template = "agent-browser"
+    f.cpu = "2"
+    f.memory = "4"
+    #expect(try f.arguments(for: p).get() == ["sandbox", "-provider", "instabox", "create", "-template", "agent-browser", "-cpu", "2", "-memory", "4"])
+}

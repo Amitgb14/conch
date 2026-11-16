@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,7 @@ func publishedFile(t *testing.T, name, api string, cfg config.ProviderCfg) *Cust
 
 // The three files that replace conch's own providers read with no problems.
 func TestRegistryProviderFilesAreGood(t *testing.T) {
-	for _, name := range []string{"boat", "daytona", "tensorlake"} {
+	for _, name := range []string{"boat", "daytona", "tensorlake", "instabox"} {
 		f, problems, err := ReadProviderFile(filepath.Join("testdata", "registry", name+".toml"))
 		if err != nil || len(problems) > 0 {
 			t.Errorf("%s: %v %v", name, err, problems)
@@ -322,6 +323,160 @@ func TestFillPath(t *testing.T) {
 	} {
 		if got := fillPath(in, v); got != want {
 			t.Errorf("%s: %s, want %s", in, got, want)
+		}
+	}
+}
+
+// fakeInstabox4 is InstaBox as its format-4 file reads it: the plan's sizes
+// in GET /v1/orgs, the templates, snapshots, and every create body kept.
+type fakeInstabox4 struct {
+	mu      sync.Mutex
+	created []map[string]any
+	specs   string
+	snaps   map[string]bool
+	headers map[string]http.Header
+}
+
+func newFakeInstabox4(t *testing.T) (*fakeInstabox4, string) {
+	t.Helper()
+	f := &fakeInstabox4{specs: `[{"vcpus":4,"memMiB":8192}]`, snaps: map[string]bool{"web-stack": true}, headers: map[string]http.Header{}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.headers[r.Method+" "+r.URL.Path] = r.Header.Clone()
+		if r.Header.Get("X-API-Key") != "ibk_test" {
+			w.WriteHeader(401)
+			return
+		}
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/v1/orgs":
+			fmt.Fprintf(w, `{"orgs":[{"id":"org_1","tier":"free","allowedSpecs":%s}]}`, f.specs)
+		case r.Method == "GET" && r.URL.Path == "/v1/templates":
+			fmt.Fprint(w, `{"templates":[{"id":"agent-browser","creatable":true,"description":"Agent browser"},{"id":"gpu-l4","creatable":false},{"id":"ci","creatable":true,"description":"CI"}]}`)
+		case r.Method == "GET" && r.URL.Path == "/v1/snapshots":
+			var list []string
+			for n := range f.snaps {
+				list = append(list, fmt.Sprintf(`{"id":"snap_%s","name":%q,"status":"ready","createdAt":"2026-11-16T10:00:00Z"}`, n, n))
+			}
+			fmt.Fprintf(w, `{"snapshots":[%s]}`, strings.Join(list, ","))
+		case r.Method == "POST" && r.URL.Path == "/v1/machines":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.created = append(f.created, body)
+			w.WriteHeader(202)
+			fmt.Fprint(w, `{"id":"op_1","machineId":"m_1"}`)
+		case r.Method == "GET" && r.URL.Path == "/v1/machines/m_1":
+			fmt.Fprint(w, `{"id":"m_1","name":"conch-x","state":"running","spec":{"vcpus":4,"memMiB":8192}}`)
+		case r.Method == "POST" && r.URL.Path == "/v1/machines/m_1/snapshots":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.snaps[fmt.Sprint(body["name"])] = true
+			w.WriteHeader(202)
+		case r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/v1/snapshots/"):
+			n := strings.TrimPrefix(r.URL.Path, "/v1/snapshots/")
+			if r.Header.Get("X-Confirm-Delete") != n {
+				w.WriteHeader(409)
+				return
+			}
+			delete(f.snaps, n)
+			w.WriteHeader(202)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("INSTABOX_API_KEY", "ibk_test")
+	old := pollEvery
+	pollEvery = time.Millisecond
+	t.Cleanup(func() { pollEvery = old })
+	return f, srv.URL
+}
+
+// InstaBox as a format-4 file: the sizes its plan allows read live, the
+// templates it can make machines from, a snapshot to start from instead,
+// and snapshots kept and forgotten — confirmed by name in a header.
+func TestInstaboxFile(t *testing.T) {
+	f, base := newFakeInstabox4(t)
+	c := publishedFile(t, "instabox", base, config.ProviderCfg{Template: "ci"})
+	ctx := context.Background()
+
+	sizes, err := c.SizeOptions(ctx)
+	if err != nil || len(sizes) != 1 || sizes[0] != (SizeOption{CPU: 4, Memory: 8}) {
+		t.Fatalf("sizes: %+v %v", sizes, err)
+	}
+	f.mu.Lock()
+	f.specs = `[{"vcpus":2,"memMiB":4096},{"vcpus":4,"memMiB":8192},{"vcpus":4,"memMiB":8192},{"vcpus":8,"memMiB":16384}]`
+	f.mu.Unlock()
+	if sizes, _ = c.SizeOptions(ctx); len(sizes) != 3 || sizes[2] != (SizeOption{CPU: 8, Memory: 16}) {
+		t.Fatalf("a paid plan's sizes, once each: %+v", sizes)
+	}
+	if got := c.Takes(); strings.Join(got, ",") != "cpu,memory" {
+		t.Fatalf("takes %v: InstaBox takes no disk at create", got)
+	}
+	tpl, err := c.Choices(ctx, "template")
+	if err != nil || len(tpl) != 2 || tpl[0].Value != "agent-browser" || tpl[0].Name != "Agent browser" || tpl[1].Value != "ci" {
+		t.Fatalf("templates, the creatable ones: %+v %v", tpl, err)
+	}
+
+	if _, err := c.Create(ctx, Spec{Name: "web", CPU: 4, Memory: 8}); err != nil {
+		t.Fatal(err)
+	}
+	body := f.created[0]
+	if body["templateId"] != "ci" || body["vcpus"] != float64(4) || body["memMiB"] != float64(8192) || body["snapshotId"] != nil {
+		t.Fatalf("create body %v", body)
+	}
+	if _, err := c.Create(ctx, Spec{Template: "agent-browser", Snapshot: "snap_web-stack"}); err != nil {
+		t.Fatal(err)
+	}
+	if body := f.created[1]; body["templateId"] != "agent-browser" || body["snapshotId"] != "snap_web-stack" || body["vcpus"] != nil {
+		t.Fatalf("a template and a snapshot, no size: %v", body)
+	}
+
+	sn, _ := As[Snapshotter](Provider(c))
+	if err := sn.Snapshot(ctx, "m_1", "kept"); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := sn.Snapshots(ctx); err != nil || len(list) != 2 {
+		t.Fatalf("snapshots: %+v %v", list, err)
+	}
+	if err := sn.ForgetSnapshot(ctx, "kept"); err != nil {
+		t.Fatalf("forget, confirmed by name: %v", err)
+	}
+	if f.headers["DELETE /v1/snapshots/kept"].Get("X-Confirm-Delete") != "kept" {
+		t.Fatal("the delete was not confirmed")
+	}
+
+	// The sizes cannot be read: said, not an empty list.
+	f.mu.Lock()
+	f.specs = `{"not":"a list"}`
+	f.mu.Unlock()
+	if _, err := c.SizeOptions(ctx); err == nil || !strings.Contains(err.Error(), "not a list") {
+		t.Fatalf("a broken reply: %v", err)
+	}
+}
+
+// [size.choices] is checked as the rest of a file is.
+func TestSizeChoicesProblems(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "registry", "instabox.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ change, want string }{
+		{`call = "GET /v1/orgs"=>call = "POST /v1/orgs"`, "[size.choices] call: a GET"},
+		{`cpu = "vcpus"=>`, "[size.choices] items and cpu"},
+		{`memory_mb = "memMiB"=>memory_mb = "memMiB"
+memory_gib = "x"`, "memory_mb or memory_gib"},
+		{`format = 4=>format = 3`, "needs format = 4"},
+		{`key = "template"=>key = "flavour"`, "one of region, image, template"},
+	} {
+		from, to, _ := strings.Cut(c.change, "=>")
+		if !strings.Contains(string(data), from) {
+			t.Fatalf("the file has no %q", from)
+		}
+		p := filepath.Join(t.TempDir(), "instabox.toml")
+		_ = os.WriteFile(p, []byte(strings.Replace(string(data), from, to, 1)), 0o600)
+		if _, problems, err := ReadProviderFile(p); err != nil || !strings.Contains(strings.Join(problems, "\n"), c.want) {
+			t.Errorf("%s: want %q, got %v %v", c.change, c.want, problems, err)
 		}
 	}
 }

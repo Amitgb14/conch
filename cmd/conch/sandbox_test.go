@@ -1555,3 +1555,63 @@ func TestA4SandboxCreateChoosesRegionImageSize(t *testing.T) {
 		t.Fatalf("both: %v", err)
 	}
 }
+
+// InstaBox's settings: the sizes its plan allows, read live; its
+// templates; and which parts of a size it takes (no disk). create takes a
+// template and a size for that sandbox alone.
+func TestSandboxSettingsInstabox(t *testing.T) {
+	a4Env(t)
+	var mu sync.Mutex
+	var created []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.URL.Path == "/v1/orgs":
+			fmt.Fprint(w, `{"orgs":[{"allowedSpecs":[{"vcpus":2,"memMiB":4096},{"vcpus":4,"memMiB":8192}]}]}`)
+		case r.URL.Path == "/v1/templates":
+			fmt.Fprint(w, `{"templates":[{"id":"agent-browser","creatable":true},{"id":"ci","creatable":true}]}`)
+		case r.URL.Path == "/v1/snapshots":
+			fmt.Fprint(w, `{"snapshots":[]}`)
+		case r.Method == "POST" && r.URL.Path == "/v1/machines":
+			var b map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			created = append(created, b)
+			fmt.Fprint(w, `{"machineId":"m_1"}`)
+		case r.URL.Path == "/v1/machines/m_1":
+			fmt.Fprint(w, `{"id":"m_1","name":"conch-x","state":"failed","lastError":{"message":"no capacity"}}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("INSTABOX_API_KEY", "ibk_test")
+	installProviderFile(t, "instabox", srv.URL)
+	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"), []byte("[sandbox.instabox]\ntemplate = \"ci\"\n"), 0o600)
+	out, _, err := a4Out(t, func() error { return runSandbox([]string{"-provider", "instabox", "settings", "-json"}) })
+	var got sandboxSettingsJSON
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil {
+		t.Fatalf("%q %v", out, err)
+	}
+	if len(got.Sizes) != 2 || got.Sizes[1] != (sandbox.SizeOption{CPU: 4, Memory: 8}) || got.SizeError != "" {
+		t.Fatalf("sizes %+v %q", got.Sizes, got.SizeError)
+	}
+	if strings.Join(got.Takes, ",") != "cpu,memory" || got.Chosen.Template != "ci" {
+		t.Fatalf("takes %v, template %q", got.Takes, got.Chosen.Template)
+	}
+	if s := got.Settings; len(s) != 2 || s[0].Key != "template" || len(s[0].Choices) != 2 {
+		t.Fatalf("settings %+v", s)
+	}
+	out, _, _ = a4Out(t, func() error { return runSandbox([]string{"-provider", "instabox", "settings"}) })
+	if !strings.Contains(out, "2 vCPU · 4 GiB, 4 vCPU · 8 GiB") {
+		t.Fatalf("table: %q", out)
+	}
+	a4Capture(t, "", func() {
+		err = runSandbox([]string{"-provider", "instabox", "create", "-template", "agent-browser", "-cpu", "2", "-memory", "4", "-yes"})
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(created) != 1 || created[0]["templateId"] != "agent-browser" || created[0]["vcpus"] != 2.0 || created[0]["memMiB"] != 4096.0 {
+		t.Fatalf("create: %v %v", created, err)
+	}
+}

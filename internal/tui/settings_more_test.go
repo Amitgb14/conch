@@ -1186,6 +1186,28 @@ func TestSettingsSandboxFromTheFile(t *testing.T) {
 		t.Fatalf("sizes cycled %q", seen)
 	}
 
+	// InstaBox's template is a setting of its own, and its size is read
+	// from the plan: vCPUs and memory, and no disk, which it takes none of.
+	installProviders(t, "instabox")
+	s.open("instabox")
+	item("Template").run(m)
+	d = m.overlay.(*dialog)
+	if got := a2ErrText(a2Run(d.submit(m, []string{"ci"}))); got != "" {
+		t.Fatalf("a template: %q", got)
+	}
+	if got := m.cfg.Sandbox.Of("instabox").Template; got != "ci" {
+		t.Fatalf("template saved as %q", got)
+	}
+	item("Default size").run(m)
+	d = m.overlay.(*dialog)
+	if len(d.fields) != 2 || !strings.Contains(strings.Join(d.text, " "), "the sizes your plan allows") {
+		t.Fatalf("instabox's size dialog: %d fields, %v", len(d.fields), d.text)
+	}
+	a2Run(d.submit(m, []string{"4", "8"}))
+	if c := m.cfg.Sandbox.Of("instabox"); c.CPU != 4 || c.Memory != 8 || c.Disk != 0 {
+		t.Fatalf("size saved as %+v", c)
+	}
+
 	// Tensorlake's image is free; it has no region, and its size is disk
 	// alone.
 	s.open("tensorlake")
