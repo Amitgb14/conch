@@ -37,6 +37,22 @@ In Conch.app, **Window → Integrations** (or ⌘K, "Integrations") lists them b
 
 In the TUI the same list is under Settings (`,`) → Integrations.
 
+## A project's integrations
+
+Right-click a project in Conch.app and choose **Integrations…**, or pick **Integrations…** on a project's row menu in the TUI. It shows a row for each kind: the code host (from the remote), every CI the project's files and pull request checks show, the tracker its tickets come from (as Settings set it), the sandboxes set up, and notifications. Each one has its state: *connected*, *key not set* with **Connect…**, *not installed* with **Install…**, or **Browse…** when the project has none of that kind. Connect and Install are offered for this computer's projects, since a key is given where the server runs.
+
+### `.conch/integrations.toml`
+
+Tick **Save in .conch/integrations.toml for the team** to write the names of what the project uses into the repository, so everyone who clones it gets the same integrations. Commit it like any other file:
+
+```toml
+uses = ["circleci", "github-actions", "jira"]
+```
+
+The file holds names only. A key is never written there and never read from it; each person's key stays in their own Keychain or environment. Unticking the box deletes the file.
+
+When a repository you open already has the file, conch asks once: *This repository's .conch/integrations.toml says it uses CircleCI and Jira. Use them?* It only asks again if the file adds a name. Until you say yes, the file's names aren't used. Your answer is kept per repository, outside the repository.
+
 ## Commands
 
 ```sh
