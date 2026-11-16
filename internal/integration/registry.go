@@ -113,6 +113,9 @@ type Entry struct {
 	// .png), and IconSHA256 its hash: FetchIcon downloads and checks it.
 	Icon       string `json:"icon,omitempty"`
 	IconSHA256 string `json:"icon_sha256,omitempty"`
+	// Capabilities are what it can do, worked out from its file by the
+	// registry; nil for a built-in or an index from before them.
+	Capabilities *Capabilities `json:"capabilities,omitempty"`
 
 	// Registry is which index it was read from.
 	Registry string `json:"-"`
@@ -161,10 +164,13 @@ type Index struct {
 	Format int `json:"format"`
 	// Kinds are the registry's folders, in the order it lists them, with
 	// what people call each: an index from before them has none.
-	Kinds    []KindInfo `json:"kinds,omitempty"`
-	Entries  []Entry    `json:"entries"`
-	Registry string     `json:"-"`
-	Signed   bool       `json:"-"`
+	Kinds   []KindInfo `json:"kinds,omitempty"`
+	Entries []Entry    `json:"entries"`
+	// Disabled are listed but cannot be installed yet: a sandbox provider
+	// with no [ssh], whose machines conch could make and not reach.
+	Disabled []Entry `json:"disabled,omitempty"`
+	Registry string  `json:"-"`
+	Signed   bool    `json:"-"`
 	// Cached says this is the last index read, the registry being out of
 	// reach (IndexOrCached).
 	Cached bool `json:"-"`
@@ -182,10 +188,15 @@ func (ix *Index) Find(name string) (Entry, bool) {
 
 // Search is the entries whose kind, name or label holds term; all of
 // them for "".
-func (ix *Index) Search(term string) []Entry {
+func (ix *Index) Search(term string) []Entry { return search(ix.Entries, term) }
+
+// SearchDisabled is Search over the entries that cannot be installed yet.
+func (ix *Index) SearchDisabled(term string) []Entry { return search(ix.Disabled, term) }
+
+func search(entries []Entry, term string) []Entry {
 	term = strings.ToLower(strings.TrimSpace(term))
 	var out []Entry
-	for _, e := range ix.Entries {
+	for _, e := range entries {
 		if term == "" || e.Kind == term || strings.Contains(e.Name, term) || strings.Contains(strings.ToLower(e.Label), term) {
 			out = append(out, e)
 		}
@@ -248,6 +259,9 @@ func FetchIndex(ctx context.Context, r Registry) (*Index, error) {
 	ix.Registry, ix.Signed = r.Name, signed
 	for i := range ix.Entries {
 		ix.Entries[i].Registry = r.Name
+	}
+	for i := range ix.Disabled {
+		ix.Disabled[i].Registry = r.Name
 	}
 	return ix, nil
 }
@@ -321,8 +335,11 @@ func ParseIndex(data []byte) (*Index, error) {
 	}
 	// A name that could not be a file's is left out: it would be made a
 	// path here, and no conch could install it.
-	ix.Entries = slices.DeleteFunc(ix.Entries, func(e Entry) bool { return CheckName(e.Name) != nil })
+	bad := func(e Entry) bool { return CheckName(e.Name) != nil }
+	ix.Entries = slices.DeleteFunc(ix.Entries, bad)
+	ix.Disabled = slices.DeleteFunc(ix.Disabled, bad)
 	sort.Slice(ix.Entries, func(i, j int) bool { return ix.Entries[i].Name < ix.Entries[j].Name })
+	sort.Slice(ix.Disabled, func(i, j int) bool { return ix.Disabled[i].Name < ix.Disabled[j].Name })
 	return &ix, nil
 }
 
