@@ -61,8 +61,7 @@ func fakeCircleCI(t *testing.T) (*File, *httptest.Server, *[]string) {
 			http.NotFound(w, r)
 		}
 	})
-	var api *httptest.Server
-	api = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Circle-Token") != testKey {
 			w.WriteHeader(http.StatusUnauthorized)
 			io.WriteString(w, `{"message": "You must log in"}`)
