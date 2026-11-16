@@ -350,6 +350,16 @@ func TestOpenCodeAndGeminiHookEvents(t *testing.T) {
 			t.Errorf("%s → %q (%v), want %q", event, got, ok, want)
 		}
 	}
+	// Codex's hooks share Claude's names, and add Interrupt: the person
+	// stopped it, which ends the turn.
+	for event, want := range map[string]string{
+		"SessionStart": StateIdle, "UserPromptSubmit": StateWorking, "PreToolUse": StateWorking,
+		"PostToolUse": StateWorking, "PermissionRequest": StateBlocked, "Stop": StateIdle, "Interrupt": StateIdle,
+	} {
+		if got, ok := hookState(HookEvent{Event: event}); !ok || got != want {
+			t.Errorf("codex %s → %q (%v), want %q", event, got, ok, want)
+		}
+	}
 	if got, _ := hookState(HookEvent{Event: "Notification", NotificationType: "ToolPermission"}); got != StateBlocked {
 		t.Errorf("gemini ToolPermission → %q", got)
 	}
@@ -470,5 +480,31 @@ func TestLaterSupportedAgentRules(t *testing.T) {
 		if m := MatchAny(ms, tc.p); m != ms[tc.want] {
 			t.Errorf("%+v is not found as %s", tc.p, tc.want)
 		}
+	}
+}
+
+// Codex reports through conch's hooks now, so a long command between
+// PreToolUse and PostToolUse fires none: its "esc to interrupt" keeps the
+// hook's working from going stale, and once that goes, and Stop never
+// came, the screen is believed again rather than working for ever.
+func TestCodexHookWorkingFollowsTheScreen(t *testing.T) {
+	codex := Process{Name: "codex"}
+	tr := NewTracker(manifests(t), "")
+	t0 := time.Now()
+	tr.Hook(HookEvent{Event: "PreToolUse"}, t0)
+	tr.Observe(obs(t0.Add(30*time.Second), codex, false, "• Working (30s • esc to interrupt)", "› "))
+	if s := tr.Status(); s.State != StateWorking || s.Source != "hook" {
+		t.Fatalf("a long command: %+v", s)
+	}
+	tr.Observe(obs(t0.Add(45*time.Second), codex, false, "› "))
+	if s := tr.Status(); s.State == StateWorking || s.Reason != "hook_working_stale" {
+		t.Fatalf("no Stop and no work on screen: %+v", s)
+	}
+	// The person stopping it ends the turn at once.
+	tr.Hook(HookEvent{Event: "UserPromptSubmit"}, t0.Add(50*time.Second))
+	tr.Hook(HookEvent{Event: "Interrupt"}, t0.Add(51*time.Second))
+	tr.Observe(obs(t0.Add(52*time.Second), codex, false, "› "))
+	if s := tr.Status(); s.State == StateWorking || s.Reason != "hook:Interrupt" {
+		t.Fatalf("after Interrupt: %+v", s)
 	}
 }

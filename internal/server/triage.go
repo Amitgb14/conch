@@ -274,6 +274,8 @@ func (s *Server) triageStart(ctx context.Context, p *project, rec triageRecord, 
 	rec.Pane = pi.ID
 	b.put(rec)
 	log.Printf("triage: %s reads #%d %q of %s", agent, rec.Issue, rec.Title, info.Name)
+	s.autopilotNote(proto.AutopilotNote{ProjectID: rec.Project, Kind: proto.ActivityTriage,
+		Text: fmt.Sprintf("%s is reading #%d %s for triage", agent, rec.Issue, rec.Title)})
 }
 
 // triageVerdict is what the agent writes.
@@ -324,8 +326,12 @@ func (s *Server) triageFinish(p *project, rec triageRecord, label string, pol pr
 	b.put(rec)
 	if rec.Failed != "" {
 		log.Printf("triage: #%d: %s; the issue is left as it was", rec.Issue, rec.Failed)
+		s.autopilotNote(proto.AutopilotNote{ProjectID: rec.Project, Kind: proto.ActivityTriage, Error: true,
+			Text: fmt.Sprintf("triage of #%d gave no verdict: %s; the issue is left as it was", rec.Issue, rec.Failed)})
 	} else {
 		log.Printf("triage: #%d is %s", rec.Issue, rec.Verdict)
+		s.autopilotNote(proto.AutopilotNote{ProjectID: rec.Project, Kind: proto.ActivityTriage,
+			Text: fmt.Sprintf("triaged #%d %s: %s", rec.Issue, rec.Title, rec.Verdict)})
 	}
 }
 

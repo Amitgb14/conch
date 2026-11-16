@@ -199,6 +199,19 @@ public struct SceneLook: Equatable, Sendable {
     /// A pane's opacity: solid with no scene, whatever through says.
     public var paneOpacity: Double { on ? 1 - through : 1 }
 
+    /// The layers under a terminal — the box it sits in and the pane's
+    /// card — paint this much of their colour. The terminal paints its own
+    /// background at paneOpacity, so while the scene shows through they
+    /// paint nothing: each at paneOpacity too, three layers of 70% made
+    /// a pane 97% solid and the scene never showed in a terminal.
+    public var underTerminal: Double { paneOpacity < 1 ? 0 : 1 }
+
+    /// How solid a pane ends up, its layers stacked: the terminal's own
+    /// background over the box and the card.
+    public var paneCoverage: Double {
+        1 - (1 - paneOpacity) * (1 - underTerminal) * (1 - underTerminal)
+    }
+
     /// Whether it moves now: never when asked to be still, when macOS's
     /// Reduce Motion is on, or in Low Power Mode.
     public func moves(reduceMotion: Bool, lowPower: Bool) -> Bool {

@@ -23,13 +23,30 @@ type FailedRun struct {
 // the run has since been retried.
 var ErrNoFailedRun = errors.New("no failed GitHub Actions run on this branch")
 
-// newestFailed is the newest failed Actions run on branch, at head when
-// given, so a run about older work is not mistaken for this one.
-func newestFailed(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+// FailedLog finds the newest failed Actions run on branch in the
+// repository at dir — at commit head when given, so a run about older work
+// is not mistaken for this one — and fetches its failed steps' log.
+func FailedLog(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+	runs, err := failedRuns(ctx, dir, branch, head)
+	if err != nil {
+		return FailedRun{}, err
+	}
+	r := runs[0]
+	log, err := run(ctx, dir, "run", "view", strconv.FormatInt(r.ID, 10), "--log-failed")
+	if err != nil {
+		return FailedRun{}, err
+	}
+	return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL, Log: string(log)}, nil
+}
+
+// failedRuns are the failed Actions runs on branch, newest first — at
+// commit head when given, so a run about older work is not taken for this
+// one — or ErrNoFailedRun.
+func failedRuns(ctx context.Context, dir, branch, head string) ([]Run, error) {
 	out, err := run(ctx, dir, "run", "list", "--branch", branch, "--limit", "20",
 		"--json", "databaseId,workflowName,url,headSha,conclusion")
 	if err != nil {
-		return FailedRun{}, err
+		return nil, err
 	}
 	var runs []struct {
 		ID         int64  `json:"databaseId"`
@@ -39,8 +56,9 @@ func newestFailed(ctx context.Context, dir, branch, head string) (FailedRun, err
 		Conclusion string `json:"conclusion"`
 	}
 	if err := json.Unmarshal(out, &runs); err != nil {
-		return FailedRun{}, fmt.Errorf("gh run list: %w", err)
+		return nil, fmt.Errorf("gh run list: %w", err)
 	}
+	var found []Run
 	for _, r := range runs {
 		if !strings.EqualFold(r.Conclusion, "failure") && !strings.EqualFold(r.Conclusion, "timed_out") {
 			continue
@@ -48,36 +66,24 @@ func newestFailed(ctx context.Context, dir, branch, head string) (FailedRun, err
 		if head != "" && r.HeadSha != "" && r.HeadSha != head {
 			continue
 		}
-		return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL}, nil
+		found = append(found, Run{ID: r.ID, Workflow: r.Workflow, URL: r.URL, Sha: r.HeadSha, Conclusion: r.Conclusion, Branch: branch})
 	}
-	return FailedRun{}, ErrNoFailedRun
-}
-
-// FailedLog finds the newest failed Actions run on branch in the
-// repository at dir — at commit head when given — and fetches its failed
-// steps' log.
-func FailedLog(ctx context.Context, dir, branch, head string) (FailedRun, error) {
-	r, err := newestFailed(ctx, dir, branch, head)
-	if err != nil {
-		return FailedRun{}, err
+	if len(found) == 0 {
+		return nil, ErrNoFailedRun
 	}
-	log, err := run(ctx, dir, "run", "view", strconv.FormatInt(r.ID, 10), "--log-failed")
-	if err != nil {
-		return FailedRun{}, err
-	}
-	r.Log = string(log)
-	return r, nil
+	return found, nil
 }
 
 // RerunFailed re-runs the failed jobs of the newest failed Actions run on
-// branch, at head when given.
+// branch, at head when given, and says which run that was.
 func RerunFailed(ctx context.Context, dir, branch, head string) (FailedRun, error) {
-	r, err := newestFailed(ctx, dir, branch, head)
+	runs, err := failedRuns(ctx, dir, branch, head)
 	if err != nil {
 		return FailedRun{}, err
 	}
-	if _, err := run(ctx, dir, "run", "rerun", strconv.FormatInt(r.ID, 10), "--failed"); err != nil {
+	r := runs[0]
+	if err := Rerun(ctx, dir, r.ID); err != nil {
 		return FailedRun{}, err
 	}
-	return r, nil
+	return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL}, nil
 }

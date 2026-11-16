@@ -318,3 +318,55 @@ func TestOnlyColour(t *testing.T) {
 		t.Errorf("a prompt that shows nothing: %q", got)
 	}
 }
+
+// The default agent list says which agents this computer lacks, and
+// choosing one of those installs it as well, in a pane of its own: a
+// default that cannot start is no default.
+func TestSettingsDefaultAgentInstallsAMissingOne(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	m := &Model{cfg: config.Default(), width: 100, height: 40}
+	claude := proto.AgentAvailability{Name: "claude", Label: "Claude Code", Installed: true, Version: "2.1.270"}
+	codex := proto.AgentAvailability{Name: "codex", Label: "Codex"}
+	aider := proto.AgentAvailability{Name: "aider", Label: "Aider"}
+	m.machines = []*machine{
+		{id: localMachine, label: "local", state: stateOnline, agentList: []proto.AgentAvailability{claude, codex},
+			available: map[string]proto.AgentAvailability{"claude": claude, "codex": codex}},
+		// Only another machine knows Aider: this computer says nothing of it.
+		{id: "box", label: "box", state: stateOnline, agentList: []proto.AgentAvailability{aider},
+			available: map[string]proto.AgentAvailability{"aider": aider}},
+	}
+	s := &settings{}
+	m.overlay = s
+	rows := map[string]settingItem{}
+	for _, it := range s.agentItems(m) {
+		if _, seen := rows[ansi.Strip(it.label)]; !seen {
+			rows[ansi.Strip(it.label)] = it
+		}
+	}
+	if d := ansi.Strip(rows["Codex"].detail); d != "not installed · enter installs it" {
+		t.Fatalf("a missing agent's row: %q", d)
+	}
+	if d := ansi.Strip(rows["Claude Code"].detail); d != "" {
+		t.Fatalf("an installed agent's row: %q", d)
+	}
+	if d := ansi.Strip(rows[agentLabel("aider")].detail); d != "" {
+		t.Fatalf("an agent this computer did not report on: %q", d)
+	}
+	// Installed: enter only picks it.
+	if cmd := rows["Claude Code"].run(m); m.cfg.Agents.Default != "claude" || m.overlay == nil {
+		t.Fatalf("an installed agent: default %q, overlay %v, cmd %v", m.cfg.Agents.Default, m.overlay, cmd != nil)
+	}
+	// Missing: picked, and installed, with the settings put away so the
+	// installer's pane is what shows.
+	if cmd := rows["Codex"].run(m); m.cfg.Agents.Default != "codex" || m.overlay != nil || cmd == nil {
+		t.Fatalf("a missing agent: default %q, overlay %v, cmd %v", m.cfg.Agents.Default, m.overlay, cmd != nil)
+	}
+
+	// While this computer's agents are unknown, nothing is offered.
+	m.machines[0].agentList, m.machines[0].available = nil, nil
+	for _, it := range s.agentItems(m) {
+		if strings.Contains(ansi.Strip(it.detail), "enter installs it") {
+			t.Fatalf("offered an install with nothing known: %q", ansi.Strip(it.label))
+		}
+	}
+}

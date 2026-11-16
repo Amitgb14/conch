@@ -25,7 +25,7 @@ import (
 // running and how it stands first, the folder from ~, the command in
 // whatever room is left, and a line saying how many agents are working.
 
-const statusUsage = "usage: conch status [-wide] [-json]"
+const statusUsage = "usage: conch status [-wide] [-json] [-team NAME]"
 
 // terminalWidth is the width of the terminal stdout is, or 0 when it is
 // not one; tests replace it.
@@ -44,6 +44,7 @@ func runStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	wide := fs.Bool("wide", false, "every column, as it is printed to a pipe")
 	asJSON := fs.Bool("json", false, "the server and its panes as JSON")
+	team := fs.String("team", "", "only the agents in this team ([[teams]] in config.toml, or put there by hand)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -71,6 +72,9 @@ func runStatus(args []string) error {
 	defer c.Close()
 	var list proto.PaneList
 	listErr := call(c, proto.MethodPaneList, nil, &list)
+	if listErr == nil && *team != "" {
+		list.Panes = onlyTeam(c, list.Panes, *team)
+	}
 	if *asJSON {
 		if listErr != nil {
 			return listErr
@@ -86,6 +90,10 @@ func runStatus(args []string) error {
 		c.Server.Version, c.Server.PID, time.Since(c.Server.Started).Round(time.Second), reloadedNote(c.Server))
 	if listErr != nil {
 		return listErr
+	}
+	if len(list.Panes) == 0 && *team != "" {
+		fmt.Printf("no agents in %s\n", *team)
+		return nil
 	}
 	if len(list.Panes) == 0 {
 		fmt.Println("no panes")

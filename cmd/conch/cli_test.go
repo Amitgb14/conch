@@ -650,6 +650,20 @@ func TestA4Report(t *testing.T) {
 		t.Fatalf("gemini report (transcripts are claude-only) %+v", p)
 	}
 
+	// Codex: its hook JSON is Claude's shape. Its permission request is
+	// reported, never answered here (the answer is in Claude's format), and
+	// it prints nothing, which Codex would read as the hook's decision.
+	out, errOut = a4Capture(t, `{"hook_event_name":"PermissionRequest","session_id":"c1","tool_name":"Bash","tool_input":{"command":"ls"},"transcript_path":"/c.jsonl"}`,
+		func() { runReport([]string{"codex-hook"}) })
+	if out != "" || errOut != "" {
+		t.Fatalf("codex report printed %q %q", out, errOut)
+	}
+	p = proto.AgentReportParams{}
+	srv.params(t, proto.MethodAgentReport, &p)
+	if p.Agent != "codex" || p.Event != "PermissionRequest" || p.SessionID != "c1" || p.TranscriptPath != "" {
+		t.Fatalf("codex report %+v", p)
+	}
+
 	a4Capture(t, "", func() { runReport([]string{"opencode", "session.idle"}) })
 	p = proto.AgentReportParams{}
 	srv.params(t, proto.MethodAgentReport, &p)

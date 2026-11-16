@@ -291,3 +291,23 @@ func TestSubagentsReloadState(t *testing.T) {
 		t.Fatalf("none are written when there are none: %s", b)
 	}
 }
+
+// A pane's team survives a reload; an older state file, from before
+// teams, loads with none.
+func TestTeamReloadState(t *testing.T) {
+	b, err := json.Marshal(reloadPane{Team: "Backend"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back reloadPane
+	if err := json.Unmarshal(b, &back); err != nil || back.Team != "Backend" {
+		t.Fatalf("round trip: %+v %v", back, err)
+	}
+	var old reloadPane
+	if err := json.Unmarshal([]byte(`{"snapshot":{"id":"p1"},"fd":3,"dir":"/x"}`), &old); err != nil || old.Team != "" {
+		t.Fatalf("older state: %+v %v", old, err)
+	}
+	if b, _ := json.Marshal(reloadPane{}); strings.Contains(string(b), "team") {
+		t.Fatalf("none is written when there is none: %s", b)
+	}
+}

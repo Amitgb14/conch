@@ -4,6 +4,9 @@
 agent = "codex"
 process_names = ["codex"]
 screen_lines = 30
+# conch's hooks report Codex's state; if the screen stops showing work for
+# this long, trust the screen over a "working" no hook has ended.
+hook_working_stale = "8s"
 
 [[rules]]
 name = "action_required_title"

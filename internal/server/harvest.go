@@ -141,7 +141,11 @@ func (pm *projectManager) pushBranch(pp proto.BranchPushParams) (proto.BranchPus
 	defer cancel()
 	var took int
 	var err error
-	if pp.Rebase {
+	switch {
+	case pp.Over != "":
+		// A rewrite going up over what the remote has: that, and only that.
+		err = gitx.PushOver(ctx, p.root, pp.Branch, pp.Over)
+	case pp.Rebase:
 		// A rebase needs the branch checked out; pushing alone does not.
 		// Asked of git, not the last snapshot: one taken while a rebase
 		// was under way saw the worktree detached, and refused the next.
@@ -155,7 +159,7 @@ func (pm *projectManager) pushBranch(pp proto.BranchPushParams) (proto.BranchPus
 				"%s is not checked out here, so its commits cannot be rebased onto the remote's", pp.Branch)
 		}
 		took, err = gitx.PushRebase(ctx, wt.Path, pp.Branch)
-	} else {
+	default:
 		err = gitx.Push(ctx, p.root, pp.Branch)
 	}
 	pm.request(p)

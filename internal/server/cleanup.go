@@ -44,6 +44,15 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 		if b, known := branches[wt.Branch]; known {
 			sw.Gone, sw.Committed, sw.PR = b.Gone, b.Committed, b.PR
 		}
+		if !sw.Missing {
+			// Mid-rebase, git has detached HEAD; the rebase still names
+			// the branch, and the worktree is anything but finished.
+			op, rebasing := gitx.Operation(ctx, wt.Path)
+			sw.Operation = op
+			if wt.Branch == "" && rebasing != "" {
+				sw.Branch = rebasing
+			}
+		}
 		readable := true
 		if !sw.Missing {
 			sw.Panes = pm.s.panesIn(wt.Path)
@@ -66,6 +75,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 			note("folder gone")
 		}
 		switch {
+		case sw.Operation != "":
 		case wt.Branch == "":
 			note("detached")
 		case sw.Base:
@@ -82,7 +92,7 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 		if sw.Gone {
 			note("upstream deleted")
 		}
-		sw.Suggested = finished && readable && !sw.Base && !sw.Locked && !sw.Panes && sw.Uncommitted == 0 && sw.Unmerged == 0
+		sw.Suggested = finished && readable && sw.Operation == "" && !sw.Base && !sw.Locked && !sw.Panes && sw.Uncommitted == 0 && sw.Unmerged == 0
 		out.Worktrees = append(out.Worktrees, sw)
 	}
 	return out, nil
@@ -134,6 +144,10 @@ func (pm *projectManager) cleanupWorktrees(cp proto.WorktreeCleanupParams) (prot
 			continue
 		case pm.s.panesIn(wt.Path):
 			fail(item.Path, "panes are still running in it")
+			continue
+		}
+		if op := gitx.InProgress(ctx, wt.Path); op != "" && !item.Force {
+			fail(item.Path, "a %s is in progress in it; finish or abort it first", op)
 			continue
 		}
 		branch := wt.Branch
@@ -209,15 +223,16 @@ func realPath(path string) string {
 const staleDays = 30
 
 // staleBranches lists a project's local branches with no commit in the
-// last days, oldest first, with what deleting each would lose. A branch
-// checked out somewhere is listed with where, since it goes with its
-// worktree rather than on its own.
+// last days, oldest first, with what deleting each would lose — or, asked
+// for Merged, every branch the base already has, whatever its age. A
+// branch checked out somewhere is listed with where, since it goes with
+// its worktree rather than on its own.
 func (pm *projectManager) staleBranches(sp proto.BranchStaleParams) (proto.BranchStale, *proto.Error) {
 	days := sp.Days
 	if days <= 0 {
 		days = staleDays
 	}
-	out := proto.BranchStale{Days: days, Branches: []proto.StaleBranch{}}
+	out := proto.BranchStale{Days: days, Branches: []proto.StaleBranch{}, Merged: sp.Merged}
 	p, perr := pm.gitProject(sp.ProjectID)
 	if perr != nil {
 		return out, perr
@@ -236,14 +251,25 @@ func (pm *projectManager) staleBranches(sp proto.BranchStaleParams) (proto.Branc
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	for i := len(branches) - 1; i >= 0; i-- { // Branches is newest first
 		b := branches[i]
-		if b.Committed.IsZero() || !b.Committed.Before(cutoff) {
+		switch {
+		case sp.Merged && b.Name == base:
+			continue
+		case !sp.Merged && (b.Committed.IsZero() || !b.Committed.Before(cutoff)):
 			continue
 		}
 		sb := proto.StaleBranch{Name: b.Name, Committed: b.Committed, Subject: b.Subject, Upstream: b.Upstream, Gone: b.Gone,
 			Base: b.Name == base, Worktree: checkedOut[b.Name]}
 		if !sb.Base {
-			sb.Merged = gitx.Merged(ctx, p.root, b.Name, base)
+			// A pull request merged with this very commit is merged too,
+			// though a squash or rebase on GitHub left nothing here to see.
 			_, sb.Unmerged, _ = p.losses(ctx, base, b.Name, "")
+			sb.Merged = gitx.Merged(ctx, p.root, b.Name, base) ||
+				(sb.Unmerged == 0 && p.mergedPR(ctx, b.Name))
+		}
+		// Merged, it is the base's already and loses nothing; a branch
+		// merely pushed is not merged.
+		if sp.Merged && (!sb.Merged || sb.Unmerged > 0) {
+			continue
 		}
 		sb.Suggested = !sb.Base && sb.Worktree == "" && sb.Unmerged == 0
 		out.Branches = append(out.Branches, sb)
@@ -262,6 +288,11 @@ func checkedOutBranches(ctx context.Context, root string) (map[string]string, *p
 	for _, wt := range wts {
 		if wt.Branch != "" {
 			at[wt.Branch] = wt.Path
+		} else if wt.Detached && !wt.Prunable {
+			// A branch being rebased is as checked out as any other.
+			if b := gitx.RebasingBranch(ctx, wt.Path); b != "" {
+				at[b] = wt.Path
+			}
 		}
 	}
 	return at, nil

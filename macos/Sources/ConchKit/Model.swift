@@ -530,6 +530,9 @@ public enum NodeKind: Equatable, Sendable {
     case group(machine: String, name: String)
     /// A task across a group's repos: its agents, then its branch in each.
     case groupTask(machine: String, group: String, branch: String)
+    /// A team's agents in a project's Agents (Teams.swift); name "" is
+    /// the agents in no team.
+    case team(project: String, name: String)
 }
 
 public struct TreeNode: Identifiable, Equatable, Sendable {
@@ -592,7 +595,7 @@ extension Snapshot {
     /// conversations, when they have been read.
     public func tree(machine: String = "local", label: String? = nil, in ws: Workspace? = nil,
                      sessions: [String: Int] = [:], allBranches: Set<String> = [], savedHosts: [SavedHost] = [],
-                     folders: [String: [Folder]] = [:], now: Date = Date()) -> TreeNode {
+                     folders: [String: [Folder]] = [:], teams: [AgentTeam] = [], now: Date = Date()) -> TreeNode {
         let shown = self.shown(in: ws, machine: machine)
         var projectNodes: [TreeNode] = []
         for pr in projects where ws?.shows(pr, machine: machine) ?? true {
@@ -621,7 +624,9 @@ extension Snapshot {
             if !agents.isEmpty {
                 // Every agent, helpers nested under theirs included, as the TUI counts.
                 sections.append(TreeNode(id: "s:\(pk):agents", kind: .section("Agents"), title: "Agents", badge: "\(agentPanes.count)",
-                                         children: agents, fold: tui + "/agents"))
+                                         children: byTeam(agents, panes: agentPanes, machine: machine, project: pk, name: pr.name,
+                                                          teams: teams, fold: tui + "/agents"),
+                                         fold: tui + "/agents"))
             }
             if !branches.isEmpty {
                 let count = max(pr.branches?.count ?? 0, listed.count)
@@ -832,6 +837,34 @@ extension Snapshot {
         let working = panes.filter { $0.agent?.state == .working }.count
         let (w, d) = Snapshot(panes: panes).inbox()
         return [working > 0 ? "⠋\(working)" : "", w > 0 ? "⚑\(w)" : "", d > 0 ? "✓\(d)" : ""].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    /// A project's agents under their teams, in config.toml's order, then
+    /// any team put on a pane by hand, then "No team" — or as they are
+    /// when none of them is in a team, so a project nobody sorted looks
+    /// as it always did. Helpers stay under the agent that started them.
+    func byTeam(_ roots: [TreeNode], panes: [PaneInfo], machine: String, project pk: String, name: String,
+                teams: [AgentTeam], fold: String) -> [TreeNode] {
+        let byKey = Dictionary(panes.map { (key(machine, $0.id), $0) }, uniquingKeysWith: { a, _ in a })
+        func team(_ n: TreeNode) -> String? {
+            guard case .agent(let k) = n.kind, let p = byKey[k] else { return nil }
+            return teamFor(teams, set: p.team, project: name, branch: p.branch)
+        }
+        let placed = roots.map { (node: $0, team: team($0)) }
+        guard placed.contains(where: { $0.team != nil }) else { return roots }
+        func count(_ n: TreeNode) -> Int {
+            var c = 0
+            if case .agent = n.kind { c = 1 }
+            return c + (n.children ?? []).reduce(0) { $0 + count($1) }
+        }
+        var out: [TreeNode] = []
+        for t in teamNames(teams, panes: panes) + [""] {
+            let mine = placed.filter { ($0.team ?? "") == t }.map(\.node)
+            guard !mine.isEmpty else { continue }
+            out.append(TreeNode(id: "t:\(pk):\(t)", kind: .team(project: pk, name: t), title: t.isEmpty ? "No team" : t,
+                                badge: "\(mine.reduce(0) { $0 + count($1) })", children: mine, fold: fold + "/team:" + t))
+        }
+        return out
     }
 
     /// Panes as the TUI lists them (tree.go paneRows): each one an agent
@@ -1210,8 +1243,20 @@ public struct BadgePart: Equatable, Sendable {
     }
 }
 
+/// What git left unfinished, in a word beside the branch (gitx.OperationWord).
+public func operationWord(_ op: String) -> String {
+    switch op {
+    case "rebase": return "rebasing"
+    case "merge": return "merging"
+    case "cherry-pick": return "cherry-picking"
+    case "revert": return "reverting"
+    case "am": return "applying patches"
+    default: return op
+    }
+}
+
 /// A branch row's badge, as the TUI's (view.go branchParts): its agents'
-/// state, worst first; conflicts or uncommitted changes; its pull request
+/// state, worst first; a rebase or merge in progress; conflicts or uncommitted changes; its pull request
 /// (merged, closed, draft, its checks); gone, or how far it is ahead of
 /// and behind the base (the base itself against its upstream).
 public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase: Bool, agents: [AgentState]) -> [BadgePart] {
@@ -1219,6 +1264,7 @@ public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase:
     if agents.contains(.blocked) { out.append(BadgePart("!", .warn)) }
     else if agents.contains(.working) { out.append(BadgePart("⠋", .work)) }
     else if agents.contains(.done) { out.append(BadgePart("✓", .ok)) }
+    if let op = w?.operation, !op.isEmpty { out.append(BadgePart(operationWord(op), .warn)) }
     if let st = w?.status {
         if let c = st.conflicts, c > 0 {
             out.append(BadgePart("⚠\(c)", .err))

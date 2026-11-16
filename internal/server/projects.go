@@ -167,7 +167,10 @@ type project struct {
 	// is older than info and is not applied (refresh).
 	gen uint64
 
-	prs        map[string]proto.PRInfo // by head branch
+	prs map[string]proto.PRInfo // by head branch
+	// ciJobs are finished Actions runs' jobs, by run and attempt, read
+	// for the CI panel: they never change, so each is asked for once.
+	ciJobs     map[ciRunKey][]ghx.Job
 	prStatus   string
 	prAt       time.Time // last fetch
 	prNext     time.Time // no fetch before this (after errors)
@@ -180,6 +183,9 @@ type project struct {
 	prOpen       map[string]bool
 	baseOwed     map[string]bool
 	baseFetching bool
+	// asks are the agents asked to resolve a branch's conflict, by
+	// branch (resolving.go).
+	asks map[string]resolveAsk
 }
 
 type catalog struct {
@@ -629,6 +635,7 @@ func (pm *projectManager) apply(p *project, info proto.ProjectInfo, stamp string
 	}
 	p.gen++
 	p.applyPRs(&info)
+	p.applyAsks(&info, time.Now(), true)
 	old := p.info
 	info.LocalFiles, info.LocalFilesDefault = old.LocalFiles, old.LocalFilesDefault
 	info.Setup = old.Setup
@@ -896,6 +903,16 @@ func (p *project) load() proto.ProjectInfo {
 	checkedOut := map[string]string{}
 	for _, wt := range wts {
 		wi := proto.WorktreeInfo{Path: wt.Path, Branch: wt.Branch, Head: wt.Head, Detached: wt.Detached, Main: wt.Main}
+		if !wt.Prunable {
+			// git detaches HEAD while it rebases, so the list names no
+			// branch; the rebase itself still does.
+			op, rebasing := gitx.Operation(ctx, wt.Path)
+			wi.Operation = op
+			if wt.Detached && rebasing != "" {
+				wi.Branch = rebasing
+				wi.Rebasing = rebasing
+			}
+		}
 		if st, err := gitx.WorktreeStatus(ctx, wt.Path); err == nil {
 			wi.Status = &proto.GitStatus{
 				Staged: st.Staged, Unstaged: st.Unstaged, Untracked: st.Untracked, Conflicts: st.Conflicts,
@@ -903,8 +920,8 @@ func (p *project) load() proto.ProjectInfo {
 			}
 		}
 		info.Worktrees = append(info.Worktrees, wi)
-		if wt.Branch != "" {
-			checkedOut[wt.Branch] = wt.Path
+		if wi.Branch != "" {
+			checkedOut[wi.Branch] = wt.Path
 		}
 	}
 

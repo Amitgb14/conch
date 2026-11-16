@@ -121,6 +121,15 @@ extension Store {
     /// A row dropped on a folder (into it) or on its section (out of its
     /// folder): only within the section it belongs to.
     func drop(_ dragged: String, on node: TreeNode) -> Bool {
+        // An agent onto a team of its own project joins it; onto No team,
+        // it is kept out of every team.
+        if dragged.hasPrefix("team:") {
+            let k = String(dragged.dropFirst(5))
+            guard case .team(let pk, let name) = node.kind, let p = pane(k), let pr = p.projectID,
+                  pk == key(unkey(k).machine, pr) else { return false }
+            setTeam(k, name.isEmpty ? AgentTeam.none : name)
+            return true
+        }
         // A project onto another groups the two, asked first; onto a group
         // it joins that group. Only on its own machine.
         if dragged.hasPrefix("project:") {

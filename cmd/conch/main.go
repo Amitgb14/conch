@@ -70,9 +70,11 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
-  conch status [-wide] [-json] show server and pane status, with the host a terminal is on with ssh;
+  conch status [-wide] [-json] [-team NAME]
+                                show server and pane status, with the host a terminal is on with ssh;
                                 fitted to the terminal (-wide: every column, as piped); BACKGROUND
-                                is what an idle agent left running (-json: agent.background, agent.jobs)
+                                is what an idle agent left running (-json: agent.background, agent.jobs);
+                                -team: only that team's agents
   conch new [-cwd DIR] [-name N] -- CMD [ARGS...]
                                 start a pane (with -m, default: that machine's home)
   conch send ID TEXT            type TEXT into a pane (-keys to send key names); from an agent's
@@ -119,6 +121,9 @@ Usage:
   conch agent question ID       what a waiting agent asks, and its choices, as JSON (null when not waiting)
   conch agent answer [-question QID] ID CHOICE
                                 pick a choice of a waiting agent's menu without opening its pane
+  conch agent team ID [TEAM | - | -clear]
+                                which team an agent is in, or put it in one: - keeps it out of
+                                every team, -clear leaves it to [[teams]]' rules in config.toml
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -172,7 +177,7 @@ Usage:
                 | merge [-order P,P] [-remove] [-stop] NAME BRANCH
                                 projects kept together because they change together (an API, its
                                 web app, their specs), each still a project of its own
-  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-sandbox PROVIDER] PROMPT
+  conch task [-cwd DIR] [-branch B] [-base B] [-agent A,B] [-n N] [-name N] [-at TIME] [-every SPAN] [-queue [-wip N]] [-after REF] [-issue N | -ticket KEY] [-account NAME] [-team NAME] [-sandbox PROVIDER] PROMPT
                                 new branch + worktree + Claude with PROMPT; in a folder that isn't a
                                 git repository the agent works there instead (with -m and no -cwd:
                                 that machine's home);
@@ -198,9 +203,10 @@ Usage:
   conch branch push [-rebase] | pr [-title T] [-draft] | merge [-no-squash] | discard [-force]
                                 finish a branch: push, open a pull request, merge into
                                 the base, or delete it and its worktree
-  conch branch prune [-days N] [-y] [-force]
+  conch branch prune [-days N | -merged] [-y] [-force]
                                 delete local branches with no commit in N days (30) that
-                                lose nothing; a dry run without -y
+                                lose nothing, or (-merged) every merged one; a dry run
+                                without -y
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
                                 in its worktree with it), as f in the review queue: GitHub
                                 Actions, else the project's CI integration (CircleCI, GitLab CI)
@@ -407,6 +413,19 @@ Usage:
   conch ask -suggest [-pane ID] [EARLIER REQUEST...]
                                 what is worth asking now, as JSON, with what each costs; asks no
                                 model (Conch.app's ✦ Ask draws it)
+  conch preview devices [-json]
+                                the iOS simulators and Android emulators and phones on this computer
+  conch preview boot DEVICE     start one (by name or ID), in the background
+  conch preview shot [-device D] [-o FILE]
+                                a PNG of the running device's screen; prints its path, for an
+                                agent to look at its own work
+  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back
+                                touch, type or press a button on it; X Y are pixels of the shot
+                                (an iOS simulator needs AXe or idb for these)
+  conch preview run [-device D] [-scheme S] [DIR]
+                                build an Xcode project for a simulator, install it and open it
+  conch preview detect [DIR...] what kind of mobile app a folder is and how its dev server starts
+                                (several folders: a JSON line each, naming its folder)
   conch commit-message [-context TEXT]
                                 write a commit message for the diff on stdin with the brain; prints it
   conch update [VERSION | latest | list | rollback]
@@ -472,6 +491,8 @@ func main() {
 		err = runAttach(args)
 	case "commit-message":
 		err = runCommitMessage(args)
+	case "preview":
+		err = runPreview(args)
 	case "rename":
 		err = runRename(args)
 	case "close":

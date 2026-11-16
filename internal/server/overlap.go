@@ -22,6 +22,12 @@ const maxOverlapFiles = 5
 func noteOverlaps(ctx context.Context, root string, info *proto.ProjectInfo) {
 	touched := map[int][]string{}
 	for i, wt := range info.Worktrees {
+		// A checkout stopped mid-rebase or merge: its conflicts are the
+		// files it stopped on, not a merge still to be tried.
+		if wt.Status != nil && wt.Status.Conflicts > 0 {
+			info.Worktrees[i].Conflicts = gitx.ConflictFiles(ctx, wt.Path)
+			continue
+		}
 		if wt.Main || wt.Branch == "" {
 			continue
 		}

@@ -191,6 +191,8 @@ public func settingsRowTitle(_ table: String, _ row: [String: JSONValue]) -> Str
         if !s("name").isEmpty { return s("name") }
         if !s("run").isEmpty { return s("run") }
         return "New action"
+    case "teams":
+        return s("name").isEmpty ? "New team" : s("name")
     case "permissions":
         let tool = s("tool"), match = s("match"), action = s("action")
         if tool.isEmpty && match.isEmpty && action.isEmpty { return "New rule" }
@@ -210,6 +212,9 @@ public func settingsRowDetail(_ table: String, _ row: [String: JSONValue]) -> St
     case "actions":
         let on = (row["on"]?.array ?? []).compactMap(\.string)
         return on.isEmpty ? "every row" : on.joined(separator: ", ")
+    case "teams":
+        let rules = (row["projects"]?.array ?? []).compactMap(\.string) + (row["branches"]?.array ?? []).compactMap(\.string)
+        return rules.isEmpty ? "by hand" : rules.joined(separator: ", ")
     case "permissions":
         let agent = row["agent"]?.string ?? "", project = row["project"]?.string ?? ""
         return [agent.isEmpty ? "every agent" : agent, project.isEmpty ? "every project" : project].joined(separator: " · ")

@@ -77,6 +77,13 @@ func a4Harvest(t *testing.T) (*a4Server, string, *a4Var[map[string]proto.Message
 				days = 30
 			}
 			long := func(d int) time.Time { return time.Now().Add(-time.Duration(d) * 24 * time.Hour) }
+			if p.Merged {
+				return proto.BranchStale{Days: days, Merged: true, Branches: []proto.StaleBranch{
+					{Name: "old-merged", Committed: long(90), Merged: true, Suggested: true},
+					{Name: "feat", Committed: long(3), Merged: true, Worktree: wt},
+					{Name: "squashed", Committed: long(1), Merged: true, Gone: true, Suggested: true},
+				}}, nil
+			}
 			return proto.BranchStale{Days: days, Branches: []proto.StaleBranch{
 				{Name: "main", Committed: long(120), Base: true, Worktree: root},
 				{Name: "old-merged", Committed: long(90), Merged: true, Suggested: true},
@@ -756,5 +763,69 @@ func TestBranchPruneCommand(t *testing.T) {
 
 	if _, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-days", "-3"}) }); err == nil {
 		t.Fatal("a negative age should be refused")
+	}
+}
+
+// prune -merged asks for the merged branches, whatever their age, and
+// deletes those that are not checked out; an older server, which answers
+// with its old branches instead, is refused rather than believed.
+func TestBranchPruneMergedCommand(t *testing.T) {
+	srv, wt, seen := a4Harvest(t)
+	t.Chdir(wt)
+
+	out, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-merged"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"would delete old-merged (90 days ago, merged)",
+		"keeping feat (3 days ago): checked out in " + wt,
+		"would delete squashed (1 day ago, merged)",
+		"2 to delete; run again with -y",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run lacks %q:\n%s", want, out)
+		}
+	}
+	var sp proto.BranchStaleParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchStale].Params, &sp)
+	if !sp.Merged || sp.Days != 0 {
+		t.Fatalf("stale asked with %+v", sp)
+	}
+
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"prune", "-merged", "-y", "squashed", "old-wip"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bp proto.BranchPruneParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchPrune].Params, &bp)
+	if len(bp.Branches) != 1 || bp.Branches[0].Name != "squashed" || bp.Branches[0].Force {
+		t.Fatalf("named: %+v", bp)
+	}
+	if !strings.Contains(out, "keeping old-wip: not a local branch merged") || !strings.Contains(out, "deleted 1 branch") {
+		t.Fatalf("named: %s", out)
+	}
+
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-merged", "-days", "5"}) }); err == nil ||
+		!strings.Contains(err.Error(), "leave -days out") {
+		t.Fatalf("-merged with -days: %v", err)
+	}
+
+	// An older server leaves Merged out of its reply: nothing is deleted.
+	delete(seen.Get(), proto.MethodBranchPrune)
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "api", Root: wt, Git: true, Base: "main", Worktree: wt, Branch: "feat"}, nil
+		case proto.MethodBranchStale:
+			return proto.BranchStale{Days: 30, Branches: []proto.StaleBranch{{Name: "old-pushed", Suggested: true}}}, nil
+		case proto.MethodBranchPrune:
+			t.Error("an older server's list was pruned from")
+		}
+		return nil, proto.Errorf(proto.ErrUnknown, "?")
+	})
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-merged", "-y"}) }); err == nil ||
+		!strings.Contains(err.Error(), "conch server reload") {
+		t.Fatalf("older server: %v", err)
 	}
 }

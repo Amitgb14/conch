@@ -51,8 +51,16 @@ final class Store: ObservableObject {
     @Published var snapshots: [String: Snapshot] = [:]
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
+    /// Every agent each machine reports, installed or not, for Settings →
+    /// Agents; nil for a machine not asked yet or that could not say.
+    @Published var agentStatus: [String: [AgentAvailability]] = [:]
+    /// The agents whose installer is running, key(machine, agent).
+    @Published var installingAgents: Set<String> = []
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
+    /// Counts the autopilot's notes from each machine, so a feed showing
+    /// that machine's reads its list again when one arrives.
+    @Published var autopilotTick: [String: Int] = [:]
     /// The machines whose TUI tabs this launch has taken in.
     private var viewAdopted: Set<String> = []
     /// Files the palette's search found, for the query they were found for.
@@ -452,7 +460,7 @@ final class Store: ObservableObject {
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
-        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) {
+        if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) ?? parseMobileKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
         }
         let (m, _) = unkey(k)
@@ -572,7 +580,7 @@ final class Store: ObservableObject {
     var tree: [TreeNode] {
         shownMachines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
-                                                            savedHosts: savedHosts, folders: folders)
+                                                            savedHosts: savedHosts, folders: folders, teams: teams)
             if !m.online { node.badge = m.state }
             return node
         }
@@ -969,6 +977,8 @@ final class Store: ObservableObject {
         }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
+        let ts = parseTeams(toml: toml ?? "")
+        if ts != teams { teams = ts }
         let cost = showsCost(toml: toml ?? "")
         if cost != showCost { showCost = cost }
         // Scenes of your own, read again each time as themes are: one
@@ -1330,9 +1340,11 @@ final class Store: ObservableObject {
                 if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
             }
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
+            if machine == "local" { detectMobile(projects.projects.flatMap(mobileDirs), force: true) }
             countSessions(machine)
             if let a = try? await c.call("agent.status", as: AgentStatusList.self) {
                 agents[machine] = (a.agents ?? []).filter(\.installed)
+                agentStatus[machine] = a.agents ?? []
             }
             // The tabs the TUI is showing here, once a launch: the window
             // opens on the same work, with nothing given the keyboard.
@@ -1358,7 +1370,7 @@ final class Store: ObservableObject {
             if primary, let o = UserDefaults.standard.string(forKey: "open") {
                 if let c = parseChangesKey(o) {
                     if c.machine == machine { layout.open(o) } // a branch's changes
-                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) {
+                } else if let c = parseCommitsKey(o) ?? parseSessionsKey(o) ?? parseFilesKey(o) ?? parseSetupKey(o).map({ ($0.machine, $0.project) }) ?? parseMobileKey(o) {
                     if c.machine == machine { layout.open(o) } // a project's commits or sessions
                 } else if let t = parseTaskKey(o) {
                     if t.machine == machine { openTask(t.machine, t.group, t.branch) } // a task's page
@@ -1770,6 +1782,8 @@ final class Store: ObservableObject {
             terminals.removeValue(forKey: k)?.stop()
             defer { updateBadge() }
             questions.removeValue(forKey: k)
+        case "autopilot.note":
+            autopilotTick[machine, default: 0] += 1
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
                 // A project added since the connection was counted, or one
@@ -1778,6 +1792,8 @@ final class Store: ObservableObject {
                 let before = snap.project(p.id)
                 if sessionsMayHaveChanged(old: before, new: p) { recountSessions(key(machine, p.id), after: before == nil ? 0 : SessionRecounts.settle) }
                 if let m = newlyMerged(old: before, new: p).first { celebrate(m, machine: machine, project: p) }
+                // A checkout added or taken away: what the project is may have changed.
+                if machine == "local", before.map(mobileDirs) != mobileDirs(p) { detectMobile(mobileDirs(p), force: true) }
                 snap.upsert(p)
                 // Git moved (a commit, a push): open changes read again.
                 for v in changeViews.values where v.machine == machine && v.project == p.id { Task { await v.load() } }
@@ -1809,6 +1825,8 @@ final class Store: ObservableObject {
                 var paths: [String]?
             }
             if let ch = try? dec.decode(Changed.self, from: data) {
+                // Files written where no app was found yet: one may be being made.
+                if machine == "local", !ch.worktree.isEmpty, (mobileKinds[ch.worktree] ?? "").isEmpty { detectMobile([ch.worktree]) }
                 for (k, v) in changeViews where v.machine == machine && v.project == ch.project_id && isShown(k) {
                     v.written(ch.paths ?? [], worktree: ch.worktree)
                 }
@@ -2220,6 +2238,59 @@ final class Store: ObservableObject {
         return m
     }
 
+    /// What kind of mobile app each of this Mac's project folders holds
+    /// (`conch preview detect`), "" for none: which projects are offered
+    /// the Mobile Preview and a workbench's phone. Asked when this Mac's
+    /// server is reached, when a project's checkouts change, and when files
+    /// are written in a checkout not yet known to be one — an agent making
+    /// the app is how a project becomes one.
+    @Published var mobileKinds: [String: String] = [:]
+    private var mobileAsked: [String: Date] = [:]
+
+    /// This Mac's projects that are mobile apps.
+    var mobileProjectIDs: Set<String> { mobileProjects(snapshots["local"]?.projects ?? [], kinds: mobileKinds) }
+
+    /// The folder of a project the app is in: its own when it holds one,
+    /// else the first checkout that does.
+    func mobileDir(project pid: String) -> String? {
+        guard let p = snapshots["local"]?.project(pid) else { return nil }
+        return mobileDirs(p).first { !(mobileKinds[$0] ?? "").isEmpty }
+    }
+
+    /// Asks conch what the folders hold, at most once every few seconds a
+    /// folder unless forced (a project's checkouts changed).
+    func detectMobile(_ dirs: [String], force: Bool = false) {
+        let now = Date()
+        let ask = dirs.filter { force || now.timeIntervalSince(mobileAsked[$0] ?? .distantPast) > 5 }
+        guard !ask.isEmpty, let b = binary else { return }
+        for d in ask { mobileAsked[d] = now }
+        Task {
+            // Two or more folders, so the answer is a line each with its folder.
+            let args = ["preview", "detect"] + ask + (ask.count == 1 ? ask : [])
+            guard let out = try? await runConch(b, args) else { return }
+            let got = parseDetected(out)
+            if got.contains(where: { mobileKinds[$0.key] != $0.value }) { mobileKinds.merge(got) { $1 } }
+        }
+    }
+
+    private var mobileViews: [String: MobilePreviewModel] = [:]
+    func mobilePreview(for k: String) -> MobilePreviewModel {
+        if let m = mobileViews[k] { return m }
+        let m = MobilePreviewModel(key: k, store: self)
+        mobileViews[k] = m
+        return m
+    }
+
+    /// A project's app on a simulator, in a tab beside its agents; a tab
+    /// opened again lists the devices again.
+    func openMobilePreview(project pk: String) {
+        let (m, pid) = unkey(pk)
+        let k = mobileKey(m, pid)
+        mobileViews[k]?.reload()
+        layout.open(k)
+        terminalHasKeyboard = false
+    }
+
     private(set) var browserViews: [String: BrowserModel] = [:]
     private var blankBrowsers = 0
 
@@ -2617,7 +2688,8 @@ final class Store: ObservableObject {
         var items = s.menu(for: node, machine: m, machineOnline: online, label: refLabel(m), among: catalog,
                            folders: folders, savedHosts: m == "local" ? savedHosts : [], canGroup: canGroup(m),
                            canGroupTask: conns[m]?.hello?.capabilities?.contains("group.task.v1") == true,
-                           offerCloud: offersCloud)
+                           offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [],
+                           teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true)
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2641,6 +2713,8 @@ final class Store: ObservableObject {
 
     /// config.toml's [[actions]], read with the theme.
     @Published private(set) var actions: [CustomAction] = []
+    /// config.toml's [[teams]] (Teams.swift), read with it.
+    @Published private(set) var teams: [AgentTeam] = []
     /// Panes an action with keep runs in: left open when they exit, so
     /// what the command printed can be read.
     private var keptPanes: Set<String> = []
@@ -2699,6 +2773,9 @@ final class Store: ObservableObject {
         switch a {
         case .open, .divider: activate(node)
         case .rename(let k): renamePane(k)
+        case .setTeam(let k, let t): setTeam(k, t)
+        case .newTeam(let k): newTeam(k)
+        case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)
         case .workbench(let k): openWorkbench(k)
         case .close(let k): closePane(k)
@@ -2741,6 +2818,7 @@ final class Store: ObservableObject {
         case .connectHost(let h): connectSaved(h)
         case .sandbox(let m, let verb): sandbox(m, verb)
         case .cloud(let m, let verb): cloudVerb(m, verb)
+        case .mobilePreview(let pk): openMobilePreview(project: pk)
         case .agentSetup(let pk, let dir):
             let (m, pid) = unkey(pk)
             let k = setupKey(m, pid, dir: dir)
@@ -3122,10 +3200,12 @@ final class Store: ObservableObject {
 
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
     /// of its own, as the TUI's c and n do.
-    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?) {
+    func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?, prompt: String? = nil,
+                 started: ((PaneInfo) -> Void)? = nil) {
         guard let c = conns[machine] else { return }
         struct Create: Encodable {
             var agent: String?
+            var prompt: String?
             var cwd: String?
             var no_project: Bool?
             var cols: Int?
@@ -3135,12 +3215,13 @@ final class Store: ObservableObject {
         Task {
             if let agent, !(await readyAgent(agent, on: machine)) { return }
             do {
-                let p = try await c.call("pane.create", Create(agent: agent, cwd: cwd, no_project: inProject ? nil : true,
+                let p = try await c.call("pane.create", Create(agent: agent, prompt: prompt, cwd: cwd, no_project: inProject ? nil : true,
                                                                cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
                 layout.open(key(machine, p.id))
                 focusTerminal()
+                started?(p)
             } catch {
                 self.error = "Could not start \(agent ?? "a terminal"): \(error)"
             }
@@ -3156,7 +3237,7 @@ final class Store: ObservableObject {
         // Seen installed at connect: nothing to ask.
         if agents[machine]?.contains(where: { $0.name == agent }) == true { return true }
         let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
-        if let status { agents[machine] = status.filter(\.installed) }
+        if let status { agents[machine] = status.filter(\.installed); agentStatus[machine] = status }
         let canInstall = c.hello?.capabilities?.contains("agent.install.v1") == true
         switch agentReadiness(agent, status: status, canInstall: canInstall, machineName: label(machine)) {
         case .start: return true
@@ -3174,6 +3255,41 @@ final class Store: ObservableObject {
         } catch {
             say("\(what) failed: \(error)", .err)
             return false
+        }
+    }
+
+    /// Asks machine again which agents it has, for Settings → Agents.
+    func checkAgents(on machine: String) {
+        guard let c = conns[machine] else { return }
+        Task {
+            guard let a = try? await c.call("agent.status", as: AgentStatusList.self) else { return }
+            agents[machine] = (a.agents ?? []).filter(\.installed)
+            agentStatus[machine] = a.agents ?? []
+        }
+    }
+
+    /// Whether machine's server installs agents (agent.install.v1).
+    func installsAgents(on machine: String) -> Bool {
+        conns[machine]?.hello?.capabilities?.contains("agent.install.v1") == true
+    }
+
+    /// Installs agent on machine from Settings: the status bar says so, and
+    /// its terminal opens only when the installer failed.
+    func install(agent: String, on machine: String) {
+        guard let c = conns[machine] else { return }
+        let k = key(machine, agent)
+        guard !installingAgents.contains(k) else { return }
+        let title = agentStatus[machine]?.first { $0.name == agent }?.title ?? agent
+        let what = agentInstallJob(title, machineName: label(machine))
+        installingAgents.insert(k)
+        Task {
+            defer { installingAgents.remove(k) }
+            do {
+                try await running(what) { try await installAgent(agent, title: title, on: machine, c) }
+                say("\(title) installed on \(label(machine))")
+            } catch {
+                say("\(what) failed: \(error)", .err)
+            }
         }
     }
 
@@ -3202,7 +3318,7 @@ final class Store: ObservableObject {
             try await Task.sleep(nanoseconds: 500_000_000)
         }
         let status = (try? await c.call("agent.status", as: AgentStatusList.self))?.agents
-        if let status { agents[machine] = status.filter(\.installed) }
+        if let status { agents[machine] = status.filter(\.installed); agentStatus[machine] = status }
         // A machine that could not be asked is taken at the installer's word.
         let found = status?.first { $0.name == agent }?.installed ?? true
         if let why = agentInstallProblem(title, exitCode: code, found: found) {
@@ -3281,7 +3397,7 @@ final class Store: ObservableObject {
         if (d.issue ?? 0) > 0 || !d.ticket.isEmpty || !taskWhenArgs(d.when).isEmpty {
             guard let b = binary, let dir = snapshots[m]?.project(pr)?.path else { return }
             taskDraft = nil
-            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when))
+            let args = onMachine(m, taskArgs(dir: dir, prompt: d.prompt, agent: d.agent, branch: d.branch, issue: d.issue, ticket: d.ticket, when: d.when, team: d.team))
             job(d.when.isEmpty ? "Starting the task" : "Scheduling the task") {
                 let out = String(decoding: try await runConch(b, args), as: UTF8.self)
                 let said = out.split(separator: "\n").last.map(String.init) ?? ""
@@ -3294,6 +3410,7 @@ final class Store: ObservableObject {
             var prompt: String
             var agent: String?
             var branch: String?
+            var base: String?
         }
         let branch = d.branch.trimmingCharacters(in: .whitespaces)
         taskDraft = nil
@@ -3301,11 +3418,13 @@ final class Store: ObservableObject {
             if !d.agent.isEmpty, !(await readyAgent(d.agent, on: m)) { return }
             do {
                 let p = try await c.call("task.create", Params(project_id: pr, prompt: d.prompt, agent: d.agent,
-                                                               branch: branch.isEmpty ? nil : branch), as: PaneInfo.self)
+                                                               branch: branch.isEmpty ? nil : branch,
+                                                               base: d.base.isEmpty ? nil : d.base), as: PaneInfo.self)
                 snapshots[m, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: m, pane: p)
                 layout.open(key(m, p.id))
                 focusTerminal()
+                if !d.team.isEmpty { setTeam(key(m, p.id), d.team) }
             } catch {
                 self.error = "Could not start the task: \(error)"
             }
@@ -3330,6 +3449,60 @@ final class Store: ObservableObject {
         Task {
             do { try await c.call("pane.rename", Params(id: id, name: name.trimmingCharacters(in: .whitespaces))) } catch { self.error = "\(error)" }
         }
+    }
+
+    /// Asks an agent to resolve a branch's conflict with the base: the
+    /// branch's own agent when it has one running (prompted as if typed),
+    /// else a new one of `start` in the branch's worktree, given the same
+    /// words as its first message.
+    func askToResolve(machine: String, project: String, branch: GraphBranch, start: String? = nil) {
+        guard let c = conns[machine], let pr = snapshots[machine]?.project(project) else { return }
+        let text = resolvePrompt(branch: branch.name, base: pr.base ?? "the base", files: branch.conflicts, stopped: branch.stopped)
+        if start == nil, let a = branch.agent {
+            guard c.hello?.capabilities?.contains("agent.prompt.v1") == true else {
+                error = "The server on \(label(machine)) predates prompting an agent; reload it"
+                return
+            }
+            struct Params: Encodable { var id: String; var text: String }
+            Task {
+                do {
+                    try await c.call("agent.prompt", Params(id: a.id, text: text))
+                    self.say("Asked \(a.displayName) to resolve \(branch.name)")
+                    self.noteResolving(machine: machine, project: project, branch: branch.name, pane: a.id)
+                } catch { self.error = "\(error)" }
+            }
+            return
+        }
+        guard let path = branchWorktree(pr, branch.name)?.path else {
+            error = "\(branch.name) has no worktree to start an agent in"
+            return
+        }
+        newPane(machine: machine, cwd: path, inProject: true, agent: start ?? startable(on: machine).first?.name, prompt: text) { p in
+            self.noteResolving(machine: machine, project: project, branch: branch.name, pane: p.id)
+        }
+    }
+
+    /// Tells the server which agent is resolving branch's conflict, so the
+    /// graph says it is at it — in every client, and after the autopilot
+    /// looks. An older server keeps no asks: the graph then goes by an
+    /// agent working in the stopped worktree.
+    func noteResolving(machine: String, project: String, branch: String, pane: String) {
+        guard let c = conns[machine], c.hello?.capabilities?.contains("branch.resolving.v1") == true else { return }
+        struct P: Encodable { var project_id: String; var branch: String; var pane_id: String }
+        Task {
+            do { try await c.call("branch.resolving", P(project_id: project, branch: branch, pane_id: pane)) } catch {
+                NSLog("conch: saying %@ resolves %@: %@", pane, branch, "\(error)")
+            }
+        }
+    }
+
+    /// Opens the task sheet to hand a commit to an agent: a new branch
+    /// starting at that commit.
+    func handCommit(machine: String, project: String, hash: String, subject: String) {
+        var d = TaskDraft(project: key(machine, project), agent: startable(on: machine).first?.name ?? "claude")
+        d.base = hash
+        d.baseLabel = "\(hash.prefix(8)) · \(subject)"
+        taskDraft = d
     }
 
     /// Sends an agent a message, as the TUI's Prompt… does: the server
@@ -3368,7 +3541,7 @@ final class Store: ObservableObject {
     }
 
     /// A line of text from a small dialog, or nil when cancelled.
-    private func ask(_ title: String, info: String, value: String, button: String) -> String? {
+    func ask(_ title: String, info: String, value: String, button: String) -> String? {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = info
@@ -3540,6 +3713,13 @@ struct TaskDraft: Identifiable {
     var ticket = ""
     /// When it starts: "" now, else as `conch task -at` and the rest take it.
     var when = ""
+    /// What its branch starts from: "" for the project's base, else a
+    /// commit or branch — a commit handed to an agent from the graph —
+    /// and how to name it in the sheet.
+    var base = ""
+    var baseLabel = ""
+    /// The team it joins: a name, "-" for none, "" for its rules'.
+    var team = ""
 }
 
 private struct PaneRefParams: Encodable { var id: String }

@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapCISources, CapPRCheckSource, CapCIRerun, CapIntegrationDetect,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -225,6 +225,31 @@ const CapWorktreeSetup = "worktree.setup.v1"
 // read through gh on the machine the branch is on, for handing to its agent.
 const CapBranchCILog = "branch.ci_log.v1"
 
+// CapAutopilotActivity is autopilot.activity: what the autopilot did,
+// kept by the server across restarts, and each note's kind and time.
+const CapAutopilotActivity = "autopilot.activity.v1"
+
+// CapCIStats is ci.stats: a project's GitHub Actions history over a
+// period of days, added up for the CI panel — pass rate, run and queue
+// times, runs per day, each job's time, flaky jobs, failures to re-run.
+const CapCIStats = "ci.stats.v1"
+
+// CapCIRerun is ci.rerun: a failed run's failed jobs run again, through
+// gh on the machine the project is on.
+const CapCIRerun = "ci.rerun.v1"
+
+// CapBranchRebased is branch.rebased and branch.rebase_undo: a branch's
+// newest rebase read back — each commit before and after, and what
+// resolving its conflicts changed — then pushed over the old branch with
+// a lease (BranchPushParams.Over) or undone.
+const CapBranchRebased = "branch.rebased.v1"
+
+// CapBranchResolving is branch.resolving and WorktreeInfo.Resolve: which
+// agent was asked to resolve a branch's conflict with the base — by the
+// person or the autopilot — kept while the conflict is there, so a client
+// can say the agent is at it rather than that the branch is stuck.
+const CapBranchResolving = "branch.resolving.v1"
+
 // CapAgentReply is agent.reply: an agent's last answer, whole, from its
 // saved conversation rather than off its screen.
 const CapAgentReply = "agent.reply.v1"
@@ -258,9 +283,22 @@ const CapAgentAttach = "agent.attach.v1"
 // or too-big, with a comment saying why.
 const CapAutopilotTriage = "autopilot.triage.v1"
 
+// CapWorktreeOperation is WorktreeInfo.Operation, and a worktree mid-rebase
+// carrying the branch being rebased as its Branch: git detaches HEAD until
+// the rebase ends, and the agents in it showed under no branch.
+const CapWorktreeOperation = "worktree.operation.v1"
+
 // CapBranchPrune is branch.stale and branch.prune: local branches nobody
 // has committed to for a while, and deleting them.
 const CapBranchPrune = "branch.prune.v1"
+
+// CapBranchPruneMerged is branch.stale's Merged: the branches the base
+// already has, whatever their age. An older server ignores the field and
+// answers with its old branches, which is not the same list.
+const CapBranchPruneMerged = "branch.prune.merged.v1"
+
+// CapPaneTeam is pane.team and PaneInfo.Team: agents grouped by team.
+const CapPaneTeam = "pane.team.v1"
 
 // CapCISources is branch.ci_log reading a failure from a CI integration
 // (CircleCI, GitLab CI, …) when GitHub Actions has none, and saying in
@@ -271,9 +309,13 @@ const CapCISources = "ci.sources.v1"
 // came from, and whether conch can read its log.
 const CapPRCheckSource = "pr.check.source.v1"
 
-// CapCIRerun is branch.ci_rerun: re-run what failed in a branch's CI, on
+// CapBranchCIRerun is branch.ci_rerun: re-run what failed in a branch's CI, on
 // GitHub Actions or through a CI integration.
-const CapCIRerun = "branch.ci_rerun.v1"
+const CapBranchCIRerun = "branch.ci_rerun.v1"
+
+// CapAutopilotNoteCI is AutopilotNote.CI: a note about a failed run
+// names its service, workflow and job, and what was read of it.
+const CapAutopilotNoteCI = "autopilot.note.ci.v1"
 
 // CapIntegrationDetect is integration.detect: which services a project
 // uses — its code host, every CI — why conch thinks so, and whether
@@ -454,16 +496,18 @@ const CapPaneSSH = "pane.ssh.v1"
 
 // Methods.
 const (
-	MethodHello           = "hello"
-	MethodPing            = "ping"
-	MethodServerStop      = "server.stop"
-	MethodServerReload    = "server.reload"
-	MethodPaneList        = "pane.list"
-	MethodPaneCreate      = "pane.create"
-	MethodPaneClose       = "pane.close"
-	MethodPaneResize      = "pane.resize"
-	MethodPaneSendText    = "pane.send_text"
-	MethodPaneSendKeys    = "pane.send_keys"
+	MethodHello        = "hello"
+	MethodPing         = "ping"
+	MethodServerStop   = "server.stop"
+	MethodServerReload = "server.reload"
+	MethodPaneList     = "pane.list"
+	MethodPaneCreate   = "pane.create"
+	MethodPaneClose    = "pane.close"
+	MethodPaneResize   = "pane.resize"
+	MethodPaneSendText = "pane.send_text"
+	MethodPaneSendKeys = "pane.send_keys"
+	// MethodPaneTeam puts a pane in a team by hand (CapPaneTeam).
+	MethodPaneTeam        = "pane.team"
 	MethodPaneRead        = "pane.read"
 	MethodPaneSubscribe   = "pane.subscribe"
 	MethodPaneUnsubscribe = "pane.unsubscribe"
@@ -646,8 +690,22 @@ const (
 	// MethodBranchCILog is the log of the failed steps of a branch's
 	// newest failed GitHub Actions run (CapBranchCILog).
 	MethodBranchCILog = "branch.ci_log"
+	// MethodCIStats adds up a project's GitHub Actions runs (CapCIStats).
+	// MethodAutopilotActivity lists what the autopilot did
+	// (CapAutopilotActivity).
+	MethodAutopilotActivity = "autopilot.activity"
+	MethodCIStats           = "ci.stats"
+	// MethodCIRerun runs a failed run's failed jobs again (CapCIRerun).
+	MethodCIRerun = "ci.rerun"
+	// MethodBranchRebased reads back the agents' branches' newest
+	// rebases, and MethodBranchRebaseUndo puts one back (CapBranchRebased).
+	MethodBranchRebased    = "branch.rebased"
+	MethodBranchRebaseUndo = "branch.rebase_undo"
+	// MethodBranchResolving says which agent was asked to resolve a
+	// branch's conflict, or that nobody is any more (CapBranchResolving).
+	MethodBranchResolving = "branch.resolving"
 	// MethodBranchCIRerun re-runs what failed in a branch's newest failed
-	// run (CapCIRerun).
+	// run (CapBranchCIRerun).
 	MethodBranchCIRerun = "branch.ci_rerun"
 	// MethodIntegrationDetect lists the services a project uses
 	// (CapIntegrationDetect).
@@ -821,6 +879,10 @@ type PaneInfo struct {
 	// Account is the account its agent was started on, "" for the agent's
 	// own (CapAccounts).
 	Account string `json:"account,omitempty"`
+	// Team is the team the pane was put in by hand (CapPaneTeam), "-" for
+	// kept out of every team; "" leaves it to config.toml's [[teams]]
+	// rules (config.TeamFor), which clients apply.
+	Team string `json:"team,omitempty"`
 	// Title is the terminal title with decoration (spinners, the agent's
 	// default title) stripped; agents set it to a summary of their task.
 	Title string `json:"title,omitempty"`
@@ -894,6 +956,13 @@ func IsPaneID(ref string) bool {
 		}
 	}
 	return true
+}
+
+// PaneTeamParams puts a pane in a team: a name, "-" for no team whatever
+// the rules say, or "" to leave it to the rules again.
+type PaneTeamParams struct {
+	ID   string `json:"id"`
+	Team string `json:"team"`
 }
 
 // PaneRenameParams renames a pane; an empty name restores the default.
@@ -998,10 +1067,34 @@ type WorktreeInfo struct {
 	// Overlaps are the other checkouts of the project that have touched
 	// files this one has too: two agents heading for the same merge
 	// conflict. Conflicts are the files merging this branch into the base
-	// would conflict in, tried without merging. Both are absent from older
+	// would conflict in, tried without merging — or, in a checkout stopped
+	// mid-rebase or merge, the files it stopped on. Both are absent from older
 	// servers, and Conflicts where git is older than 2.38.
 	Overlaps  []Overlap `json:"overlaps,omitempty"`
 	Conflicts []string  `json:"conflicts,omitempty"`
+	// Operation is what git left unfinished here: "rebase", "merge",
+	// "cherry-pick", "revert" or "am". Mid-rebase, Branch is the branch
+	// being rebased while Detached stays true, since HEAD is: a client
+	// shows the checkout under that branch. Absent from older servers
+	// (CapWorktreeOperation).
+	Operation string `json:"operation,omitempty"`
+	// Rebasing is the branch a rebase left unfinished in this checkout is
+	// rewriting, which Branch also names (CapWorktreeOperation): git
+	// detaches HEAD while it works. Absent from older servers.
+	Rebasing string `json:"rebasing,omitempty"`
+	// Resolve is the agent asked to resolve the branch's conflict with
+	// the base, while that conflict is there (CapBranchResolving).
+	Resolve *ResolveAsk `json:"resolve,omitempty"`
+}
+
+// ResolveAsk is an agent asked to resolve a branch's conflict: its pane,
+// who asked ("autopilot", or empty for the person), when, and the files
+// that conflicted then.
+type ResolveAsk struct {
+	Pane  string    `json:"pane"`
+	By    string    `json:"by,omitempty"`
+	At    time.Time `json:"at"`
+	Files []string  `json:"files,omitempty"`
 }
 
 // Overlap is another branch's checkout touching the same files.
@@ -1668,6 +1761,16 @@ type LogResult struct {
 	// remote's branch (fork/main) from a local one with a slash. Absent
 	// from an older server: clients then take origin and upstream.
 	Remotes []string `json:"remotes,omitempty"`
+	// Format is how the repository stores itself — sha1 or sha256
+	// objects, files or reftable refs — absent from an older server.
+	Format *RepoFormat `json:"format,omitempty"`
+}
+
+// RepoFormat is a repository's object hash and refs backend: git 3 makes
+// new repositories sha256 and reftable, and conch meets both kinds.
+type RepoFormat struct {
+	Objects string `json:"objects,omitempty"`
+	Refs    string `json:"refs,omitempty"`
 }
 
 // CommitParams asks project.commit about Hash: the commit itself; with
@@ -1758,10 +1861,73 @@ type BranchRef struct {
 // of takes the remote's commits first and puts the branch's own on top;
 // without it such a push comes back as ErrPushRejected. It is a BranchRef
 // with a field added, so an older server reads it as one.
+//
+// Over is the commit the remote is expected to have for the branch: the
+// push replaces it, and only it (--force-with-lease), which is how a
+// rebased branch goes up over the one it rewrote (CapBranchRebased). An
+// older server ignores it, and a plain push of a rewrite is rejected.
 type BranchPushParams struct {
 	ProjectID string `json:"project_id"`
 	Branch    string `json:"branch"`
 	Rebase    bool   `json:"rebase,omitempty"`
+	Over      string `json:"over,omitempty"`
+}
+
+// BranchRebasedParams asks for the newest rebase of each branch checked
+// out in the project — or of Branch alone — that has not been pushed
+// yet. Diff adds git range-diff's account of what changed.
+type BranchRebasedParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch,omitempty"`
+	Diff      bool   `json:"diff,omitempty"`
+}
+
+// BranchRebased lists the branches rebased and not pushed since.
+type BranchRebased struct {
+	Rebases []BranchRebase `json:"rebases"`
+}
+
+// BranchRebase is a branch's newest rebase: its tip before and after,
+// the commit it went onto, when, and each commit's fate. Remote is the
+// commit the remote has for the branch as the checkout last saw it, ""
+// when it was never pushed: Before means the push replaces the old
+// branch, anything else that somebody pushed since.
+type BranchRebase struct {
+	Branch  string          `json:"branch"`
+	Before  string          `json:"before"`
+	After   string          `json:"after"`
+	Onto    string          `json:"onto"`
+	At      time.Time       `json:"at,omitempty"`
+	Commits []RebasedCommit `json:"commits,omitempty"`
+	Remote  string          `json:"remote,omitempty"`
+	Diff    string          `json:"diff,omitempty"`
+}
+
+// RebasedCommit is one commit before (Old) and after (New), short
+// hashes; Change is "same", "changed" (a conflict was resolved in it),
+// "dropped" or "added".
+type RebasedCommit struct {
+	Old     string `json:"old,omitempty"`
+	New     string `json:"new,omitempty"`
+	Subject string `json:"subject"`
+	Change  string `json:"change"`
+}
+
+// BranchRebaseUndoParams puts Branch back at Before, if it is still at
+// After.
+type BranchRebaseUndoParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Before    string `json:"before"`
+	After     string `json:"after"`
+}
+
+// BranchResolvingParams names the agent (its pane) asked to resolve
+// Branch's conflict; an empty PaneID says nobody is any more.
+type BranchResolvingParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	PaneID    string `json:"pane_id,omitempty"`
 }
 
 // BranchPushResult says what a push did: Took counts the commits a rebase
@@ -1857,6 +2023,95 @@ type BranchDiscardParams struct {
 	Branch    string `json:"branch"`
 	DryRun    bool   `json:"dry_run,omitempty"`
 	Force     bool   `json:"force,omitempty"`
+}
+
+// CIStatsParams asks for a project's CI over the last Days days, today
+// included (14 when 0, 90 at most).
+type CIStatsParams struct {
+	ProjectID string `json:"project_id"`
+	Days      int    `json:"days,omitempty"`
+}
+
+// CIStats is a project's GitHub Actions over a period of whole days, and
+// the same number of days before it for comparison. Seconds are medians.
+type CIStats struct {
+	Days int `json:"days"`
+	// Finished runs that passed or failed (a cancelled one is neither).
+	Runs       int `json:"runs"`
+	Passed     int `json:"passed"`
+	Failed     int `json:"failed"`
+	PrevRuns   int `json:"prev_runs"`
+	PrevPassed int `json:"prev_passed"`
+	// A run's time from start to finish, and its wait in the queue.
+	MedianSeconds     int `json:"median_seconds"`
+	PrevMedianSeconds int `json:"prev_median_seconds"`
+	QueueSeconds      int `json:"queue_seconds"`
+	// From a failed run to the next passing run of the same workflow on
+	// the same branch, and how many times a branch went from red to green.
+	RedToGreenSeconds int `json:"red_to_green_seconds"`
+	RedToGreenCount   int `json:"red_to_green_count"`
+	// One a day, oldest first, today last.
+	Daily []CIDay `json:"daily"`
+	// Each job, the slowest first.
+	Jobs []CIJob `json:"jobs,omitempty"`
+	// Jobs that failed and passed with nothing changed, and runs that
+	// passed only on a later attempt.
+	Flaky []CIFlaky `json:"flaky,omitempty"`
+	// Each workflow's newest run on each branch, where it failed.
+	Failing []CIRun `json:"failing,omitempty"`
+	// JobsPending is how many of the period's runs have not had their jobs
+	// read yet: a few dozen are read per call, so asking again fills in
+	// the job times.
+	JobsPending int `json:"jobs_pending,omitempty"`
+}
+
+// CIDay is a day's finished runs; Date is YYYY-MM-DD where the server is.
+type CIDay struct {
+	Date   string `json:"date"`
+	Passed int    `json:"passed"`
+	Failed int    `json:"failed"`
+}
+
+// CIJob is one job over the period.
+type CIJob struct {
+	Name          string `json:"name"`
+	Runs          int    `json:"runs"`
+	Failed        int    `json:"failed"`
+	MedianSeconds int    `json:"median_seconds"`
+	P90Seconds    int    `json:"p90_seconds"`
+}
+
+// CIFlaky is a job, or a whole run, that failed and passed without a change.
+type CIFlaky struct {
+	Name  string    `json:"name"`
+	Times int       `json:"times"`
+	How   string    `json:"how"`
+	Last  time.Time `json:"last"`
+}
+
+// CIRun is one workflow run.
+type CIRun struct {
+	ID         int64     `json:"id"`
+	Workflow   string    `json:"workflow"`
+	Branch     string    `json:"branch,omitempty"`
+	Sha        string    `json:"sha,omitempty"`
+	Conclusion string    `json:"conclusion,omitempty"`
+	Attempt    int       `json:"attempt,omitempty"`
+	URL        string    `json:"url,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+// CIRerunParams names the run whose failed jobs to run again, or a branch
+// whose newest failed run (at its pull request's head) it is.
+type CIRerunParams struct {
+	ProjectID string `json:"project_id"`
+	RunID     int64  `json:"run_id,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+}
+
+// CIRerunResult is the run started again.
+type CIRerunResult struct {
+	RunID int64 `json:"run_id"`
 }
 
 // BranchCILogParams names the branch whose failed CI run to read.
@@ -1968,6 +2223,10 @@ type StaleWorktree struct {
 	// Suggested means it can go without losing anything.
 	Reasons   []string `json:"reasons,omitempty"`
 	Suggested bool     `json:"suggested,omitempty"`
+	// Operation is what git left unfinished in it ("rebase", "merge"…), as
+	// in WorktreeInfo: such a worktree is never suggested, and mid-rebase
+	// Branch is the branch being rebased (CapWorktreeOperation).
+	Operation string `json:"operation,omitempty"`
 }
 
 // WorktreeCleanupParams removes linked worktrees, deleting their branches
@@ -2001,12 +2260,19 @@ type CleanupFailure struct {
 type BranchStaleParams struct {
 	ProjectID string `json:"project_id"`
 	Days      int    `json:"days,omitempty"`
+	// Merged asks instead for the branches the base already has — merged,
+	// squashed in, or merged on GitHub with the branch's commit — however
+	// recent (CapBranchPruneMerged). The base itself is never among them.
+	Merged bool `json:"merged,omitempty"`
 }
 
 // BranchStale is those branches, oldest first.
 type BranchStale struct {
 	Days     int           `json:"days"`
 	Branches []StaleBranch `json:"branches"`
+	// Merged says these are the merged branches, as asked; a server that
+	// does not know the question leaves it out.
+	Merged bool `json:"merged,omitempty"`
 }
 
 // StaleBranch is an old local branch and what deleting it would lose.
@@ -2019,7 +2285,7 @@ type StaleBranch struct {
 	// Worktree is where the branch is checked out: it goes with that
 	// worktree (worktree.cleanup), not on its own.
 	Worktree string `json:"worktree,omitempty"`
-	Merged   bool   `json:"merged,omitempty"` // the base has all of it
+	Merged   bool   `json:"merged,omitempty"` // the base has all of it, or its pull request merged with its commit
 	Gone     bool   `json:"gone,omitempty"`   // its upstream was deleted
 	// Unmerged counts its commits that neither the base nor its upstream
 	// has: what deleting it loses. A pushed branch loses nothing.

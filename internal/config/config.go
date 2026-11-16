@@ -35,6 +35,7 @@ type Config struct {
 	Cloud        CloudCfg        `toml:"cloud"`
 	// Trackers are where tickets come from besides GitHub (trackers.go).
 	Trackers TrackersCfg `toml:"trackers"`
+	Preview  PreviewCfg  `toml:"preview"`
 	// Actions are commands of your own on conch's menus. Last, because
 	// TOML's array of tables has to come after the plain tables when the
 	// settings screen writes this file back out.
@@ -43,6 +44,9 @@ type Config struct {
 	// that matches deciding (permissions.go). After Actions for the same
 	// reason.
 	Permissions []PermissionRule `toml:"permissions,omitempty"`
+	// Teams group agents by what they work on — backend, UI, a report —
+	// across projects and branches (teams.go). After the plain tables too.
+	Teams []Team `toml:"teams,omitempty"`
 }
 
 // WebCfg is the phone gateway, conch web. URL is the address phones open —
@@ -55,6 +59,15 @@ type WebCfg struct {
 	// from any network without Tailscale: wss://relay.example.com, one
 	// `conch relay` serves. "" is none.
 	Relay string `toml:"relay,omitempty"`
+}
+
+// PreviewCfg is where the phones of a mobile preview come from (conch
+// preview, Conch.app's Mobile Preview): Xcode for the iOS simulators and
+// the Android SDK for emulators. "" finds each by itself — Xcode in
+// /Applications even when xcode-select points at the Command Line Tools.
+type PreviewCfg struct {
+	Xcode      string `toml:"xcode,omitempty"`
+	AndroidSDK string `toml:"android_sdk,omitempty"`
 }
 
 // CloudCfg is Conch Cloud. API is the control plane to sign in to: ""

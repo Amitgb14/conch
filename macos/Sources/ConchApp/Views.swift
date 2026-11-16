@@ -1049,11 +1049,15 @@ struct NodeView: View {
     }
 
     /// What dragging this row carries, for a folder to take: a pane outside
-    /// every project, or a saved host. nil for a row that goes in none.
+    /// every project, or a saved host; an agent in a project goes to a
+    /// team of its project instead. nil for a row that goes in none.
     var dragID: String? {
         switch node.kind {
         case .agent(let k), .terminal(let k):
-            guard let p = store.pane(k), p.projectID == nil || store.snapshots[unkey(k).machine]?.project(p.projectID!) == nil else { return nil }
+            guard let p = store.pane(k) else { return nil }
+            if let pr = p.projectID, store.snapshots[unkey(k).machine]?.project(pr) != nil {
+                return p.agent != nil ? "team:" + k : nil
+            }
             return k
         case .savedHost(let h): return "host:" + h
         // A project dropped on another groups them, on a group joins it.
@@ -1144,6 +1148,12 @@ struct NodeView: View {
             TreeIcon(open ? "folder-open" : "folder", look: store.appLook, color: Theme.text2, size: 12)
         case .group: TreeIcon("layout-grid", look: store.appLook)
         case .groupTask: TreeIcon("git-branch", look: store.appLook, color: Theme.text2, size: 12)
+        case .team(_, let name):
+            // Its colour, as the tabs and the status bar give it.
+            RoundedRectangle(cornerRadius: 3)
+                .fill(name.isEmpty ? Color.clear : Theme.color(store.teamColor(name)))
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(name.isEmpty ? Theme.muted : Color.clear, style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
+                .frame(width: 10, height: 10).frame(width: 14)
         case .section(let name):
             // Each group with an icon of its own, as Files and Sessions have.
             TreeIcon(name == "Agents" ? "bot" : name == "Branches" ? "git-branch" : "square-terminal", look: store.appLook, color: Theme.muted, size: 12)
@@ -1382,7 +1392,7 @@ struct FolderDragDrop: ViewModifier {
 
     var target: Bool {
         switch node.kind {
-        case .folder, .cliSection, .group, .project: return true
+        case .folder, .cliSection, .group, .project, .team: return true
         default: return false
         }
     }
@@ -1543,6 +1553,10 @@ struct TaskSheet: View {
             Text([project?.name ?? "", m == "local" ? "" : store.label(m)].filter { !$0.isEmpty }.joined(separator: " · ")
                  + (project?.git == false ? " — not a git repository yet: Start asks whether to make it one" : " — on a branch and worktree of its own"))
                 .font(.ui(size: 12)).foregroundStyle(.secondary)
+            if !draft.base.isEmpty {
+                Text("Starts from \(draft.baseLabel.isEmpty ? String(draft.base.prefix(8)) : draft.baseLabel)")
+                    .font(.ui(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }
             TextEditor(text: $draft.prompt)
                 .font(.ui(size: 13)).frame(minHeight: 120)
                 .scrollContentBackground(.hidden).padding(6)
@@ -1556,6 +1570,16 @@ struct TaskSheet: View {
                 .frame(maxWidth: 240)
                 if project?.git != false {
                     TextField("Branch (conch names one)", text: $draft.branch).frame(maxWidth: 260)
+                }
+                // Which team it joins: its rules' by default, said by name.
+                if !store.teams.isEmpty, taskWhenArgs(draft.when).isEmpty {
+                    let ruled = teamFor(store.teams, set: nil, project: project?.name, branch: draft.branch)
+                    Picker("Team", selection: $draft.team) {
+                        Text(ruled.map { "By rule: \($0)" } ?? "By rule: none").tag("")
+                        ForEach(store.teams.map(\.name), id: \.self) { Text($0).tag($0) }
+                        Text("No team").tag(AgentTeam.none)
+                    }
+                    .frame(maxWidth: 220)
                 }
             }
             HStack(spacing: 12) {
@@ -1771,6 +1795,7 @@ struct TabButton: View {
         if let c = parseCommitsKey(tab.focused) { return "Commits · " + project(c.machine, c.project) }
         if let f = parseFilesKey(tab.focused) { return "Files · " + project(f.machine, f.project) }
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
+        if let p = parseMobileKey(tab.focused) { return "Preview · " + project(p.machine, p.project) }
         if let t = parseTaskKey(tab.focused) { return "\(t.branch) · \(t.group)" }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
@@ -1804,6 +1829,8 @@ struct TabButton: View {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
                     LucideIcon(browserIcon, color: Theme.accent, size: 12)
+                } else if parseMobileKey(tab.focused) != nil {
+                    LucideIcon("smartphone", color: Theme.accent, size: 12)
                 } else if parseTaskKey(tab.focused) != nil {
                     LucideIcon("layout-grid", color: Theme.accent, size: 12)
                 } else if changes == nil {
@@ -1939,6 +1966,8 @@ struct SplitArea: View {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
                 BrowserView(model: store.browser(for: id)).id(id)
+            } else if parseMobileKey(id) != nil {
+                MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
             } else if parseTaskKey(id) != nil {
                 TaskPageView(store: store, key: id).id(id)
             } else if parseChatKey(id) != nil {

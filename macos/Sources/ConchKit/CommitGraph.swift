@@ -27,6 +27,8 @@ public struct LogResult: Decodable, Sendable {
     public var more: Bool?
     /// The repository's remotes; nil from an older server.
     public var remotes: [String]?
+    /// How the repository stores itself; nil from an older server.
+    public var format: RepoFormat?
 }
 
 /// A project's commit graph tab's key in the layout:
@@ -167,4 +169,27 @@ public func lanePalette(_ t: ConchTheme) -> [RGB] {
         out.append(c)
     }
     return out
+}
+
+/// What one step back does in the commit graph — Escape, or the panel's
+/// close button — the newest thing opened first, until the graph is whole
+/// again with nothing picked.
+public enum GraphBack: Equatable, Sendable {
+    case closeCI, closeAutopilot, endCompare, closeCommit, clearFocus, nothing
+}
+
+public func graphBack(showCI: Bool, showAutopilot: Bool, comparing: Bool, selected: Bool, focused: Bool) -> GraphBack {
+    if showCI { return .closeCI }
+    if showAutopilot { return .closeAutopilot }
+    if comparing { return .endCompare }
+    if selected { return .closeCommit }
+    if focused { return .clearFocus }
+    return .nothing
+}
+
+/// Whether a click on a commit closes its panel rather than opening one:
+/// the commit already picked, clicked again without shift and with no
+/// comparison open.
+public func pickCloses(_ hash: String, selected: String?, shift: Bool, comparing: Bool) -> Bool {
+    !shift && !comparing && selected == hash
 }

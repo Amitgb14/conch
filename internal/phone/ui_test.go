@@ -159,9 +159,11 @@ func TestUIFiles(t *testing.T) {
 	// until the agents' own logos on the New screen (logos.mjs, 7 KB of
 	// paths, the same as Conch.app's); 172 until four more agents became
 	// ones it can start — Copilot CLI, Cline, Qwen Code and Goose — with
-	// 4.5 KB of logos between them.
-	if total > 176<<10 {
-		t.Errorf("the app is %d bytes; keep it under 176 KiB", total)
+	// 4.5 KB of logos between them; 176 until the app took the Conch iOS
+	// design's look — tints for each state in both schemes and drawn tab
+	// icons, 2.2 KB.
+	if total > 180<<10 {
+		t.Errorf("the app is %d bytes; keep it under 180 KiB", total)
 	}
 	if images > 64<<10 {
 		t.Errorf("the icons are %d bytes; keep them under 64 KiB", images)

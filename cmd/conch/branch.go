@@ -12,6 +12,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -26,7 +27,7 @@ const branchUsage = `Usage:
   conch branch discard [-cwd DIR] [-branch B] [-force] [-n]
   conch branch fix-ci [-cwd DIR] [-branch B] [-agent A]
   conch branch rerun-ci [-cwd DIR] [-branch B]
-  conch branch prune  [-cwd DIR] [-days N] [-y] [-force] [BRANCH...]
+  conch branch prune  [-cwd DIR] [-days N | -merged] [-y] [-force] [BRANCH...]
 
 Without -branch, the branch checked out in DIR (the current directory) is used.
 
@@ -35,7 +36,8 @@ from the CI integration the project uses (conch integration ls); rerun-ci
 re-runs what failed in the same run.
 
 prune deletes local branches with no commit in the last N days (30), or the
-ones named among them. Without -y it only prints what it would delete. It
+ones named among them; with -merged, every branch the base already has —
+merged, squashed in, or merged on GitHub with its commit — however recent. Without -y it only prints what it would delete. It
 keeps the base branch, a branch checked out in a worktree (conch worktree
 clean removes those), and — without -force — one with commits neither
 merged nor pushed.`
@@ -363,7 +365,7 @@ func branchRerunCI(args []string) error {
 		return err
 	}
 	defer c.Close()
-	if missing := c.MissingCapabilities([]string{proto.CapCIRerun}); len(missing) > 0 {
+	if missing := c.MissingCapabilities([]string{proto.CapBranchCIRerun}); len(missing) > 0 {
 		return fmt.Errorf("the conch server (pid %d) predates re-running CI; reload it with `conch server reload`", c.Server.PID)
 	}
 	var rr proto.BranchCIRerun
@@ -517,6 +519,8 @@ func worktreeLabel(w proto.StaleWorktree) string {
 // why it looks finished.
 func worktreeState(w proto.StaleWorktree) string {
 	switch {
+	case w.Operation != "":
+		return gitx.OperationWord(w.Operation)
 	case w.Panes:
 		return "panes running"
 	case w.Locked:
@@ -607,11 +611,15 @@ func branchPrune(args []string) error {
 	days := fs.Int("days", 0, "how many days without a commit makes a branch old (default: [git] stale_days, else 30)")
 	yes := fs.Bool("y", false, "delete them, rather than only printing what would go")
 	force := fs.Bool("force", false, "delete even when that loses commits not merged or pushed")
+	merged := fs.Bool("merged", false, "the branches the base already has, whatever their age, rather than the old ones")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *days < 0 {
 		return errors.New("-days must be at least 1")
+	}
+	if *merged && *days > 0 {
+		return errors.New("-merged takes branches of any age; leave -days out")
 	}
 	if *days == 0 {
 		if cfg, err := config.Load(); err == nil {
@@ -626,7 +634,11 @@ func branchPrune(args []string) error {
 		return err
 	}
 	defer c.Close()
-	if missing := c.MissingCapabilities([]string{proto.CapBranchPrune, "project.resolve.v1"}); len(missing) > 0 {
+	need := []string{proto.CapBranchPrune, "project.resolve.v1"}
+	if *merged {
+		need = append(need, proto.CapBranchPruneMerged)
+	}
+	if missing := c.MissingCapabilities(need); len(missing) > 0 {
 		return fmt.Errorf("the conch server (pid %d) is from an older build without %s; reload it with `conch server reload`", c.Server.PID, strings.Join(missing, ", "))
 	}
 	at, err := place(c, *cwd)
@@ -634,8 +646,17 @@ func branchPrune(args []string) error {
 		return err
 	}
 	var stale proto.BranchStale
-	if err := callFor(c, proto.MethodBranchStale, proto.BranchStaleParams{ProjectID: at.ProjectID, Days: *days}, &stale, harvestWait); err != nil {
+	if err := callFor(c, proto.MethodBranchStale, proto.BranchStaleParams{ProjectID: at.ProjectID, Days: *days, Merged: *merged}, &stale, harvestWait); err != nil {
 		return err
+	}
+	// An older server answers with its old branches, which merged or not
+	// are not the list asked for: never delete from it.
+	if *merged && !stale.Merged {
+		return errors.New("the conch server did not list merged branches; reload it with `conch server reload`")
+	}
+	which := fmt.Sprintf("older than %d days", stale.Days)
+	if *merged {
+		which = "merged"
 	}
 	wanted := map[string]bool{}
 	for _, b := range fs.Args() {
@@ -669,11 +690,11 @@ func branchPrune(args []string) error {
 	}
 	for b := range wanted {
 		if !found[b] {
-			fmt.Printf("keeping %s: not a local branch older than %d days\n", b, stale.Days)
+			fmt.Printf("keeping %s: not a local branch %s\n", b, which)
 		}
 	}
 	if len(del) == 0 {
-		fmt.Printf("no branches to delete (none older than %d days that lose nothing)\n", stale.Days)
+		fmt.Printf("no branches to delete (none %s that lose nothing)\n", which)
 		return nil
 	}
 	if !*yes {

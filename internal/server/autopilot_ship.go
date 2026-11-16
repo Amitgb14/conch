@@ -217,9 +217,9 @@ func (s *Server) autopilotCheckDone(key, head, cmd string, info proto.PaneInfo, 
 		return
 	}
 	if info.ExitCode == 0 {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: "check passed on " + branch})
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: proto.ActivityCheck, Text: "check passed on " + branch})
 	} else {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, Kind: proto.ActivityCheck,
 			Text: fmt.Sprintf("check failed on %s (exit %d) — its terminal has the output", branch, info.ExitCode)})
 	}
 	s.autopilotCheckEnded(p, proto.AutopilotCheck{ProjectID: projectID, Branch: branch, Pane: info.ID, Command: cmd, Exit: info.ExitCode}, output, head)
@@ -270,7 +270,7 @@ func (s *Server) autopilotShip(projectID, branch string) {
 	}
 	a.mu.Unlock()
 	if why != "" && why != was {
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: branch + " is finished but not pushed: " + why})
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: proto.ActivityShip, Text: branch + " is finished but not pushed: " + why})
 	}
 }
 
@@ -364,7 +364,7 @@ func (s *Server) ship(projectID, branch string) string {
 			if _, perr := s.projects.pushBranch(proto.BranchPushParams{ProjectID: projectID, Branch: branch}); perr != nil {
 				return "pushing it failed: " + perr.Message
 			}
-			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+			s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: proto.ActivityShip,
 				Text: fmt.Sprintf("pushed %s to #%d", branch, pr.Number)})
 		}
 		return s.markReady(p, projectID, branch, wt.Path, info.Base, wt.Head, *pr)
@@ -389,7 +389,7 @@ func (s *Server) ship(projectID, branch string) string {
 			a.mu.Unlock()
 			text += " as a draft, since " + strings.Join(unmet, " and ") + "; it is marked ready once that changes"
 		}
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text})
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: proto.ActivityShip, Text: text})
 	}
 	return ""
 }
@@ -432,7 +432,7 @@ func (s *Server) markReady(p *project, projectID, branch, dir, base, head string
 	a.mu.Unlock()
 	s.unsay(key, "ready")
 	s.projects.requestPRs(p)
-	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch,
+	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Kind: proto.ActivityShip,
 		Text: fmt.Sprintf("marked #%d ready: what held it as a draft is met", pr.Number)})
 	return ""
 }
@@ -533,7 +533,7 @@ func (s *Server) askForTest(projectID, branch string) {
 		delete(a.saved.TestAsked, key)
 		a.saveLocked()
 		a.mu.Unlock()
-		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true,
+		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Error: true, Kind: proto.ActivityShip,
 			Text: "asking " + agent.DisplayName() + " for a test on " + branch + " failed: " + perr.Message})
 	}
 }

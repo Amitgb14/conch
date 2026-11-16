@@ -40,8 +40,10 @@ func runAgent(args []string) error {
 		return agentQuestion(args[1:])
 	case len(args) >= 1 && args[0] == "answer":
 		return agentAnswer(args[1:])
+	case len(args) >= 1 && args[0] == "team":
+		return agentTeam(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | question ID | answer [-question QID] ID CHOICE | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | add NAME -command BINARY | " +
+		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | question ID | answer [-question QID] ID CHOICE | team ID [TEAM | - | -clear] | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | add NAME -command BINARY | " +
 			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR] | library [list | add | skill | on | off | rm | import | plan | apply | undo]")
 	}
 	c, err := connect(false)
@@ -121,7 +123,7 @@ func agentInstall(agent string) error {
 // (some agents read hook output as instructions), always exits 0, and gives
 // up quickly. Outside a conch pane it does nothing.
 //
-//	conch report claude-hook | gemini-hook   (hook JSON on stdin)
+//	conch report claude-hook | gemini-hook | codex-hook   (hook JSON on stdin)
 //	conch report opencode EVENT              (from conch's OpenCode plugin)
 func runReport(args []string) {
 	if len(args) > 0 && args[0] == "claude-status" {
@@ -136,7 +138,7 @@ func runReport(args []string) {
 	switch {
 	case args[0] == "opencode" && len(args) >= 2:
 		params.Agent, params.Event = "opencode", args[1]
-	case args[0] == "claude-hook" || args[0] == "gemini-hook":
+	case args[0] == "claude-hook" || args[0] == "gemini-hook" || args[0] == "codex-hook":
 		var in struct {
 			Event            string          `json:"hook_event_name"`
 			SessionID        string          `json:"session_id"`

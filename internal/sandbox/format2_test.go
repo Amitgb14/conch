@@ -237,8 +237,8 @@ func TestFormatTwoProblems(t *testing.T) {
 	for _, c := range []struct{ from, to, want string }{
 		{"format = 2\n", "", "[get] item needs format = 2"},
 		{"format = 2\n", "format = 1\n", "[get] item needs format = 2"},
-		{"format = 2\n", "format = 3\n", "reads up to format 2"},
-		{"format = 2\n", "format = -1\n", "reads up to format 2"},
+		{"format = 2\n", fmt.Sprintf("format = %d\n", ProviderFormat+1), fmt.Sprintf("reads up to format %d", ProviderFormat)},
+		{"format = 2\n", "format = -1\n", fmt.Sprintf("reads up to format %d", ProviderFormat)},
 	} {
 		path := customHome(t, "cloud", strings.Replace(good, c.from, c.to, 1))
 		_, problems, err := ReadProviderFile(path)

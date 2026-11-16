@@ -3,6 +3,7 @@ package proto
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -105,6 +106,34 @@ type AutopilotNote struct {
 	Text      string `json:"text"`
 	Error     bool   `json:"error,omitempty"`
 	Merged    bool   `json:"merged,omitempty"`
+	// Kind is what the autopilot was doing (an Activity… word) and At
+	// when; both absent from an older server.
+	Kind string    `json:"kind,omitempty"`
+	At   time.Time `json:"at,omitempty"`
+}
+
+// What a note is about, for the activity feed to group and mark.
+const (
+	ActivityCI      = "ci"      // a failed CI run sent to the agent, or not
+	ActivityCheck   = "check"   // the project's own check
+	ActivityShip    = "ship"    // pushed, a pull request opened or marked ready
+	ActivityMerge   = "merge"   // merged, or held back from merging
+	ActivityResolve = "resolve" // a conflict with the base rebased or sent to the agent
+	ActivityIntake  = "intake"  // an issue taken as a task
+	ActivityTriage  = "triage"  // an issue read and labelled
+)
+
+// AutopilotActivityParams asks for what the autopilot did, newest first:
+// in one project, or everywhere when ProjectID is empty; Limit at most
+// (100 when 0).
+type AutopilotActivityParams struct {
+	ProjectID string `json:"project_id,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// AutopilotActivity is the autopilot's notes, newest first.
+type AutopilotActivity struct {
+	Notes []AutopilotNote `json:"notes"`
 }
 
 // A failure sent to an agent is bounded: enough of the end of the output

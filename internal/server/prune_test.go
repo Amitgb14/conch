@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -137,4 +138,118 @@ func sorted(s []string) []string {
 	s = append([]string(nil), s...)
 	sort.Strings(s)
 	return s
+}
+
+// TestBranchPruneMerged: branch.stale with Merged lists the branches the
+// base already has, whatever their age — merged by git, squashed in, or
+// merged on GitHub with the branch's commit — and nothing else: not the
+// base, not a branch merely pushed, not one with a commit since. One
+// checked out is listed with where, and is not suggested.
+func TestBranchPruneMerged(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "gh.log")
+	gh := filepath.Join(dir, "gh")
+	// viapr's pull request is merged on GitHub with the commit in .head.
+	os.WriteFile(gh, []byte(`#!/bin/sh
+if [ "$1 $2" = "pr list" ]; then
+  head=$(cat "`+log+`.head" 2>/dev/null)
+  if [ -n "$head" ]; then
+    printf '[{"number":7,"title":"t","state":"MERGED","url":"https://github.com/o/r/pull/7","headRefName":"viapr","headRefOid":"%s","updatedAt":"2026-09-12T10:00:00Z"}]' "$head"
+  else
+    echo '[]'
+  fi
+  exit 0
+fi
+exit 0
+`), 0o755)
+	t.Setenv("CONCH_GH", gh)
+	c, proj, repo, wt, _ := harvestFixture(t) // feat checked out in wt
+	id := proj.ID
+	commitOn := func(branch, file string) string {
+		t.Helper()
+		git(t, repo, "switch", "-q", "-c", branch, "main")
+		os.WriteFile(filepath.Join(repo, file), []byte(branch+"\n"), 0o644)
+		git(t, repo, "add", file)
+		git(t, repo, "commit", "-q", "-m", branch)
+		head := gitOut(t, repo, "rev-parse", "HEAD")
+		git(t, repo, "switch", "-q", "main")
+		return head
+	}
+	// merged: today, merged into main by git.
+	commitOn("merged", "m.txt")
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "merge merged", "merged")
+	// squashed: its change came into main as a commit of its own.
+	commitOn("squashed", "s.txt")
+	git(t, repo, "merge", "-q", "--squash", "squashed")
+	git(t, repo, "commit", "-q", "-m", "squash squashed")
+	// viapr: merged on GitHub; main here never got it.
+	os.WriteFile(log+".head", []byte(commitOn("viapr", "v.txt")), 0o644)
+	// pushed: on origin, merged nowhere. later: merged, then a commit more.
+	commitOn("pushed", "p.txt")
+	git(t, repo, "push", "-q", "origin", "pushed")
+	commitOn("later", "l.txt")
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "merge later", "later")
+	git(t, repo, "switch", "-q", "later")
+	os.WriteFile(filepath.Join(repo, "l2.txt"), []byte("more\n"), 0o644)
+	git(t, repo, "add", "l2.txt")
+	git(t, repo, "commit", "-q", "-m", "after the merge")
+	git(t, repo, "switch", "-q", "main")
+	// feat, checked out in its worktree, merged too.
+	git(t, repo, "merge", "-q", "--no-ff", "-m", "merge feat", "feat")
+
+	// Wait for the server to have read viapr's pull request.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var list proto.ProjectList
+		_ = call(t, c, proto.MethodProjectRefresh, proto.ProjectRef{ID: id}, nil)
+		if err := call(t, c, proto.MethodProjectList, nil, &list); err == nil && slices.ContainsFunc(list.Projects, func(p proto.ProjectInfo) bool {
+			return p.ID == id && prState("viapr", "MERGED")(p)
+		}) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("viapr's pull request was never read")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	var got proto.BranchStale
+	if err := call(t, c, proto.MethodBranchStale, proto.BranchStaleParams{ProjectID: id, Merged: true}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Merged {
+		t.Fatal("the reply does not say it is the merged list")
+	}
+	by := map[string]proto.StaleBranch{}
+	var names []string
+	for _, b := range got.Branches {
+		by[b.Name] = b
+		names = append(names, b.Name)
+	}
+	if want := "feat,merged,squashed,viapr"; strings.Join(sorted(names), ",") != want {
+		t.Fatalf("merged branches %v, want %s", names, want)
+	}
+	for _, n := range []string{"merged", "squashed", "viapr"} {
+		if b := by[n]; !b.Merged || !b.Suggested || b.Unmerged != 0 {
+			t.Errorf("%s: %+v", n, b)
+		}
+	}
+	if b := by["feat"]; b.Worktree != wt || b.Suggested {
+		t.Errorf("feat: %+v", b)
+	}
+	// The stale list says merged for a pull request's merge too.
+	var stale proto.BranchStale
+	if err := call(t, c, proto.MethodBranchStale, proto.BranchStaleParams{ProjectID: id, Days: 1}, &stale); err != nil || stale.Merged {
+		t.Fatalf("%+v %v", stale, err)
+	}
+	var res proto.BranchPruneResult
+	if err := call(t, c, proto.MethodBranchPrune, proto.BranchPruneParams{ProjectID: id, Branches: []proto.PruneBranch{
+		{Name: "merged"}, {Name: "squashed"}, {Name: "viapr"},
+	}}, &res); err != nil || strings.Join(res.Deleted, ",") != "merged,squashed,viapr" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	left := strings.Join(sorted(strings.Fields(gitOut(t, repo, "branch", "--format=%(refname:short)"))), ",")
+	if left != "feat,later,main,pushed" {
+		t.Fatalf("branches left: %s", left)
+	}
 }

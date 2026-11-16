@@ -3,6 +3,8 @@ package gitx
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -180,5 +182,116 @@ func TestInProgress(t *testing.T) {
 	}
 	if got := RebasingBranch(ctx, "/no/such/dir/for/conch"); got != "" {
 		t.Fatalf("missing dir: %q", got)
+	}
+}
+
+// stuckRebase leaves the checkout at dir mid-rebase onto onto, stopped on
+// a conflict, with the extra arguments given to git rebase.
+func stuckRebase(t *testing.T, dir, onto string, args ...string) {
+	t.Helper()
+	argv := append(append([]string{"rebase"}, args...), onto)
+	if _, code, _, _ := RunUser(ctx, dir, argv, 1<<16); code == 0 {
+		t.Fatalf("git %v didn't conflict", argv)
+	}
+}
+
+func TestOperation(t *testing.T) {
+	t.Run("linked worktree, each backend", func(t *testing.T) {
+		for _, args := range [][]string{nil, {"-i"}, {"--apply"}} {
+			root, wt := taskRepo(t)
+			commit(t, root, "README.md", "hello\nfrom main\n", "main edit")
+			commit(t, wt, "README.md", "hello\nfrom feat\n", "feat edit")
+			if len(args) > 0 && args[0] == "-i" {
+				t.Setenv("GIT_SEQUENCE_EDITOR", "true") // take the todo list as it is
+			}
+			stuckRebase(t, wt, "main", args...)
+			if op, b := Operation(ctx, wt); op != "rebase" || b != "feat" {
+				t.Fatalf("rebase %v: %q %q", args, op, b)
+			}
+			// The main checkout is not the one rebasing.
+			if op, b := Operation(ctx, root); op != "" || b != "" {
+				t.Fatalf("main checkout during rebase %v: %q %q", args, op, b)
+			}
+			git(t, wt, "rebase", "--abort")
+			if op, b := Operation(ctx, wt); op != "" || b != "" {
+				t.Fatalf("after aborting %v: %q %q", args, op, b)
+			}
+		}
+	})
+
+	t.Run("main checkout", func(t *testing.T) {
+		root := newRepo(t)
+		git(t, root, "checkout", "-q", "-b", "side")
+		commit(t, root, "README.md", "hello\nfrom side\n", "side edit")
+		git(t, root, "checkout", "-q", "main")
+		commit(t, root, "README.md", "hello\nfrom main\n", "main edit")
+		stuckRebase(t, root, "side")
+		if op, b := Operation(ctx, root); op != "rebase" || b != "main" {
+			t.Fatalf("main checkout rebasing: %q %q", op, b)
+		}
+	})
+
+	t.Run("detached HEAD rebased", func(t *testing.T) {
+		root, wt := taskRepo(t)
+		commit(t, root, "README.md", "hello\nfrom main\n", "main edit")
+		commit(t, wt, "README.md", "hello\nfrom feat\n", "feat edit")
+		git(t, wt, "checkout", "-q", "--detach")
+		stuckRebase(t, wt, "main")
+		// git writes "detached HEAD" where a branch would be: no branch.
+		if op, b := Operation(ctx, wt); op != "rebase" || b != "" {
+			t.Fatalf("detached rebase: %q %q", op, b)
+		}
+	})
+
+	t.Run("head-name missing or empty", func(t *testing.T) {
+		root, wt := taskRepo(t)
+		commit(t, root, "README.md", "hello\nfrom main\n", "main edit")
+		commit(t, wt, "README.md", "hello\nfrom feat\n", "feat edit")
+		stuckRebase(t, wt, "main")
+		gd := git(t, wt, "rev-parse", "--absolute-git-dir")
+		name := filepath.Join(gd, "rebase-merge", "head-name")
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if op, b := Operation(ctx, wt); op != "rebase" || b != "" {
+			t.Fatalf("empty head-name: %q %q", op, b)
+		}
+		if err := os.Remove(name); err != nil {
+			t.Fatal(err)
+		}
+		if op, b := Operation(ctx, wt); op != "rebase" || b != "" {
+			t.Fatalf("no head-name: %q %q", op, b)
+		}
+	})
+
+	t.Run("am is not a rebase", func(t *testing.T) {
+		root, wt := taskRepo(t)
+		commit(t, root, "README.md", "hello\nfrom main\n", "main edit")
+		patch := filepath.Join(t.TempDir(), "p.patch")
+		write(t, filepath.Dir(patch), "p.patch", git(t, root, "format-patch", "-1", "--stdout")+"\n")
+		commit(t, wt, "README.md", "hello\nfrom feat\n", "feat edit")
+		if _, code, _, _ := RunUser(ctx, wt, []string{"am", patch}, 1<<16); code == 0 {
+			t.Fatal("am didn't conflict")
+		}
+		if op, b := Operation(ctx, wt); op != "am" || b != "" {
+			t.Fatalf("am: %q %q", op, b)
+		}
+	})
+
+	t.Run("not a repository", func(t *testing.T) {
+		if op, b := Operation(ctx, t.TempDir()); op != "" || b != "" {
+			t.Fatalf("plain folder: %q %q", op, b)
+		}
+	})
+}
+
+func TestOperationWord(t *testing.T) {
+	for op, want := range map[string]string{
+		"rebase": "rebasing", "merge": "merging", "cherry-pick": "cherry-picking",
+		"revert": "reverting", "am": "applying patches", "bisect": "bisect", "": "",
+	} {
+		if got := OperationWord(op); got != want {
+			t.Errorf("%q: %q, want %q", op, got, want)
+		}
 	}
 }

@@ -223,6 +223,8 @@ func (s *Server) intakeProject(id, label string, wip int) {
 			rec.Item = it.ID
 			room--
 			log.Printf("intake: took #%d %q of %s (label %s)", is.Number, is.Title, info.Name, label)
+			s.autopilotNote(proto.AutopilotNote{ProjectID: id, Kind: proto.ActivityIntake,
+				Text: fmt.Sprintf("took #%d %s as a queued task (label %s)", is.Number, is.Title, label)})
 			msg := fmt.Sprintf("conch took this from the `%s` label: it is queued as a task, and starts once fewer than %d agents are busy in the project. Its pull request will say Fixes #%d.", label, wip, is.Number)
 			if err := ghx.CommentIssue(ctx, p.root, is.Number, msg); err != nil {
 				log.Printf("intake: comment on #%d: %v", is.Number, err)

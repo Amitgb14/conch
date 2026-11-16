@@ -713,13 +713,31 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		return s.skillMachineItems(m, id)
 	}
 	items := []settingItem{{header: true, label: "Default agent", detail: "pre-selected when c asks which agent"}}
+	// This computer's own list says which are missing; an agent it did not
+	// report on (another machine's, or none known yet) is offered no install.
+	var here map[string]proto.AgentAvailability
+	if mach := m.machine(localMachine); mach != nil {
+		here = mach.available
+	}
 	for _, name := range knownAgents(m) {
 		name := name
-		items = append(items, settingItem{label: agentLabel(name), mark: m.defaultAgent() == name,
+		a, known := here[name]
+		missing := known && !a.Installed
+		item := settingItem{label: agentLabel(name), mark: m.defaultAgent() == name,
 			run: func(m *Model) tea.Cmd {
 				m.cfg.Agents.Default = name
-				return m.saveConfig()
-			}})
+				if !missing {
+					return m.saveConfig()
+				}
+				// A default that cannot start is no default: install it
+				// too, and put the settings away so its pane shows.
+				m.overlay = nil
+				return tea.Batch(m.saveConfig(), m.installAgent(localMachine, name))
+			}}
+		if missing {
+			item.detail = styleWarn.Render("not installed · enter installs it")
+		}
+		items = append(items, item)
 	}
 	// What happens when an agent finishes: a second agent reading the work,
 	// and a failed check sent back. Both spend plan usage, so both are off

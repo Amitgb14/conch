@@ -88,7 +88,7 @@ func New(exe, dir string) (Registry, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := Registry{claude, newCodex(), gemini, opencode, newDevin(), newCopilot(), newCline(), newQwen(), newGoose()}
+	r := Registry{claude, newCodex(exe), gemini, opencode, newDevin(), newCopilot(), newCline(), newQwen(), newGoose()}
 	// Agents described by a manifest come after the supported ones, in the
 	// order their files sort. A manifest that cannot be read is reported
 	// and skipped: one bad file must not cost the agents around it.
@@ -268,6 +268,12 @@ func (a *cliAgent) Command(shell, args string) []string {
 
 var versionRe = regexp.MustCompile(`\d+\.\d+(\.\d+)?[0-9A-Za-z.+-]*`)
 
+// versionOf finds the version in a --version line, without the full stop
+// or dash of the sentence it ends ("GitHub Copilot CLI 1.0.112.").
+func versionOf(line string) string {
+	return strings.TrimRight(versionRe.FindString(line), ".+-")
+}
+
 // Detect implements Adapter.
 func (a *cliAgent) Detect(ctx context.Context, shell string) Availability {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -282,7 +288,7 @@ func (a *cliAgent) Detect(ctx context.Context, shell string) Availability {
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	av := Availability{Installed: true, Path: strings.TrimSpace(lines[0])}
 	if len(lines) > 1 {
-		av.Version = versionRe.FindString(lines[len(lines)-1])
+		av.Version = versionOf(lines[len(lines)-1])
 	}
 	return av
 }
@@ -369,12 +375,14 @@ echo "Start it from conch and log in: open the link it shows on any computer and
 
 // ---- Codex ----
 
-// newCodex launches OpenAI's Codex CLI. Its per-launch hooks need a trust
-// bypass and its notify setting would replace the user's own, so conch
-// injects nothing and reads the terminal title and screen instead.
-func newCodex() *cliAgent {
+// newCodex launches OpenAI's Codex CLI with conch's hooks given for that
+// launch alone (codexHooksFlag), which Codex adds to the person's own.
+// Where Codex runs no hooks — an older one, or hooks turned off — conch
+// reads the terminal title and screen, as it always has.
+func newCodex(exe string) *cliAgent {
 	return &cliAgent{
 		name: "codex", label: "Codex", binary: "codex",
+		flags:  codexHooksFlag(exe),
 		resume: "resume %s", resumeLast: "resume --last",
 		dirs: []string{"$HOME/.local/bin"},
 		install: withDownloader("Codex", "https://chatgpt.com/codex/install.sh", "sh", "CODEX_NON_INTERACTIVE=1") + `

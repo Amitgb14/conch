@@ -76,4 +76,18 @@ import Testing
         #expect(mixed.detail.hasPrefix("w, x have 3 commits"))
         #expect(OldBranches.confirm([StaleBranch(name: "w", unmerged: 1)]).detail.hasPrefix("w has a commit"))
     }
+
+    @Test func mergedIsItsOwnQuestion() throws {
+        let merged = OldBranches.Which.merged, old = OldBranches.Which.old
+        #expect(old.capabilities == ["branch.prune.v1"])
+        #expect(merged.capabilities == ["branch.prune.v1", "branch.prune.merged.v1"])
+        #expect(old.intro(days: 45).contains("45 days") && merged.intro(days: 45).contains("however recent"))
+        #expect(old.none(days: 30) == "No branch older than 30 days." && merged.none(days: 30) == "No merged branches.")
+        // An older server's answer to "merged" is its old branches: refused.
+        let json = #"{"days":30,"branches":[{"name":"x","suggested":true}]}"#
+        let f = try JSONDecoder().decode(BranchStale.self, from: Data(json.utf8))
+        #expect(f.merged == nil && !merged.answered(f) && old.answered(f))
+        let m = try JSONDecoder().decode(BranchStale.self, from: Data(#"{"days":30,"merged":true,"branches":[]}"#.utf8))
+        #expect(merged.answered(m))
+    }
 }

@@ -263,6 +263,13 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
+		{ID: "preview", Key: "preview", Title: "Mobile preview", Icon: "tablet-smartphone", Description: "The phone simulators Conch.app's Mobile Preview and conch preview show your app on.",
+			Fields: []Field{
+				{Key: "xcode", Label: "Xcode", Kind: KindString, Placeholder: "found by itself: /Applications/Xcode.app",
+					Help: "Where the iPhone and iPad simulators come from: Xcode.app, or its Contents/Developer folder. Empty finds Xcode in Applications, even when xcode-select points at the Command Line Tools, which have no simulators."},
+				{Key: "android_sdk", Label: "Android SDK", Kind: KindString, Placeholder: "found by itself: ~/Library/Android/sdk",
+					Help: "For conch preview's Android emulators and phones. Empty looks in ANDROID_HOME and where Android Studio installs it."},
+			}},
 		cloudSection(c.Cloud),
 		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{
@@ -346,6 +353,15 @@ func Schema(c Choices) []Section {
 					{Key: "run", Label: "Command", Kind: KindText, Placeholder: "go test ./...", Help: "Whatever sh -lc takes. CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE are set."},
 					{Key: "on", Label: "Offered on", Kind: KindList, Options: opts(config.ActionPlaces...), Help: "None is every kind of row."},
 					{Key: "keep", Label: "Keep the terminal open after", Kind: KindBool, Default: true},
+				}},
+			}},
+		{ID: "teams", Key: "", Title: "Teams", Icon: "users", Description: "Group agents by what they work on. A new agent joins the first team whose project or branch matches; one put in a team by hand stays there.",
+			Fields: []Field{
+				{Key: "teams", Label: "Teams", Kind: KindTables, Fields: []Field{
+					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "Backend"},
+					{Key: "color", Label: "Colour", Kind: KindSelect, Options: append([]Option{{Value: "", Label: "By its place"}}, opts(config.TeamColors...)...)},
+					{Key: "projects", Label: "Projects", Kind: KindList, Help: "Project names whose agents join it."},
+					{Key: "branches", Label: "Branches", Kind: KindList, Help: "Branch patterns, * for anything: ui/*, *-redesign."},
 				}},
 			}},
 		{ID: "permissions", Key: "", Title: "Permission rules", Icon: "lock", Description: "Answer an agent's tool requests by rule; the first that matches decides.",
