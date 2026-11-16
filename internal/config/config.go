@@ -298,6 +298,22 @@ type RegistryCfg struct {
 // none: every field's zero means "the provider's own default".
 func (c SandboxCfg) Of(name string) ProviderCfg { return c[name] }
 
+// RegionOr is the region new sandboxes go to: region, else the older target.
+func (p ProviderCfg) RegionOr() string {
+	if p.Region != "" {
+		return p.Region
+	}
+	return p.Target
+}
+
+// ImageOr is what new sandboxes start from: image, else the older snapshot.
+func (p ProviderCfg) ImageOr() string {
+	if p.Image != "" {
+		return p.Image
+	}
+	return p.Snapshot
+}
+
 // Set stores a provider's configuration, making the map if it is nil.
 func (c *SandboxCfg) Set(name string, p ProviderCfg) {
 	if *c == nil {
@@ -329,7 +345,22 @@ type ProviderCfg struct {
 	// Target is the region, e.g. "us" or "eu"; "" is the account default.
 	Target string `toml:"target,omitempty"`
 	// Snapshot (image) new sandboxes start from; "" is the provider's own.
+	// Read as Image by a provider file; Image wins when both are set.
 	Snapshot string `toml:"snapshot,omitempty"`
+	// Region, Image and Size are what a provider file declares can be
+	// chosen ([[setting]] region and image, [size]); "" is the account's
+	// or the provider's default. Region and Image take the place of Target
+	// and Snapshot, which older config files still say and which are read
+	// when these are empty (RegionOr, ImageOr).
+	Region string `toml:"region,omitempty"`
+	Image  string `toml:"image,omitempty"`
+	// Size is a named size, for a provider whose machines come in them.
+	Size string `toml:"size,omitempty"`
+	// CPU, Memory and Disk are the default size in vCPUs and GiB, for a
+	// provider whose file gives limits instead of names; 0 is its default.
+	CPU    int `toml:"cpu,omitempty"`
+	Memory int `toml:"memory,omitempty"`
+	Disk   int `toml:"disk,omitempty"`
 	// AutoStop is the provider's own idle timer, in minutes; 0 (the
 	// default) turns it off. Providers count only what reaches them from
 	// outside — an ssh connection, an API call — so an agent working
