@@ -112,7 +112,7 @@ public enum ProjectIntegrations {
         }
     }
 
-    /// What ticking "Save in .conch/integrations.toml for the team" writes:
+    /// What ticking "Save in .conch/integrations.toml for the Team" writes:
     /// the names of what the project uses that something here reads, and
     /// whatever the repository's file already lists, which saving must not
     /// drop — a name, never a key. Sandboxes are this computer's, not the

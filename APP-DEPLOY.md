@@ -210,7 +210,7 @@ drives a fake Vercel through the registry's own file.
 ## Anything left
 
 - **Not run against the real Vercel or Netlify APIs.** No keys were
-  available, and tests must not reach the network. Row 9.203 in
+  available, and tests must not reach the network. Row 9.205 in
   docs/testing/end-to-end.md is the live run. DEPLOY-STATUS.md lists the
   endpoints to confirm.
 - **Not opened and clicked in a running Conch.app.** The views compile,

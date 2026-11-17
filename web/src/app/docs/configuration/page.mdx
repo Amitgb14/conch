@@ -297,7 +297,7 @@ Colours are `#rrggbb`. A file that does not read, a colour written any other way
 
 ## Scenes of your own
 
-Conch.app draws a scene of your own behind its window the way it draws its own: a file in `~/.config/conch/scenes/`, named for the scene (`bay.toml` is `background = "bay"`). The file only describes a scene — colours, a picture, which pieces move — and runs nothing, so a scene somebody hands you can do nothing but look like something. It is offered after the built-in scenes in **Settings → Mac app → Background**, which also has **Open Scenes Folder**.
+Conch.app draws a scene of your own behind its window the way it draws its own: a file in `~/.config/conch/scenes/`, named for the scene (`bay.toml` is `background = "bay"`). The file only describes a scene — colours, a picture, which pieces move — and runs nothing, so a scene somebody hands you can do nothing but look like something. It is offered after the built-in scenes in **Settings → Mac App → Background**, which also has **Open Scenes Folder**.
 
 ```toml
 # ~/.config/conch/scenes/bay.toml
@@ -328,14 +328,14 @@ The phone gateway, [`conch web`](/docs/phone). Set from **Settings → Web** in 
 
 ## `[app]`
 
-How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac app**, or the settings page. The TUI keeps its own tab bar and colours.
+How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac App**, or the settings page. The TUI keeps its own tab bar and colours.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `tabs` | `""` | where the tabs go: `""` above the panes, `"left"` in the sidebar above the tree, grouped under each machine, `"right"` in a column of their own |
 | `density` | `""` | `"compact"`: a pane's header shrinks, the gaps between splits close up and the toolbar is shorter |
 | `sidebar` | `""` | `"glass"`: the desktop shows through the sidebar, as Finder's does. Panes stay solid |
-| `background` | `""` | a scene drawn behind the window: `"reef"`, `"pines"`, `"lagoon"`, `"stars"`, `"board"` (a split-flap departure board of the window's agents) or [one of your own](#scenes-of-your-own), by day under a light theme and by night under a dark one. The toolbar, sidebar, tabs and status bar are frosted over it. Chosen in **Settings → Mac app → Background** |
+| `background` | `""` | a scene drawn behind the window: `"reef"`, `"pines"`, `"lagoon"`, `"stars"`, `"board"` (a split-flap departure board of the window's agents) or [one of your own](#scenes-of-your-own), by day under a light theme and by night under a dark one. The toolbar, sidebar, tabs and status bar are frosted over it. Chosen in **Settings → Mac App → Background** |
 | `background_through` | `0` | how much of the scene shows through a pane, in percent, 0 to 60; `0` keeps terminals solid |
 | `background_frost` | `""` | how much of the frame's own colour is laid over the scene: `"off"`, `""` light, `"strong"` |
 | `background_motion` | `""` | `"still"` draws the scene without moving it. It is still anyway under macOS's Reduce Motion, in Low Power Mode, and while the app is hidden |
@@ -381,7 +381,7 @@ conch never moves or comments on a ticket by itself: `conch ticket` does, when y
 
 ## `[preview]`
 
-Where the phones of a mobile preview come from — Conch.app's [Mobile Preview](/docs/mobile-preview) and [`conch preview`](/docs/cli#preview). **Settings → Mobile preview**, or the settings page.
+Where the phones of a mobile preview come from — Conch.app's [Mobile Preview](/docs/mobile-preview) and [`conch preview`](/docs/cli#preview). **Settings → Mobile Preview**, or the settings page.
 
 | Key | Default | Meaning |
 | --- | --- | --- |

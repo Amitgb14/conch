@@ -67,6 +67,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch server` | run the server in the foreground |
 | `conch server stop` | stop the server and every pane it owns |
 | `conch server reload [-binary PATH]` | run a new conch build without stopping panes; `-binary` picks the program to reload into (default: the server's own executable path) |
+| `conch server heap [-json]` | the server's memory now, and its heap profile and goroutines written to `debug/` in conch's folder (yours alone; the newest ten kept) without stopping anything. Two taken apart, `go tool pprof -top -sample_index=inuse_space -base OLDER NEWER` shows what holds what was added |
 
 ### Panes
 
@@ -299,7 +300,7 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox adapt -revise TEXT NAME` | send TEXT to the agent that wrote NAME's draft, and check the draft again |
 | `conch sandbox provider check [-offline] [-json] NAME\|FILE` | what is wrong with a provider file, and (without `-offline`) whether the provider's list answers your key; exits 1 when the file is wrong |
 | `conch sandbox provider show\|save\|rm NAME` | print a provider file; make a draft a provider; forget one (refused while a machine here is one of its sandboxes, which are never touched) |
-| `conch sandbox provider search [-json] [TERM]` | the [provider registry](/docs/sandboxes#the-provider-registry): providers others adapted and published, whether each was checked live, and what you have of it |
+| `conch sandbox provider search [-json] [TERM]` | the [provider registry](/docs/sandboxes#the-provider-registry): providers others adapted and published, what each can do beyond the usual (snapshots, preview links, usage), whether each was checked live, and what you have of it; one listed with no ssh yet is marked so and cannot be installed |
 | `conch sandbox provider install [-y] [NAME]` | install one from the registry: says where your API key and ssh go and asks (`-y` doesn't), checks the file's hash, then lists your sandboxes with the key if it is set. No NAME lists them and asks which |
 | `conch sandbox provider update [-y] [NAME]` | take the registry's newer version of what you installed; a file edited here is left alone, and new hosts, or a new variable or header for the key, are taken only when you say yes (never with `-y`) |
 | `conch sandbox provider publish [-dry-run] [-json] NAME` | check one of yours with your key, then propose it to the registry as a pull request through `gh` (your fork, or the repository itself if you can push); your key is never part of it |
@@ -325,8 +326,8 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 
 | Command | Description |
 | --- | --- |
-| `conch integration search [-json] [KIND\|WORDS]` | what the [registries](/docs/integrations#registries) list: each integration's kind, whether a maintainer has run it live, and the hosts it reaches. An index that is not signed says so |
-| `conch integration info [-json] NAME` | what it does in conch, the hosts your key goes to (and the ones it reads without it), how to make its key, who wrote it |
+| `conch integration search [-json] [KIND\|WORDS]` | what the [registries](/docs/integrations#registries) list: each integration's kind, whether a maintainer has run it live, the hosts it reaches and what it can do. An index that is not signed says so, and a sandbox provider with no ssh yet is marked |
+| `conch integration info [-json] NAME` | what it can do and what you supply, what it does in conch, the hosts your key goes to (and the ones it reads without it), how to make its key, who wrote it |
 | `conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME` | say the hosts and the key's variable and ask (`-y` doesn't), check the file's hash and that it reaches nothing else, then ask for the key without echoing it (`-key-stdin` reads it) and keep it in the Keychain on a Mac — elsewhere it says the variable to set; then one read-only call against this project's branch. A revoked version is refused |
 | `conch integration key [-stdin] [-base URL] [-cwd DIR] NAME` | give an integration — shipped or installed — its key: without echo (`-stdin` reads it), kept in the Keychain on a Mac, then checked against this project; `-base` keeps the address of a service you run yourself (`[integrations.base]`) |
 | `conch integration ls [-json] [-cwd DIR]` | every integration here: built in (GitHub, GitHub Actions, GitHub Issues, Linear, Jira), shipped with conch, installed or of your own, its version, its key's state and whether the project in `DIR` uses it; a file that is not used says why (revoked, a problem in it) |
@@ -505,6 +506,18 @@ conch works; 2 things worth a look.
 **It asks the terminal what it can do.** `TERM` is set by whatever started your shell and is wrong often enough to be worth checking against the terminal itself — a Ghostty whose terminfo was never installed still says it is Ghostty while `TERM` says plain xterm, and then nothing describes its keys and colours. So the command sends the terminal a few questions (`DECRQM` for the modes conch turns on, `XTVERSION` for its name, device attributes last) and reads the replies, which is the one thing it writes anywhere. It does that only when run in a terminal, never when output is redirected, and it waits 300ms at most for a terminal that will not answer. Anything the terminal says nothing about is left unsaid rather than reported as missing: a terminal that does not answer mode queries is not a terminal without the modes. Run in a conch pane it says so, because the terminal answering there is conch's own emulator and not the window you are looking at. **The TUI never asks** — a reply would land on its own input as keystrokes — so the page under `,` → **Check conch…** shows everything except what only a question can find.
 
 It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there. The TUI runs the same checks a moment after it starts and shows what they find on this computer's page; `,` → **Check conch…** lists them there and checks again.
+
+### import
+
+```sh
+conch import conductor        # Conductor's conversations, each as a document an agent can carry on from
+conch import conductor -n     # say what it would write, and write nothing
+conch import conductor -json  # what was written, for a script
+```
+
+Conductor kept its conversations in a database of its own (`~/Library/Application Support/com.conductor.app/conductor.db`), not where Claude Code and Codex keep theirs, so [Sessions](/docs/sessions) cannot list them. This reads them from there — from a copy, so a Conductor that is still open is neither locked nor written to — and writes each one that has anything said in it as a handoff document: the prompts and the agent's answers, without tool calls, command output or thinking, under `imports/conductor/REPO/` in conch's folder (`-out DIR` for another; `-db PATH` for a database somewhere else). Importing again replaces the same files. It needs the `sqlite3` command, which macOS has.
+
+It ends with the command that carries the latest one on: an agent started where the conversation ran — its workspace, or the repository when the workspace is gone — and told to read the file. See [Moving from Conductor](/docs/from-conductor).
 
 ### keys
 

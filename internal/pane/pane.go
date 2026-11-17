@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -152,6 +153,7 @@ func Start(opts Options) (*Pane, error) {
 	if err != nil {
 		return nil, err
 	}
+	ptmx = LowFD(ptmx)
 	p.cmd, p.proc, p.ptmx = cmd, cmd.Process, ptmx
 	p.startIO()
 	go p.wait()
@@ -221,6 +223,32 @@ const fdSetSize = 1024
 // ErrFDTooHigh is returned for a descriptor select cannot wait on.
 var ErrFDTooHigh = errors.New("file descriptor is above select's limit")
 
+// LowFD moves f to the lowest free descriptor when it landed at or past
+// fdSetSize, where select cannot wait on it: the read loop gives up at
+// once and the pane looks alive while nothing it prints is ever shown —
+// a Claude that answered for minutes into a blank pane (2026-11-16, with
+// FSEvents holding ~900 descriptors). The table is often only full while
+// something holds it, and a reloaded server takes its panes before it
+// watches anything, so moving the descriptor down rescues the pane. f is
+// closed when it is moved; when nothing lower is free it is returned as
+// it was.
+func LowFD(f *os.File) *os.File {
+	if f == nil || int(f.Fd()) < fdSetSize {
+		return f
+	}
+	nfd, err := unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 3)
+	if err != nil {
+		return f
+	}
+	if nfd >= fdSetSize {
+		unix.Close(nfd)
+		return f
+	}
+	low := os.NewFile(uintptr(nfd), f.Name())
+	f.Close()
+	return low
+}
+
 // readable waits up to timeout for fd to have input (or be closed). It uses
 // select, not poll: macOS's poll doesn't support terminal devices.
 func readable(fd int, timeout time.Duration) (bool, error) {
@@ -255,6 +283,9 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 		default:
 		}
 		if ready, err := readable(fd, 100*time.Millisecond); err != nil {
+			// Said, because nothing else would: the program keeps running
+			// and the pane simply never shows another byte.
+			log.Printf("pane %s: stopped reading its terminal: %v", p.id, err)
 			return
 		} else if !ready {
 			continue

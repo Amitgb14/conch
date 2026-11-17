@@ -644,7 +644,7 @@ struct SectionForm: View {
                 card(nil, fields)
                 RelayCard(store: model.store)
                 SettingsCard(title: "Paired phones", trailing: AnyView(
-                    Button("Pair a phone…") { model.store.openPair() }.controlSize(.small))) {
+                    Button("Pair a Phone…") { model.store.openPair() }.controlSize(.small))) {
                     PhonesList(store: model.store).padding(12)
                 }
             case "cloud":

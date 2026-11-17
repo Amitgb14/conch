@@ -390,7 +390,7 @@ struct LibraryPanel: View {
                 Text("Ticking writes to no agent. Apply shows every write first.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
             }
             Spacer()
-            Button("Put the last one back…") { model.undo() }.buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            Button("Put the Last One Back…") { model.undo() }.buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.text2)
                 .disabled(model.busy || (model.result?.undos ?? []).isEmpty)
             Button { model.apply() } label: {
                 HStack(spacing: 6) {

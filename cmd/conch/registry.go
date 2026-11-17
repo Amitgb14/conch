@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/Amitgb14/conch/internal/ghx"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sandbox"
 )
@@ -59,8 +60,12 @@ func liveCheck(e sandbox.RegistryEntry) string {
 type searchJSON struct {
 	sandbox.RegistryEntry
 	Here string `json:"here,omitempty"`
-	// Usable is false for a file newer than this conch reads.
+	// Usable is false for a file newer than this conch reads, or one the
+	// registry lists as disabled.
 	Usable bool `json:"usable"`
+	// Off is a provider the registry cannot offer yet: it has no ssh, so
+	// conch could make its sandboxes and never reach them.
+	Off bool `json:"off,omitempty"`
 }
 
 func providerSearch(args []string) error {
@@ -79,32 +84,57 @@ func providerSearch(args []string) error {
 	if err != nil {
 		return err
 	}
-	found := ix.Search(strings.Join(fs.Args(), " "))
+	term := strings.Join(fs.Args(), " ")
+	found, off := ix.Search(term), ix.SearchDisabled(term)
 	if *asJSON {
 		out := []searchJSON{}
 		for _, e := range found {
-			out = append(out, searchJSON{e, here(e.Name, inst), e.Format <= sandbox.ProviderFormat})
+			out = append(out, searchJSON{e, here(e.Name, inst), e.Format <= sandbox.ProviderFormat, false})
+		}
+		for _, e := range off {
+			out = append(out, searchJSON{RegistryEntry: e, Here: here(e.Name, inst), Off: true})
 		}
 		b, _ := json.Marshal(out)
 		fmt.Println(string(b))
 		return nil
 	}
-	if len(found) == 0 {
+	if len(found)+len(off) == 0 {
 		fmt.Println("no provider in the registry matches; adapt one with conch sandbox adapt URL")
 		return nil
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tPROVIDER\tAPI\tLIVE CHECK\tHERE")
+	fmt.Fprintln(tw, "NAME\tPROVIDER\tAPI\tCAN\tLIVE CHECK\tHERE")
+	row := func(e sandbox.RegistryEntry, h string) {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, e.Label, e.APIHost, firstNonEmptyStr(extraOps(e.Capabilities), "-"), liveCheck(e), h)
+	}
 	for _, e := range found {
 		h := here(e.Name, inst)
 		if e.Format > sandbox.ProviderFormat {
 			h = strings.TrimPrefix(h+"; ", "; ") + "needs a newer conch"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", e.Name, e.Label, e.APIHost, liveCheck(e), h)
+		row(e, h)
+	}
+	for _, e := range off {
+		row(e, strings.TrimPrefix(here(e.Name, inst)+"; ", "; ")+"no ssh yet")
 	}
 	tw.Flush()
 	fmt.Println("\ninstall one with: conch sandbox provider install NAME")
 	return nil
+}
+
+// extraOps is what a provider does beyond making, starting, stopping and
+// deleting sandboxes, which every one does: "snapshots, preview links".
+func extraOps(c *integration.Capabilities) string {
+	if c == nil {
+		return ""
+	}
+	var more []string
+	for _, op := range []struct{ op, words string }{{"snapshot_save", "snapshots"}, {"preview", "preview links"}, {"usage", "usage"}} {
+		if c.Can(op.op) {
+			more = append(more, op.words)
+		}
+	}
+	return strings.Join(more, ", ")
 }
 
 // describeEntry says what installing e means, before anything is saved.
@@ -112,6 +142,13 @@ func describeEntry(w io.Writer, e sandbox.RegistryEntry) {
 	fmt.Fprintf(w, "%s (%s), adapted by %s on %s from %s\n", e.Label, e.Name, e.AdaptedBy, e.Adapted, e.Docs)
 	fmt.Fprintf(w, "  your API key ($%s) goes to   %s\n", e.KeyEnv, e.APIHost)
 	fmt.Fprintf(w, "  ssh goes to                  %s\n", sshHostWords(e.SSHHost))
+	if c := e.Capabilities; c != nil {
+		fmt.Fprintf(w, "  it can                       %s\n", c.OperationWords(integration.KindSandbox))
+		fmt.Fprintf(w, "  ssh gets in with             %s\n", c.SSHWords(integration.KindSandbox))
+		if n := c.NeedsWords(); n != "" {
+			fmt.Fprintf(w, "  you supply                   %s\n", n)
+		}
+	}
 	fmt.Fprintf(w, "  live check                   %s\n", liveCheck(e))
 	if e.Note != "" {
 		fmt.Fprintf(w, "\n%s\n", e.Note)
@@ -177,6 +214,9 @@ func providerInstall(args []string) error {
 	}
 	e, ok := ix.Find(name)
 	if !ok {
+		if off, ok := ix.FindDisabled(name); ok {
+			return fmt.Errorf("%s is in the registry but cannot be installed yet: its file has no ssh, so conch could make its sandboxes and never reach them", off.Label)
+		}
 		return fmt.Errorf("the registry has no provider %s: conch sandbox provider search lists them, and conch sandbox adapt URL makes one", name)
 	}
 	return installEntry(ctx, e, *yes)
@@ -224,7 +264,7 @@ func installEntry(ctx context.Context, e sandbox.RegistryEntry, yes bool) error 
 			return fmt.Errorf("%s's file reads your key from $%s, not the $%s the index lists: not installed", e.Name, f.KeyEnv, e.KeyEnv)
 		}
 	}
-	f, err := sandbox.InstallProviderFile(e.Name, data)
+	f, err := sandbox.InstallRegistryFile(e.Name, data, e.Capabilities)
 	if err != nil {
 		return err
 	}
@@ -298,6 +338,12 @@ func updateOne(ctx context.Context, ix *sandbox.Index, n string, in sandbox.Inst
 		return "no longer in the registry; kept as it is", nil
 	}
 	if e.SHA256 == in.SHA256 {
+		// Installed before the registry said what it can do: it says now.
+		if in.Capabilities == nil && e.Capabilities != nil {
+			if err := sandbox.KeepCapabilities(n, e.Capabilities); err != nil {
+				return "", err
+			}
+		}
 		return "up to date", nil
 	}
 	edited, err := sandbox.EditedSinceInstall(n, in)
@@ -351,7 +397,7 @@ func updateOne(ctx context.Context, ix *sandbox.Index, n string, in sandbox.Inst
 			return what + ": left as it is (run conch sandbox provider update " + n + " to see them and say yes)", nil
 		}
 	}
-	if _, err := sandbox.InstallProviderFile(n, data); err != nil {
+	if _, err := sandbox.InstallRegistryFile(n, data, e.Capabilities); err != nil {
 		return "", err
 	}
 	return "updated", nil

@@ -465,6 +465,7 @@ var slowMethods = map[string]bool{
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
 	proto.MethodSystemStats: true, // ps, vm_stat
+	proto.MethodServerHeap:  true, // a garbage collection and two files
 	proto.MethodFSSearch:    true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
@@ -1276,6 +1277,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
 		}
 		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
+
+	case proto.MethodServerHeap:
+		h, err := s.heapSnapshot(filepath.Join(s.configDir, "debug"), time.Now())
+		if err != nil {
+			return nil, &proto.Error{Code: proto.ErrInternal, Message: err.Error()}
+		}
+		return h, nil
 
 	case proto.MethodSystemStats:
 		sp, perr := decode[proto.SystemStatsParams](msg)

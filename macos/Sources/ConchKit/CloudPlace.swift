@@ -58,7 +58,7 @@ public func projectPlaces(machines: [PlaceMachine], signedIn: Bool, cloudMachine
                                note: m.online ? "" : "offline", enabled: m.online))
     }
     guard offerCloud else { return out }
-    let note = !signedIn ? "Sign in to use"
+    let note = !signedIn ? "Sign In to Use"
         : cloudMachines == 0 ? "a new machine"
         : cloudMachines == 1 ? "1 machine" : "\(cloudMachines) machines"
     out.append(PlaceOption(place: .cloud, title: "Conch Cloud", note: note, enabled: true))

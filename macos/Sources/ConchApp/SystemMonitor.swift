@@ -565,7 +565,7 @@ struct SystemMonitorView: View {
             }
             Spacer()
             if let pane = p.pane, !pane.isEmpty {
-                Button("Show pane") { store.showPaneOf(machine: machine, pane: pane) }
+                Button("Show Pane") { store.showPaneOf(machine: machine, pane: pane) }
                     .help("Open the pane this process runs in")
             }
         }

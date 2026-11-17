@@ -257,7 +257,7 @@ struct MobilePreviewView: View {
     private var icon: some View { LucideIcon("smartphone", color: Theme.accent, size: 13) }
 
     private var title: some View {
-        Text("Mobile preview").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
+        Text("Mobile Preview").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1).fixedSize()
     }
 
     @ViewBuilder private var kindLabel: some View {

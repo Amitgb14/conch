@@ -685,3 +685,99 @@ func TestSandboxKeyInTheKeychain(t *testing.T) {
 		t.Fatal("a key for nothing installed")
 	}
 }
+
+// search and info say what each integration can do, from the registry's
+// capabilities, and an entry it lists as disabled is shown, marked, and
+// not installed. Installed here, info says the installed file's.
+func TestIntegrationCapabilitiesSaid(t *testing.T) {
+	integrationEnv(t)
+	reg := serveRegistry(t)
+	sum := sha256.Sum256([]byte(testIntegration))
+	ci := integration.Entry{Kind: "ci", Name: "acme-ci", Label: "Acme CI", Version: 1, Format: 3, KeyEnv: "ACME_TOKEN",
+		File: "integrations/acme-ci.toml", SHA256: hex.EncodeToString(sum[:]), Hosts: acme,
+		Capabilities: &integration.Capabilities{Operations: []string{"runs", "failed_log", "future_op"}, Needs: []string{"key"}}}
+	off := integration.Entry{Kind: "sandbox", Name: "darkbox", Label: "Darkbox", Version: 1, Format: 3, KeyEnv: "DARK_KEY",
+		File: "sandbox/darkbox/provider.toml", Hosts: integration.Hosts{API: "api.dark.test"},
+		Capabilities: &integration.Capabilities{Operations: []string{"create", "get", "list", "start", "stop", "delete"}}}
+	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{ci}, Disabled: []integration.Entry{off}})
+	reg.mu.Lock()
+	reg.files["index.json"], reg.files[ci.File] = ix, []byte(testIntegration)
+	reg.mu.Unlock()
+
+	out, _, err := a4Out(t, func() error { return runIntegration([]string{"search"}) })
+	if err != nil || !strings.Contains(out, "runs, failed logs, future_op") || !strings.Contains(out, "Darkbox") || !strings.Contains(out, "no ssh yet") {
+		t.Fatalf("search: %q %v", out, err)
+	}
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"search", "-json", "dark"}) })
+	if !strings.Contains(out, `"off":true`) || !strings.Contains(out, `"capabilities":{"operations":["create"`) {
+		t.Fatalf("search -json: %s", out)
+	}
+
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "darkbox"}) })
+	if err != nil || !strings.Contains(out, "Not installable yet: no ssh yet") || !strings.Contains(out, "ssh: no ssh yet") {
+		t.Fatalf("info darkbox: %q %v", out, err)
+	}
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "darkbox"}) })
+	var info infoJSON
+	if json.Unmarshal([]byte(out), &info) != nil || !info.Off || info.Capabilities == nil {
+		t.Fatalf("info -json darkbox: %s", out)
+	}
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"install", "-y", "darkbox"}) }); err == nil || !strings.Contains(err.Error(), "cannot be installed yet") {
+		t.Fatalf("install darkbox: %v", err)
+	}
+
+	// Not installed: the registry's. Installed: kept, and still the
+	// registry's while the file is as it came.
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "acme-ci"}) })
+	if info = (infoJSON{}); json.Unmarshal([]byte(out), &info) != nil || !info.Capabilities.Can("future_op") || info.Off {
+		t.Fatalf("info -json acme-ci: %s", out)
+	}
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "acme-ci"}) })
+	if err != nil || !strings.Contains(out, "What it can do: runs, failed logs, future_op") || !strings.Contains(out, "You supply an API key") {
+		t.Fatalf("info acme-ci: %q %v", out, err)
+	}
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"install", "-y", "acme-ci"}) }); err != nil {
+		t.Fatal(err)
+	}
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "acme-ci"}) })
+	if info = (infoJSON{}); json.Unmarshal([]byte(out), &info) != nil || !info.Capabilities.Can("future_op") {
+		t.Fatalf("installed acme-ci: %s", out)
+	}
+	// Edited here: the file's own, which has no future_op and no rerun.
+	path := filepath.Join(integration.Dir(), "acme-ci.toml")
+	os.WriteFile(path, []byte(testIntegration+"# mine\n"), 0o600)
+	integration.Forget()
+	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "acme-ci"}) })
+	if info = (infoJSON{}); json.Unmarshal([]byte(out), &info) != nil || info.Capabilities.Can("future_op") || !info.Capabilities.Can("runs") || info.Capabilities.Can("rerun") {
+		t.Fatalf("edited acme-ci: %s", out)
+	}
+}
+
+// One installed before the registry said what it can do is told at its
+// next update, even when there is nothing newer.
+func TestIntegrationUpdateKeepsCapabilities(t *testing.T) {
+	integrationEnv(t)
+	reg := serveRegistry(t)
+	reg.publish(t, testIntegration, 1, acme)
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"install", "-y", "acme-ci"}) }); err != nil {
+		t.Fatal(err)
+	}
+	if recs, _ := integration.Records(); recs["acme-ci"].Capabilities != nil {
+		t.Fatal("capabilities from an index that had none")
+	}
+	sum := sha256.Sum256([]byte(testIntegration))
+	e := integration.Entry{Kind: "ci", Name: "acme-ci", Label: "Acme CI", Version: 1, Format: 3, KeyEnv: "ACME_TOKEN",
+		File: "integrations/acme-ci.toml", SHA256: hex.EncodeToString(sum[:]), Hosts: acme,
+		Capabilities: &integration.Capabilities{Operations: []string{"runs", "future_op"}}}
+	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{e}})
+	reg.mu.Lock()
+	reg.files["index.json"] = ix
+	reg.mu.Unlock()
+	out, _, err := a4Out(t, func() error { return runIntegration([]string{"update", "-y"}) })
+	if err != nil || !strings.Contains(out, "up to date") {
+		t.Fatalf("update: %q %v", out, err)
+	}
+	if recs, _ := integration.Records(); !recs["acme-ci"].Capabilities.Can("future_op") {
+		t.Fatalf("not kept: %+v", recs["acme-ci"])
+	}
+}

@@ -1311,6 +1311,24 @@ final class Store: ObservableObject {
         }
         machines = next
         for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
+        if next.contains(where: { $0.provider.map { sandboxCaps[$0] == nil } ?? false }) { loadSandboxCaps() }
+    }
+
+    /// What each installed sandbox provider can do, by name: a sandbox's
+    /// menu offers that and nothing more. Read when a sandbox machine's
+    /// provider's are not known yet, and after an install.
+    var sandboxCaps: [String: IntegrationCapabilities] = [:]
+    private var sandboxCapsLoading = false
+
+    func loadSandboxCaps() {
+        guard !sandboxCapsLoading, let b = binary else { return }
+        sandboxCapsLoading = true
+        Task {
+            defer { sandboxCapsLoading = false }
+            guard let out = try? await runConch(b, ["sandbox", "providers", "-json"]),
+                  let ps = try? JSONDecoder().decode([SandboxProviderInfo].self, from: out) else { return }
+            for p in ps { if let c = p.capabilities { sandboxCaps[p.name] = c } }
+        }
     }
 
     /// Starts conch's server (the way `conch` does) and connects.
@@ -2725,7 +2743,7 @@ final class Store: ObservableObject {
         }
         // A sandbox's own: start, stop, delete, what it cost.
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.sandbox {
-            items += sandboxMenu(machine: m, running: link.online)
+            items += sandboxMenu(machine: m, running: link.online, capabilities: link.provider.flatMap { sandboxCaps[$0] })
         }
         if case .machine = node.kind, let link = machines.first(where: { $0.id == m }), link.cloud {
             items += cloudMachineMenu(machine: m, online: link.online)

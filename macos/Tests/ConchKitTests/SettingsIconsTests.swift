@@ -20,7 +20,7 @@ let sectionIcons = ["palette", "keyboard", "bell", "bot", "shield-check", "git-m
     #expect(settingsIcons(["icons": .string("phosphor"), "icon_style": .string("glass")]) == (.lucide, .plain))
     #expect(settingsIcons(["icons": .number(1)]) == (.lucide, .plain))
 
-    let app = SettingsSection(id: "app", key: "app", title: "Mac app", description: "", icon: "laptop", fields: [])
+    let app = SettingsSection(id: "app", key: "app", title: "Mac App", description: "", icon: "laptop", fields: [])
     #expect(settingsControl(app, SettingsField(key: "icons", label: "I", kind: "select",
                                                options: [SettingsOption(value: "", label: "Lucide"), SettingsOption(value: "sf", label: "SF Symbols")])) == .iconSets)
     #expect(settingsControl(app, SettingsField(key: "icons", label: "I", kind: "string")) == .text)
@@ -56,7 +56,7 @@ let sectionIcons = ["palette", "keyboard", "bell", "bot", "shield-check", "git-m
     let json = ##"""
     {"config":{"ui":{"theme":"conch"},"app":{"tabs":""}},"raw":"","version":"v","path":"/x","exists":true,
      "schema":[{"id":"ui","key":"ui","title":"Appearance","description":"d","icon":"palette","fields":[{"key":"theme","label":"Theme","kind":"string"}]},
-      {"id":"app","key":"app","title":"Mac app","description":"d","icon":"laptop","fields":[{"key":"tabs","label":"Tabs","kind":"string"},
+      {"id":"app","key":"app","title":"Mac App","description":"d","icon":"laptop","fields":[{"key":"tabs","label":"Tabs","kind":"string"},
         {"key":"icons","label":"Icon set","kind":"select","options":[{"value":"","label":"Lucide"},{"value":"sf","label":"SF Symbols"}]},
         {"key":"icon_style","label":"Style","kind":"select","options":[{"value":"","label":"Plain"},{"value":"tiles","label":"Tiles"}]}]},
       {"id":"git","key":"git","title":"Git","description":"d","icon":"git-merge","fields":[{"key":"x","label":"X","kind":"string"}]}]}

@@ -151,5 +151,8 @@ func IndexOrCached(ctx context.Context, r Registry) (*Index, error) {
 	for i := range cached.Entries {
 		cached.Entries[i].Registry = r.Name
 	}
+	for i := range cached.Disabled {
+		cached.Disabled[i].Registry = r.Name
+	}
 	return cached, nil
 }

@@ -118,12 +118,12 @@ Tested with fakes only: `internal/integration/deploysource_test.go`,
 file, a fake gh, a real git checkout), `TestScopeDeploys`,
 `cmd/conch` `TestBranchFixCIDeploy` and
 `TestIntegrationPromoteRefusedToAnAgent`, `internal/tui/previews_test.go`,
-ConchKit `DeployTests` and `IntegrationsTests`. End-to-end row 9.203 is
+ConchKit `DeployTests` and `IntegrationsTests`. End-to-end row 9.205 is
 not run.
 
 ## What is left
 
-Live checks against Vercel and Netlify (row 9.203 in
+Live checks against Vercel and Netlify (row 9.205 in
 docs/testing/end-to-end.md); a production row (what is live now: the
 contract reads a branch's deploys only); Vercel teams (item 4 below).
 Also: deploy files are not shipped with conch

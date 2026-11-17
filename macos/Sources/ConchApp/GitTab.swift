@@ -77,7 +77,7 @@ struct ChangesView: View {
                 if model.changes?.canMerge == true {
                     Button("Merge into \(model.changes?.base ?? "base")…") { confirmMerge() }
                 }
-                Button(info?.pr == nil ? "Open pull request" : "Update pull request") { model.openPR() }
+                Button(info?.pr == nil ? "Open Pull Request" : "Update pull request") { model.openPR() }
                 if let ch = model.changes, ch.branch != ch.base {
                     Divider()
                     Button("Delete Branch…") { store.deleteBranch(project: key(model.machine, model.project), branch: model.branch) }
@@ -352,7 +352,7 @@ struct GitOverview: View {
                 if let p = model.shownPreviews, Deploys.hasAny(p) { DeployPreviewsCard(model: model, previews: p) }
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
-                        GitCard(title: "Recent commits", trailing: AnyView(Button("All in graph →") { model.chosen = .graph }.controlSize(.small))) {
+                        GitCard(title: "Recent commits", trailing: AnyView(Button("All in Graph →") { model.chosen = .graph }.controlSize(.small))) {
                             if model.recent.isEmpty { Text("No commits in the last 30 days.").font(.ui(size: 12)).foregroundStyle(Theme.muted) }
                             ForEach(model.recent.prefix(8)) { c in
                                 HStack(spacing: 10) {
@@ -428,10 +428,10 @@ struct GitOverview: View {
             }
             Spacer()
             HStack(spacing: 8) {
-                if files > 0 { Button("Review changes") { model.chosen = .changes }.buttonStyle(.borderedProminent) }
+                if files > 0 { Button("Review Changes") { model.chosen = .changes }.buttonStyle(.borderedProminent) }
                 if (info?.ahead ?? 0) > 0 { Button("Push \(info!.ahead!)") { model.push() } }
                 Button("Agent or Terminal") { store.openBranch(project: key(model.machine, model.project), name: model.branch) }
-                Button("Open graph") { model.chosen = .graph }
+                Button("Open Graph") { model.chosen = .graph }
             }
             .controlSize(.regular)
         }
@@ -486,8 +486,8 @@ struct GitOverview: View {
                             .controlSize(.small)
                             .help("The failed run's log, sent to the branch's agent, as the review queue's Fix")
                     }
-                    if ciCanRerun(pr) {
-                        Button("Re-run failed jobs") { model.rerunCI() }.controlSize(.small)
+                    if ciCanRerun(pr, checksSay: store.connection(model.machine)?.hello?.capabilities?.contains("pr.check.rerun.v1") == true) {
+                        Button("Re-run Failed Jobs") { model.rerunCI() }.controlSize(.small)
                             .help("Run what failed again — on GitHub Actions, or through a CI integration that can")
                     }
                 }
@@ -1152,10 +1152,10 @@ struct CommentComposer: View {
                 Text("↩ note for the agent · ⇧↩ new line").font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
                 Spacer(minLength: 6)
                 Button("Cancel") { model.composingFile = nil }.controlSize(.small).keyboardShortcut(.cancelAction)
-                Button("Add to PR review") { model.addComment(text, file: file, line: line, forPR: true) }
+                Button("Add to PR Review") { model.addComment(text, file: file, line: line, forPR: true) }
                     .controlSize(.small).disabled(empty || !model.prOpen)
                     .help(model.prOpen ? "Waits in your review until you submit it on the right" : "No pull request is open for this branch")
-                Button("Add note for the agent") { model.addComment(text, file: file, line: line, forPR: false) }
+                Button("Add Note for the Agent") { model.addComment(text, file: file, line: line, forPR: false) }
                     .buttonStyle(.borderedProminent).controlSize(.small)
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(empty)
@@ -1324,7 +1324,7 @@ struct GitSide: View {
                         Text(done == .approve ? "You approved #\(pr.number)" : done == .requestChanges ? "You requested changes" : "You commented")
                     }
                     .font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(done == .requestChanges ? Theme.err : Theme.ok)
-                    Button("Review again") { model.reviewed = nil }.controlSize(.small)
+                    Button("Review Again") { model.reviewed = nil }.controlSize(.small)
                 } else {
                     Picker("", selection: $model.event) {
                         ForEach(ReviewEvent.allCases, id: \.self) { e in
@@ -1343,13 +1343,13 @@ struct GitSide: View {
                         .overlay(alignment: .topLeading) {
                             if model.reviewBody.isEmpty { Text("Summary").font(.ui(size: 12.5)).foregroundStyle(Theme.muted).padding(11).allowsHitTesting(false) }
                         }
-                    Button("Submit review" + (model.pending.isEmpty ? "" : " with \(model.pending.count) comment\(model.pending.count == 1 ? "" : "s")")) { model.submitReview() }
+                    Button("Submit Review" + (model.pending.isEmpty ? "" : " with \(model.pending.count) comment\(model.pending.count == 1 ? "" : "s")")) { model.submitReview() }
                         .buttonStyle(.borderedProminent).controlSize(.small)
                         .disabled(!model.event.canSubmit(body: model.reviewBody, comments: model.pending.count) || model.busy != nil)
                 }
             } else {
                 Text("No pull request open: comments for one wait until there is.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
-                Button("Open pull request") { model.openPR() }.controlSize(.small).disabled(model.busy != nil)
+                Button("Open Pull Request") { model.openPR() }.controlSize(.small).disabled(model.busy != nil)
             }
         }
     }
@@ -1372,8 +1372,8 @@ struct GitSide: View {
                 Button(model.agent.map { "Send the failure to \($0.name.isEmpty ? ($0.agent?.name ?? "the agent") : $0.name)" } ?? "Start an agent on the failure") { model.fixCI() }
                     .controlSize(.small)
             }
-            if ciCanRerun(pr) {
-                Button("Re-run failed jobs") { model.rerunCI() }.controlSize(.small)
+            if ciCanRerun(pr, checksSay: store.connection(model.machine)?.hello?.capabilities?.contains("pr.check.rerun.v1") == true) {
+                Button("Re-run Failed Jobs") { model.rerunCI() }.controlSize(.small)
                     .help("Run what failed again — on GitHub Actions, or through a CI integration that can")
             }
             if let u = pr.url.flatMap(URL.init(string:)) { Button("Open #\(pr.number) on GitHub") { NSWorkspace.shared.open(u) }.buttonStyle(.link).font(.ui(size: 12)) }

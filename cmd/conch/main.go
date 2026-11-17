@@ -71,6 +71,7 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
+  conch server heap [-json]     write the server's heap and goroutines to files, and say its memory
   conch status [-wide] [-json] [-team NAME]
                                 show server and pane status, with the host a terminal is on with ssh;
                                 fitted to the terminal (-wide: every column, as piped); BACKGROUND
@@ -400,6 +401,11 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
+  conch import conductor [-db PATH] [-out DIR] [-n] [-json]
+                                Conductor's conversations, read from its own database (a copy of it,
+                                so an open Conductor is left alone) and each written as a handoff
+                                document an agent can read and carry on from: in imports/conductor in
+                                conch's folder unless -out; -n says what it would write
   conch keys [-bound] [-toml] [-json]
                                 what every key after the prefix does, and which key it is on now
                                 (tmux's list-keys); rebind one under [keys.bind] in config.toml,
@@ -583,6 +589,8 @@ func main() {
 		err = runApp(args)
 	case "doctor":
 		err = runDoctor(args)
+	case "import":
+		err = runImport(args)
 	case "keys":
 		err = cmdKeys(args)
 	case "completion":
@@ -749,6 +757,8 @@ func runServer(args []string) error {
 			defer nc.Close()
 			fmt.Printf("server reloaded: build %s, pid %d (panes kept)\n", nc.Server.Build, nc.Server.PID)
 			return nil
+		case "heap":
+			return runServerHeap(args[1:])
 		default:
 			return unknownSubcommand("server", args[0])
 		}

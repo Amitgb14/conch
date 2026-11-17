@@ -55,7 +55,7 @@ struct InstalledAgentsCard: View {
             Button { store.checkAgents(on: machine) } label: {
                 Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text2)
             }
-            .buttonStyle(.plain).help("Check again").accessibilityLabel("Check again")
+            .buttonStyle(.plain).help("Check Again").accessibilityLabel("Check Again")
         }
     }
 

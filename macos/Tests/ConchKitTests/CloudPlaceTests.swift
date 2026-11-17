@@ -17,7 +17,7 @@ private func cm(_ name: String, _ state: String, id: String? = nil) -> CloudMach
     #expect(out.map(\.place) == [.machine("local"), .machine("devbox"), .machine("old"), .cloud])
     #expect(out.map(\.title) == ["This Mac", "devbox", "old", "Conch Cloud"])
     #expect(out.map(\.enabled) == [true, true, false, true])
-    #expect(out.last?.note == "Sign in to use")
+    #expect(out.last?.note == "Sign In to Use")
     #expect(out[2].note == "offline")
 
     let signed = projectPlaces(machines: ms, signedIn: true, cloudMachines: 2, offerCloud: true, excluding: "local")

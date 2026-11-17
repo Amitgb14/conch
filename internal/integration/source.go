@@ -101,6 +101,20 @@ func CheckSource(name, link string, files []*File) (source string, readable bool
 	return "", false
 }
 
+// CanRerun is whether conch can run a check of source again: GitHub
+// Actions, through gh, or an integration whose file has [rerun].
+func CanRerun(source string, files []*File) bool {
+	if source == SourceActions {
+		return true
+	}
+	for _, f := range files {
+		if f.Name == source && f.Kind == KindCI {
+			return f.Rerun.Has()
+		}
+	}
+	return false
+}
+
 // site drops an API's own subdomain: a check links to app.circleci.com,
 // the API is circleci.com; Buildkite's is api.buildkite.com.
 func site(host string) string {

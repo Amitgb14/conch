@@ -111,7 +111,7 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
 
     let schema = [
         section("ui", [try field("mouse", "bool")], title: "Appearance", description: "Theme and mouse"),
-        section("verify", [try field("auto_merge", "bool"), try field("reviewer", "select")], title: "Checks & autopilot"),
+        section("verify", [try field("auto_merge", "bool"), try field("reviewer", "select")], title: "Checks & Autopilot"),
         section("git", [try field("squash", "bool")], title: "Git", description: "How a merge commit looks"),
     ]
     #expect(SettingsNav.search("", in: schema) == ["ui", "git", "skills"])

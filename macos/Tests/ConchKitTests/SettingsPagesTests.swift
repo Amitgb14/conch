@@ -7,7 +7,7 @@ private func payload(_ config: String) throws -> SettingsPayload {
     {"config":\(config),"raw":"","version":"v1","path":"/c/config.toml","exists":true,
      "schema":[
       {"id":"git","key":"git","title":"Git","description":"d","icon":"git-merge","fields":[{"key":"squash","label":"Squash","kind":"bool"}]},
-      {"id":"verify","key":"verify","title":"Checks & autopilot","description":"d","icon":"shield-check","fields":[
+      {"id":"verify","key":"verify","title":"Checks & Autopilot","description":"d","icon":"shield-check","fields":[
         {"key":"commands","label":"Check command per project","kind":"map","keyLabel":"Project ID"},
         {"key":"auto_pr","label":"PR","kind":"bool"}]},
       {"id":"keys","key":"keys","title":"Keys","description":"d","icon":"keyboard","fields":[

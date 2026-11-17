@@ -1,0 +1,263 @@
+export const metadata = { title: "Moving from Conductor", description: "Bring your Conductor workspaces, setup scripts and conversations to conch before Conductor Cloud shuts down." }
+
+# Moving from Conductor
+
+Conductor has joined Meta. It stopped sign-ups and downloads on November 4, 2026, Conductor Cloud went read-only on November 13, and it shuts down on **November 20, 2026**. This page moves your work to conch: your workspaces, your setup script, and the Claude Code and Codex conversations you had in them.
+
+conch does the same job — several agents in parallel, each on its own branch and worktree, with the diff, the pull request and its checks beside them — and it is open source (Apache 2.0), so it cannot be shut down from under you.
+
+<Callout type="warning">
+
+Do step 1 before **November 20**. After that, what is only in a Conductor Cloud workspace is gone.
+
+</Callout>
+
+## Moving over
+
+These steps use the terminal. Prefer the Mac app? Follow [Moving over in Conch.app](#moving-over-in-conchapp) instead.
+
+<Steps>
+
+<Step title="Get your work out of Conductor Cloud">
+
+For every cloud workspace you want to keep, transfer it to your Mac or export it from Conductor. Anything already committed is safer still pushed:
+
+```sh
+git push -u origin HEAD     # in each workspace whose branch matters
+```
+
+Local workspaces need nothing: they are git worktrees on your disk, and conch reads them as they are.
+
+</Step>
+
+<Step title="Install conch">
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
+```
+
+Or `brew install Amitgb14/conch/conch`. Other ways are on [Installation](/docs/installation); `conch doctor` checks what conch needs.
+
+</Step>
+
+<Step title="Add your repository">
+
+```sh
+conch project add ~/src/app      # the repository Conductor worked in
+conch                            # open the TUI
+```
+
+conch lists a project's branches from `git worktree list`, so each Conductor workspace shows up as a branch with its worktree, its changes and its pull request. Not sure which folder that is? Run `git worktree list` in a Conductor workspace: the first line is the repository to add.
+
+</Step>
+
+<Step title="Bring your conversations">
+
+Conductor kept its conversations in its own database, not where Claude Code and Codex keep theirs, so conch reads them from there:
+
+```sh
+conch import conductor
+```
+
+Each conversation becomes a Markdown file under `imports/conductor/` in conch's folder: your prompts and the agent's answers, without the tool calls. It ends with the command that carries one on — an agent started where it ran and told to read the file:
+
+```sh
+conch new -agent claude -cwd ~/src/app -- 'Read FILE and carry on from where it leaves off.'
+```
+
+Run it before you delete Conductor: the database goes with the app. A cloud workspace's conversation is kept on Conductor's servers, so transfer the workspace to your Mac first (step 1). `-n` shows what it would write; [more](/docs/cli#import).
+
+</Step>
+
+<Step title="Bring your setup script">
+
+conch runs a **setup command** in every new worktree. Paste in what you had under Settings → Scripts, with conch's variables in place of Conductor's:
+
+```sh
+conch project ls                                  # the project's ID
+conch project setup ID 'pnpm install && pnpm run build'
+```
+
+Or keep your script unchanged and hand it the names it expects:
+
+```sh
+conch project setup ID 'CONDUCTOR_ROOT_PATH="$CONCH_ROOT" \
+  CONDUCTOR_WORKSPACE_PATH="$CONCH_WORKTREE" \
+  CONDUCTOR_WORKSPACE_NAME="$CONCH_BRANCH" \
+  CONDUCTOR_PORT="$CONCH_PORT" ./script/setup.sh'
+```
+
+You can usually drop `cp "$CONDUCTOR_ROOT_PATH/.env" .env`: conch already copies `.env`, `.env.*`, `.envrc`, `.claude/settings.local.json`, `.mcp.json` and similar local files into each new worktree. `F` on the project changes which ([Local files](/docs/tasks#local-files-in-worktrees)).
+
+</Step>
+
+<Step title="Start a task">
+
+`t` on the project, or:
+
+```sh
+conch task -cwd ~/src/app "Add a health check endpoint"
+```
+
+A branch, a worktree, the setup command, and an agent working in it. Press `q` to detach: the agents keep running.
+
+</Step>
+
+</Steps>
+
+## Prefer a window? Conch.app
+
+If you liked Conductor because it was a Mac app, [Conch.app](/docs/mac-app) is conch in a native macOS window: the same agents, branches and terminals as the TUI, since both are clients of the same server. Closing it stops nothing.
+
+<Shot
+  name="desktop-agents"
+  alt="Conch.app with agents in the sidebar, a waiting agent's question with its answers, and a working agent in its tab"
+  caption="Agents down the left. One waiting for you, with its answers to click, while another works."
+/>
+
+**A branch's changes** open in a tab, like Conductor's diff viewer. Tick hunks and commit, leave the agent a note on a line, and follow the pull request's checks beside them.
+
+<Shot
+  name="desktop-git"
+  alt="Conch.app's Changes view: uncommitted files, a diff with a note answered by the agent, and the commit box and checks beside it"
+  caption="Review, commit and follow the checks without leaving the window."
+/>
+
+**The dev server's page** sits in a tab too (⇧⌘B), where Conductor had its Run button: start it on `$CONCH_PORT` in a terminal and open the page beside the agent that is changing it.
+
+<Shot
+  name="desktop-browser"
+  alt="Conch.app with a browser tab showing a dev server's page"
+  caption="What the agent just changed, one tab over."
+/>
+
+It is in **beta**: a few things are still the TUI's alone ([Mac app](/docs/mac-app)).
+
+### Moving over in Conch.app
+
+The same move, without the terminal. Every menu below is also on a row's right-click menu in the sidebar.
+
+<Steps>
+
+<Step title="Get your work out of Conductor Cloud">
+
+As in [step 1 above](#moving-over): transfer or export each cloud workspace before **November 20**, and push the branches that matter.
+
+</Step>
+
+<Step title="Install Conch.app">
+
+Download `Conch_<version>_macos_arm64.dmg` from the [latest release](https://github.com/Amitgb14/conch/releases/latest), open it and drag **Conch** into **Applications**. It needs Apple Silicon and macOS 14 or later.
+
+The app carries conch inside it and starts the server itself, so there is nothing else to install. **Conch → Check for Updates…** keeps it current.
+
+</Step>
+
+<Step title="Add your repository">
+
+**File → Add Project…** (⌘O) and choose the repository Conductor worked in.
+
+The project appears in the sidebar under **local**. Open its **Branches**: each Conductor workspace is there, since it is a git worktree.
+
+</Step>
+
+<Step title="Bring your conversations">
+
+Conductor kept its conversations in its own database. Right-click the project → **Open Terminal in Project** and run:
+
+```sh
+/Applications/Conch.app/Contents/Resources/conch import conductor
+```
+
+Each conversation becomes a Markdown file under `~/.config/conch/imports/conductor/`. To carry one on, start an agent on its branch (right-click the branch → **Start an Agent on This Branch**) and drag the file into its prompt, or tell it to read the file. Do this before you delete Conductor: the database goes with the app.
+
+</Step>
+
+<Step title="Bring your setup script">
+
+The app has no screen for the setup command yet, so set it once from a terminal in the app: right-click the project → **Open Terminal in Project**, then
+
+```sh
+CONCH=/Applications/Conch.app/Contents/Resources/conch   # or just conch, if you installed it
+$CONCH project ls                                        # the project's ID
+$CONCH project setup ID 'pnpm install && pnpm run build'
+```
+
+Your `.env` and similar local files are copied into each new worktree without it. The [variables](#what-maps-to-what) are the same as above.
+
+</Step>
+
+<Step title="Start a task">
+
+**File → New Task…** (⌘N), or right-click the project → **New Task in Project…**, and describe the work. conch makes the branch and worktree, runs the setup command and starts the agent.
+
+When an agent needs you, it shows as a card under **Needs you** at the top of the sidebar. Click an answer there, or ⌘. to go to the next waiting agent.
+
+</Step>
+
+<Step title="Review and open the pull request">
+
+Click the branch to open its changes in a tab. Tick hunks and **Commit** (**✦ Write** drafts the message), or **+** on a line to leave the agent a note. **⋯ → Open Pull Request** pushes it, and its checks show beside the diff.
+
+</Step>
+
+<Step title="Run the dev server">
+
+Right-click the branch → **Open Terminal on This Branch** and start the server on its own port:
+
+```sh
+pnpm dev --port $CONCH_PORT
+```
+
+Then **File → New Browser Tab** (⇧⌘B) and open `http://localhost:` with that port, beside the agent.
+
+</Step>
+
+<Step title="Keep agents going with the laptop closed">
+
+Quitting the app stops nothing; sleeping the Mac does. To keep going with the lid shut, right-click **local** in the sidebar → **Add Machine…** for a box you can ssh to, or **New Sandbox…** for one at a provider. Then right-click the project → **Move to Another Machine…**: its worktrees, uncommitted work and agents go with it.
+
+</Step>
+
+</Steps>
+
+## What maps to what
+
+| In Conductor | In conch |
+| --- | --- |
+| Workspace | A task: its own branch and worktree (`t`, `conch task`) |
+| Setup script | Setup command (`conch project setup`) |
+| `CONDUCTOR_ROOT_PATH` | `CONCH_ROOT` |
+| `CONDUCTOR_WORKSPACE_PATH` | `CONCH_WORKTREE` |
+| `CONDUCTOR_WORKSPACE_NAME` | `CONCH_BRANCH` — a branch name, which can hold a `/` |
+| `CONDUCTOR_PORT` (ten ports) | `CONCH_PORT` (ten ports), in every terminal of the checkout |
+| Run button | A terminal in the worktree (`n`) running `pnpm dev --port $CONCH_PORT`; `L` opens it in the browser |
+| Archive script | None yet: run it yourself before removing a worktree (`D`) |
+| Diff viewer | A branch's changes: hunks to stage, commit, notes on a line the agent answers |
+| Pull request and checks | `p` opens the pull request; a failed check goes back to the agent with its log |
+| Parallel agents | `conch task -n 3 "…"` or `-agent claude,codex`; `A` compares the attempts |
+| Chat history | `conch import conductor`: each conversation as a file an agent can carry on from |
+| Claude Code, Codex, OpenCode | Supported, with their sessions — and Gemini CLI, Copilot CLI, Devin and [more](/docs/agents) |
+| Cursor | Cursor CLI runs in conch; its sessions are not listed yet |
+| The Mac app | [Conch.app](/docs/mac-app) (beta), the TUI and [your phone](/docs/phone) — clients of the same server |
+| Conductor Cloud | Your own machine over ssh ([Remote machines](/docs/remote-machines)) or a [sandbox](/docs/sandboxes) |
+
+## Agents that keep working with the laptop closed
+
+That was Conductor Cloud's job. In conch, a machine is a machine: run agents on any box you can ssh to, or let conch make a [sandbox](/docs/sandboxes) at a provider such as Daytona.
+
+```sh
+conch machine add devbox                  # any machine you can ssh to
+conch project move app -to devbox         # worktrees, uncommitted work and agents, moved there
+```
+
+Then close the laptop. `conch web` puts the same agents on your phone, with a waiting agent's question and its answers as buttons ([Phone](/docs/phone)).
+
+## What is different
+
+- **The terminal came first.** The TUI does everything; Conch.app is another window onto the same agents, in beta, and the phone a third.
+- **Your agents outlive the window.** A background server owns the terminals, so quitting the TUI or the app stops nothing.
+- **No account.** conch talks to your git, your `gh` and your agents' own sign-ins. Nothing goes through a service of ours.
+- **macOS and Linux.** On Windows, WSL.
+
+Something missing that you used every day in Conductor? [Open an issue](https://github.com/Amitgb14/conch/issues) — moving people over is what this page is for.

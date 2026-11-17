@@ -204,14 +204,14 @@ func Schema(c Choices) []Section {
 		{ID: "agents", Key: "agents", Title: "Agents", Icon: "bot", Description: "Which agent c starts, and how permission rules are used.",
 			Fields: []Field{
 				{Key: "default", Label: "Default agent", Kind: KindSelect, Options: agents},
-				{Key: "permission_mode", Label: "Permission rules", Kind: KindSelect,
+				{Key: "permission_mode", Label: "Permission Rules", Kind: KindSelect,
 					Options: []Option{{"", "On: answer by them"}, {config.PermissionsDryRun, "Dry run: only record"}, {config.PermissionsOff, "Off"}}},
 				{Key: "unrestricted_launch", Label: "Let agents start agents however they like", Kind: KindBool,
 					Help: "Off: an agent driving conch picks which agent to start and its --model, nothing else, and types only into agents, never a shell. On: any command, environment and flags, a helper that asks nobody before it acts among them, and typing into shells."},
 				{Key: "no_auto_resume", Label: "Don't resume agents after a restart", Kind: KindBool,
 					Help: "Off: after a reboot or a crash, the agents that were running come back by themselves, each on its own conversation. On: they wait in Sessions for I. conch server stop never brings them back."},
 			}},
-		{ID: "verify", Key: "verify", Title: "Checks & autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
+		{ID: "verify", Key: "verify", Title: "Checks & Autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
 				{Key: "commands", Label: "Check command per project", Kind: KindMap, KeyLabel: "Project ID", Placeholder: "go test ./...",
 					Help: "Run in the branch's worktree when its agent finishes. Nothing runs until you name one."},
@@ -251,7 +251,7 @@ func Schema(c Choices) []Section {
 			Fields: []Field{
 				{Key: "omz_theme", Label: "Oh My Zsh theme", Kind: KindString, Placeholder: "the one .zshrc chooses", Help: "Applied after your own .zshrc in zsh terminals — the ones already open too, redrawn as it is saved.", Suggest: c.ZshThemes},
 			}},
-		{ID: "remote", Key: "remote", Title: "Remote machines", Icon: "server", Description: "Panes on machines reached over ssh.",
+		{ID: "remote", Key: "remote", Title: "Remote Machines", Icon: "server", Description: "Panes on machines reached over ssh.",
 			Fields: []Field{
 				{Key: "upload_drops", Label: "Upload dropped files", Kind: KindBool, Help: "Copy local files dropped into a remote pane to that machine and paste their paths there."},
 				{Key: "upload_max_mb", Label: "Largest upload (MB)", Kind: KindInt, Min: intp(0), Help: "0 is the default, 25."},
@@ -270,7 +270,7 @@ func Schema(c Choices) []Section {
 					Help: "A relay conch web connects out to, so a phone reaches this computer from any network without Tailscale. " +
 						"Run one with `conch relay` on a server of your own. Phone and computer encrypt everything with a key from the pairing QR code, but the relay serves the phone's app, so use only a relay you trust as you trust this computer."},
 			}},
-		{ID: "preview", Key: "preview", Title: "Mobile preview", Icon: "tablet-smartphone", Description: "The phone simulators Conch.app's Mobile Preview and conch preview show your app on.",
+		{ID: "preview", Key: "preview", Title: "Mobile Preview", Icon: "tablet-smartphone", Description: "The phone simulators Conch.app's Mobile Preview and conch preview show your app on.",
 			Fields: []Field{
 				{Key: "xcode", Label: "Xcode", Kind: KindString, Placeholder: "found by itself: /Applications/Xcode.app",
 					Help: "Where the iPhone and iPad simulators come from: Xcode.app, or its Contents/Developer folder. Empty finds Xcode in Applications, even when xcode-select points at the Command Line Tools, which have no simulators."},
@@ -278,7 +278,7 @@ func Schema(c Choices) []Section {
 					Help: "For conch preview's Android emulators and phones. Empty looks in ANDROID_HOME and where Android Studio installs it."},
 			}},
 		cloudSection(c.Cloud),
-		{ID: "app", Key: "app", Title: "Mac app", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
+		{ID: "app", Key: "app", Title: "Mac App", Icon: "laptop", Description: "How Conch.app draws its window. The TUI keeps its own.",
 			Fields: []Field{
 				{Key: "tabs", Label: "Tabs", Kind: KindSelect, Options: []Option{{"", "Above the panes"}, {"left", "Left, grouped by machine"}, {"right", "Right"}},
 					Help: "On the left, tabs sit in the sidebar under each machine, the tree below them."},
@@ -371,7 +371,7 @@ func Schema(c Choices) []Section {
 					{Key: "branches", Label: "Branches", Kind: KindList, Help: "Branch patterns, * for anything: ui/*, *-redesign."},
 				}},
 			}},
-		{ID: "permissions", Key: "", Title: "Permission rules", Icon: "lock", Description: "Answer an agent's tool requests by rule; the first that matches decides.",
+		{ID: "permissions", Key: "", Title: "Permission Rules", Icon: "lock", Description: "Answer an agent's tool requests by rule; the first that matches decides.",
 			Fields: []Field{
 				{Key: "permissions", Label: "Rules", Kind: KindTables, Fields: []Field{
 					{Key: "tool", Label: "Tool", Kind: KindString, Placeholder: "Bash", Help: "As the agent names it: Bash, Edit, mcp__github__create_issue. * and ? work."},
