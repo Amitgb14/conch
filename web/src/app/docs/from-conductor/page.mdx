@@ -14,6 +14,8 @@ Do step 1 before **November 20**. After that, what is only in a Conductor Cloud 
 
 ## Moving over
 
+These steps use the terminal. Prefer the Mac app? Follow [Moving over in Conch.app](#moving-over-in-conchapp) instead.
+
 <Steps>
 
 <Step title="Get your work out of Conductor Cloud">
@@ -117,7 +119,89 @@ If you liked Conductor because it was a Mac app, [Conch.app](/docs/mac-app) is c
   caption="What the agent just changed, one tab over."
 />
 
-**How:** download `Conch_<version>_macos_arm64.dmg` (or the `.zip`) from the [latest release](https://github.com/Amitgb14/conch/releases/latest) and drag it into **Applications**. It needs Apple Silicon and macOS 14 or later. It is in **beta**: a few things are still the TUI's alone ([Mac app](/docs/mac-app)).
+It is in **beta**: a few things are still the TUI's alone ([Mac app](/docs/mac-app)).
+
+### Moving over in Conch.app
+
+The same move, without the terminal. Every menu below is also on a row's right-click menu in the sidebar.
+
+<Steps>
+
+<Step title="Get your work out of Conductor Cloud">
+
+As in [step 1 above](#moving-over): transfer or export each cloud workspace before **November 20**, and push the branches that matter.
+
+</Step>
+
+<Step title="Install Conch.app">
+
+Download `Conch_<version>_macos_arm64.dmg` from the [latest release](https://github.com/Amitgb14/conch/releases/latest), open it and drag **Conch** into **Applications**. It needs Apple Silicon and macOS 14 or later.
+
+The app carries conch inside it and starts the server itself, so there is nothing else to install. **Conch → Check for Updates…** keeps it current.
+
+</Step>
+
+<Step title="Add your repository">
+
+**File → Add Project…** (⌘O) and choose the repository Conductor worked in.
+
+The project appears in the sidebar under **local**. Open its **Branches**: each Conductor workspace is there, since it is a git worktree.
+
+</Step>
+
+<Step title="Pick up the conversations">
+
+Open the project's **Sessions** in the sidebar. The Claude Code and Codex conversations from every worktree are listed, Conductor's included; **Resume** picks one up in its folder.
+
+</Step>
+
+<Step title="Bring your setup script">
+
+The app has no screen for the setup command yet, so set it once from a terminal in the app: right-click the project → **Open Terminal in Project**, then
+
+```sh
+CONCH=/Applications/Conch.app/Contents/Resources/conch   # or just conch, if you installed it
+$CONCH project ls                                        # the project's ID
+$CONCH project setup ID 'pnpm install && pnpm run build'
+```
+
+Your `.env` and similar local files are copied into each new worktree without it. The [variables](#what-maps-to-what) are the same as above.
+
+</Step>
+
+<Step title="Start a task">
+
+**File → New Task…** (⌘N), or right-click the project → **New Task in Project…**, and describe the work. conch makes the branch and worktree, runs the setup command and starts the agent.
+
+When an agent needs you, it shows as a card under **Needs you** at the top of the sidebar. Click an answer there, or ⌘. to go to the next waiting agent.
+
+</Step>
+
+<Step title="Review and open the pull request">
+
+Click the branch to open its changes in a tab. Tick hunks and **Commit** (**✦ Write** drafts the message), or **+** on a line to leave the agent a note. **⋯ → Open Pull Request** pushes it, and its checks show beside the diff.
+
+</Step>
+
+<Step title="Run the dev server">
+
+Right-click the branch → **Open Terminal on This Branch** and start the server on its own port:
+
+```sh
+pnpm dev --port $CONCH_PORT
+```
+
+Then **File → New Browser Tab** (⇧⌘B) and open `http://localhost:` with that port, beside the agent.
+
+</Step>
+
+<Step title="Keep agents going with the laptop closed">
+
+Quitting the app stops nothing; sleeping the Mac does. To keep going with the lid shut, right-click **local** in the sidebar → **Add Machine…** for a box you can ssh to, or **New Sandbox…** for one at a provider. Then right-click the project → **Move to Another Machine…**: its worktrees, uncommitted work and agents go with it.
+
+</Step>
+
+</Steps>
 
 ## What maps to what
 
