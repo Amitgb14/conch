@@ -758,8 +758,9 @@ func TaskDirArgs(agent string, dirs []string, codexSandbox string) string {
 // write in every worktree it is given: workspace-write, or
 // danger-full-access when the person's config.toml ($CODEX_HOME, else
 // ~/.codex) already chose that — a task asks for what it needs and never
-// takes away what was given. Only the top-level setting counts: a
-// profile's applies only when that profile is picked.
+// takes away what was given. A profile's setting applies when that
+// profile is picked (`profile = "NAME"` at the top), over the top-level
+// one, as in Codex; a profile nobody picked changes nothing.
 func CodexTaskSandbox(home string, env func(string) string) string {
 	dir := env("CODEX_HOME")
 	if dir == "" {
@@ -770,10 +771,20 @@ func CodexTaskSandbox(home string, env func(string) string) string {
 	}
 	var cfg struct {
 		SandboxMode string `toml:"sandbox_mode"`
+		Profile     string `toml:"profile"`
+		Profiles    map[string]struct {
+			SandboxMode string `toml:"sandbox_mode"`
+		} `toml:"profiles"`
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "config.toml")); err == nil {
-		if _, err := toml.Decode(string(b), &cfg); err == nil && cfg.SandboxMode == "danger-full-access" {
-			return cfg.SandboxMode
+		if _, err := toml.Decode(string(b), &cfg); err == nil {
+			mode := cfg.SandboxMode
+			if p, ok := cfg.Profiles[cfg.Profile]; ok && cfg.Profile != "" && p.SandboxMode != "" {
+				mode = p.SandboxMode
+			}
+			if mode == "danger-full-access" {
+				return mode
+			}
 		}
 	}
 	return "workspace-write"

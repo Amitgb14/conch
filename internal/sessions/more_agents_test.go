@@ -290,6 +290,44 @@ func TestClineDelete(t *testing.T) {
 	}
 }
 
+// A Cline session whose folder has since gone is still deleted — cline is
+// run from home rather than failing to start in a folder that is not
+// there — and cline is given the store's own Cline folders, not this
+// process's, so it deletes where the list found the session.
+func TestClineDeleteGoneFolderAndEnv(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	clineDir := filepath.Join(t.TempDir(), "cline-elsewhere")
+	// This process's own: neither may reach cline.
+	t.Setenv("CLINE_DATA_DIR", "/process/data")
+	t.Setenv("CLINE_DIR", "/process/cline")
+	gone := filepath.Join(t.TempDir(), "removed")
+	s := Session{Agent: "cline", ID: "1_bbbbb", Dir: gone, Path: filepath.Join(home, "1_bbbbb.json")}
+	log := filepath.Join(t.TempDir(), "log")
+	bin := a6Tool(t, "cline", `{ /bin/pwd; echo "home=$HOME dir=${CLINE_DIR-unset} data=${CLINE_DATA_DIR-unset} sess=${CLINE_SESSION_DATA_DIR-unset}"; } > `+log+"\n")
+	env := a6Env(home, map[string]string{"PATH": bin, "CLINE_DIR": clineDir})
+	if err := Delete(ctx, env, s, t.TempDir()); err != nil {
+		t.Fatalf("a session whose folder is gone: %v", err)
+	}
+	b, _ := os.ReadFile(log)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("cline call: %q", lines)
+	}
+	realHome, _ := filepath.EvalSymlinks(home)
+	if got, _ := filepath.EvalSymlinks(lines[0]); got != realHome {
+		t.Errorf("cline ran in %q, not home", lines[0])
+	}
+	if want := "home=" + home + " dir=" + clineDir + " data=unset sess=unset"; lines[1] != want {
+		t.Errorf("cline's environment: %q, want %q", lines[1], want)
+	}
+	// No folder named at all: home too.
+	s.Dir = ""
+	if err := Delete(ctx, env, s, t.TempDir()); err != nil {
+		t.Fatalf("no folder: %v", err)
+	}
+}
+
 // gooseFixture is a Goose database with the tables its delete touches.
 func gooseFixture(t *testing.T, db string, newer bool) {
 	t.Helper()

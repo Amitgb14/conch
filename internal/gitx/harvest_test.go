@@ -215,7 +215,7 @@ func TestMerge(t *testing.T) {
 			}
 		}
 		// Merged either way, deleting the branch loses nothing.
-		if n := Unmerged(ctx, root, "feat", "main"); n != 0 {
+		if n := unmerged(t, root, "feat", "main"); n != 0 {
 			t.Fatalf("squash=%v: %d unmerged after merging", squash, n)
 		}
 	}
@@ -293,18 +293,18 @@ func TestMergeCancelled(t *testing.T) {
 
 func TestUnmergedAndDelete(t *testing.T) {
 	root, wt := taskRepo(t)
-	if n := Unmerged(ctx, root, "feat", "main"); n != 0 {
+	if n := unmerged(t, root, "feat", "main"); n != 0 {
 		t.Fatalf("fresh branch: %d", n)
 	}
-	if n := Unmerged(ctx, root, "missing", "main"); n != 0 {
-		t.Fatalf("missing branch: %d", n)
+	if _, err := Unmerged(ctx, root, "missing", "main"); !errors.Is(err, ErrNoBranch) {
+		t.Fatalf("missing branch: %v", err)
 	}
 	commit(t, wt, "a.txt", "a\n", "one")
 	commit(t, wt, "b.txt", "b\n", "two")
-	if n := Unmerged(ctx, root, "feat", "main"); n != 2 {
+	if n := unmerged(t, root, "feat", "main"); n != 2 {
 		t.Fatalf("two new commits: %d", n)
 	}
-	if n := Unmerged(ctx, root, "feat", "no-such-base"); n != 3 {
+	if n := unmerged(t, root, "feat", "no-such-base"); n != 3 {
 		t.Fatalf("without a base every commit counts: %d", n)
 	}
 
@@ -317,7 +317,7 @@ func TestUnmergedAndDelete(t *testing.T) {
 	}
 	git(t, root, "fetch", "-q", "origin")
 	commit(t, wt, "c.txt", "c\n", "three")
-	if n := Unmerged(ctx, root, "feat", "main"); n != 1 {
+	if n := unmerged(t, root, "feat", "main"); n != 1 {
 		t.Fatalf("one unpushed: %d", n)
 	}
 
@@ -327,7 +327,7 @@ func TestUnmergedAndDelete(t *testing.T) {
 	git(t, root, "fetch", "-q", "origin")
 	git(t, root, "branch", "--set-upstream-to=origin/main", "main")
 	git(t, root, "config", "branch.feat.merge", "refs/heads/none")
-	if n := Unmerged(ctx, root, "feat", "main"); n != 0 {
+	if n := unmerged(t, root, "feat", "main"); n != 0 {
 		t.Fatalf("contained in the base's upstream: %d", n)
 	}
 	git(t, root, "branch", "--unset-upstream", "main")
@@ -409,21 +409,92 @@ func TestUnreachable(t *testing.T) {
 	root := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "detached")
 	git(t, root, "worktree", "add", "-q", "--detach", dir, "main")
-	if n := Unreachable(ctx, dir); n != 0 {
+	if n, _ := Unreachable(ctx, dir); n != 0 {
 		t.Fatalf("at main: %d", n)
 	}
 	commit(t, dir, "x.txt", "x\n", "one")
 	commit(t, dir, "y.txt", "y\n", "two")
-	if n := Unreachable(ctx, dir); n != 2 {
+	if n, _ := Unreachable(ctx, dir); n != 2 {
 		t.Fatalf("two commits on no branch: %d", n)
 	}
 	git(t, dir, "branch", "keep")
-	if n := Unreachable(ctx, dir); n != 0 {
+	if n, _ := Unreachable(ctx, dir); n != 0 {
 		t.Fatalf("kept by a branch: %d", n)
 	}
-	if n := Unreachable(ctx, t.TempDir()); n != 0 {
+	if n, _ := Unreachable(ctx, t.TempDir()); n != 0 {
 		t.Fatalf("not a repository: %d", n)
 	}
+}
+
+// unmerged is Unmerged for a count that must be made.
+func unmerged(t *testing.T, root, branch, base string) int {
+	t.Helper()
+	n, err := Unmerged(ctx, root, branch, base)
+	if err != nil {
+		t.Fatalf("unmerged %s: %v", branch, err)
+	}
+	return n
+}
+
+// failingGit puts a git first on PATH that fails the subcommand named and
+// runs the real one for everything else.
+func failingGit(t *testing.T, sub string) {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("no git")
+	}
+	bin := t.TempDir()
+	// gitx runs git -c core.quotepath=off -C DIR SUBCOMMAND …
+	script := "#!/bin/sh\nif [ \"$5\" = " + sub + " ]; then echo 'fatal: broken' >&2; exit 128; fi\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestUnmergedUnknownIsNotZero: a count git could not make — a context
+// that ran out, a rev-list that failed, a show-ref that failed — is an
+// error, never 0, since 0 is what lets a branch be deleted. A name that
+// is empty or an option is no branch, asked of no git at all.
+func TestUnmergedUnknownIsNotZero(t *testing.T) {
+	root, wt := taskRepo(t)
+	commit(t, wt, "a.txt", "a\n", "one")
+	if n := unmerged(t, root, "feat", "main"); n != 1 {
+		t.Fatalf("one commit: %d", n)
+	}
+	dir := filepath.Join(t.TempDir(), "detached")
+	git(t, root, "worktree", "add", "-q", "--detach", dir, "main")
+
+	expired, cancel := context.WithCancel(ctx)
+	cancel()
+	if n, err := Unmerged(expired, root, "feat", "main"); err == nil {
+		t.Fatalf("an expired context counted %d", n)
+	}
+	if n, err := Unreachable(expired, dir); err == nil {
+		t.Fatalf("an expired context counted %d unreachable", n)
+	}
+	for _, name := range []string{"", "-D", "--force"} {
+		if _, err := Unmerged(ctx, root, name, "main"); !errors.Is(err, ErrNoBranch) {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+
+	t.Run("rev-list fails", func(t *testing.T) {
+		failingGit(t, "rev-list")
+		if n, err := Unmerged(ctx, root, "feat", "main"); err == nil || errors.Is(err, ErrNoBranch) {
+			t.Fatalf("a failed rev-list counted %d (%v)", n, err)
+		}
+		if n, err := Unreachable(ctx, dir); err == nil {
+			t.Fatalf("a failed rev-list counted %d unreachable", n)
+		}
+	})
+	t.Run("show-ref fails", func(t *testing.T) {
+		failingGit(t, "show-ref")
+		if n, err := Unmerged(ctx, root, "feat", "main"); err == nil || errors.Is(err, ErrNoBranch) {
+			t.Fatalf("a failed show-ref counted %d (%v), or said no branch", n, err)
+		}
+	})
 }
 
 // hunks splits a file's diff into its header and its hunks.

@@ -90,6 +90,8 @@ func a4Harvest(t *testing.T) (*a4Server, string, *a4Var[map[string]proto.Message
 				{Name: "old-wip", Committed: long(60), Unmerged: 2},
 				{Name: "feat", Committed: long(50), Worktree: wt},
 				{Name: "old-pushed", Committed: long(40), Upstream: "origin/old-pushed", Suggested: true},
+				// Its count could not be made: kept, -force or not.
+				{Name: "old-unknown", Committed: long(35), Unknown: "can't tell what deleting old-unknown would lose: git failed"},
 			}}, nil
 		case proto.MethodBranchPrune:
 			var p proto.BranchPruneParams
@@ -790,6 +792,7 @@ func TestBranchPruneCommand(t *testing.T) {
 		"keeping old-wip (60 days ago): 2 commits not merged or pushed (-force",
 		"keeping feat (50 days ago): checked out in " + wt + "; conch worktree clean",
 		"would delete old-pushed (40 days ago, pushed to origin/old-pushed)",
+		"keeping old-unknown (35 days ago): can't tell what deleting old-unknown would lose",
 		"2 to delete; run again with -y",
 	} {
 		if !strings.Contains(out, want) {
@@ -824,6 +827,11 @@ func TestBranchPruneCommand(t *testing.T) {
 	}
 	if !strings.Contains(out, "keeping fresh: not a local branch older than 30 days") || !strings.Contains(out, "deleted 1 branch") {
 		t.Fatalf("named: %s", out)
+	}
+	// A branch whose loss is unknown is not sent even forced.
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"prune", "-y", "-force", "old-unknown"}) })
+	if err != nil || !strings.Contains(out, "keeping old-unknown") || !strings.Contains(out, "no branches to delete") {
+		t.Fatalf("forced, unknown: %v %s", err, out)
 	}
 
 	if _, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-days", "-3"}) }); err == nil {

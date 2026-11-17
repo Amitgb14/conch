@@ -112,23 +112,12 @@ func chooseImported(all []sessions.Imported, ids string) ([]sessions.Imported, e
 // replaces rather than piles up.
 func writeImported(all []sessions.Imported, out string, dry bool) ([]importedFile, error) {
 	written := []importedFile{}
-	for _, im := range all {
+	names := importedNames(all, out)
+	for i, im := range all {
 		if len(im.Turns) == 0 {
 			continue
 		}
-		repo := im.Repo
-		if repo == "" {
-			repo = "unknown-repository"
-		}
-		id := im.Session.ID
-		if len(id) > 8 {
-			id = id[:8]
-		}
-		name := slugify(im.Session.Title)
-		if name == "" {
-			name = "conversation"
-		}
-		file := filepath.Join(out, slugify(repo), name+"-"+slugify(id)+".md")
+		file := names[i]
 		s := im.Session
 		if s.Dir == "" {
 			s.Dir = im.Workspace // only named in the document; it is gone
@@ -155,6 +144,49 @@ func writeImported(all []sessions.Imported, out string, dry bool) ([]importedFil
 		written = append(written, f)
 	}
 	return written, nil
+}
+
+// importedNames is the file each conversation is written to:
+// out/REPO/TITLE-ID8.md, ID8 the first eight characters of its id. Two
+// conversations of one title can share those — Conductor's ids are
+// time-ordered, so two started close together often do — and the second
+// would overwrite the first. So where names collide, the conversation with
+// the smallest id (the oldest) keeps the short name, as it had before the
+// other existed, and the rest are named by their whole id: a name that
+// stays the same from one import to the next, which re-importing relies on.
+func importedNames(all []sessions.Imported, out string) []string {
+	short := func(im sessions.Imported, whole bool) string {
+		repo := im.Repo
+		if repo == "" {
+			repo = "unknown-repository"
+		}
+		id := im.Session.ID
+		if !whole && len(id) > 8 {
+			id = id[:8]
+		}
+		name := slugify(im.Session.Title)
+		if name == "" {
+			name = "conversation"
+		}
+		return filepath.Join(out, slugify(repo), name+"-"+slugify(id)+".md")
+	}
+	names := make([]string, len(all))
+	first := map[string]string{} // short name → the smallest id given it
+	for i, im := range all {
+		names[i] = short(im, false)
+		if len(im.Turns) == 0 {
+			continue // never written, so it takes no name from another
+		}
+		if id, taken := first[names[i]]; !taken || im.Session.ID < id {
+			first[names[i]] = im.Session.ID
+		}
+	}
+	for i, im := range all {
+		if id := first[names[i]]; len(im.Turns) > 0 && id != im.Session.ID {
+			names[i] = short(im, true)
+		}
+	}
+	return names
 }
 
 func printImported(written []importedFile, all []sessions.Imported, dry bool) {

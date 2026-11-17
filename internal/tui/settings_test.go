@@ -370,3 +370,68 @@ func TestSettingsDefaultAgentInstallsAMissingOne(t *testing.T) {
 		}
 	}
 }
+
+// An agent conch has no installer for (a manifest that named none) is
+// offered no install in settings — not on the default-agent list, not on
+// its machine's page — as the agent menu already knew: an install would
+// run nothing and say it worked. Nor is it saved as the default, since it
+// can neither start nor be installed.
+func TestSettingsAgentWithNoInstaller(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	m := &Model{cfg: config.Default(), width: 100, height: 40}
+	m.cfg.Agents.Default = "claude"
+	claude := proto.AgentAvailability{Name: "claude", Label: "Claude Code", Installed: true, Version: "2.1.270"}
+	kiro := proto.AgentAvailability{Name: "kiro", Label: "Kiro CLI", NoInstaller: true}
+	// Installed, a missing installer does not matter.
+	kimi := proto.AgentAvailability{Name: "kimi", Label: "Kimi Code", Installed: true, Version: "1", NoInstaller: true}
+	m.machines = []*machine{{id: localMachine, label: "local", state: stateOnline, agentList: []proto.AgentAvailability{claude, kiro, kimi},
+		available: map[string]proto.AgentAvailability{"claude": claude, "kiro": kiro, "kimi": kimi}}}
+	s := &settings{}
+	m.overlay = s
+	rows := map[string]settingItem{}
+	for _, it := range s.agentItems(m) {
+		if _, seen := rows[ansi.Strip(it.label)]; !seen {
+			rows[ansi.Strip(it.label)] = it
+		}
+	}
+	if d := ansi.Strip(rows["Kiro CLI"].detail); d != "not installed · conch has no installer for it" {
+		t.Fatalf("kiro's default row: %q", d)
+	}
+	if cmd := rows["Kiro CLI"].run(m); cmd != nil || m.cfg.Agents.Default != "claude" || m.overlay == nil {
+		t.Fatalf("choosing kiro: cmd %v, default %q, overlay %v", cmd != nil, m.cfg.Agents.Default, m.overlay)
+	}
+	if !strings.Contains(m.flash, "no installer") {
+		t.Fatalf("flash: %q", m.flash)
+	}
+	if d := ansi.Strip(rows["Kimi Code"].detail); d != "" {
+		t.Fatalf("an installed agent with no installer: %q", d)
+	}
+
+	s.openPage("agents:" + localMachine)
+	page := map[string]settingItem{}
+	for _, it := range s.agentItems(m) {
+		page[ansi.Strip(it.label)] = it
+	}
+	if d := ansi.Strip(page["Kiro CLI"].detail); strings.Contains(d, "installs") || !strings.Contains(d, "no installer") {
+		t.Fatalf("kiro on its machine's page: %q", d)
+	}
+	if cmd := page["Kiro CLI"].run(m); cmd != nil || m.overlay == nil {
+		t.Fatalf("enter on kiro's page row: cmd %v, overlay %v", cmd != nil, m.overlay)
+	}
+	if d := ansi.Strip(page["Kimi Code"].detail); d != "✓ 1" {
+		t.Fatalf("kimi: %q", d)
+	}
+}
+
+// A re-run of several failed runs names them all, and one that could not
+// be started is said too; an older server's single run reads as before.
+func TestRerunWords(t *testing.T) {
+	one := proto.BranchCIRerun{Source: "github-actions", Service: "GitHub Actions", Run: "9"}
+	if got := rerunWords(one, "feat"); got != "re-running GitHub Actions's failed jobs on feat (run 9)" {
+		t.Fatalf("one: %q", got)
+	}
+	two := proto.BranchCIRerun{Source: "github-actions", Run: "12", Runs: []string{"12", "11"}, Note: "run 10 (e2e): HTTP 403"}
+	if got := rerunWords(two, "feat"); got != "re-running github-actions's failed jobs on feat (runs 12, 11); not re-run: run 10 (e2e): HTTP 403" {
+		t.Fatalf("two: %q", got)
+	}
+}

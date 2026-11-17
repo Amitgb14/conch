@@ -2308,6 +2308,12 @@ type BranchCIRerun struct {
 	Service string `json:"service,omitempty"`
 	Run     string `json:"run"`
 	URL     string `json:"url,omitempty"`
+	// Runs is every run re-run when there was more than one (several
+	// workflows failed at the head), Run first among them; an older
+	// server re-ran only Run.
+	Runs []string `json:"runs,omitempty"`
+	// Note says what could not be re-run, when some of the runs were.
+	Note string `json:"note,omitempty"`
 }
 
 // BranchGitParams runs Commands, one after another, in the worktree where
@@ -2433,6 +2439,10 @@ type StaleBranch struct {
 	// Unmerged counts its commits that neither the base nor its upstream
 	// has: what deleting it loses. A pushed branch loses nothing.
 	Unmerged int `json:"unmerged,omitempty"`
+	// Unknown says why Unmerged could not be counted (git failed, the
+	// listing ran out of time): such a branch is never suggested, and
+	// branch.prune refuses it, forced or not.
+	Unknown string `json:"unknown,omitempty"`
 	// Suggested means it can go without losing anything.
 	Suggested bool `json:"suggested,omitempty"`
 }

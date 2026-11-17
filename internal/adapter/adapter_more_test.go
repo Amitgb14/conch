@@ -416,9 +416,19 @@ func TestCodexTaskSandbox(t *testing.T) {
 		`sandbox_mode = "workspace-write"`:                                    "workspace-write",
 		`sandbox_mode = "read-only"`:                                          "workspace-write",
 		"model = \"o3\"\n[profiles.x]\nsandbox_mode = \"danger-full-access\"": "workspace-write",
-		`sandbox_mode = `:                                                     "workspace-write",
-		`sandbox_mode = 3`:                                                    "workspace-write",
-		"":                                                                    "workspace-write",
+		// The profile picked is the one that counts, over the top level.
+		"profile = \"yolo\"\n[profiles.yolo]\nsandbox_mode = \"danger-full-access\"":                                     "danger-full-access",
+		"profile = \"safe\"\nsandbox_mode = \"danger-full-access\"\n[profiles.safe]\nsandbox_mode = \"workspace-write\"": "workspace-write",
+		// A picked profile that says nothing of it leaves the top level's.
+		"profile = \"fast\"\nsandbox_mode = \"danger-full-access\"\n[profiles.fast]\nmodel = \"o3\"": "danger-full-access",
+		// A profile picked that is not there, or another one's setting.
+		"profile = \"gone\"\nsandbox_mode = \"danger-full-access\"":                  "danger-full-access",
+		"profile = \"gone\"\n[profiles.yolo]\nsandbox_mode = \"danger-full-access\"": "workspace-write",
+		"profile = \"\"\n[profiles.\"\"]\nsandbox_mode = \"danger-full-access\"":     "workspace-write",
+		"profile = \"yolo\"\n[profiles.yolo]\nsandbox_mode = 3":                      "workspace-write",
+		`sandbox_mode = `:  "workspace-write",
+		`sandbox_mode = 3`: "workspace-write",
+		"":                 "workspace-write",
 	} {
 		write(codexHome, body)
 		if got := CodexTaskSandbox(home, env); got != want {

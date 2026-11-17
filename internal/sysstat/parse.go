@@ -206,6 +206,22 @@ type pidStat struct {
 	rssPages     int64
 }
 
+// ticksDuration is n clock ticks at hz a second. Whole seconds are taken
+// first: multiplying by time.Second before dividing overflows past 2^63
+// nanoseconds, which at 100 Hz is 9.2e9 ticks — a process started three
+// years into a machine's uptime, which then started in 1678. A count too
+// large even for a Duration stops at the largest one.
+func ticksDuration(n uint64, hz uint64) time.Duration {
+	if hz == 0 {
+		return 0
+	}
+	secs, rest := n/hz, n%hz
+	if secs > uint64(1<<63-1)/uint64(time.Second) {
+		return time.Duration(1<<63 - 1)
+	}
+	return time.Duration(secs)*time.Second + time.Duration(rest)*time.Second/time.Duration(hz)
+}
+
 // parsePidStat reads /proc/PID/stat. The name is in parentheses and may
 // hold spaces and parentheses itself, so the fields are counted from the
 // last ")".

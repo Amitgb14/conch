@@ -324,3 +324,31 @@ func TestMachTicks(t *testing.T) {
 		t.Errorf("empty = %+v", got)
 	}
 }
+
+// A process's start, in clock ticks after boot, is a Duration without
+// overflowing: multiplying by a second first wrapped past 9.2e9 ticks at
+// 100 Hz, three years of uptime, and the process started before 1700.
+func TestTicksDuration(t *testing.T) {
+	for _, c := range []struct {
+		n, hz uint64
+		want  time.Duration
+	}{
+		{0, 100, 0},
+		{1, 100, 10 * time.Millisecond},
+		{150, 100, 1500 * time.Millisecond},
+		{1e10, 100, 1e8 * time.Second},
+		{1e10 + 7, 100, 1e8*time.Second + 70*time.Millisecond},
+		{3, 1000, 3 * time.Millisecond},
+		{5, 0, 0},
+		{math.MaxUint64, 100, time.Duration(math.MaxInt64)},
+		{math.MaxUint64, 1, time.Duration(math.MaxInt64)},
+	} {
+		if got := ticksDuration(c.n, c.hz); got != c.want {
+			t.Errorf("ticksDuration(%d, %d) = %v, want %v", c.n, c.hz, got, c.want)
+		}
+	}
+	boot := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if got := boot.Add(ticksDuration(1e10, 100)); got.Before(boot) {
+		t.Fatalf("started before boot: %v", got)
+	}
+}

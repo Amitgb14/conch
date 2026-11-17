@@ -446,9 +446,24 @@ func conflictFiles(ctx context.Context, dir string) []string {
 // upstream and branch's upstream, i.e. what deleting the branch would lose.
 // A branch whose changes base (or its upstream) already has, say because it
 // was squash-merged, counts 0.
-func Unmerged(ctx context.Context, root, branch, base string) int {
-	if !resolves(ctx, root, "refs/heads/"+branch) {
-		return 0
+//
+// A count it could not make is an error, never 0: callers delete a branch
+// that loses nothing, and a git that failed or a context that ran out says
+// nothing about what would be lost. A branch that is not there is
+// ErrNoBranch.
+func Unmerged(ctx context.Context, root, branch, base string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return 0, ErrNoBranch
+	}
+	// show-ref exits 1 only for a ref that is not there; anything else is
+	// git failing, which is no answer.
+	if _, code, err := runCodes(ctx, root, []int{1}, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		return 0, fmt.Errorf("can't read branch %s: %w", branch, err)
+	} else if code == 1 {
+		return 0, ErrNoBranch
 	}
 	bases := baseRevs(ctx, root, base)
 	args := append([]string{"rev-list", "--count", "refs/heads/" + branch, "--not"}, bases...)
@@ -457,16 +472,28 @@ func Unmerged(ctx context.Context, root, branch, base string) int {
 	}
 	out, err := run(ctx, root, append(args, "--")...)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("can't count %s's commits: %w", branch, err)
 	}
-	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, fmt.Errorf("can't count %s's commits: %q", branch, out)
+	}
 	for _, b := range bases {
 		if n > 0 && mergesCleanly(ctx, root, branch, b) {
-			return 0
+			return 0, nil
 		}
 	}
-	return n
+	// A base or upstream that failed to resolve only makes the count
+	// larger, but a context that ran out partway is no answer at all.
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
+
+// ErrNoBranch is Unmerged's answer for a branch that is not there: nothing
+// to lose, and nothing to delete either.
+var ErrNoBranch = errors.New("no such branch")
 
 // Ahead counts the commits branch has that base lacks.
 func Ahead(ctx context.Context, root, branch, base string) int {
@@ -492,11 +519,21 @@ func Merged(ctx context.Context, root, branch, base string) bool {
 
 // Unreachable counts the commits of a detached checkout at dir that no
 // branch or remote-tracking branch has: what removing it would lose.
-func Unreachable(ctx context.Context, dir string) int {
-	if !resolves(ctx, dir, "HEAD") {
-		return 0
+func Unreachable(ctx context.Context, dir string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
 	}
-	return max(revCountArgs(ctx, dir, "HEAD", "--not", "--branches", "--remotes"), 0)
+	if !resolves(ctx, dir, "HEAD") {
+		return 0, ctx.Err()
+	}
+	n := revCountArgs(ctx, dir, "HEAD", "--not", "--branches", "--remotes")
+	if n < 0 {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		return 0, fmt.Errorf("can't count the commits on no branch in %s", dir)
+	}
+	return n, nil
 }
 
 // baseRevs is base and its upstream, those of them that exist.

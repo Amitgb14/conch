@@ -3,6 +3,9 @@ package ghx
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -41,6 +44,58 @@ func TestFailedLog(t *testing.T) {
 	// A head nothing failed on: an older run's failure isn't this work's.
 	if _, err := FailedLog(context.Background(), t.TempDir(), "feat", "newer"); !errors.Is(err, ErrNoFailedRun) {
 		t.Fatalf("other head: %v", err)
+	}
+}
+
+// TestRerunFailedEveryRun: every workflow that failed at the head is run
+// again, each with its own `gh run rerun --failed`; an older commit's
+// failure, or an older failure of the same workflow, is not. One that gh
+// refuses is said, beside those it took.
+func TestRerunFailedEveryRun(t *testing.T) {
+	list := `[
+ {"databaseId": 40, "workflowName": "lint", "url": "https://x/runs/40", "headSha": "new", "conclusion": "failure"},
+ {"databaseId": 30, "workflowName": "test", "url": "https://x/runs/30", "headSha": "new", "conclusion": "failure"},
+ {"databaseId": 25, "workflowName": "test", "url": "https://x/runs/25", "headSha": "new", "conclusion": "failure"},
+ {"databaseId": 20, "workflowName": "e2e", "url": "https://x/runs/20", "headSha": "new", "conclusion": "success"},
+ {"databaseId": 10, "workflowName": "e2e", "url": "https://x/runs/10", "headSha": "old", "conclusion": "failure"}
+]`
+	log := filepath.Join(t.TempDir(), "calls")
+	fakeGH(t, `echo "$*" >> `+log+`
+case "$1 $2" in
+"run list") printf '%s' '`+list+`' ;;
+"run rerun") [ "$4" = "--failed" ] || exit 9; [ "$3" = "$REFUSE" ] && { echo 'HTTP 403' >&2; exit 1; }; exit 0 ;;
+*) exit 7 ;;
+esac
+`)
+	ids := func(runs []FailedRun) string {
+		var s []string
+		for _, r := range runs {
+			s = append(s, strconv.FormatInt(r.ID, 10))
+		}
+		return strings.Join(s, ",")
+	}
+	for _, head := range []string{"new", ""} {
+		os.Remove(log)
+		runs, err := RerunFailed(context.Background(), t.TempDir(), "feat", head)
+		if err != nil || ids(runs) != "40,30" || runs[1].URL != "https://x/runs/30" {
+			t.Fatalf("head %q: %+v %v", head, runs, err)
+		}
+		b, _ := os.ReadFile(log)
+		if n := strings.Count(string(b), "run rerun"); n != 2 {
+			t.Fatalf("head %q: %d re-runs:\n%s", head, n, b)
+		}
+	}
+	// At the old commit only its own failure.
+	if runs, err := RerunFailed(context.Background(), t.TempDir(), "feat", "old"); err != nil || ids(runs) != "10" {
+		t.Fatalf("old: %+v %v", runs, err)
+	}
+	t.Setenv("REFUSE", "30")
+	runs, err := RerunFailed(context.Background(), t.TempDir(), "feat", "new")
+	if ids(runs) != "40" || err == nil || !strings.Contains(err.Error(), "run 30 (test)") {
+		t.Fatalf("one refused: %+v %v", runs, err)
+	}
+	if _, err := RerunFailed(context.Background(), t.TempDir(), "feat", "none"); !errors.Is(err, ErrNoFailedRun) {
+		t.Fatalf("nothing failed there: %v", err)
 	}
 }
 
