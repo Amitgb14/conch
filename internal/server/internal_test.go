@@ -540,6 +540,37 @@ func a5PtyProgram(t *testing.T, script string) (fd, pid int) {
 	return fd, cmd.Process.Pid
 }
 
+// TestAdoptMovesAHighTerminalDown: a pane whose terminal was numbered past
+// select's 1024 read nothing — its program ran on into a blank pane. A
+// reload takes its panes before it watches anything, so the descriptor is
+// moved down there and the pane is seen again.
+func TestAdoptMovesAHighTerminalDown(t *testing.T) {
+	a5IsolateEnv(t)
+	s, dir := a5Server(t)
+	fd, pid := a5PtyProgram(t, "sleep 0.3; printf 'seen''-again\\n'; exec sleep 30")
+	var lim unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err != nil || lim.Cur <= 1100 {
+		unix.Close(fd)
+		t.Skip("descriptor limit too low to place one past 1024")
+	}
+	high, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 1024)
+	unix.Close(fd)
+	if err != nil {
+		t.Skipf("dup past the limit: %v", err)
+	}
+	s.adopt(&reloadState{NextID: 2, Panes: []reloadPane{{
+		Snapshot: pane.Snapshot{ID: "p1", Command: []string{"sleep"}, Cwd: dir, PID: pid, Cols: 40, Rows: 6},
+		FD:       high, Dir: dir, Loose: true,
+	}}})
+	e := a5Entry(t, s, "p1")
+	a5WaitFor(t, "output after the reload", func() bool {
+		return strings.Contains(strings.Join(e.p.PlainLines(), "\n"), "seen-again")
+	})
+	if _, err := unix.FcntlInt(uintptr(high), unix.F_GETFD, 0); err == nil {
+		t.Fatalf("the high descriptor %d was kept open", high)
+	}
+}
+
 func TestA5Adopt(t *testing.T) {
 	home := a5IsolateEnv(t)
 	s, dir := a5Server(t)

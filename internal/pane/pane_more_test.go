@@ -596,3 +596,79 @@ func TestA5GivingBackTheMouseIsWorthAFrame(t *testing.T) {
 		t.Error("bracketed paste took the mouse")
 	}
 }
+
+// highFD puts a copy of fd at or past fdSetSize, or skips when this
+// process may not hold that many descriptors.
+func highFD(t *testing.T, fd int) int {
+	t.Helper()
+	var lim unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &lim); err != nil || lim.Cur <= fdSetSize+16 {
+		t.Skipf("descriptor limit too low to place one past %d", fdSetSize)
+	}
+	high, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, fdSetSize)
+	if err != nil {
+		t.Skipf("dup past the limit: %v", err)
+	}
+	return high
+}
+
+// TestLowFDMovesADescriptorBelowSelectsLimit: a terminal numbered past
+// select's set is one the read loop cannot wait on, so the pane showed
+// nothing while its program ran on (a real Claude, 2026-11-16). LowFD moves
+// it into the set, closes the high one and keeps it working.
+func TestLowFDMovesADescriptorBelowSelectsLimit(t *testing.T) {
+	var p [2]int
+	if err := unix.Pipe(p[:]); err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(p[1])
+	high := highFD(t, p[0])
+	unix.Close(p[0])
+
+	f := os.NewFile(uintptr(high), "ptmx")
+	low := LowFD(f)
+	defer low.Close()
+	fd := int(low.Fd())
+	if fd >= fdSetSize || fd < 3 {
+		t.Fatalf("moved to %d, want 3..%d", fd, fdSetSize-1)
+	}
+	if low.Name() != "ptmx" {
+		t.Fatalf("name %q", low.Name())
+	}
+	if _, err := unix.FcntlInt(uintptr(high), unix.F_GETFD, 0); err == nil {
+		t.Fatalf("the high descriptor %d is still open", high)
+	}
+	if flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err != nil || flags&unix.FD_CLOEXEC == 0 {
+		t.Fatalf("moved descriptor is inherited by children: flags %d err %v", flags, err)
+	}
+	// It is the same pipe, and select can wait on it now.
+	if _, err := unix.Write(p[1], []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := readable(fd, time.Second); !ok || err != nil {
+		t.Fatalf("readable: %v %v", ok, err)
+	}
+	buf := make([]byte, 4)
+	if n, err := low.Read(buf); n != 1 || buf[0] != 'x' {
+		t.Fatalf("read %q %v", buf[:n], err)
+	}
+}
+
+// TestLowFDLeavesALowDescriptorAlone: the usual case, and nil.
+func TestLowFDLeavesALowDescriptorAlone(t *testing.T) {
+	if LowFD(nil) != nil {
+		t.Fatal("nil became something")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if int(r.Fd()) >= fdSetSize {
+		t.Skip("this process already holds too many descriptors")
+	}
+	if got := LowFD(r); got != r {
+		t.Fatalf("a low descriptor was moved: %d -> %d", r.Fd(), got.Fd())
+	}
+}
