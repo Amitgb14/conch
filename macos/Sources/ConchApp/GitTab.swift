@@ -38,6 +38,7 @@ struct ChangesView: View {
         .background(Theme.window)
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(store.layout.focused == model.key ? Theme.accent : Theme.line))
+        .sheet(item: $model.releasing) { c in DeployReleaseSheet(model: model, confirm: c) }
     }
 
     var header: some View {
@@ -55,6 +56,7 @@ struct ChangesView: View {
                     .help(conflicting ? "#\(pr.number) conflicts with its base — Overview has what to do" : "Pull request #\(pr.number)")
                 CIChip(pr: pr)
             }
+            DeployChip(previews: model.previews)
             if let ch = model.changes, !ch.files.isEmpty {
                 let (a, d) = ch.totals
                 Chip(text: "+\(a) −\(d) uncommitted", tone: Theme.warn)
@@ -347,6 +349,7 @@ struct GitOverview: View {
                 banner
                 if let card = model.ciCard { CICardView(model: model, card: card) }
                 if let pr = info?.pr { pullRequest(pr) }
+                if let p = model.previews, Deploys.hasAny(p) { DeployPreviewsCard(model: model, previews: p) }
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
                         GitCard(title: "Recent commits", trailing: AnyView(Button("All in graph →") { model.chosen = .graph }.controlSize(.small))) {
@@ -468,6 +471,7 @@ struct GitOverview: View {
                         }
                     }
                     if let r = st.review { prLine(r, icon: r.tone == .ok ? "person.crop.circle.badge.checkmark" : "person.crop.circle") }
+                    DeployPRLine(previews: model.previews)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 6) {

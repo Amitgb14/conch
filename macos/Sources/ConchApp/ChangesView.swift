@@ -69,6 +69,17 @@ final class ChangesModel: ObservableObject {
     @Published var ciUses: [IntegrationUse] = []
     private var ciAsked = false
 
+    // deploy previews (DeployPreviews.swift)
+    /// The branch's deploys by integration (branch.previews), nil until
+    /// read or from a server without them.
+    @Published var previews: BranchPreviews?
+    var previewsAt: Date?
+    /// A failed build's log, by "source|deploy", once Build log is pressed.
+    @Published var deployLogs: [String: String] = [:]
+    @Published var deployLogShown: String?
+    /// The release asked for, waiting on its confirmation sheet.
+    @Published var releasing: DeployConfirm?
+
     var mode: Mode {
         if let c = chosen { return c }
         guard let ch = changes else { return .changes }
@@ -130,6 +141,7 @@ final class ChangesModel: ObservableObject {
         await loadComments()
         if mode == .overview { await loadRecent() }
         await loadCIUses()
+        await loadPreviews()
     }
 
     /// The card for a red check conch cannot read, if there is one.

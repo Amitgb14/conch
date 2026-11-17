@@ -639,6 +639,17 @@ final class Store: ObservableObject {
         }
     }
 
+    /// One deploy's failed build sent to the branch's agent, or an agent
+    /// started on it, worded as a failed CI run is (`conch branch fix-ci
+    /// -source S -deploy ID`).
+    func fixDeploy(machine: String, project: String, branch: String, source: String, deploy: String) {
+        guard let b = binary, let dir = snapshots[machine]?.project(project)?.path else { return }
+        let agent = startable(on: machine).first?.name ?? "claude"
+        job("Sending the failed build on \(branch)", done: "Sent the failed build on \(branch) to its agent") {
+            _ = try await runConch(b, onMachine(machine, fixDeployArguments(dir: dir, branch: branch, agent: agent, source: source, deploy: deploy)))
+        }
+    }
+
     /// Runs a red branch's failed CI jobs again: GitHub Actions, or a CI
     /// integration that can (branch.ci_rerun, through the CLI).
     func rerunCI(machine: String, project: String, branch: String) {
