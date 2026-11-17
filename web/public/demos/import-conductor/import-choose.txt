@@ -1,0 +1,16 @@
+$ conch import conductor -ids 0199f1c2-3a10-7b4e-9c21-4f8a2d6e1b01,0199f4a8-0b17-7c3d-b5e9-2a4c6e8f0d03,0199f7b0-5a2c-7e81-a3d7-0c2e4a6c8e06
+wrote 3 of Conductor's conversations:
+
+  Add coupon codes to checkout  (Claude Code, 4 messages, storefront · ada/coupon-codes)
+    ~/.config/conch/imports/conductor/storefront/add-coupon-codes-to-checkout-0199f1c2.md
+  Cart badge keeps the old count  (Claude Code, 4 messages, storefront · ada/cart-badge)
+    ~/.config/conch/imports/conductor/storefront/cart-badge-keeps-the-old-count-0199f4a8.md
+  Rewrite the pricing page copy  (Claude Code, 4 messages, marketing-site · ada/pricing-copy, worktree and repository gone)
+    ~/.config/conch/imports/conductor/marketing-site/rewrite-the-pricing-page-copy-0199f7b0.md
+
+To carry one on, start an agent where it ran and point it at the file:
+
+  conch new -agent claude -cwd ~/conductor/workspaces/storefront/kyoto -- 'Read ~/.config/conch/imports/conductor/storefront/cart-badge-keep
+s-the-old-count-0199f4a8.md and carry on from where it leaves off.'
+
+Or drag the file into the agent's prompt, in conch or Conch.app.
