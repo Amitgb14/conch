@@ -97,9 +97,36 @@ func dropAltScrollback(e *vt.Emulator) {
 	alt.SetScrollback(nil)
 }
 
+// parserData is how much of one escape sequence's payload — an OSC's
+// text, a DCS's, an APC's — the emulator keeps; the rest of a longer one
+// is dropped, as the emulator always did past its own limit. Nothing conch
+// reads from a payload comes close: a title, a link, a working directory,
+// an OSC 7501 record. The long ones are an image, which conch's emulator
+// does not draw, and OSC 52, which raw.go takes out before any client.
+// It is the ansi package's own default.
+const parserData = 64 * 1024
+
+// shrinkParserData gives the emulator's parser a payload buffer of
+// parserData. vt.NewEmulator gives it 4 MB, allocated whole for every
+// terminal whether anything long ever arrives or not: 184 of a real
+// server's 300 MB with 46 panes (a heap profile, 2026-11-16). The
+// emulator offers no way to the parser, so it is found by reflection; if
+// the emulator changes shape this does nothing, and
+// TestParserDataIsSmall says so.
+func shrinkParserData(e *vt.Emulator) {
+	f := reflect.ValueOf(e).Elem().FieldByName("parser")
+	if !f.IsValid() || f.Type() != reflect.TypeFor[*ansi.Parser]() {
+		return
+	}
+	if parser := *(**ansi.Parser)(unsafe.Pointer(f.UnsafeAddr())); parser != nil {
+		parser.SetDataSize(parserData)
+	}
+}
+
 // newEmulator makes the emulator for a pane.
 func (p *Pane) newEmulator(cols, rows int) {
 	p.emu = vt.NewEmulator(cols, rows)
 	dropAltScrollback(p.emu)
+	shrinkParserData(p.emu)
 	p.setCallbacks()
 }

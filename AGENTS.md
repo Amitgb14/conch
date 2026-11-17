@@ -256,7 +256,11 @@ helpers in `cmd/conch` and `internal/remote`.
   full-screen interface filled just as fast; `dropAltScrollback` turns it
   off by reflection, since the emulator gives no way in — after upgrading
   `charmbracelet/x/vt`, `TestAltScreenKeepsNoCells` and `TestHistoryMemory`
-  say whether that still holds.
+  say whether that still holds. The same emulator gives each terminal's
+  parser a 4 MB buffer for one escape sequence's payload, allocated whole —
+  184 MB of a real server's 300 with 46 panes; `shrinkParserData` makes it
+  64 KB the same way, and `TestParserDataIsSmall` says whether it still
+  can.
 - **One owner per pty.** `Detach` hands the *same* `*os.File` to the caller,
   so for a moment two panes hold one descriptor: the one that gave it away
   and the one that adopted it, each with its own `mu`. The pane that gave it

@@ -393,3 +393,71 @@ func TestAdoptReplaysHistoryIntoText(t *testing.T) {
 		t.Fatalf("history ends with %q, want old %d", got, last)
 	}
 }
+
+// parserDataLen is how much payload the emulator's parser keeps room for,
+// or -1 when the emulator no longer has the shape shrinkParserData knows.
+func parserDataLen(e *vt.Emulator) int {
+	f := reflect.ValueOf(e).Elem().FieldByName("parser")
+	if !f.IsValid() || f.Type() != reflect.TypeFor[*ansi.Parser]() {
+		return -1
+	}
+	parser := *(**ansi.Parser)(unsafe.Pointer(f.UnsafeAddr()))
+	d := reflect.ValueOf(parser).Elem().FieldByName("data")
+	if !d.IsValid() {
+		return -1
+	}
+	return d.Len()
+}
+
+// vt.NewEmulator gives every terminal 4 MB for one sequence's payload,
+// allocated whether anything long ever comes: 184 of a real server's 300
+// MB with 46 panes. A pane's parser keeps 64 KB. If this fails after
+// upgrading charmbracelet/x/vt, shrinkParserData needs another way in.
+func TestParserDataIsSmall(t *testing.T) {
+	p := textPane(244, 38)
+	if n := parserDataLen(p.emu); n != parserData {
+		t.Fatalf("the parser keeps room for %d bytes, want %d (-1: the emulator changed shape)", n, parserData)
+	}
+	// What twenty panes of the real server's size hold: the screens, not
+	// twenty idle 4 MB buffers.
+	used := heapOf(func() any {
+		var ps []*Pane
+		for i := 0; i < 20; i++ {
+			ps = append(ps, textPane(244, 38))
+		}
+		return ps
+	})
+	if limit := uint64(20 * 3 << 20); used > limit {
+		t.Errorf("20 panes hold %d MB, want under %d", used>>20, limit>>20)
+	}
+	t.Logf("20 panes: %.1f MB", float64(used)/(1<<20))
+}
+
+// The payloads conch reads still arrive whole, and one longer than the
+// buffer is cut short without the terminal losing its place.
+func TestParserDataStillReadsPayloads(t *testing.T) {
+	p := textPane(80, 5)
+	long := "https://example.com/" + strings.Repeat("a", 4000)
+	p.feed(ansi.SetHyperlink(long) + "link" + ansi.ResetHyperlink() + "\r\n" + numbered(0, 6, 10))
+	if !strings.Contains(p.hist[0], long) {
+		t.Fatalf("a 4 KB link was not kept whole: %.120q", p.hist[0])
+	}
+
+	// A title of 200 KB, an image's worth of APC, and then ordinary
+	// output, a link and a title: all read as before.
+	p = textPane(80, 5)
+	p.feed("\x1b]2;" + strings.Repeat("t", 200_000) + "\x07")
+	p.feed("\x1b_G" + strings.Repeat("A", 300_000) + "\x1b\\")
+	p.feed("after\r\n" + ansi.SetHyperlink("https://example.com") + "x" + ansi.ResetHyperlink() + "\x1b]2;short\x07")
+	f := p.Frame()
+	text := ansi.Strip(strings.Join(f.Lines, "\n"))
+	if !strings.Contains(text, "after") || strings.Contains(text, "ttt") || strings.Contains(text, "AAA") {
+		t.Fatalf("after long payloads the screen reads:\n%s", text)
+	}
+	if !strings.Contains(strings.Join(f.Lines, ""), "https://example.com") {
+		t.Error("a link after a long payload was lost")
+	}
+	if n := parserDataLen(p.emu); n != parserData {
+		t.Errorf("a long payload grew the buffer to %d", n)
+	}
+}
