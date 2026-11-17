@@ -277,3 +277,24 @@ func TestA4TicketAll(t *testing.T) {
 		t.Fatalf("older server: %v", err)
 	}
 }
+
+// TestDoingWords: each state in words, and a "pr" that names no pull
+// request (a server that sent none) said rather than a panic.
+func TestDoingWords(t *testing.T) {
+	for _, c := range []struct {
+		d    proto.TicketDoing
+		want string
+	}{
+		{proto.TicketDoing{}, ""},
+		{proto.TicketDoing{State: proto.DoingPR}, "PR open"},
+		{proto.TicketDoing{State: proto.DoingPR, PR: &proto.PRInfo{Number: 7}}, "PR #7"},
+		{proto.TicketDoing{State: proto.DoingPR, PR: &proto.PRInfo{Number: 7, Checks: "pass"}}, "PR #7 · CI pass"},
+		{proto.TicketDoing{State: proto.DoingWaiting, Pane: "p2"}, "waiting on you (p2)"},
+		{proto.TicketDoing{State: proto.DoingMerged}, "merged"},
+		{proto.TicketDoing{State: "something newer"}, ""},
+	} {
+		if got := doingWords(c.d); got != c.want {
+			t.Errorf("doingWords(%+v) = %q, want %q", c.d, got, c.want)
+		}
+	}
+}

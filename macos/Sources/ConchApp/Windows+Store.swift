@@ -36,6 +36,18 @@ final class AppWindows {
         showing.first { $0.mainWindow?.isKeyWindow == true } ?? showing.first ?? stores.first
     }
 
+    /// The main window last in front, for a window of the app's own (Tickets,
+    /// Integrations) to act in: by z-order, which keyStore cannot tell when
+    /// that other window has the keyboard — and never Settings or the
+    /// System Monitor, which a search of NSApp.windows by title found.
+    var frontStore: Store? {
+        let on = showing
+        for w in NSApp.orderedWindows {
+            if let s = on.first(where: { $0.mainWindow === w }) { return s }
+        }
+        return keyStore
+    }
+
     /// The other window on screen that shows pane k.
     func holder(of k: String, except s: Store) -> Store? {
         let others = showing.filter { $0 !== s }

@@ -75,7 +75,12 @@ type cliRegistry struct {
 func (r *cliRegistry) publish(t *testing.T, src string, version int, hosts integration.Hosts) {
 	t.Helper()
 	sum := sha256.Sum256([]byte(src))
-	e := integration.Entry{Kind: "ci", Name: "acme-ci", Label: "Acme CI", Version: version, Format: 3, KeyEnv: "ACME_TOKEN",
+	// The variables are the file's, as the registry's index lists them.
+	keyEnv, userEnv := "ACME_TOKEN", ""
+	if f, _, err := integration.Parse([]byte(src)); err == nil {
+		keyEnv, userEnv = f.KeyEnv, f.Auth.UserEnv
+	}
+	e := integration.Entry{Kind: "ci", Name: "acme-ci", Label: "Acme CI", Version: version, Format: 3, KeyEnv: keyEnv, UserEnv: userEnv,
 		File: "integrations/acme-ci.toml", SHA256: hex.EncodeToString(sum[:]), Hosts: hosts}
 	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{e}})
 	r.mu.Lock()
@@ -598,9 +603,14 @@ func TestIntegrationIcons(t *testing.T) {
 			{"kind": "ci", "name": "circleci", "label": "CircleCI", "version": 1, "hosts": map[string]string{"api": "circleci.com"}, "icon": "icons/circleci.svg", "icon_sha256": good},
 			{"kind": "ci", "name": "badicon", "label": "Bad", "version": 1, "hosts": map[string]string{"api": "x.dev"}, "icon": "icons/badicon.svg", "icon_sha256": strings.Repeat("0", 64)},
 			{"kind": "ci", "name": "noicon", "label": "None", "version": 1, "hosts": map[string]string{"api": "y.dev"}},
+		},
+		// Listed but not installable yet: shown in the catalog, so drawn.
+		"disabled": []map[string]any{
+			{"kind": "sandbox", "name": "darkbox", "label": "Darkbox", "version": 1, "hosts": map[string]string{"api": "dark.dev"}, "icon": "icons/darkbox.svg", "icon_sha256": good},
 		}})
 	reg.mu.Lock()
 	reg.files["index.json"], reg.files["icons/circleci.svg"], reg.files["icons/badicon.svg"] = ix, []byte(svg), []byte(svg)
+	reg.files["icons/darkbox.svg"] = []byte(svg)
 	reg.mu.Unlock()
 	out, _, err := a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
 	var got iconsJSON
@@ -612,6 +622,9 @@ func TestIntegrationIcons(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(got.Icons["circleci"]); string(b) != svg {
 		t.Fatalf("circleci's icon %q", got.Icons["circleci"])
+	}
+	if b, _ := os.ReadFile(got.Icons["darkbox"]); string(b) != svg {
+		t.Fatalf("a disabled entry's icon %q", got.Icons["darkbox"])
 	}
 	if _, ok := got.Icons["badicon"]; ok || len(got.Problems) != 1 || !strings.Contains(got.Problems[0], "badicon") {
 		t.Fatalf("a bad icon: %+v", got)
@@ -625,14 +638,14 @@ func TestIntegrationIcons(t *testing.T) {
 	if json.Unmarshal([]byte(out), &got) != nil || !got.Cached || got.Icons["circleci"] == "" || len(got.Kinds) != 2 {
 		t.Fatalf("offline: %s", out)
 	}
-	// An index from before kinds: conch's own five.
+	// An index from before kinds: conch's own seven, deploy previews and import among them.
 	t.Setenv("CONCH_HOME", t.TempDir())
 	reg.mu.Lock()
 	reg.files["index.json"] = []byte(`{"format":2,"entries":[]}`)
 	reg.mu.Unlock()
 	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
 	got = iconsJSON{}
-	if json.Unmarshal([]byte(out), &got) != nil || len(got.Kinds) != 5 || got.Kinds[3].Kind != "sandbox" {
+	if json.Unmarshal([]byte(out), &got) != nil || len(got.Kinds) != 7 || got.Kinds[3].Kind != "sandbox" || got.Kinds[4].Label != "Deploy previews" || got.Kinds[6].Kind != "import" {
 		t.Fatalf("no kinds: %s", out)
 	}
 }
@@ -656,7 +669,14 @@ func TestSandboxKeyInTheKeychain(t *testing.T) {
 	// Opened as the server opens it: the Keychain is asked when nothing
 	// else has the key.
 	old := sandbox.KeyLookup
-	t.Cleanup(func() { sandbox.KeyLookup = old })
+	t.Cleanup(func() {
+		sandbox.KeyLookup = old
+		// The key read here stays cached for a while: no later test may
+		// find it.
+		keychainCache.Lock()
+		keychainCache.m = nil
+		keychainCache.Unlock()
+	})
 	sandbox.KeyLookup = keychainKey
 	p, err := sandbox.Open("daytona", config.SandboxCfg{})
 	if err != nil || !errors.Is(p.Check(), sandbox.ErrNotConfigured) {

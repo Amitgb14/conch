@@ -71,6 +71,7 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
+  conch server heap [-json]     write the server's heap and goroutines to files, and say its memory
   conch status [-wide] [-json] [-team NAME]
                                 show server and pane status, with the host a terminal is on with ssh;
                                 fitted to the terminal (-wide: every column, as piped); BACKGROUND
@@ -212,8 +213,10 @@ Usage:
                                 without -y
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
                                 in its worktree with it), as f in the review queue: GitHub
-                                Actions, else the project's CI integration (CircleCI, GitLab CI)
-  conch branch rerun-ci         re-run what failed in a branch's newest failed CI run
+                                Actions, else the project's CI integration (CircleCI, GitLab CI),
+                                else its deploy's failed build; -source vercel [-deploy ID]
+                                sends that deploy's build
+  conch branch rerun-ci         re-run what failed in a branch's CI (every Actions workflow red at its head)
   conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
                                 FILE[:LINE] NOTE, rm ID, send [-agent A] them to it, or
@@ -262,8 +265,8 @@ Usage:
                                 check a provider of yours with your key, then propose it to the registry
                                 as a pull request through gh (your key is never part of it)
   conch integration search [-json] [KIND|WORDS]
-                                CI services, trackers (tickets) and webhooks (notify) conch can
-                                talk to, from the registries
+                                CI services, trackers (tickets), webhooks (notify) and deploy
+                                previews conch can talk to, from the registries
                                 (each a file describing an API, never code)
   conch integration info [-json] NAME
                                 what it does in conch, where your key goes, who wrote it
@@ -271,12 +274,25 @@ Usage:
                                 says the hosts your key goes to first, checks the file's hash,
                                 asks for the key (kept in the Keychain on a Mac) and checks it here:
                                 a CI's runs, a tracker's tickets, a test message for a webhook
+  conch integration key [-stdin] [-base URL] [-cwd DIR] NAME
+                                give an integration, shipped or installed, its key: without echo,
+                                kept in the Keychain on a Mac (elsewhere it says the variable)
   conch integration ls [-json] [-cwd DIR]
                                 every integration here — built in, shipped, installed — its key's
                                 state and whether this project uses it
   conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide | icons [-json]
                                 take newer versions (new hosts always asked), delete one, check a
                                 file, or print the format to write one
+  conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]
+                                a branch's deploys on Vercel or Netlify (a deploy integration):
+                                state, preview link, why one failed
+  conch integration deploy-log [-lines N] [-cwd DIR] [NAME] DEPLOY | redeploy [-cwd DIR] [NAME] DEPLOY
+                                the end of a deploy's build log, or build it again
+  conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY
+                                release a deploy to production; asks first, -y to skip asking
+  conch integration use [-off] [-cwd DIR] NAME
+                                say a project deploys there when its files don't (Vercel linking
+                                the repository from its own dashboard); kept in config.toml
   conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
                                 an agent in a pane of its own reads a service's API docs and writes
                                 NAME.toml; conch checks it, then reads the service with your key once
@@ -391,14 +407,15 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
-  conch import conductor [-db PATH] [-out DIR] [-resumable=false] [-markdown] [-n] [-json]
+  conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-resumable=false] [-markdown] [-n] [-json]
                                 Conductor's conversations, read from its own database (a copy of it,
                                 so an open Conductor is left alone): each Claude one written as a
                                 Claude Code session that claude --resume carries on, anything else
                                 as a handoff document in imports/conductor in conch's folder (-out
                                 for another); -markdown writes the document for every one too,
                                 -resumable=false only the documents. Importing again adds only what
-                                is new; -n says what it would do
+                                is new; -n says what it would do, -ids only those conversations
+                                (Integrations → Import in Conch.app does this)
   conch keys [-bound] [-toml] [-json]
                                 what every key after the prefix does, and which key it is on now
                                 (tmux's list-keys); rebind one under [keys.bind] in config.toml,
@@ -750,6 +767,8 @@ func runServer(args []string) error {
 			defer nc.Close()
 			fmt.Printf("server reloaded: build %s, pid %d (panes kept)\n", nc.Server.Build, nc.Server.PID)
 			return nil
+		case "heap":
+			return runServerHeap(args[1:])
 		default:
 			return unknownSubcommand("server", args[0])
 		}

@@ -32,6 +32,11 @@ final class AppUpdater: ObservableObject {
     weak var store: Store?
     private var timer: Timer?
     private var checking = false
+    /// A relaunch was asked for: the helper that reopens the app starts
+    /// when it really terminates, not before a quit that may be cancelled.
+    private var relaunchOnQuit = RelaunchOnQuit()
+    /// A rollback is putting the previous app in place.
+    private var rollingBack = false
     private let defaults = UserDefaults.standard
 
     private enum Key {
@@ -128,7 +133,7 @@ final class AppUpdater: ObservableObject {
     /// Has the bundle's conch put the release in place of this app. By hand
     /// the app relaunches onto it; unasked it waits for the next launch.
     func install(_ v: String, relaunch: Bool) {
-        guard installing == nil, let bin = conch else { return }
+        guard installing == nil, !rollingBack, let bin = conch else { return }
         installing = v
         sheetFor = nil
         Task {
@@ -137,10 +142,12 @@ final class AppUpdater: ObservableObject {
                 _ = try await runConch(bin, ["app", "update", "install", "-app", bundlePath, v])
                 defaults.set(v, forKey: Key.installed)
                 offer = nil
+                // Said before relaunching: if the quit is cancelled, the bar
+                // offers the relaunch again rather than nothing.
+                installed = v
                 if relaunch {
                     self.relaunch()
                 } else {
-                    installed = v
                     store?.say("Conch \(v) is installed: it runs from the next launch")
                 }
             } catch {
@@ -161,8 +168,12 @@ final class AppUpdater: ObservableObject {
 
     /// Puts back the app the last update replaced, and relaunches onto it.
     func rollBack() {
-        guard let bin = conch else { return }
+        // Not while an install is putting a new app in the same place.
+        guard installing == nil, let bin = conch else { return }
+        guard !rollingBack else { return }
+        rollingBack = true
         Task {
+            defer { rollingBack = false }
             do {
                 _ = try await runConch(bin, ["app", "update", "rollback", "-app", bundlePath])
                 relaunch()
@@ -173,17 +184,23 @@ final class AppUpdater: ObservableObject {
     }
 
     func relaunch() {
+        relaunchOnQuit.ask()
+        NSApp.terminate(nil)
+    }
+
+    /// The quit a relaunch asked for was cancelled (unsaved edits kept):
+    /// the next quit is an ordinary one.
+    func quitCancelled() { relaunchOnQuit.cancelled() }
+
+    /// The app is terminating: start the helper that waits for it to exit
+    /// and opens it again, if a relaunch was asked for.
+    func terminating() {
+        guard relaunchOnQuit.terminating() else { return }
         let argv = relaunchCommand(pid: ProcessInfo.processInfo.processIdentifier, app: bundlePath)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: argv[0])
         p.arguments = Array(argv.dropFirst())
-        do {
-            try p.run()
-        } catch {
-            store?.say("Couldn't relaunch: quit Conch and open it again", .err)
-            return
-        }
-        NSApp.terminate(nil)
+        try? p.run() // nothing left to say a failure in; it opens as usual next time
     }
 
     /// The server reloaded onto this app's conch, keeping its panes.

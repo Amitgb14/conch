@@ -1274,6 +1274,11 @@ func TestAutopilotFreshStartForgetsChecks(t *testing.T) {
 	if s.autopilot.ownCheck("p3") || len(s.autopilot.saved.CheckHeads) != 0 {
 		t.Fatal("a fresh server took a new p3 for the old check")
 	}
+	// Saved only once Run owns the socket (settleFresh), not by New.
+	if !loadAutopilot(dir).ownCheck("p3") {
+		t.Fatal("New wrote the file before the socket was its own")
+	}
+	s.autopilot.settleFresh()
 	if loadAutopilot(dir).ownCheck("p3") {
 		t.Fatal("not saved")
 	}

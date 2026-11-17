@@ -67,9 +67,9 @@ func triaging(s *Server) (proto.PaneInfo, bool) {
 	return proto.PaneInfo{}, false
 }
 
-func writeVerdict(t *testing.T, s *Server, id, raw string) {
+func writeVerdict(t *testing.T, s *Server, id string, issue int, raw string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(s.triageDir(id), verdictFile), []byte(raw), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(s.triageDir(id), verdictFile(issue)), []byte(raw), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -100,7 +100,7 @@ func TestTriageReadsOneIssueAtATimeAndPostsTheVerdict(t *testing.T) {
 		t.Fatalf("%d triaging at once", n)
 	}
 
-	writeVerdict(t, s, p.id, `{"verdict":"ready","size":"S","comment":"**Done means**\n- a test that breaks when 4"}`)
+	writeVerdict(t, s, p.id, 4, `{"verdict":"ready","size":"S","comment":"**Done means**\n- a test that breaks when 4"}`)
 	s.triageOnce()
 	calls := ghLog()
 	if !strings.Contains(calls, "issue comment 4 --body 🤖 **conch triage** · read by claude, which changed nothing") ||
@@ -117,7 +117,7 @@ func TestTriageReadsOneIssueAtATimeAndPostsTheVerdict(t *testing.T) {
 	if r, _ := s.triage.get(p.id, 4); r.Verdict != "ready" || r.Pane != "" || r.Ended.IsZero() {
 		t.Fatalf("record %+v", r)
 	}
-	if _, err := os.Stat(filepath.Join(dir, verdictFile)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, verdictFile(4))); err == nil {
 		t.Fatal("the verdict file was left")
 	}
 
@@ -126,7 +126,7 @@ func TestTriageReadsOneIssueAtATimeAndPostsTheVerdict(t *testing.T) {
 	if info, ok := triaging(s); !ok || info.Name != proto.TriagePrefix+"#5" {
 		t.Fatal("did not go on to #5")
 	}
-	writeVerdict(t, s, p.id, `{"verdict":"maybe","comment":"x"}`)
+	writeVerdict(t, s, p.id, 5, `{"verdict":"maybe","comment":"x"}`)
 	s.triageOnce()
 	if r, _ := s.triage.get(p.id, 5); !strings.Contains(r.Failed, "did not read") || strings.Contains(ghLog(), "issue comment 5") {
 		t.Fatalf("a bad verdict: %+v\n%s", r, ghLog())
@@ -178,7 +178,7 @@ func TestTriageVerdictsAndGivingUp(t *testing.T) {
 	if !ok || info.Name != proto.TriagePrefix+"#7" {
 		t.Fatal("did not read #7")
 	}
-	writeVerdict(t, s, p.id, `{"verdict":"needs-info","comment":"Which part: listing or resuming?"}`)
+	writeVerdict(t, s, p.id, 7, `{"verdict":"needs-info","comment":"Which part: listing or resuming?"}`)
 	s.triageOnce()
 	calls := ghLog()
 	if !strings.Contains(calls, "issue edit 7 --add-label needs-info --remove-label new") || !strings.Contains(calls, "label it again to have it read again") {
@@ -211,6 +211,62 @@ func TestTriageVerdictsAndGivingUp(t *testing.T) {
 	}
 }
 
+// TestTriageStaleVerdictLandsNowhere: an agent left over from an earlier
+// triage — resumed by a restart, or given up on and still writing — shares
+// the checkout with the next one. What it writes is its own issue's and is
+// never posted to the issue being read now.
+func TestTriageStaleVerdictLandsNowhere(t *testing.T) {
+	s, p := afterFixture(t)
+	quietPRs(t, p)
+	setIssues, ghLog := triageGH(t)
+	setIssues(nil, 13, 12)
+	triageOn(s, p.id, false)
+
+	s.triageOnce()
+	info, ok := triaging(s)
+	if !ok || info.Name != proto.TriagePrefix+"#12" {
+		t.Fatalf("not reading #12: %+v", s.list())
+	}
+	s.close(info.ID)
+	a5WaitFor(t, "the agent gone", func() bool { _, ok := triaging(s); return !ok })
+	s.triageOnce()
+	if r, _ := s.triage.get(p.id, 12); r.Failed == "" {
+		t.Fatalf("#12: %+v", r)
+	}
+
+	// Left in the checkout before #13 starts: cleared, whatever the name.
+	dir := s.triageDir(p.id)
+	stale := `{"issue":12,"verdict":"ready","comment":"STALE #12"}`
+	for _, f := range []string{".conch-triage.json", verdictFile(12), verdictFile(13)} {
+		os.WriteFile(filepath.Join(dir, f), []byte(stale), 0o644)
+	}
+	s.triageOnce()
+	if info, ok := triaging(s); !ok || info.Name != proto.TriagePrefix+"#13" {
+		t.Fatal("did not go on to #13")
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".conch-triage*.json")); len(left) != 0 {
+		t.Fatalf("stale verdicts left: %v", left)
+	}
+
+	// While #13 is read, the orphan writes #12's verdict where it was
+	// told, and where an older build told it: #13 reads neither.
+	writeVerdict(t, s, p.id, 12, stale)
+	os.WriteFile(filepath.Join(dir, ".conch-triage.json"), []byte(stale), 0o644)
+	s.triageOnce()
+	if _, ok := triaging(s); !ok {
+		t.Fatal("#13 was finished by #12's verdict")
+	}
+	// Nor a verdict naming #12 in #13's own file.
+	writeVerdict(t, s, p.id, 13, stale)
+	s.triageOnce()
+	if r, _ := s.triage.get(p.id, 13); !strings.Contains(r.Failed, "about #12, not #13") {
+		t.Fatalf("#13: %+v", r)
+	}
+	if strings.Contains(ghLog(), "STALE") || strings.Contains(ghLog(), "issue comment 13") {
+		t.Fatalf("a stale verdict was posted:\n%s", ghLog())
+	}
+}
+
 func TestTriageCommentOnly(t *testing.T) {
 	s, p := afterFixture(t)
 	quietPRs(t, p)
@@ -218,7 +274,7 @@ func TestTriageCommentOnly(t *testing.T) {
 	setIssues(nil, 2)
 	triageOn(s, p.id, true)
 	s.triageOnce()
-	writeVerdict(t, s, p.id, `{"verdict":"too-big","comment":"Split: the API, then the UI."}`)
+	writeVerdict(t, s, p.id, 2, `{"verdict":"too-big","comment":"Split: the API, then the UI."}`)
 	s.triageOnce()
 	calls := ghLog()
 	if !strings.Contains(calls, "issue comment 2") || strings.Contains(calls, "issue edit") || strings.Contains(calls, "label create") {
@@ -250,7 +306,7 @@ func TestTriageText(t *testing.T) {
 	}
 	big := strings.Repeat("é", maxIssueBody)
 	pr := triagePrompt(ghx.Issue{Number: 12, Title: "Make sessions faster", Body: big}, "/tmp/t/.conch-triage.json")
-	for _, want := range []string{"Triage GitHub issue #12", "You only read", "Make sessions faster", "/tmp/t/.conch-triage.json", `"verdict": "ready" | "needs-info" | "too-big"`, "the rest of the issue is on GitHub"} {
+	for _, want := range []string{"Triage GitHub issue #12", "You only read", "Make sessions faster", "/tmp/t/.conch-triage.json", `{"issue": 12, "verdict": "ready" | "needs-info" | "too-big"`, "the rest of the issue is on GitHub"} {
 		if !strings.Contains(pr, want) {
 			t.Fatalf("prompt lacks %q", want)
 		}

@@ -179,8 +179,9 @@ func New(sockPath, configDir string) *Server {
 	s.uploads.filesOn = s.filesOn
 	s.packs = newPacks(configDir)
 	s.sshFiles = newSSHFiles()
-	// A reload keeps the panes, so their runs are not interrupted.
-	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
+	// A reload keeps the panes, so their runs are not interrupted. Read
+	// only: Run writes it back once the socket is this server's.
+	s.runs = readRunLog(configDir, os.Getenv(reloadStateEnv) != "")
 	return s
 }
 
@@ -210,6 +211,10 @@ func (s *Server) Run() error {
 			return ErrAlreadyRunning
 		}
 	}
+	// The run log and the autopilot's checks are this server's now; until
+	// here they were the live one's.
+	s.runs.settle()
+	s.autopilot.settleFresh()
 
 	exe, err := buildinfo.Executable()
 	if err != nil {
@@ -458,13 +463,14 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true, proto.MethodBranchPreviews: true, proto.MethodBranchDeployLog: true, proto.MethodBranchRedeploy: true, proto.MethodBranchPromote: true,
 	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodBranchStale: true, proto.MethodBranchPrune: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
 	proto.MethodWorktreePackRead: true, proto.MethodWorktreeUnpack: true, proto.MethodProjectClone: true, proto.MethodProjectBundle: true, proto.MethodProjectUnbundle: true,
 	proto.MethodFSDownload: true, proto.MethodFSDownloadRead: true,
 	proto.MethodSystemStats: true, // ps, vm_stat
+	proto.MethodServerHeap:  true, // a garbage collection and two files
 	proto.MethodFSSearch:    true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
@@ -1277,6 +1283,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
 
+	case proto.MethodServerHeap:
+		h, err := s.heapSnapshot(filepath.Join(s.configDir, "debug"), time.Now())
+		if err != nil {
+			return nil, &proto.Error{Code: proto.ErrInternal, Message: err.Error()}
+		}
+		return h, nil
+
 	case proto.MethodSystemStats:
 		sp, perr := decode[proto.SystemStatsParams](msg)
 		if perr != nil {
@@ -1658,6 +1671,34 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.branchCIRerun(lp)
+
+	case proto.MethodBranchPreviews:
+		lp, perr := decode[proto.BranchCILogParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchPreviews(lp)
+
+	case proto.MethodBranchDeployLog:
+		dp, perr := decode[proto.BranchDeployParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchDeployLog(dp)
+
+	case proto.MethodBranchRedeploy:
+		dp, perr := decode[proto.BranchDeployParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchRedeploy(dp)
+
+	case proto.MethodBranchPromote:
+		dp, perr := decode[proto.BranchDeployParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchPromote(dp)
 
 	case proto.MethodBranchGit:
 		gp, perr := decode[proto.BranchGitParams](msg)

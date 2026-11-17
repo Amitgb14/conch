@@ -59,6 +59,7 @@ public enum ProjectIntegrations {
         case .tickets: return "Tickets"
         case .sandbox: return "Sandboxes"
         case .notify: return "Notifications"
+        case .deploy: return "Deploy previews"
         }
     }
 
@@ -70,6 +71,7 @@ public enum ProjectIntegrations {
         case .tickets: return "Linear, Jira, GitHub Issues…"
         case .sandbox: return "Daytona, E2B, boat.dev…"
         case .notify: return "Slack, Discord, ntfy…"
+        case .deploy: return "Vercel, Netlify…"
         }
     }
 
@@ -110,7 +112,7 @@ public enum ProjectIntegrations {
         }
     }
 
-    /// What ticking "Save in .conch/integrations.toml for the team" writes:
+    /// What ticking "Save in .conch/integrations.toml for the Team" writes:
     /// the names of what the project uses that something here reads, and
     /// whatever the repository's file already lists, which saving must not
     /// drop — a name, never a key. Sandboxes are this computer's, not the
@@ -135,5 +137,36 @@ public enum ProjectIntegrations {
         let labels = names.map { IntegrationCatalog.labels[$0] ?? $0 }
         let list = labels.count == 1 ? labels[0] : labels.dropLast().joined(separator: ", ") + " and " + labels.last!
         return "This repository's \(t.path) says it uses \(list). Use \(labels.count == 1 ? "it" : "them")?"
+    }
+}
+
+/// A project's switch for one deploy integration installed here: whether
+/// the project deploys there. A service that links the repository from its
+/// own side (Vercel's dashboard) leaves no file conch could find, so the
+/// person says so; a use the project's files or checks show is fixed.
+public struct DeploySwitch: Equatable, Identifiable, Sendable {
+    public var name: String
+    public var label: String
+    public var on: Bool
+    /// Why it is on and can't be switched off here: "found vercel.json".
+    public var fixed: String?
+    public var id: String { name }
+    public var words: String { "\(label) deploys this project" }
+}
+
+extension ProjectIntegrations {
+    /// One switch per deploy integration installed here, in its order.
+    public static func deploySwitches(_ d: IntegrationDetect?, installed: IntegrationList?) -> [DeploySwitch] {
+        (installed?.integrations ?? []).filter { $0.kind == IntegrationKind.deploy.rawValue }.map { h in
+            let use = d?.integrations.first { $0.name == h.name }
+            let label = h.label ?? use?.label ?? (h.name.prefix(1).uppercased() + h.name.dropFirst())
+            let chosen = use?.why == "chosen for this project"
+            return DeploySwitch(name: h.name, label: label, on: use != nil, fixed: use != nil && !chosen ? "found \(use!.why)" : nil)
+        }
+    }
+
+    /// The conch command a switch runs: `conch integration use`.
+    public static func useArguments(name: String, on: Bool, dir: String) -> [String] {
+        ["integration", "use"] + (on ? [] : ["-off"]) + ["-cwd", dir, name]
     }
 }

@@ -66,10 +66,15 @@ public struct IntegrationListed: Decodable, Equatable, Sendable {
     public var capabilities: IntegrationCapabilities?
     /// Listed and not installable yet: a sandbox provider with no ssh.
     public var off: Bool?
+    /// Why this conch cannot use it: a kind it has no code for, or an
+    /// import whose reader it lacks or has an older version of.
+    public var needsNewer: String?
+    /// An import's files found on this Mac.
+    public var found: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case kind, name, label, builtin, version, hosts, operations, tier, checked, revoked, installs, note, signed, capabilities, off
-        case keyEnv = "key_env", userEnv = "user_env"
+        case kind, name, label, builtin, version, hosts, operations, tier, checked, revoked, installs, note, signed, capabilities, off, found
+        case keyEnv = "key_env", userEnv = "user_env", needsNewer = "needs_newer"
     }
 
     /// Why this version is revoked, nil when it is not.
@@ -121,12 +126,24 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     public var capabilities: IntegrationCapabilities?
     /// Listed and not installable yet: a sandbox provider with no ssh.
     public var off: Bool?
+    /// An import's: the reader in conch that reads it, where it reads,
+    /// the files of it found on this Mac, and why this conch cannot.
+    public var reader: String?
+    public var minReader: Int?
+    public var path: String?
+    public var found: [String]?
+    public var needsNewer: String?
 
     enum CodingKeys: String, CodingKey {
         case name, label, kind, source, installed, builtin, registry, version, signed, tier, checked, revoked, hosts, scopes, note, docs, sha256, installs, adapted, capabilities, off
+        case reader, path, found
         case doesList = "does"
         case keyEnv = "key_env", userEnv = "user_env", authType = "auth_type", baseURL = "base_url", keyHelp = "key_help", keySet = "key_set", adaptedBy = "adapted_by"
+        case minReader = "min_reader", needsNewer = "needs_newer"
     }
+
+    /// Another app's conversations, read on this Mac: no key, no host.
+    public var isImport: Bool { kind == IntegrationKindInfo.importKind }
 
     /// The sha256 as the page shows it: its ends.
     public var shortHash: String? {
@@ -138,7 +155,7 @@ public struct IntegrationInfo: Decodable, Equatable, Sendable {
     /// that takes a key, Install for one not here; nothing for a built-in
     /// with no key of conch's (GitHub's, through gh), or a revoked one.
     public var offersKey: Bool {
-        revoked == nil && off != true && !(builtin == true && keyEnv.isEmpty)
+        revoked == nil && off != true && !isImport && !(builtin == true && keyEnv.isEmpty)
     }
 
     /// A sandbox provider: installed by the sandbox installer, its key
@@ -187,14 +204,15 @@ public struct IntegrationTeam: Decodable, Equatable, Sendable {
 
 /// The kinds, in the sidebar's order, with how people write them.
 public enum IntegrationKind: String, CaseIterable, Sendable {
-    case host, ci, tickets, sandbox, notify
+    case host, ci, tickets, sandbox, notify, deploy
     public var title: String {
         switch self {
-        case .host: return "Code hosts"
+        case .host: return "Code Hosts"
         case .ci: return "CI"
-        case .tickets: return "Ticket trackers"
+        case .tickets: return "Ticket Trackers"
         case .sandbox: return "Sandboxes"
         case .notify: return "Notifications"
+        case .deploy: return "Deploy previews"
         }
     }
     /// The one line under a section's heading: what the kind is for in conch.
@@ -205,6 +223,7 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
         case .tickets: return "tickets to tasks, intake"
         case .sandbox: return "machines in the cloud for agents"
         case .notify: return "agent waiting, done, merged — elsewhere"
+        case .deploy: return "a branch's preview, failed builds to agents, release to production"
         }
     }
 }
@@ -222,7 +241,12 @@ public struct IntegrationKindInfo: Decodable, Equatable, Hashable, Sendable {
         self.about = about
     }
     /// Whether this conch reads integrations of this kind.
-    public var known: Bool { IntegrationKind(rawValue: kind) != nil }
+    public var known: Bool { IntegrationKind(rawValue: kind) != nil || kind == Self.importKind }
+
+    /// Another app whose conversations conch brings in. Not one of
+    /// IntegrationKind's: a project uses none, so its sheet has no row.
+    public static let importKind = "import"
+    static let importInfo = IntegrationKindInfo(kind: importKind, label: "Import", about: "other apps whose conversations conch can bring in")
 }
 
 /// The registry's kinds and each integration's icon, downloaded and
@@ -271,8 +295,16 @@ public struct IntegrationCard: Equatable, Identifiable, Sendable {
     /// card a detection points to, drawn with the accent and a primary
     /// Install.
     public var wanted: Bool
+    /// What its file can do, and the one host its key goes to, from the
+    /// registry: a deploy card lists them, as the deploy mock does.
+    public var operations: [String] = []
+    public var host: String = ""
+    /// Why a project here is thought to use it: "vercel.json".
+    public var found: String?
     /// Listed and not installable yet: a sandbox provider with no ssh.
     public var off: Bool = false
+    /// Why this conch cannot use it ("needs a newer conch"), nil when it can.
+    public var needsNewer: String? = nil
     public var id: String { name }
 
     public var community: Bool { source != "built in" && source != "ships with conch" && standing == .notChecked }
@@ -300,8 +332,16 @@ public enum IntegrationCatalog {
             return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "notify":
             return operations.contains("send") ? "Agent waiting, done and merged, sent there by conch's server." : ""
+        case "deploy":
+            var parts = operations.contains("previews") ? ["A branch's preview link"] : []
+            if operations.contains("failed_log") { parts.append("its failed build's log to the agent") }
+            if operations.contains("redeploy") { parts.append("redeploy") }
+            if operations.contains("promote") { parts.append("release to production (asks first)") }
+            return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "ci":
             break
+        case IntegrationKindInfo.importKind:
+            return "Its conversations, brought into conch as handoffs an agent can carry on from."
         default:
             return ""
         }
@@ -351,7 +391,12 @@ public enum IntegrationCatalog {
                                        auth: authWord(userEnv: entry?.userEnv ?? (h.name == "jenkins" ? "JENKINS_USER" : nil), builtIn: builtIn, name: h.name),
                                        summary: builtIn ? (builtInSummary[h.name] ?? entry?.note ?? "")
                                            : entry.map { summary(kind: $0.kind, operations: $0.operations ?? $0.capabilities?.operations ?? [], capabilities: $0.capabilities) } ?? "",
-                                       usedIn: usedIn(h.name), wanted: !builtIn && wantedNow(h.name)))
+                                       usedIn: usedIn(h.name), wanted: !builtIn && wantedNow(h.name), needsNewer: entry?.needsNewer))
+            if h.kind == IntegrationKindInfo.importKind {
+                out[out.count - 1].summary = importSummary(found: h.state == "found on this machine", state: h.state)
+                out[out.count - 1].wanted = h.state == "found on this machine"
+                if h.state == "needs a newer conch" { out[out.count - 1].needsNewer = h.state }
+            }
         }
         for e in listed where !seen.contains(e.name) {
             seen.insert(e.name)
@@ -368,9 +413,30 @@ public enum IntegrationCatalog {
                                        installed: false, builtIn: false, standing: standing,
                                        auth: authWord(e),
                                        summary: summary(kind: e.kind, operations: e.operations ?? e.capabilities?.operations ?? [], capabilities: e.capabilities),
-                                       usedIn: usedIn(e.name), wanted: e.off != true && wantedNow(e.name), off: e.off == true))
+                                       usedIn: usedIn(e.name), wanted: e.off != true && wantedNow(e.name), off: e.off == true, needsNewer: e.needsNewer))
+            if e.kind == IntegrationKindInfo.importKind {
+                let here = !(e.found ?? []).isEmpty
+                out[out.count - 1].summary = importSummary(found: here, state: nil)
+                // Found here and readable: the card to press, before its app goes.
+                out[out.count - 1].wanted = here && e.needsNewer == nil
+            }
+        }
+        // What the registry says of each, and why a project here uses it.
+        for i in out.indices {
+            if let e = listed.first(where: { $0.name == out[i].name }) {
+                out[i].operations = e.operations ?? []
+                out[i].host = e.hosts.api
+            }
+            out[i].found = uses.keys.sorted().lazy.compactMap { uses[$0]?.first(where: { projectUse($0, out[i].name) })?.why }.first
         }
         return out
+    }
+
+    /// An import card's words: whether the app's conversations are here.
+    static func importSummary(found: Bool, state: String?) -> String {
+        if found { return "Found on this Mac. Its conversations, brought into conch as handoffs an agent can carry on from." }
+        if let s = state, s.hasPrefix("not on ") { return "Not for this computer: the app ran on another kind." }
+        return "Not found on this Mac."
     }
 
     /// What an empty list says: a search that found nothing, else why
@@ -395,10 +461,14 @@ public enum IntegrationCatalog {
     ]
 
     /// The kinds the sidebar lists, in order: the registry's, else conch's
-    /// own five (a conch whose registry predates kinds, or that has not
+    /// own five and Import (a conch whose registry predates kinds, or that has not
     /// read it yet), then any kind a card has that neither names.
     public static func kinds(_ registry: [IntegrationKindInfo]?, cards: [IntegrationCard]) -> [IntegrationKindInfo] {
-        var out = registry?.isEmpty == false ? registry! : IntegrationKind.allCases.map { IntegrationKindInfo(kind: $0.rawValue, label: $0.title, about: $0.purpose) }
+        // The registry says them in sentence case ("Code hosts"); the app's
+        // own names are in Title Case.
+        var out = registry?.isEmpty == false
+            ? registry!.map { IntegrationKindInfo(kind: $0.kind, label: titleCase($0.label), about: $0.about) }
+            : IntegrationKind.allCases.map { IntegrationKindInfo(kind: $0.rawValue, label: $0.title, about: $0.purpose) } + [IntegrationKindInfo.importInfo]
         for k in cards.map(\.kind) where !out.contains(where: { $0.kind == k }) {
             out.append(IntegrationKindInfo(kind: k, label: k.prefix(1).uppercased() + k.dropFirst()))
         }
@@ -435,17 +505,17 @@ public enum IntegrationCatalog {
         var out: [String] = []
         for project in uses.keys.sorted() {
             for u in uses[project] ?? [] where found(u) {
-                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : "builds on"
+                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : u.kind == "deploy" ? "deploys to" : "builds on"
                 out.append("\(project) \(verb) \(u.label) (\(u.why))")
             }
         }
         return out
     }
 
-    /// Whether a use is one the banner names: a CI, host or tracker with
-    /// no key or nothing here to read it.
+    /// Whether a use is one the banner names: a CI, host, tracker or
+    /// deploy service with no key or nothing here to read it.
     static func found(_ u: IntegrationUse) -> Bool {
-        ["ci", "host", "tickets"].contains(u.kind) && (u.installed != true || u.connected != true)
+        ["ci", "host", "tickets", "deploy"].contains(u.kind) && (u.installed != true || u.connected != true)
     }
 
     /// The names the banner's Show button filters to.
@@ -496,6 +566,38 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
         var s = "Your \(info.label) key will be sent to \(api) only."
         if let f = info.hosts.follow, !f.isEmpty { s += " Logs are read from \(f.joined(separator: ", ")) without it." }
         return s
+    }
+
+    /// Step 3 before it runs: where the one read-only check is made. A
+    /// deploy file finds its project (Vercel) or site (Netlify) by the
+    /// repository it builds from, so the sheet says so.
+    public var checkWords: String {
+        guard let dir = checkIn, !dir.isEmpty else { return "Checked when a project uses it." }
+        let name = (dir as NSString).lastPathComponent
+        if info.kind == IntegrationKind.deploy.rawValue {
+            let what = info.name == "netlify" ? "site" : "project"
+            return "One read-only call against \(name): the \(info.label) \(what) that builds from its repository, and a branch's deploys. Found by the repository it builds from: there is nothing to choose."
+        }
+        return "One read-only call, against \(name)."
+    }
+
+    /// The key's help under its field. Vercel's is a personal account's
+    /// token: a project owned by a team needs a teamId no file can ask for
+    /// yet, so the sheet says so rather than suggest scoping it to one.
+    public var keyHelpWords: String? { info.keyHelpShown }
+
+    /// The check found nothing to read: the key works and is kept, but
+    /// nothing on the service builds from this repository.
+    public var checkWarns: Bool {
+        if case .ok(let s) = check { return s.hasPrefix("the key works, but") }
+        return false
+    }
+
+    /// The deploy mock's "This file can": what a deploy file does, from
+    /// its page's rows that are not "no". Empty for other kinds, whose
+    /// page says it.
+    public var can: [IntegrationFeature] {
+        info.kind == IntegrationKind.deploy.rawValue ? info.does.filter { $0.level != "no" } : []
     }
 
     /// What stops Install, in words; nil when it can be pressed.

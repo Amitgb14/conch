@@ -94,7 +94,7 @@ var compSubcommands = map[string][]compItem{
 		{"button", "press home or back"}, {"run", "build an Xcode app and open it"},
 		{"detect", "what kind of mobile app a folder is"},
 	},
-	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}},
+	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}, {"heap", "write the server's heap profile, and say its memory"}},
 	"agent": {
 		{"status", "which agents are installed"}, {"install", "install an agent"},
 		{"explain", "how a pane's agent state was decided"}, {"prompt", "send an agent a prompt"},

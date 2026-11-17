@@ -74,16 +74,40 @@ func failedRuns(ctx context.Context, dir, branch, head string) ([]Run, error) {
 	return found, nil
 }
 
-// RerunFailed re-runs the failed jobs of the newest failed Actions run on
-// branch, at head when given, and says which run that was.
-func RerunFailed(ctx context.Context, dir, branch, head string) (FailedRun, error) {
+// RerunFailed re-runs the failed jobs of every failed Actions run on branch
+// at head — or, with no head, at the commit of the newest failure — one
+// `gh run rerun --failed` per run, and says which runs those were, newest
+// first. Several workflows fail at one commit (test and lint, say), and
+// re-running only the newest left the rest red. Each workflow's newest
+// failure is the one re-run. The runs re-run are returned even when
+// another could not be, with that error.
+func RerunFailed(ctx context.Context, dir, branch, head string) ([]FailedRun, error) {
 	runs, err := failedRuns(ctx, dir, branch, head)
 	if err != nil {
-		return FailedRun{}, err
+		return nil, err
 	}
-	r := runs[0]
-	if err := Rerun(ctx, dir, r.ID); err != nil {
-		return FailedRun{}, err
+	at := head
+	if at == "" {
+		at = runs[0].Sha
 	}
-	return FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL}, nil
+	var done []FailedRun
+	var errs []error
+	workflows := map[string]bool{}
+	for _, r := range runs {
+		if at != "" && r.Sha != "" && r.Sha != at {
+			continue // an older commit's failure, not this work's
+		}
+		if r.Workflow != "" {
+			if workflows[r.Workflow] {
+				continue
+			}
+			workflows[r.Workflow] = true
+		}
+		if err := Rerun(ctx, dir, r.ID); err != nil {
+			errs = append(errs, fmt.Errorf("run %d (%s): %w", r.ID, r.Workflow, err))
+			continue
+		}
+		done = append(done, FailedRun{ID: r.ID, Workflow: r.Workflow, URL: r.URL})
+	}
+	return done, errors.Join(errs...)
 }

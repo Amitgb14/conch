@@ -90,6 +90,8 @@ func a4Harvest(t *testing.T) (*a4Server, string, *a4Var[map[string]proto.Message
 				{Name: "old-wip", Committed: long(60), Unmerged: 2},
 				{Name: "feat", Committed: long(50), Worktree: wt},
 				{Name: "old-pushed", Committed: long(40), Upstream: "origin/old-pushed", Suggested: true},
+				// Its count could not be made: kept, -force or not.
+				{Name: "old-unknown", Committed: long(35), Unknown: "can't tell what deleting old-unknown would lose: git failed"},
 			}}, nil
 		case proto.MethodBranchPrune:
 			var p proto.BranchPruneParams
@@ -643,6 +645,71 @@ func TestBranchFixCI(t *testing.T) {
 	}
 }
 
+// fix-ci -source sends one deploy's build, read with branch.deploy_log,
+// with the same prompt a failed run gets; -deploy alone is refused.
+func TestBranchFixCIDeploy(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, config.SocketPath())
+	root := t.TempDir()
+	root, _ = filepath.EvalSymlinks(root)
+	wt := filepath.Join(root, "api.worktrees", "feat")
+	os.MkdirAll(wt, 0o755)
+	seen := newA4Var(map[string]proto.Message{})
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		got := seen.Get()
+		got[msg.Method] = msg
+		seen.Set(got)
+		switch msg.Method {
+		case proto.MethodProjectResolve:
+			return proto.ProjectPlace{ProjectID: "api", Root: root, Git: true, Base: "main", Worktree: wt, Branch: "feat"}, nil
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{{ID: "p4", Name: "claude", State: proto.PaneRunning, ProjectID: "api", Branch: "feat",
+				Agent: &proto.AgentStatus{Name: "claude", State: proto.AgentDone}}}}, nil
+		case proto.MethodBranchDeployLog:
+			return proto.BranchCILog{Workflow: "web-app", Job: "deploy dpl_2", Source: "vercel", Service: "Vercel",
+				URL: "https://vercel.com/acme/web-app/dpl_2", Log: "Type error: Property 'annual'"}, nil
+		case proto.MethodAgentPrompt:
+			return proto.AgentPromptResult{ID: "p4", Agent: "claude", Turn: 2}, nil
+		}
+		return nil, proto.Errorf(proto.ErrUnknown, "?")
+	})
+	t.Chdir(wt)
+	out, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci", "-source", "vercel", "-deploy", "dpl_2"}) })
+	if err != nil || !strings.HasPrefix(out, "sent Vercel's failure to ") {
+		t.Fatalf("fix-ci -source: %q %v", out, err)
+	}
+	var dp proto.BranchDeployParams
+	json.Unmarshal(seen.Get()[proto.MethodBranchDeployLog].Params, &dp)
+	if dp.ProjectID != "api" || dp.Branch != "feat" || dp.Source != "vercel" || dp.Deploy != "dpl_2" {
+		t.Fatalf("params %+v", dp)
+	}
+	if _, ok := seen.Get()[proto.MethodBranchCILog]; ok {
+		t.Fatal("asked for the CI log too")
+	}
+	var ap proto.AgentPromptParams
+	json.Unmarshal(seen.Get()[proto.MethodAgentPrompt].Params, &ap)
+	if !strings.Contains(ap.Text, "CI on Vercel (web-app · deploy dpl_2) failed") || !strings.Contains(ap.Text, "Property 'annual'") {
+		t.Fatalf("prompt %q", ap.Text)
+	}
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci", "-deploy", "dpl_2"}) }); err == nil || !strings.Contains(err.Error(), "-source") {
+		t.Fatalf("-deploy alone: %v", err)
+	}
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var kept []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapBranchPreviews {
+				kept = append(kept, c)
+			}
+		}
+		h.Capabilities = kept
+		return h
+	})
+	if _, _, err := a4Out(t, func() error { return runBranch([]string{"fix-ci", "-source", "vercel"}) }); err == nil || !strings.Contains(err.Error(), "predates deploy previews") {
+		t.Fatalf("old server: %v", err)
+	}
+}
+
 // fix-ci names the service a failure came from when the server says;
 // rerun-ci re-runs it, and an older server is told to reload.
 func TestBranchCIFromAnIntegration(t *testing.T) {
@@ -725,6 +792,7 @@ func TestBranchPruneCommand(t *testing.T) {
 		"keeping old-wip (60 days ago): 2 commits not merged or pushed (-force",
 		"keeping feat (50 days ago): checked out in " + wt + "; conch worktree clean",
 		"would delete old-pushed (40 days ago, pushed to origin/old-pushed)",
+		"keeping old-unknown (35 days ago): can't tell what deleting old-unknown would lose",
 		"2 to delete; run again with -y",
 	} {
 		if !strings.Contains(out, want) {
@@ -759,6 +827,11 @@ func TestBranchPruneCommand(t *testing.T) {
 	}
 	if !strings.Contains(out, "keeping fresh: not a local branch older than 30 days") || !strings.Contains(out, "deleted 1 branch") {
 		t.Fatalf("named: %s", out)
+	}
+	// A branch whose loss is unknown is not sent even forced.
+	out, _, err = a4Out(t, func() error { return runBranch([]string{"prune", "-y", "-force", "old-unknown"}) })
+	if err != nil || !strings.Contains(out, "keeping old-unknown") || !strings.Contains(out, "no branches to delete") {
+		t.Fatalf("forced, unknown: %v %s", err, out)
 	}
 
 	if _, _, err := a4Out(t, func() error { return runBranch([]string{"prune", "-days", "-3"}) }); err == nil {

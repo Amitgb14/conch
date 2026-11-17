@@ -350,6 +350,46 @@ esac
 	if rr.Source != "github-actions" || rr.Run != "9" || !strings.Contains(string(b), "run rerun 9 --failed") {
 		t.Fatalf("rerun %+v; gh was run as:\n%s", rr, b)
 	}
+	if len(rr.Runs) != 0 || rr.Note != "" {
+		t.Fatalf("one run is said as one: %+v", rr)
+	}
+}
+
+// Two workflows failed at the head: both run again, not only the newest,
+// and the answer names both. An older commit's failure is left alone.
+func TestCIRerunActionsEveryFailedRun(t *testing.T) {
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	gh := filepath.Join(dir, "gh")
+	os.WriteFile(gh, []byte(`#!/bin/sh
+echo "$*" >> `+calls+`
+case "$1 $2" in
+"pr list") echo '[]' ;;
+"run list") echo '[{"databaseId": 12, "workflowName": "lint", "url": "https://x/runs/12", "headSha": "new", "conclusion": "failure"},
+ {"databaseId": 11, "workflowName": "test", "url": "https://x/runs/11", "headSha": "new", "conclusion": "timed_out"},
+ {"databaseId": 3, "workflowName": "test", "url": "https://x/runs/3", "headSha": "old", "conclusion": "failure"}]' ;;
+"run rerun") exit 0 ;;
+*) exit 7 ;;
+esac
+`), 0o755)
+	t.Setenv("CONCH_GH", gh)
+	t.Setenv("CONCH_HOME", t.TempDir())
+	integration.Forget()
+	t.Cleanup(integration.Forget)
+	c, _, proj := setupRepo(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var rr proto.BranchCIRerun
+	if err := c.Call(ctx, proto.MethodBranchCIRerun, proto.BranchCILogParams{ProjectID: proj.ID, Branch: "main"}, &rr); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(calls)
+	if rr.Run != "12" || strings.Join(rr.Runs, ",") != "12,11" || rr.Note != "" {
+		t.Fatalf("rerun %+v", rr)
+	}
+	if !strings.Contains(string(b), "run rerun 12 --failed") || !strings.Contains(string(b), "run rerun 11 --failed") || strings.Contains(string(b), "run rerun 3 ") {
+		t.Fatalf("gh was run as:\n%s", b)
+	}
 }
 
 // A self-hosted GitLab: the file asks for its address, which config.toml

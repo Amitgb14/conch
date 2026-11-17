@@ -58,6 +58,28 @@ public func cliPaneEnv(_ env: [String: String] = conchEnvironment()) -> [String]
 
 /// Runs conch with args and answers what it printed, or why it failed.
 public func runConch(_ binary: String, _ args: [String]) async throws -> Data {
+    try await runCollecting(binary, args, input: nil)
+}
+
+/// Runs conch with args and input on its stdin, and answers what it
+/// printed, or why it failed — `conch commit-message` takes the diff so.
+public func runConch(_ binary: String, _ args: [String], input: Data) async throws -> Data {
+    try await runCollecting(binary, args, input: input)
+}
+
+/// What the two pipes gave; each written by its own reader, read only once
+/// both and the exit are done (the group orders them).
+private final class Collected: @unchecked Sendable {
+    var out = Data()
+    var err = Data()
+}
+
+/// Runs conch, reading stdout and stderr while it runs: a pipe holds 64 KB,
+/// and a child that prints more blocks until somebody reads — reading only
+/// once it had exited left `conch import conductor -n -json` with a hundred
+/// conversations waiting for ever, and the sheet spinning. It answers once
+/// the program has exited and both pipes are at their end, and only once.
+private func runCollecting(_ binary: String, _ args: [String], input: Data?) async throws -> Data {
     try await withCheckedThrowingContinuation { cont in
         let p = Process()
         p.executableURL = URL(fileURLWithPath: binary)
@@ -66,51 +88,39 @@ public func runConch(_ binary: String, _ args: [String]) async throws -> Data {
         let out = Pipe(), err = Pipe()
         p.standardOutput = out
         p.standardError = err
-        p.standardInput = FileHandle.nullDevice
-        p.terminationHandler = { proc in
-            let o = out.fileHandleForReading.readDataToEndOfFile()
-            let e = err.fileHandleForReading.readDataToEndOfFile()
-            if proc.terminationStatus == 0 {
-                cont.resume(returning: o)
-            } else {
-                let msg = String(data: e, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                cont.resume(throwing: ConchError(code: "conch", message: msg.isEmpty ? "conch \(args.joined(separator: " ")) failed" : msg))
-            }
+        let inp: Pipe? = input == nil ? nil : Pipe()
+        if let inp { p.standardInput = inp } else { p.standardInput = FileHandle.nullDevice }
+        let got = Collected()
+        let done = DispatchGroup()
+        done.enter() // the exit
+        p.terminationHandler = { _ in done.leave() }
+        do { try p.run() } catch {
+            cont.resume(throwing: error)
+            return
         }
-        do { try p.run() } catch { cont.resume(throwing: error) }
-    }
-}
-
-/// Runs conch with args and input on its stdin, and answers what it
-/// printed, or why it failed — `conch commit-message` takes the diff so.
-public func runConch(_ binary: String, _ args: [String], input: Data) async throws -> Data {
-    try await withCheckedThrowingContinuation { cont in
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: binary)
-        p.arguments = args
-        p.environment = conchEnvironment()
-        let out = Pipe(), err = Pipe(), inp = Pipe()
-        p.standardOutput = out
-        p.standardError = err
-        p.standardInput = inp
-        p.terminationHandler = { proc in
-            let o = out.fileHandleForReading.readDataToEndOfFile()
-            let e = err.fileHandleForReading.readDataToEndOfFile()
-            if proc.terminationStatus == 0 {
-                cont.resume(returning: o)
-            } else {
-                let msg = String(data: e, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                cont.resume(throwing: ConchError(code: "conch", message: msg.isEmpty ? "conch \(args.joined(separator: " ")) failed" : msg))
-            }
+        done.enter()
+        DispatchQueue.global().async {
+            got.out = out.fileHandleForReading.readDataToEndOfFile()
+            done.leave()
         }
-        do {
-            try p.run()
+        done.enter()
+        DispatchQueue.global().async {
+            got.err = err.fileHandleForReading.readDataToEndOfFile()
+            done.leave()
+        }
+        if let inp, let input {
             DispatchQueue.global().async {
-                inp.fileHandleForWriting.write(input)
+                try? inp.fileHandleForWriting.write(contentsOf: input)
                 try? inp.fileHandleForWriting.close()
             }
-        } catch {
-            cont.resume(throwing: error)
+        }
+        done.notify(queue: .global()) {
+            if p.terminationStatus == 0 {
+                cont.resume(returning: got.out)
+            } else {
+                let msg = String(data: got.err, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                cont.resume(throwing: ConchError(code: "conch", message: msg.isEmpty ? "conch \(args.joined(separator: " ")) failed" : msg))
+            }
         }
     }
 }

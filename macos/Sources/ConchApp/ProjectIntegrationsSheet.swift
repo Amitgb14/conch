@@ -9,16 +9,22 @@ import SwiftUI
 /// sheet at the key, Install… its install, Browse… the window at the kind —
 /// and the checkbox that saves the names in .conch/integrations.toml for
 /// the team. The rows are ConchKit's (ProjectIntegrations.swift).
+@MainActor
 final class ProjectIntegrationsWindow {
     private var windows: [String: NSWindow] = [:]
     private var looks: [String: AnyCancellable] = [:]
+    private var closing: [String: NSObjectProtocol] = [:]
     private let integrations: () -> IntegrationsWindow?
 
     init(integrations: @escaping () -> IntegrationsWindow?) { self.integrations = integrations }
 
-    /// The project's sheet, by its key (machine|id), one window each.
-    @MainActor func show(project pk: String, store: Store) {
-        if let w = windows[pk] {
+    /// The project's sheet, by its key (machine|id) and the window's store
+    /// it was opened from, one window each. A closed sheet is forgotten:
+    /// kept, its model held the Store of a window since closed, said "Not
+    /// connected" for ever and kept that Store alive.
+    func show(project pk: String, store: Store) {
+        let id = "\(ObjectIdentifier(store).hashValue)#" + pk
+        if let w = windows[id] {
             (w.contentView as? NSHostingView<ProjectIntegrationsView>)?.rootView.model.load()
             w.makeKeyAndOrderFront(nil)
             return
@@ -32,14 +38,25 @@ final class ProjectIntegrationsWindow {
         let model = ProjectIntegrationsModel(store: store, machine: m, project: pid, integrations: integrations)
         model.close = { [weak w] in w?.close() }
         w.contentView = NSHostingView(rootView: ProjectIntegrationsView(model: model, look: store.look))
-        looks[pk] = store.look.$theme.sink { [weak w] t in
+        looks[id] = store.look.$theme.sink { [weak w] t in
             w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
             w?.backgroundColor = Theme.ns(t.chrome)
         }
+        closing[id] = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.forget(id) }
+        }
         w.center()
-        windows[pk] = w
+        windows[id] = w
         model.load()
         w.makeKeyAndOrderFront(nil)
+    }
+
+    /// Drops a closed sheet's window, model and the Store it held.
+    private func forget(_ id: String) {
+        windows[id]?.contentView = nil
+        windows[id] = nil
+        looks[id] = nil
+        if let o = closing.removeValue(forKey: id) { NotificationCenter.default.removeObserver(o) }
     }
 }
 
@@ -55,6 +72,9 @@ final class ProjectIntegrationsModel: ObservableObject {
     @Published var loading = false
     /// The team file's question, once per opening.
     @Published var asking: String?
+    /// What this Mac has installed (conch integration ls), for the deploy
+    /// switches.
+    @Published var installed: IntegrationList?
     private var asked = false
 
     init(store: Store, machine: String, project: String, integrations: @escaping () -> IntegrationsWindow?) {
@@ -79,6 +99,10 @@ final class ProjectIntegrationsModel: ObservableObject {
         loading = true
         Task { @MainActor in
             defer { loading = false }
+            if here, installed == nil, let b = store.binary,
+               let out = try? await runConch(b, ["integration", "ls", "-json"]) {
+                installed = try? JSONDecoder().decode(IntegrationList.self, from: out)
+            }
             do {
                 let d = try await c.call("integration.detect", P(project_id: project), as: IntegrationDetect.self)
                 detect = d
@@ -100,6 +124,20 @@ final class ProjectIntegrationsModel: ObservableObject {
             do {
                 detect = try await c.call("integration.team", T(project_id: project, action: action, names: names), as: IntegrationDetect.self)
                 failure = ""
+            } catch {
+                failure = "\(error)"
+            }
+        }
+    }
+
+    /// Turns a deploy integration on or off for this project
+    /// (`conch integration use`, kept in config.toml), then reads it again.
+    func use(_ sw: DeploySwitch, on: Bool) {
+        guard here, let b = store.binary, let dir = store.snapshots[machine]?.project(project)?.path else { return }
+        Task { @MainActor in
+            do {
+                _ = try await runConch(b, ProjectIntegrations.useArguments(name: sw.name, on: on, dir: dir))
+                load()
             } catch {
                 failure = "\(error)"
             }
@@ -135,6 +173,22 @@ struct ProjectIntegrationsView: View {
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.well))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line))
+            let switches = ProjectIntegrations.deploySwitches(model.detect, installed: model.installed)
+            if !switches.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("DEPLOY PREVIEWS FOR THIS PROJECT").font(.ui(size: 10.5, weight: .bold)).foregroundStyle(Theme.muted)
+                    ForEach(switches) { sw in
+                        HStack(spacing: 8) {
+                            Toggle(sw.words, isOn: Binding(get: { sw.on }, set: { model.use(sw, on: $0) }))
+                                .toggleStyle(.switch).controlSize(.small).font(.ui(size: 12.5))
+                                .disabled(sw.fixed != nil || !model.here)
+                            if let f = sw.fixed { Text(f).font(.ui(size: 11.5)).foregroundStyle(Theme.muted) }
+                        }
+                        .help(sw.fixed != nil ? "Its files or checks show it; remove them to stop."
+                              : "For a service that links this repository from its own side, with no file conch can find. Kept in config.toml, [integrations.projects].")
+                    }
+                }
+            }
             if !model.failure.isEmpty {
                 Text(model.failure).font(.ui(size: 12)).foregroundStyle(Theme.warn).textSelection(.enabled)
             }
@@ -143,7 +197,7 @@ struct ProjectIntegrationsView: View {
             }
             HStack {
                 if model.can("integration.team.v1") {
-                    Toggle("Save in .conch/integrations.toml for the team", isOn: Binding(
+                    Toggle("Save in .conch/integrations.toml for the Team", isOn: Binding(
                         get: { ProjectIntegrations.saved(model.detect) },
                         set: { on in model.team(on ? "save" : "remove", names: on ? ProjectIntegrations.teamNames(model.detect) : nil) }))
                         .toggleStyle(.checkbox).font(.ui(size: 12))
@@ -196,6 +250,7 @@ struct ProjectIntegrationsView: View {
         case .tickets: return "⚑"
         case .sandbox: return "▣"
         case .notify: return "✉"
+        case .deploy: return "▲"
         }
     }
 

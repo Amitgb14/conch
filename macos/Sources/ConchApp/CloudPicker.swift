@@ -7,7 +7,7 @@ import SwiftUI
 // signed in, the account's machines and a new one's name and size
 // (ConchKit/CloudPlace.swift decides the defaults).
 
-/// Signed out: "Sign in to use", then the code to approve, as Settings
+/// Signed out: "Sign In to Use", then the code to approve, as Settings
 /// shows it. The sheet goes on by itself once conch says it is signed in.
 struct CloudSignInPrompt: View {
     @ObservedObject var store: Store
@@ -20,7 +20,7 @@ struct CloudSignInPrompt: View {
                 .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             switch store.cloudLogin {
             case .idle, .done:
-                Button("Sign in to use") { store.cloudSignIn() }
+                Button("Sign In to Use") { store.cloudSignIn() }
             case .starting:
                 HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking for a code…").font(.ui(size: 12)) }
             case .code(let code, let link):
@@ -30,14 +30,14 @@ struct CloudSignInPrompt: View {
                     Text("Approve it in your browser…").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                     Spacer()
                     if let l = link, let u = URL(string: l) {
-                        Button("Open the page again") { NSWorkspace.shared.open(u) }.buttonStyle(.link)
+                        Button("Open the Page Again") { NSWorkspace.shared.open(u) }.buttonStyle(.link)
                     }
                     Button("Cancel") { store.cloudCancelSignIn() }
                 }
             case .failed(let why):
                 HStack(spacing: 8) {
                     Text(why).font(.ui(size: 12)).foregroundStyle(Theme.err).fixedSize(horizontal: false, vertical: true)
-                    Button("Try again") { store.cloudLogin = .idle; store.cloudSignIn() }
+                    Button("Try Again") { store.cloudLogin = .idle; store.cloudSignIn() }
                 }
             }
         }

@@ -24,7 +24,8 @@ const maxCILog = 64 << 10
 // hand it to the branch's agent: GitHub Actions through gh on this
 // machine — the one with the checkout and the login — and, when Actions
 // has no failure, the CI integrations the project uses (CircleCI, GitLab
-// CI, …), with their keys from this server's environment or Keychain.
+// CI, …), then its deploy integrations' failed builds (deploy.go), with
+// their keys from this server's environment or Keychain.
 func (pm *projectManager) ciLog(lp proto.BranchCILogParams) (proto.BranchCILog, *proto.Error) {
 	p, perr := pm.gitProject(lp.ProjectID)
 	if perr != nil {
@@ -54,6 +55,14 @@ func (pm *projectManager) ciLog(lp proto.BranchCILogParams) (proto.BranchCILog, 
 		}
 		notes = append(notes, note)
 	}
+	// No CI failed: a failed build of a deploy integration (Vercel,
+	// Netlify) is the branch's failure as much, and its agent is sent it
+	// the same way — by the autopilot, fix-ci and the review queue alike.
+	lg, more := pm.deployFailure(ctx, p, lp.Branch, pr)
+	if more == nil {
+		return lg, nil
+	}
+	notes = append(notes, more...)
 	notes = append(notes, unreadable(pr.Runs)...)
 	if len(notes) == 1 {
 		// Nothing else to say: today's message, word for word.
@@ -78,10 +87,23 @@ func (pm *projectManager) branchCIRerun(lp proto.BranchCILogParams) (proto.Branc
 	p.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	run, err := ghx.RerunFailed(ctx, p.root, lp.Branch, pr.Head)
+	runs, err := ghx.RerunFailed(ctx, p.root, lp.Branch, pr.Head)
 	switch {
+	case len(runs) > 0:
+		// Every workflow that failed at the head runs again, not only the
+		// newest; one that could not is said beside those that did.
+		out := proto.BranchCIRerun{Source: integration.SourceActions, Service: "GitHub Actions", Run: fmt.Sprint(runs[0].ID), URL: runs[0].URL}
+		if len(runs) > 1 {
+			for _, r := range runs {
+				out.Runs = append(out.Runs, fmt.Sprint(r.ID))
+			}
+		}
+		if err != nil {
+			out.Note = err.Error()
+		}
+		return out, nil
 	case err == nil:
-		return proto.BranchCIRerun{Source: integration.SourceActions, Service: "GitHub Actions", Run: fmt.Sprint(run.ID), URL: run.URL}, nil
+		return proto.BranchCIRerun{}, proto.Errorf(proto.ErrNotFound, "no failed GitHub Actions run on %s", lp.Branch)
 	case !errors.Is(err, ghx.ErrNoFailedRun):
 		return proto.BranchCIRerun{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
@@ -127,7 +149,8 @@ func (pm *projectManager) ciFor(ctx context.Context, p *project, branch string, 
 	for _, c := range pr.Runs {
 		if src, ok := integration.CheckSource(c.Name, c.URL, files); ok {
 			for _, f := range files {
-				if f.Name == src {
+				// A deploy file's check is read by deployFor.
+				if f.Name == src && f.Kind == integration.KindCI {
 					use[f.Name] = f
 				}
 			}
@@ -271,6 +294,22 @@ func (pm *projectManager) integrationsOf(projectID string) (proto.IntegrationDet
 			}
 		}
 		out.Integrations = append(out.Integrations, u)
+	}
+	// Deploy integrations the person chose for this project, which its
+	// files do not show ([integrations.projects]).
+	if cfg, err := config.Load(); err == nil {
+		for _, name := range cfg.Integrations.Chosen(p.snapshot().Name, p.root) {
+			for _, f := range files {
+				if f.Name != name || f.Kind != integration.KindDeploy {
+					continue
+				}
+				u := proto.IntegrationUse{Name: f.Name, Label: f.DisplayName(), Kind: f.Kind, Why: "chosen for this project", Installed: true,
+					KeyEnv: f.KeyEnv, Connected: pm.s.trackerSecret(f.KeyEnv) != ""}
+				if i := slices.IndexFunc(out.Integrations, func(o proto.IntegrationUse) bool { return o.Name == name }); i < 0 {
+					out.Integrations = append(out.Integrations, u)
+				}
+			}
+		}
 	}
 	for _, u := range pm.settingsUses(p.snapshot().Name, p.root) {
 		// Settings know a tracker's key and scope better than a name in

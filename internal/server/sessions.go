@@ -45,6 +45,8 @@ type runLog struct {
 	// been asked to stop: what it ran is offered, not restarted.
 	fresh   []agentRun
 	stopped bool
+	// unsettled is a log read and not yet written back (settle).
+	unsettled bool
 }
 
 type runLogFile struct {
@@ -59,6 +61,15 @@ type runLogFile struct {
 // is gone: they become interrupted, and — unless that server was stopped on
 // purpose — fresh, for this one to resume.
 func loadRunLog(configDir string, keepActive bool) *runLog {
+	l := readRunLog(configDir, keepActive)
+	l.settle()
+	return l
+}
+
+// readRunLog is loadRunLog without the writing back, which waits until
+// this server owns the socket (settle): a second server that finds one
+// running reads the live server's log too, and must leave it as it was.
+func readRunLog(configDir string, keepActive bool) *runLog {
 	l := &runLog{path: filepath.Join(configDir, "agent-runs.json"), active: map[string]agentRun{}}
 	b, err := os.ReadFile(l.path)
 	if err != nil {
@@ -66,9 +77,12 @@ func loadRunLog(configDir string, keepActive bool) *runLog {
 	}
 	var f runLogFile
 	if err := json.Unmarshal(b, &f); err != nil {
-		log.Printf("agent runs: %v", err)
+		log.Printf("agent runs: %v", err) // and never overwritten
 		return l
 	}
+	l.unsettled = true
+	// Logs written before triagers were left out (note) may hold one.
+	f.Active, f.Interrupted = dropTriagers(f.Active), dropTriagers(f.Interrupted)
 	if keepActive {
 		for _, r := range f.Active {
 			l.active[r.Pane] = r
@@ -90,8 +104,28 @@ func loadRunLog(configDir string, keepActive bool) *runLog {
 	if len(f.Active) > 0 {
 		log.Printf("%d agent(s) were running when the previous server stopped", len(f.Active))
 	}
-	l.saveLocked()
 	return l
+}
+
+// settle writes the log read as this server has it, once: the previous
+// server's active runs moved to interrupted, and its stop forgotten.
+func (l *runLog) settle() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.unsettled {
+		l.unsettled = false
+		l.saveLocked()
+	}
+}
+
+func dropTriagers(runs []agentRun) []agentRun {
+	var out []agentRun
+	for _, r := range runs {
+		if !proto.IsTriager(proto.PaneInfo{Name: r.Name}) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (l *runLog) saveLocked() {
@@ -116,7 +150,9 @@ func (l *runLog) note(info proto.PaneInfo, dir string, created time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cur, had := l.active[info.ID]
-	if info.Agent == nil || info.State != proto.PaneRunning {
+	// A triage agent is the server's errand, not the person's work: its
+	// triage ends with the server, so it is neither resumed nor offered.
+	if info.Agent == nil || info.State != proto.PaneRunning || proto.IsTriager(info) {
 		if had {
 			delete(l.active, info.ID)
 			l.saveLocked()

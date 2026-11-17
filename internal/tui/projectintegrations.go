@@ -104,6 +104,7 @@ var projectKinds = []struct{ kind, title, none string }{
 	{integration.KindTickets, "Tickets", "Linear, Jira, GitHub Issues…"},
 	{integration.KindSandbox, "Sandboxes", "Daytona, E2B, boat.dev…"},
 	{integration.KindNotify, "Notifications", "Slack, Discord, ntfy…"},
+	{integration.KindDeploy, "Deploy previews", "Vercel, Netlify…"},
 }
 
 // useChip is a service's state in a word: the sheet's chip.
@@ -163,6 +164,9 @@ func (m *Model) projectIntegrationItems(mid, pid string, d proto.IntegrationDete
 		items = append(items, menuItem{"", k.title + " · " + strings.Join(names, ", ") + "  " + strings.Join(chips, ", "), func(*Model) tea.Cmd { return nil }})
 		items = append(items, acts...)
 	}
+	if here {
+		items = append(items, m.deploySwitches(mid, pid, d)...)
+	}
 	if !team {
 		return items
 	}
@@ -209,4 +213,43 @@ func teamNames(d proto.IntegrationDetect) []string {
 		}
 	}
 	return out
+}
+
+// deploySwitches are a switch per deploy integration installed here: a
+// service that links the repository from its own side (Vercel's
+// dashboard) leaves no file conch could find, so the person says the
+// project deploys there — kept in config.toml's [integrations.projects]
+// and saved as any setting is. One the project's files or checks show
+// has no switch.
+func (m *Model) deploySwitches(mid, pid string, d proto.IntegrationDetect) []menuItem {
+	proj := m.project(mid, pid)
+	if proj == nil || proj.Path == "" {
+		return nil
+	}
+	root := proj.Path
+	var items []menuItem
+	for _, f := range integration.Cached() {
+		if f.Kind != integration.KindDeploy {
+			continue
+		}
+		on, fixed := false, false
+		for _, u := range d.Integrations {
+			if u.Name == f.Name {
+				on, fixed = true, u.Why != "chosen for this project"
+			}
+		}
+		if fixed {
+			continue
+		}
+		mark := "☐"
+		if on {
+			mark = "☑"
+		}
+		name := f.Name
+		items = append(items, menuItem{"", "    " + mark + " " + f.DisplayName() + " deploys this project", func(m *Model) tea.Cmd {
+			m.cfg.Integrations.SetChosen(root, name, !on)
+			return tea.Batch(m.saveConfig(), m.openProjectIntegrations(mid, pid))
+		}})
+	}
+	return items
 }

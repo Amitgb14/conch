@@ -50,6 +50,17 @@ import Testing
         var gone = StaleBranch(name: "g", upstream: "origin/g")
         gone.gone = true
         #expect(OldBranches.state(gone).text == "nothing of its own")
+        // A count that failed is not nothing to lose.
+        let unknown = StaleBranch(name: "u", upstream: "origin/u", unknown: "git rev-list: exit status 128")
+        #expect(OldBranches.state(unknown) == ("can't count its commits · kept (git rev-list: exit status 128)", true))
+        #expect(!OldBranches.deletable(unknown))
+        #expect(OldBranches.initialTicks([unknown, StaleBranch(name: "s", suggested: true)]) == ["s"])
+    }
+
+    @Test func decodesUnknown() throws {
+        let b = try JSONDecoder().decode(StaleBranch.self, from: Data(#"{"name":"u","unknown":"timed out"}"#.utf8))
+        #expect(b.unknown == "timed out")
+        #expect(try JSONDecoder().decode(StaleBranch.self, from: Data(#"{"name":"o"}"#.utf8)).unknown == nil)
     }
 
     @Test func ageIsInDays() {
@@ -89,5 +100,18 @@ import Testing
         #expect(f.merged == nil && !merged.answered(f) && old.answered(f))
         let m = try JSONDecoder().decode(BranchStale.self, from: Data(#"{"days":30,"merged":true,"branches":[]}"#.utf8))
         #expect(merged.answered(m))
+    }
+
+    // A find for one project answered after the picker moved to another is
+    // dropped: shown, Delete would go to the other project's branches.
+    @Test func anAnswerAppliesOnlyToWhatWasAsked() {
+        typealias R = OldBranches.Request
+        let a = R(which: .old, project: "local|a")
+        #expect(a.applies(to: R(which: .old, project: "local|a")))
+        #expect(!a.applies(to: R(which: .old, project: "local|b")))
+        #expect(!a.applies(to: R(which: .old, project: "box|a"))) // same id, another machine
+        #expect(!a.applies(to: R(which: .merged, project: "local|a")))
+        #expect(!a.applies(to: R(which: .old, project: "")))
+        #expect(!R(which: .old, project: "").applies(to: R(which: .old, project: "")))
     }
 }

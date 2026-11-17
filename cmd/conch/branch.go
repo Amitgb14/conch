@@ -25,15 +25,18 @@ const branchUsage = `Usage:
   conch branch pr     [-cwd DIR] [-branch B] [-title T] [-body B] [-draft]
   conch branch merge  [-cwd DIR] [-branch B] [-no-squash] [-m MESSAGE]
   conch branch discard [-cwd DIR] [-branch B] [-force] [-n]
-  conch branch fix-ci [-cwd DIR] [-branch B] [-agent A]
+  conch branch fix-ci [-cwd DIR] [-branch B] [-agent A] [-source NAME [-deploy ID]]
   conch branch rerun-ci [-cwd DIR] [-branch B]
   conch branch prune  [-cwd DIR] [-days N | -merged] [-y] [-force] [BRANCH...]
 
 Without -branch, the branch checked out in DIR (the current directory) is used.
 
 fix-ci reads the failure from GitHub Actions, or — when Actions has none —
-from the CI integration the project uses (conch integration ls); rerun-ci
-re-runs what failed in the same run.
+from the CI integration the project uses (conch integration ls), then from
+its deploy integration's newest failed build (Vercel, Netlify); with
+-source, that deploy integration's build (-deploy ID, else its newest
+failed one) is sent instead. rerun-ci re-runs what failed: on Actions,
+every workflow that failed at the branch's head.
 
 prune deletes local branches with no commit in the last N days (30), or the
 ones named among them; with -merged, every branch the base already has —
@@ -281,6 +284,8 @@ func branchMerge(args []string) error {
 func branchFixCI(args []string) error {
 	bf := newBranchFlags("fix-ci")
 	agentName := bf.fs.String("agent", "", "the agent to start when none is on the branch (default: config.toml's)")
+	source := bf.fs.String("source", "", "a deploy integration (vercel, netlify) whose failed build to send, with -deploy")
+	deploy := bf.fs.String("deploy", "", "the deploy whose build log to send (default with -source: its newest failed one)")
 	c, id, branch, err := bf.open(args)
 	if err != nil {
 		return err
@@ -288,6 +293,12 @@ func branchFixCI(args []string) error {
 	defer c.Close()
 	if missing := c.MissingCapabilities([]string{proto.CapBranchCILog}); len(missing) > 0 {
 		return fmt.Errorf("the conch server (pid %d) predates reading CI logs; reload it with `conch server reload`", c.Server.PID)
+	}
+	if *deploy != "" && *source == "" {
+		return errors.New("-deploy is named with its integration: -source vercel or netlify")
+	}
+	if *source != "" && len(c.MissingCapabilities([]string{proto.CapBranchPreviews})) > 0 {
+		return fmt.Errorf("the conch server (pid %d) predates deploy previews; reload it with `conch server reload`", c.Server.PID)
 	}
 	var list proto.PaneList
 	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
@@ -323,7 +334,14 @@ func branchFixCI(args []string) error {
 		return fmt.Errorf("no agent on %s and no worktree to start one in", branch)
 	}
 	var lg proto.BranchCILog
-	if err := callFor(c, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: id, Branch: branch}, &lg, harvestWait); err != nil {
+	if *source != "" {
+		// One deploy's build, chosen by the person (the app's Send to the
+		// branch's agent), said as a failed CI run is.
+		p := proto.BranchDeployParams{ProjectID: id, Branch: branch, Source: *source, Deploy: *deploy}
+		if err := callFor(c, proto.MethodBranchDeployLog, p, &lg, harvestWait); err != nil {
+			return err
+		}
+	} else if err := callFor(c, proto.MethodBranchCILog, proto.BranchCILogParams{ProjectID: id, Branch: branch}, &lg, harvestWait); err != nil {
 		return err
 	}
 	prompt := proto.CIFailurePrompt(lg)
@@ -372,9 +390,16 @@ func branchRerunCI(args []string) error {
 	if err := callFor(c, proto.MethodBranchCIRerun, proto.BranchCILogParams{ProjectID: id, Branch: branch}, &rr, harvestWait); err != nil {
 		return err
 	}
-	fmt.Printf("re-running what failed in %s run %s on %s\n", firstSetStr(rr.Service, rr.Source), rr.Run, branch)
+	if len(rr.Runs) > 1 {
+		fmt.Printf("re-running what failed in %s runs %s on %s\n", firstSetStr(rr.Service, rr.Source), strings.Join(rr.Runs, ", "), branch)
+	} else {
+		fmt.Printf("re-running what failed in %s run %s on %s\n", firstSetStr(rr.Service, rr.Source), rr.Run, branch)
+	}
 	if rr.URL != "" {
 		fmt.Println(rr.URL)
+	}
+	if rr.Note != "" {
+		fmt.Fprintf(os.Stderr, "not re-run: %s\n", rr.Note)
 	}
 	return nil
 }
@@ -676,6 +701,11 @@ func branchPrune(args []string) error {
 			continue
 		case b.Worktree != "":
 			fmt.Printf("keeping %s (%s): checked out in %s; conch worktree clean removes it with its worktree\n", b.Name, age, b.Worktree)
+			continue
+		case b.Unknown != "":
+			// Not knowing what it would lose is not losing nothing, and
+			// -force is no answer to it.
+			fmt.Printf("keeping %s (%s): %s\n", b.Name, age, b.Unknown)
 			continue
 		case b.Unmerged > 0 && !*force:
 			fmt.Printf("keeping %s (%s): %d commit%s not merged or pushed (-force to delete it anyway)\n", b.Name, age, b.Unmerged, plural(b.Unmerged))

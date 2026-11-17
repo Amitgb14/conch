@@ -48,6 +48,17 @@ const integrationUsage = `Usage:
   conch integration remove NAME                  delete an installed one
   conch integration check [-json] NAME|FILE      what is wrong with a file (offline)
   conch integration guide                        the file format, for writing one
+  conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]
+                                                 a branch's deploys on a deploy integration (Vercel,
+                                                 Netlify): state, preview link, why one failed
+  conch integration deploy-log [-lines N] [-cwd DIR] [NAME] DEPLOY
+                                                 the end of what a deploy's build printed (200 lines)
+  conch integration redeploy [-cwd DIR] [NAME] DEPLOY
+                                                 build a deploy again
+  conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY
+                                                 release a deploy to production; asks first
+  conch integration use [-off] [-cwd DIR] NAME   say a project deploys there when its files don't
+                                                 (Vercel linking the repository from its dashboard)
   conch integration icons [-json]                the registries' kinds, and each integration's icon
                                                  downloaded here, checked against the index (Conch.app
                                                  draws the catalog with them)
@@ -92,6 +103,16 @@ func runIntegration(args []string) error {
 		return integrationPublish(args)
 	case "icons":
 		return integrationIcons(args)
+	case "previews":
+		return integrationPreviews(args)
+	case "deploy-log":
+		return integrationDeployLog(args)
+	case "redeploy":
+		return integrationRedeploy(args)
+	case "promote":
+		return integrationPromote(args)
+	case "use":
+		return integrationUse(args)
 	case "guide":
 		fmt.Print(integration.Guide)
 		return nil
@@ -201,15 +222,21 @@ func integrationSearch(args []string) error {
 		Signed bool `json:"signed"`
 		// Off is listed and cannot be installed yet (no ssh yet).
 		Off bool `json:"off,omitempty"`
+		// NeedsNewer is why this conch cannot use it: a kind it has no
+		// code for, or an import's reader it lacks.
+		NeedsNewer string `json:"needs_newer,omitempty"`
+		// Found are an import's files on this machine.
+		Found []string `json:"found,omitempty"`
 	}
 	var rows []row
+	home, _ := os.UserHomeDir()
 	term := strings.Join(fs.Args(), " ")
 	for _, ix := range indexes(ctx, os.Stderr) {
 		for _, e := range ix.Search(term) {
-			rows = append(rows, row{e, ix.Signed, false})
+			rows = append(rows, row{e, ix.Signed, false, e.NeedsNewer(), e.FoundEntry(home)})
 		}
 		for _, e := range ix.SearchDisabled(term) {
-			rows = append(rows, row{e, ix.Signed, true})
+			rows = append(rows, row{e, ix.Signed, true, e.NeedsNewer(), e.FoundEntry(home)})
 		}
 	}
 	if *asJSON {
@@ -222,12 +249,18 @@ func integrationSearch(args []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	for _, r := range rows {
 		where := hostWords(r.Hosts)
-		if r.BuiltIn {
+		switch {
+		case r.BuiltIn:
 			where = "conch's own code"
+		case r.Kind == integration.KindImport:
+			where = "this machine only"
 		}
 		st := standing(r.Entry, r.Signed)
 		if r.Off {
 			st = offWords
+		}
+		if r.NeedsNewer != "" {
+			st = "needs a newer conch"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", firstSetStr(r.Label, r.Name), r.Kind, st, where, r.Capabilities.OperationWords(r.Kind))
 	}
@@ -268,6 +301,14 @@ type infoJSON struct {
 	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
 	// Off is one the registry lists and cannot offer yet (no ssh yet).
 	Off bool `json:"off,omitempty"`
+	// An import's: the reader that reads it and where, the files of it
+	// found on this machine, and why this conch cannot use it.
+	Reader     string   `json:"reader,omitempty"`
+	MinReader  int      `json:"min_reader,omitempty"`
+	Platforms  []string `json:"platforms,omitempty"`
+	Path       string   `json:"path,omitempty"`
+	Found      []string `json:"found,omitempty"`
+	NeedsNewer string   `json:"needs_newer,omitempty"`
 }
 
 func integrationInfo(args []string) error {
@@ -357,10 +398,14 @@ func integrationInfo(args []string) error {
 			sandboxKeyed = true
 		}
 	}
+	imp := importOf(f, e, listed)
 	if *asJSON {
 		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: installedHere,
 			Does: integration.Does(kind, ops), Hosts: hosts, KeyEnv: keyEnv, KeyHelp: keyHelp, Note: note, Docs: docs,
 			Capabilities: caps, Off: off}
+		if kind == integration.KindImport {
+			j.Reader, j.MinReader, j.Platforms, j.Path, j.Found, j.NeedsNewer = imp.reader, imp.min, imp.platforms, imp.path, imp.found, imp.needsNewer
+		}
 		if f != nil {
 			j.UserEnv, j.AuthType, j.Scopes, j.BaseURL = f.Auth.UserEnv, f.Auth.Type, f.Auth.Scopes, f.BaseURL
 			j.AdaptedBy, j.Adapted = f.AdaptedBy, f.Adapted
@@ -403,11 +448,15 @@ func integrationInfo(args []string) error {
 		mark := map[string]string{"yes": "✓", "partly": "◐", "no": "✗", "built-in": "—"}[d.Level]
 		fmt.Printf("  %s %s\n      %s\n", mark, d.What, d.Where)
 	}
-	fmt.Printf("\nYour key ($%s) goes to %s only", keyEnv, firstSetStr(hosts.API, "the address you give"))
-	if len(hosts.Follow) > 0 {
-		fmt.Printf("; it also reads %s, without your key", strings.Join(hosts.Follow, ", "))
+	if kind == integration.KindImport {
+		fmt.Println("\n" + imp.words(firstSetStr(label, name)))
+	} else {
+		fmt.Printf("\nYour key ($%s) goes to %s only", keyEnv, firstSetStr(hosts.API, "the address you give"))
+		if len(hosts.Follow) > 0 {
+			fmt.Printf("; it also reads %s, without your key", strings.Join(hosts.Follow, ", "))
+		}
+		fmt.Println(". No programs run: HTTP only.")
 	}
-	fmt.Println(". No programs run: HTTP only.")
 	if keyHelp != "" {
 		fmt.Println("\nSetting it up: " + keyHelp)
 	}
@@ -479,7 +528,13 @@ func integrationInstall(args []string) error {
 	if recs, _ := integration.Records(); recs[name].Version != 0 {
 		return fmt.Errorf("%s is installed already: conch integration update %s takes the newest", name, name)
 	}
+	if why := e.NeedsNewer(); why != "" {
+		return fmt.Errorf("%s needs a newer conch: %s", e.DisplayName(), why)
+	}
 	reg, _ := registryNamed(e.Registry)
+	if e.Kind == integration.KindImport {
+		return installImport(ctx, reg, e, ix.Signed, *yes)
+	}
 	fmt.Printf("%s sends your key ($%s) to %s only.", name, e.KeyEnv, firstSetStr(e.Hosts.API, "the address you give"))
 	if len(e.Hosts.Follow) > 0 {
 		fmt.Printf(" It reads %s without it.", strings.Join(e.Hosts.Follow, ", "))
@@ -683,13 +738,17 @@ func usedHere(f *integration.File, dir string) string {
 	return ""
 }
 
-// liveCheckHere tries the key: a CI's runs of this project's branch and
-// a tracker's open tickets — one read-only call each — or, for a webhook,
-// a message saying it works, which is the only way to know it does.
+// liveCheckHere tries the key: a CI's runs or a deploy service's previews
+// of this project's branch and a tracker's open tickets — reads only — or,
+// for a webhook, a message saying it works, which is the only way to know
+// it does.
 func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) string {
 	root, rem, branch := projectHere(ctx, dir)
 	if f.Kind == integration.KindCI && (root == "" || !f.Uses(root, rem)) {
 		return "not checked: run conch integration install from a project that uses it, or conch branch fix-ci there"
+	}
+	if f.Kind == integration.KindDeploy && (root == "" || !f.Uses(root, rem)) {
+		return "not checked: run conch integration install from a project that uses it, or conch integration previews there"
 	}
 	if f.Kind == integration.KindTickets && f.Project.ID != "" && rem.Host == "" {
 		return "not checked: run it from a project whose tickets these are"
@@ -717,6 +776,17 @@ func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) st
 			return "the check failed: " + err.Error()
 		}
 		return "checked: sent a test message through " + f.DisplayName()
+	case integration.KindDeploy:
+		deps, err := conn.Previews(ctx, target)
+		if errors.Is(err, integration.ErrUnlinked) {
+			// The key was taken (its first call answered); the service just
+			// has nothing building from here. The key is kept.
+			return fmt.Sprintf("checked: the key works, but %s The key is kept; previews show once one builds from this repository.", integration.Unlinked(f, target.Remote))
+		}
+		if err != nil {
+			return "the check failed: " + err.Error()
+		}
+		return fmt.Sprintf("checked: read %d deploys of %s on %s", len(deps), branch, f.DisplayName())
 	}
 	runs, err := conn.Runs(ctx, target)
 	if err != nil {
@@ -774,7 +844,9 @@ func integrationList(args []string) error {
 		} else if !f.Shipped() {
 			r.Source = "a file of your own"
 		}
-		if keyFor(f.KeyEnv) == "" {
+		if f.Kind == integration.KindImport {
+			r.State = importState(f)
+		} else if keyFor(f.KeyEnv) == "" {
 			r.State = "key: $" + f.KeyEnv + " not set"
 			if keychainHere() {
 				r.State += ", nor in the Keychain"
@@ -821,7 +893,7 @@ func integrationList(args []string) error {
 
 func integrationUpdate(args []string) error {
 	fs := flag.NewFlagSet("integration update", flag.ContinueOnError)
-	yes := fs.Bool("y", false, "update without asking, unless the hosts change")
+	yes := fs.Bool("y", false, "update without asking, unless the hosts or the key's variable change")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -866,11 +938,19 @@ func integrationUpdate(args []string) error {
 			fmt.Printf("%s: edited here, so left alone; remove it to take version %d\n", n, e.Version)
 			continue
 		}
-		// New hosts are asked about even with -y: a key is not sent
-		// somewhere new without the person saying so.
-		if integration.HostsChanged(rec, e) {
-			fmt.Printf("%s %d sends your key to %s, where %d sent it to %s.", n, e.Version, hostWords(e.Hosts), rec.Version, hostWords(rec.Hosts))
-			if !askYes(" Update?") {
+		// New hosts, or a key read from another variable, are asked about
+		// even with -y: a key is not sent somewhere new, nor another key
+		// sent, without the person saying so.
+		hosts := integration.HostsChanged(rec, e)
+		was, known, key := integration.KeyChange(n, rec, e)
+		if hosts {
+			fmt.Printf("%s %d sends your key to %s, where %d sent it to %s.\n", n, e.Version, hostWords(e.Hosts), rec.Version, hostWords(rec.Hosts))
+		}
+		if key {
+			fmt.Println(keyChangeWords(n, rec.Version, was, known, e))
+		}
+		if hosts || key {
+			if !askYes("Update?") {
 				fmt.Printf("%s: not updated\n", n)
 				continue
 			}
@@ -884,15 +964,40 @@ func integrationUpdate(args []string) error {
 			fmt.Printf("%s: %v\n", n, err)
 			continue
 		}
-		if err := integration.Remove(n); err != nil {
-			return err
-		}
-		if err := integration.Install(e, data); err != nil {
-			return err
+		// Installed over the old one, which Install allows for a file as it
+		// came: removing it first lost the integration when the install
+		// then failed.
+		if err := installIntegration(e, data); err != nil {
+			return fmt.Errorf("%s: not updated, version %d is still installed: %w", n, rec.Version, err)
 		}
 		fmt.Printf("%s: updated to %d\n", n, e.Version)
 	}
 	return nil
+}
+
+// installIntegration is integration.Install, for a test to make fail.
+var installIntegration = integration.Install
+
+// keyChangeWords says which of the person's variables version e now sends,
+// and to which host, beside what the installed version sent.
+func keyChangeWords(n string, version int, was integration.KeyVars, known bool, e integration.Entry) string {
+	to := e.Hosts.API
+	if to == "" {
+		to = "your own server"
+	}
+	now := "$" + e.KeyEnv
+	if e.UserEnv != "" {
+		now += " (and $" + e.UserEnv + " as the user name)"
+	}
+	before := "what it sent was not recorded"
+	if known {
+		before = "$" + was.KeyEnv
+		if was.UserEnv != "" {
+			before += " (and $" + was.UserEnv + " as the user name)"
+		}
+		before = fmt.Sprintf("%d sent %s", version, before)
+	}
+	return fmt.Sprintf("%s %d sends %s to %s as your key, where %s.", n, e.Version, now, to, before)
 }
 
 func integrationRemove(args []string) error {

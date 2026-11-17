@@ -695,7 +695,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(withPR.menu(for: feat, machine: "box").contains { $0.action == .openURL("https://github.com/o/r/pull/7") })
     pp.branches = pp.branches?.map { b in var b = b; b.pr?.url = "file:///etc/passwd"; return b }
     withPR.upsert(pp)
-    #expect(!withPR.menu(for: feat, machine: "box").contains { $0.title == "Open pull request" })
+    #expect(!withPR.menu(for: feat, machine: "box").contains { $0.title == "Open Pull Request" })
 
     // A project, a machine, the Workspace row.
     let pm = s.menu(for: api, machine: "box")
@@ -2960,6 +2960,15 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(b.suggestions("size") == ["small", "default", "large"])
 }
 
+// "choices": null (choices that could not be read, from an older conch)
+// must not fail the whole decode: the sheet would lose region, image and size.
+@Test func sandboxSettingsToleratesNullChoices() throws {
+    let j = #"{"name":"d","label":"D","ready":true,"settings":[{"key":"region","label":"Region","choices":null,"error":"answered 500"},{"key":"image","label":"Image","choices":[{"value":"ubuntu"}]}],"size":{"names":["small"]},"chosen":{}}"#
+    let d = try JSONDecoder().decode(SandboxSettingsInfo.self, from: Data(j.utf8))
+    #expect(d.setting("region")?.choices == [] && d.setting("region")?.error == "answered 500")
+    #expect(d.setting("image")?.values == ["ubuntu"] && d.suggestions("region") == nil && d.suggestions("size") == ["small"])
+}
+
 // A pane is named as conch's commands take it: p12 here, busybox:p12 on
 // another machine (its ID when the label can't be typed). The row menu
 // copies it, and the palette finds a pane by it.
@@ -3839,4 +3848,31 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let jenkins = try #require(cards.first { $0.name == "jenkins" })
     #expect(jenkins.auth == "user + token" && jenkins.summary.contains("failed job"))
     #expect(cards.first { $0.name == "old" }?.summary == "")
+}
+
+// The toolbar's counts and machine are read on any theme. A count disabled
+// at zero was dimmed again by AppKit, and text bare on the toolbar took
+// its glass's tint: "0 waiting", "0 done", "N to review" and "This Mac"
+// went unreadable, most of all in a light theme (2026-11-16). None is
+// disabled, each is drawn on a fill, and none is the muted colour.
+@Test func toolbarCountsAreReadable() throws {
+    let src = try String(contentsOfFile: (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp/Views.swift", encoding: .utf8)
+    func body(of decl: String) throws -> Substring {
+        let start = try #require(src.firstRange(of: decl), "\(decl) not found")
+        let end = try #require(src[start.upperBound...].firstRange(of: "\n}\n"))
+        return src[start.upperBound..<end.lowerBound]
+    }
+    let counts = try body(of: "struct Counts: View {")
+    #expect(counts.contains("store.nextWaiting()") && counts.contains("store.nextDone()"))
+    #expect(!counts.contains(".disabled("), "a count disabled at zero is dimmed past reading")
+    let pills = counts.components(separatedBy: "\n").filter { $0.contains("Pill(text:") }
+    #expect(pills.count == 2)
+    for p in pills { #expect(!p.contains("Theme.muted"), "a count drawn in the muted colour: \(p)") }
+    let review = try #require(counts.range(of: "to review\")"))
+    let reviewLabel = counts[review.lowerBound...].prefix(600)
+    #expect(reviewLabel.contains(".background(") && !reviewLabel.prefix(200).contains("Theme.muted"), "to review drawn bare on the toolbar")
+
+    let chip = try body(of: "struct MachineChip: View {")
+    #expect(!chip.contains("p.kind == .local ? Color.clear"), "this Mac's chip drawn bare on the toolbar")
+    #expect(!chip.contains("p.kind == .local ? Theme.muted : Theme.text2"), "this Mac's name in the muted colour")
 }

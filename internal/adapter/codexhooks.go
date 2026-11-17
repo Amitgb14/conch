@@ -95,10 +95,38 @@ func codexHookHash(ev, command string, timeout int) string {
 		return ""
 	}
 	s := strings.TrimSuffix(buf.String(), "\n")
-	// Go escapes these two even then; serde_json writes them as they are.
-	s = strings.NewReplacer(` `, " ", ` `, " ").Replace(s)
-	sum := sha256.Sum256([]byte(s))
+	sum := sha256.Sum256([]byte(unescapeLineSeparators(s)))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// unescapeLineSeparators puts back the U+2028 and U+2029 that Go's JSON
+// encoder writes as the escapes \u2028 and \u2029 even with HTML escaping
+// off, since serde_json writes them as they are. It reads escape by escape,
+// so a command's own backslash before "u2028" (encoded \\u2028) is left
+// alone.
+func unescapeLineSeparators(s string) string {
+	if !strings.Contains(s, `\u202`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		switch rest := s[i:]; {
+		case strings.HasPrefix(rest, `\u2028`):
+			b.WriteRune('\u2028')
+			i += len(`\u2028`) - 1
+		case strings.HasPrefix(rest, `\u2029`):
+			b.WriteRune('\u2029')
+			i += len(`\u2029`) - 1
+		default: // any other escape is two bytes kept as they are
+			b.WriteString(rest[:2])
+			i++
+		}
+	}
+	return b.String()
 }
 
 // tomlString is s as a TOML basic string.

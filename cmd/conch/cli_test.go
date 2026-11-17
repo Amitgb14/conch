@@ -21,6 +21,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sandbox"
 	"github.com/Amitgb14/conch/internal/server"
 )
 
@@ -874,6 +875,11 @@ func TestA4MainDispatch(t *testing.T) {
 	})
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
+	// main sets the Keychain lookup for sandbox keys; in a test binary it
+	// must not outlive this test (TestA4SandboxCreateRefusesBeforeSpending
+	// once found a key a test before it had cached).
+	oldLookup := sandbox.KeyLookup
+	defer func() { sandbox.KeyLookup = oldLookup }()
 	for _, args := range [][]string{
 		{"status"}, {"ls"}, {"new", "--", "true"}, {"send", "p1", "x"}, {"read", "p1"}, {"close", "p1"},
 		{"agent", "status"}, {"project", "ls"}, {"task", "-agent", "codex", "do", "it"},

@@ -678,6 +678,14 @@ func (s *settings) machineAgentItems(m *Model, id string) []settingItem {
 				m.setFlash(fmt.Sprintf("%s %s on %s at %s", firstNonEmpty(a.Label, agentLabel(a.Name)), a.Version, mach.label, a.Path), false)
 				return nil
 			}
+		} else if a.NoInstaller {
+			// A manifest that named no install script: offering one would
+			// run nothing and say it worked, as the agent menu knows.
+			item.detail = styleWarn.Render("not installed · conch has no installer for it")
+			item.run = func(m *Model) tea.Cmd {
+				m.setFlash("install "+firstNonEmpty(a.Label, agentLabel(a.Name))+" on "+mach.label+" yourself and conch will find it on your PATH", false)
+				return nil
+			}
 		} else {
 			item.detail = styleWarn.Render("not installed · enter installs")
 			item.run = func(m *Model) tea.Cmd {
@@ -723,8 +731,15 @@ func (s *settings) agentItems(m *Model) []settingItem {
 		name := name
 		a, known := here[name]
 		missing := known && !a.Installed
+		// Missing with no installer, it can be neither started nor
+		// installed: no default at all, so it is not saved as one.
+		uninstallable := missing && a.NoInstaller
 		item := settingItem{label: agentLabel(name), mark: m.defaultAgent() == name,
 			run: func(m *Model) tea.Cmd {
+				if uninstallable {
+					m.setFlash("install "+agentLabel(name)+" yourself first: conch has no installer for it", true)
+					return nil
+				}
 				m.cfg.Agents.Default = name
 				if !missing {
 					return m.saveConfig()
@@ -734,7 +749,10 @@ func (s *settings) agentItems(m *Model) []settingItem {
 				m.overlay = nil
 				return tea.Batch(m.saveConfig(), m.installAgent(localMachine, name))
 			}}
-		if missing {
+		switch {
+		case uninstallable:
+			item.detail = styleWarn.Render("not installed · conch has no installer for it")
+		case missing:
 			item.detail = styleWarn.Render("not installed · enter installs it")
 		}
 		items = append(items, item)

@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -710,4 +712,71 @@ func TestAttachHoldFlag(t *testing.T) {
 			t.Errorf("%q: %v", args, err)
 		}
 	}
+}
+
+// -hold over a pane that was gone before it could be shown says so and
+// waits for a key, rather than exiting non-zero at once — which Ghostty, in
+// the Mac app, reports as a command it failed to launch. Without -hold, or
+// for any other error, the error stands.
+func TestAttachHoldGone(t *testing.T) {
+	gone := &proto.Error{Code: proto.ErrNotFound, Message: `no pane "p719"`}
+	other := &proto.Error{Code: proto.ErrInternal, Message: "boom"}
+	for _, c := range []struct {
+		name string
+		err  error
+		hold bool
+	}{
+		{"no hold", gone, false},
+		{"other error", other, true},
+		{"plain error", errors.New("dial"), true},
+		{"no error", nil, true},
+	} {
+		out := &syncBuffer{}
+		if got := holdGone("p719", c.err, c.hold, strings.NewReader(""), out, nil); got != c.err {
+			t.Errorf("%s: %v, want %v", c.name, got, c.err)
+		}
+		if out.String() != "" {
+			t.Errorf("%s: wrote %q", c.name, out.String())
+		}
+	}
+
+	t.Run("a key closes it", func(t *testing.T) {
+		inR, inW := io.Pipe()
+		defer inW.Close()
+		out := &syncBuffer{}
+		done := make(chan error, 1)
+		go func() { done <- holdGone("p719", gone, true, inR, out, nil) }()
+		attachWait(t, "the note", func() bool { return strings.Contains(out.String(), "pane p719 was closed · any key closes") })
+		inW.Write([]byte("\x1b[<35;4;2M")) // the pointer moving: not a key
+		select {
+		case err := <-done:
+			t.Fatalf("the pointer closed it: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+		inW.Write([]byte("q"))
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("closed with %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a key did not close it")
+		}
+	})
+
+	t.Run("the window goes", func(t *testing.T) {
+		if err := holdGone("p719", fmt.Errorf("subscribe: %w", gone), true, strings.NewReader(""), &syncBuffer{}, nil); err != nil {
+			t.Fatalf("input ending: %v", err)
+		}
+	})
+
+	t.Run("killed", func(t *testing.T) {
+		inR, inW := io.Pipe()
+		defer inW.Close()
+		quit := make(chan os.Signal, 1)
+		quit <- syscall.SIGTERM
+		if err := holdGone("p719", gone, true, inR, &syncBuffer{}, quit); err != nil {
+			t.Fatalf("killed: %v", err)
+		}
+	})
 }

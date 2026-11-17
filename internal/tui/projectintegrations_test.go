@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -56,6 +59,7 @@ func TestProjectIntegrations(t *testing.T) {
 		"Tickets · Jira (RGW)  connected",
 		"Sandboxes · Daytona  set up",
 		"Notifications · none — Slack, Discord, ntfy…",
+		"Deploy previews · none — Vercel, Netlify…",
 		"☐ Save in .conch/integrations.toml for the team",
 	}
 	if got := labelsOf(mu.items); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -71,7 +75,7 @@ func TestProjectIntegrations(t *testing.T) {
 	saved := mock5
 	saved.Team = &proto.IntegrationTeam{Path: ".conch/integrations.toml", Names: []string{"circleci"}, State: "used"}
 	peer.setResult(proto.MethodIntegrationTeam, saved)
-	msg := mu.items[7].run(m)().(projectIntegrationsMsg)
+	msg := mu.items[8].run(m)().(projectIntegrationsMsg)
 	var tp proto.IntegrationTeamParams
 	sentParams(t, peer, proto.MethodIntegrationTeam, &tp)
 	if tp.Action != proto.TeamSave || strings.Join(tp.Names, ",") != "github,circleci,github-actions,jira" || tp.ProjectID != "r1" {
@@ -169,11 +173,70 @@ func TestProjectIntegrationsRefusals(t *testing.T) {
 	c, _ := a1FakeClient(t, proto.CapIntegrationDetect, proto.CapIntegrationTeam)
 	mach.c = c
 	items := m.projectIntegrationItems(mach.id, "r1", proto.IntegrationDetect{}, true)
-	if len(items) != 5 || !strings.HasSuffix(items[3].label, "Daytona, E2B, boat.dev…") {
+	if len(items) != 6 || !strings.HasSuffix(items[3].label, "Daytona, E2B, boat.dev…") || !strings.HasSuffix(items[5].label, "Vercel, Netlify…") {
 		t.Fatalf("empty: %q", labelsOf(items))
 	}
 	items[3].run(m)
 	if s, ok := m.overlay.(*settings); !ok || s.tab != sandboxTab {
 		t.Fatalf("browse sandboxes: %#v", m.overlay)
+	}
+}
+
+// With a deploy integration installed, the sheet has a switch for it:
+// turned on, the project's folder is kept in config.toml for it (saved as
+// any setting is), and turned off again. One the project's files show
+// has no switch: its files say it.
+func TestProjectIntegrationsDeploySwitch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CONCH_HOME", home)
+	integration.Forget()
+	t.Cleanup(integration.Forget)
+	data, err := os.ReadFile("../integration/testdata/deploy/vercel.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(home, "integrations"), 0o755)
+	os.WriteFile(filepath.Join(home, "integrations", "vercel.toml"), data, 0o600)
+	m, mach, _ := limitModel(t)
+	c, _ := a1FakeClient(t, proto.CapIntegrationDetect, proto.CapIntegrationTeam)
+	mach.c = c
+	root := m.project(mach.id, "r1").Path
+	label := func(items []menuItem, want string) *menuItem {
+		for i := range items {
+			if strings.TrimSpace(items[i].label) == want {
+				return &items[i]
+			}
+		}
+		t.Fatalf("no %q in %q", want, labelsOf(items))
+		return nil
+	}
+	items := m.projectIntegrationItems(mach.id, "r1", mock5, false)
+	on := label(items, "☐ Vercel deploys this project")
+	on.run(m)
+	if got := m.cfg.Integrations.Chosen("", root); strings.Join(got, ",") != "vercel" {
+		t.Fatalf("on: %v", got)
+	}
+	chosen := mock5
+	chosen.Integrations = append(append([]proto.IntegrationUse{}, mock5.Integrations...),
+		proto.IntegrationUse{Name: "vercel", Label: "Vercel", Kind: "deploy", Why: "chosen for this project", Installed: true})
+	off := label(m.projectIntegrationItems(mach.id, "r1", chosen, false), "☑ Vercel deploys this project")
+	off.run(m)
+	if got := m.cfg.Integrations.Chosen("", root); len(got) != 0 {
+		t.Fatalf("off: %v", got)
+	}
+	// Found by its file: listed, no switch.
+	found := mock5
+	found.Integrations = append(append([]proto.IntegrationUse{}, mock5.Integrations...),
+		proto.IntegrationUse{Name: "vercel", Label: "Vercel", Kind: "deploy", Why: "vercel.json", Installed: true})
+	for _, l := range labelsOf(m.projectIntegrationItems(mach.id, "r1", found, false)) {
+		if strings.Contains(l, "deploys this project") {
+			t.Fatalf("a switch for a use its file shows: %q", l)
+		}
+	}
+	// Another machine's project: its config is that machine's.
+	for _, l := range labelsOf(m.projectIntegrationItems("busybox", "r1", mock5, false)) {
+		if strings.Contains(l, "deploys this project") {
+			t.Fatalf("a switch for another machine: %q", l)
+		}
 	}
 }

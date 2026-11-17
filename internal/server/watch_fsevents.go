@@ -96,9 +96,12 @@ func (b *fseventsBackend) watch(root string, ignored []string) error {
 		Paths:   []string{root},
 		Latency: fseventsLatency,
 		Device:  dev,
-		// FileEvents reports the file, not just its folder. WatchRoot tells
-		// us when the worktree itself is moved or removed.
-		Flags: fsevents.FileEvents | fsevents.WatchRoot,
+		// FileEvents reports the file, not just its folder. Not WatchRoot:
+		// it opens a kqueue and a descriptor on every folder above the
+		// worktree, ~9 a stream, which over a hundred worktrees pushed new
+		// panes' ptys past select's 1024 and left them blank. Nothing read
+		// its events; a worktree going away is the project ticker's to see.
+		Flags: fsevents.FileEvents,
 	}
 	if err := es.Start(); err != nil {
 		return err

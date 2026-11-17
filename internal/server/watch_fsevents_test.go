@@ -209,3 +209,42 @@ func TestFSEventsWatchRacesClose(t *testing.T) {
 		t.Fatalf("%d stream(s) still running after close", n)
 	}
 }
+
+// openFDs counts this process's descriptors.
+func openFDs(t *testing.T) int {
+	t.Helper()
+	ents, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Skipf("/dev/fd: %v", err)
+	}
+	return len(ents)
+}
+
+// TestFSEventsStreamsHoldNoDescriptors: the backend says it is not
+// budgeted, so its streams must not cost descriptors. With WatchRoot each
+// one held a kqueue and a descriptor on every folder above the worktree;
+// over a hundred worktrees that was ~1,000, a new pane's pty came back past
+// select's 1024, and that pane stayed blank while its agent worked.
+func TestFSEventsStreamsHoldNoDescriptors(t *testing.T) {
+	b, err := newBackend()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.close()
+	base := t.TempDir()
+	before := openFDs(t)
+	const streams = 8
+	for i := range streams {
+		root := filepath.Join(base, "a", "b", "c", "d", string(rune('e'+i)))
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.watch(root, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Some slack for the runtime's own; WatchRoot cost ~10 a stream here.
+	if grew := openFDs(t) - before; grew > 4 {
+		t.Fatalf("%d streams opened %d descriptors", streams, grew)
+	}
+}

@@ -116,6 +116,11 @@ type Entry struct {
 	// Capabilities are what it can do, worked out from its file by the
 	// registry; nil for a built-in or an index from before them.
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	// Platforms, Reader and MinReader are an import's [source]: where the
+	// app ran, and which of conch's readers reads it, from which version.
+	Platforms []string `json:"platforms,omitempty"`
+	Reader    string   `json:"reader,omitempty"`
+	MinReader int      `json:"min_reader,omitempty"`
 
 	// Registry is which index it was read from.
 	Registry string `json:"-"`
@@ -390,6 +395,40 @@ type Record struct {
 	// Capabilities are the registry's for the file as it came
 	// (CapabilitiesOf); nil for one installed before it said.
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	// Key is which of the person's variables the file read; nil for one
+	// installed before it was kept (KeyChange reads the file instead).
+	Key *KeyVars `json:"key,omitempty"`
+}
+
+// KeyVars are the variables a file sends: the key, and a user name for
+// one that signs in with both.
+type KeyVars struct {
+	KeyEnv  string `json:"key_env"`
+	UserEnv string `json:"user_env,omitempty"`
+}
+
+// KeyChange says whether e reads the key, or the user name, from another
+// variable than the version installed as rec did, and which it read. A
+// new version that keeps its hosts but reads $GITHUB_TOKEN sends that
+// token to them as surely as new hosts would send the key elsewhere, so
+// it is asked about as they are. A record from before Key was kept is
+// compared with the installed file, which an update only replaces when
+// it is as it came; a file that cannot be read is a change, said as
+// unknown (known false).
+func KeyChange(name string, rec Record, e Entry) (was KeyVars, known, changed bool) {
+	now := KeyVars{KeyEnv: e.KeyEnv, UserEnv: e.UserEnv}
+	if rec.Key != nil {
+		return *rec.Key, true, *rec.Key != now
+	}
+	if CheckName(name) != nil {
+		return KeyVars{}, false, true
+	}
+	f, _, err := Read(filepath.Join(Dir(), name+".toml"))
+	if err != nil {
+		return KeyVars{}, false, true
+	}
+	was = KeyVars{KeyEnv: f.KeyEnv, UserEnv: f.Auth.UserEnv}
+	return was, true, was != now
 }
 
 func recordsPath() string { return filepath.Join(Dir(), "registry.json") }
@@ -425,8 +464,10 @@ func FetchFile(ctx context.Context, r Registry, e Entry) ([]byte, *File, error) 
 		return nil, nil, fmt.Errorf("%s is built into conch: there is nothing to install", e.DisplayName())
 	case e.Kind == KindSandbox:
 		return nil, nil, fmt.Errorf("%s is a sandbox provider: conch sandbox provider install %s", e.Name, e.Name)
-	case contracts[e.Kind].required == nil:
+	case !Reads(e.Kind):
 		return nil, nil, fmt.Errorf("%s is kind %q, which this conch does not read: update conch", e.Name, e.Kind)
+	case e.NeedsNewer() != "":
+		return nil, nil, fmt.Errorf("%s needs a newer conch: %s", e.DisplayName(), e.NeedsNewer())
 	case e.Format > Format:
 		return nil, nil, fmt.Errorf("%s's file is format %d; this conch reads up to %d: update conch", e.Name, e.Format, Format)
 	case !strings.HasPrefix(e.File, "integrations/") || strings.Contains(e.File, ".."):
@@ -447,6 +488,9 @@ func FetchFile(ctx context.Context, r Registry, e Entry) ([]byte, *File, error) 
 		return nil, nil, fmt.Errorf("%s's file cannot be used here: %s", e.Name, strings.Join(problems, "; "))
 	case f.Name != e.Name || f.Kind != e.Kind:
 		return nil, nil, fmt.Errorf("%s's file is %s %q, not what the index lists", e.Name, f.Kind, f.Name)
+	case f.Kind == KindImport && (f.Source.Reader != e.Reader || f.Source.MinReader != e.MinReader):
+		return nil, nil, fmt.Errorf("%s's file asks for reader %q version %d, not the %q version %d the index lists: not installed",
+			e.Name, f.Source.Reader, f.Source.MinReader, e.Reader, e.MinReader)
 	}
 	if f.KeyEnv != e.KeyEnv {
 		return nil, nil, fmt.Errorf("%s's file reads your key from $%s, not the $%s the index lists: not installed", e.Name, f.KeyEnv, e.KeyEnv)
@@ -505,7 +549,7 @@ func Install(e Entry, data []byte) error {
 	}
 	sum := sha256.Sum256(data)
 	recs[e.Name] = Record{Registry: e.Registry, Version: e.Version, SHA256: hex.EncodeToString(sum[:]), Hosts: e.Hosts,
-		Installed: time.Now().UTC().Format("2006-01-02"), Capabilities: e.Capabilities}
+		Installed: time.Now().UTC().Format("2006-01-02"), Capabilities: e.Capabilities, Key: &KeyVars{KeyEnv: e.KeyEnv, UserEnv: e.UserEnv}}
 	Forget()
 	return writeRecords(recs)
 }

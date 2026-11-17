@@ -46,6 +46,7 @@ type autopilot struct {
 
 	mu      sync.Mutex
 	saved   autopilotFile
+	forgot  bool            // freshStart cleared checks that are not saved yet
 	merging map[string]bool // merges under way, by branch key
 	// shipping is branches being pushed or given a pull request,
 	// reship those whose agent finished again meanwhile, shipped again
@@ -225,6 +226,9 @@ func cleanPolicy(p proto.AutopilotPolicy) proto.AutopilotPolicy {
 // freshStart forgets the checks that were running: a server that starts
 // afresh, not by a reload, has none of the panes they ran in, and numbers
 // its own from p1 again — a saved pane ID would name somebody's shell.
+// Only in memory: until the socket is this server's the file is the live
+// server's, and a second server that is refused must not wipe its checks.
+// settleFresh writes it once Run owns the socket.
 func (a *autopilot) freshStart() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -233,7 +237,17 @@ func (a *autopilot) freshStart() {
 	}
 	a.saved.CheckPanes = map[string]string{}
 	a.saved.CheckHeads = map[string]string{}
-	a.saveLocked()
+	a.forgot = true
+}
+
+// settleFresh saves what freshStart forgot, now that the file is ours.
+func (a *autopilot) settleFresh() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.forgot {
+		a.forgot = false
+		a.saveLocked()
+	}
 }
 
 func (a *autopilot) saveLocked() {

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -294,6 +296,85 @@ func TestImportErrors(t *testing.T) {
 	}
 }
 
+// Two conversations of one title whose ids share their first eight
+// characters (Conductor's are time-ordered) went to one file, the second
+// overwriting the first. The oldest keeps the short name, so a file from
+// an import before the other existed is still the one replaced; the other
+// is named by its whole id, the same every time. One not written takes no
+// name, and the order they come in changes nothing.
+func TestImportedNamesDoNotCollide(t *testing.T) {
+	out := t.TempDir()
+	said := []sessions.Turn{{Role: "user", Text: "hi"}}
+	conv := func(id, title, repo string, turns []sessions.Turn) sessions.Imported {
+		return sessions.Imported{Session: sessions.Session{ID: id, Title: title, Agent: "claude"}, Repo: repo, Turns: turns}
+	}
+	all := []sessions.Imported{
+		conv("aaaaaaaa-2", "Fix it", "shop", said),
+		conv("aaaaaaaa-1", "Fix it", "shop", said),
+		conv("aaaaaaaa-0", "Fix it", "shop", nil),          // nothing said: never written
+		conv("aaaaaaaa-3", "Fix it", "other", said),        // another repository's folder
+		conv("aaaaaaaa-4", "Something else", "shop", said), // another title
+		conv("b", "", "", said),
+	}
+	// Markdown only: the names are the documents'.
+	writeImported := func(all []sessions.Imported, out string, dry bool) ([]importedFile, error) {
+		imp := importer{out: out, dry: dry, state: sessions.ImportState{}}
+		return imp.run(context.Background(), all)
+	}
+	files, err := writeImported(all, out, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, f := range files {
+		rel, _ := filepath.Rel(out, f.File)
+		got[f.ID] = rel
+	}
+	want := map[string]string{
+		"aaaaaaaa-1": "shop/fix-it-aaaaaaaa.md",
+		"aaaaaaaa-2": "shop/fix-it-aaaaaaaa-2.md",
+		"aaaaaaaa-3": "other/fix-it-aaaaaaaa.md",
+		"aaaaaaaa-4": "shop/something-else-aaaaaaaa.md",
+		"b":          "unknown-repository/conversation-b.md",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("files %v, want %v", got, want)
+	}
+	for id, name := range want {
+		if got[id] != name {
+			t.Errorf("%s: %q, want %q", id, got[id], name)
+		}
+	}
+	// Each its own file, none overwritten.
+	seen := map[string]bool{}
+	for _, f := range files {
+		if seen[f.File] {
+			t.Fatalf("two conversations in %s", f.File)
+		}
+		seen[f.File] = true
+		if _, err := os.Stat(f.File); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The other order names them the same.
+	rev := append([]sessions.Imported(nil), all...)
+	slices.Reverse(rev)
+	again, err := writeImported(rev, out, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range again {
+		if rel, _ := filepath.Rel(out, f.File); rel != want[f.ID] {
+			t.Errorf("reversed, %s: %q", f.ID, rel)
+		}
+	}
+	// One alone keeps the short name it always had.
+	alone, _ := writeImported(all[:1], out, true)
+	if rel, _ := filepath.Rel(out, alone[0].File); rel != "shop/fix-it-aaaaaaaa.md" {
+		t.Errorf("alone: %q", rel)
+	}
+}
+
 func TestSlugify(t *testing.T) {
 	for in, want := range map[string]string{
 		"Fix the build: now!":   "fix-the-build-now",
@@ -319,5 +400,69 @@ func TestShellWord(t *testing.T) {
 		if got := shellWord(in); got != want {
 			t.Errorf("shellWord(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// What Conch.app's Import sheet is drawn from (-n -json), and its Import
+// button (-ids): each conversation by its whole id, where it carries on,
+// when it was last used, and whether it was brought in already.
+func TestImportConductorChoose(t *testing.T) {
+	db, ws := importFixture(t)
+	out := filepath.Join(t.TempDir(), "out")
+	scan := func() map[string]importedFile {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out, "-n", "-json"}) })
+		var got []importedFile
+		if err != nil || json.Unmarshal([]byte(stdout), &got) != nil {
+			t.Fatalf("scan: %v %q", err, stdout)
+		}
+		byID := map[string]importedFile{}
+		for _, f := range got {
+			byID[f.ID] = f
+		}
+		return byID
+	}
+	got := scan()
+	fix := got["0123456789abcdef"]
+	if len(got) != 3 || fix.Where != "workspace" || fix.Imported || fix.LastUsed.IsZero() || fix.Dir != ws ||
+		fix.Status != string(sessions.ImportWritten) || got["lost1"].Where != "gone" || got["codex1"].Status != "markdown" {
+		t.Fatalf("scan: %+v", got)
+	}
+
+	var err error
+	a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out, "-ids", "nope"}) })
+	if err == nil || !strings.Contains(err.Error(), `no conversation "nope"`) {
+		t.Fatalf("an id Conductor does not have: %v", err)
+	}
+	// "empty" is a conversation with nothing said: chosen, it is skipped
+	// rather than written. Only the chosen are written: the Claude one as
+	// a session, nothing for the Codex one.
+	stdout, _ := a4Capture(t, "", func() {
+		err = runImport([]string{"conductor", "-db", db, "-out", out, "-ids", "0123456789abcdef,empty", "-json"})
+	})
+	var wrote []importedFile
+	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 || !wrote[0].Imported ||
+		wrote[0].Session == "" || wrote[0].File != "" {
+		t.Fatalf("import of the chosen: %v %q", err, stdout)
+	}
+	if _, err := os.Stat(wrote[0].SessionFile); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Errorf("the Codex conversation was not chosen, yet %s was written", out)
+	}
+	got = scan()
+	if f := got["0123456789abcdef"]; !f.Imported || f.Status != string(sessions.ImportUnchanged) || f.Session != wrote[0].Session {
+		t.Fatalf("imported already: %+v", f)
+	}
+	if got["codex1"].Imported {
+		t.Errorf("codex1 was never imported: %+v", got["codex1"])
+	}
+
+	// The workspace gone, and the repository too: nowhere to carry it on.
+	os.RemoveAll(ws)
+	if f := scan()["0123456789abcdef"]; f.Where != "gone" || f.Dir != "" {
+		t.Fatalf("gone: %+v", f)
 	}
 }

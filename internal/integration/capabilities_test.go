@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -185,5 +186,82 @@ func TestCanRerun(t *testing.T) {
 		if got := CanRerun(src, files); got != want {
 			t.Errorf("CanRerun(%q) = %v", src, got)
 		}
+	}
+}
+
+// The registry's capabilities_version 2 gives a lifetime as its numbers.
+// This conch read only a bool there, and one entry it could not read lost
+// it the whole index: the Integrations page went without the registry's
+// sandboxes and every icon (seen 2026-11-17, boat's entry). boat's and
+// daytona's are the live index's, as it was published then.
+func TestIndexCapabilitiesVersion2(t *testing.T) {
+	const ix2 = `{"format": 2, "capabilities_version": 2, "entries": [
+  {"kind": "sandbox", "name": "boat", "label": "boat.dev", "format": 4, "file": "sandbox/boat/provider.toml", "sha256": "a",
+   "capabilities": {"operations": ["create", "get", "list", "start", "stop", "delete", "snapshot_save", "snapshot_list", "snapshot_forget", "preview", "usage"], "ssh": {"key": "authorize", "access": true, "port": "endpoint"}, "create": ["env", "image", "name", "size", "ttl_secs"], "settings": ["image"], "size": "names", "lifetime": {"default_mins": 120, "max_mins": 43200}, "states": ["error", "started", "starting", "stopped", "stopping"], "list": {"paged": true, "all_mine": true}, "auth": {"type": "header", "header": "Authorization"}, "needs": ["key"]}},
+  {"kind": "sandbox", "name": "daytona", "label": "Daytona", "format": 4, "file": "sandbox/daytona/provider.toml", "sha256": "b",
+   "capabilities": {"operations": ["create", "get", "list", "start", "stop", "delete", "snapshot_save", "snapshot_list", "snapshot_forget", "preview"], "ssh": {"key": "none", "access": true, "port": "fixed"}, "create": ["cpu", "disk_gib", "env", "image", "label", "memory_gib", "region"], "settings": ["region", "image"], "size": "limits", "lifetime": null, "states": ["error", "gone", "started", "starting", "stopped", "stopping"], "list": {"paged": true, "all_mine": true}, "auth": {"type": "header", "header": "Authorization"}, "needs": ["key"]}},
+  {"kind": "sandbox", "name": "maxonly", "label": "x", "capabilities": {"operations": ["create"], "lifetime": {"max_mins": 60}}},
+  {"kind": "sandbox", "name": "zeroes", "label": "x", "capabilities": {"operations": ["create"], "lifetime": {"default_mins": 0, "max_mins": 0}}},
+  {"kind": "sandbox", "name": "empty", "label": "x", "capabilities": {"operations": ["create"], "lifetime": {}}},
+  {"kind": "sandbox", "name": "v1yes", "label": "x", "capabilities": {"operations": ["create"], "lifetime": true}},
+  {"kind": "sandbox", "name": "v1no", "label": "x", "capabilities": {"operations": ["create"], "lifetime": false}},
+  {"kind": "sandbox", "name": "unknown", "label": "x", "capabilities": {"operations": ["create"], "lifetime": "2h"}},
+  {"kind": "sandbox", "name": "absent", "label": "x", "capabilities": {"operations": ["create"]}},
+  {"kind": "ci", "name": "circleci", "label": "CircleCI", "capabilities": {"operations": ["runs"], "follow": true}}
+ ]}`
+	ix, err := ParseIndex([]byte(ix2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ix.Entries) != 10 {
+		t.Fatalf("%d entries, want all 10", len(ix.Entries))
+	}
+	want := map[string]bool{"boat": true, "daytona": false, "maxonly": true, "zeroes": false, "empty": false,
+		"v1yes": true, "v1no": false, "unknown": false, "absent": false, "circleci": false}
+	for name, life := range want {
+		e, ok := ix.Find(name)
+		if !ok || e.Capabilities == nil {
+			t.Fatalf("%s: missing or no capabilities", name)
+		}
+		if e.Capabilities.Lifetime != life {
+			t.Errorf("%s: lifetime %v, want %v", name, e.Capabilities.Lifetime, life)
+		}
+	}
+	// The rest of the capabilities are read around it.
+	boat, _ := ix.Find("boat")
+	if c := boat.Capabilities; c.Size != "names" || !c.Can("usage") || c.SSH == nil || c.SSH.Port != "endpoint" || !c.List.AllMine || !c.Takes("ttl_secs") {
+		t.Errorf("boat's capabilities: %+v", c)
+	}
+	day, _ := ix.Find("daytona")
+	if c := day.Capabilities; len(c.Settings) != 2 || c.Size != "limits" || c.Can("usage") {
+		t.Errorf("daytona's capabilities: %+v", c)
+	}
+	if ci, _ := ix.Find("circleci"); !ci.Capabilities.Follow {
+		t.Error("circleci's follow lost")
+	}
+	// conch still writes the bool it always has (registry.json, and the
+	// app's -json, which decode lifetime as a Bool).
+	out, err := json.Marshal(boat.Capabilities)
+	if err != nil || !strings.Contains(string(out), `"lifetime":true`) {
+		t.Errorf("written as %s (%v)", out, err)
+	}
+	var back Capabilities
+	if err := json.Unmarshal(out, &back); err != nil || !reflect.DeepEqual(back, *boat.Capabilities) {
+		t.Errorf("round trip: %+v (%v)", back, err)
+	}
+}
+
+// Capabilities that are not an object still fail, as before: only a
+// lifetime of a shape conch does not know is forgiven.
+func TestCapabilitiesStillRefuseNonsense(t *testing.T) {
+	for _, bad := range []string{`[]`, `"x"`, `{"operations": "create"}`, `{"follow": "yes"}`} {
+		var c Capabilities
+		if err := json.Unmarshal([]byte(bad), &c); err == nil {
+			t.Errorf("%s read without an error: %+v", bad, c)
+		}
+	}
+	var c Capabilities
+	if err := json.Unmarshal([]byte(`null`), &c); err != nil {
+		t.Errorf("null: %v", err)
 	}
 }

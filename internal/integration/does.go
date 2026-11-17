@@ -35,6 +35,13 @@ func Does(kind string, ops []string) []Feature {
 		return []Feature{
 			{"Agent waiting, agent done, pull request merged", "Sent by conch's server, as the desktop notifications are, whether or not conch is open", level(has("send"))},
 		}
+	case KindDeploy:
+		return []Feature{
+			{"A branch's previews: state, link, why one failed", "The app's git tab and pull request, the TUI's branch view, conch integration previews", level(has("previews"))},
+			{"A failed build's log goes to the branch's agent", "Send to the branch's agent, the autopilot's auto_fix, conch branch fix-ci, the review queue's f", level(has("failed_log"))},
+			{"Build a deploy again", "Redeploy in the app, conch integration redeploy", level(has("redeploy"))},
+			{"Release a deploy to production", "Promote or Publish in the app, conch integration promote, which asks first — never an agent or the autopilot", level(has("promote"))},
+		}
 	case KindSandbox:
 		// What a sandbox provider's file describes beside the machine: its
 		// operations are the format-4 tables it has.
@@ -44,6 +51,13 @@ func Does(kind string, ops []string) []Feature {
 			{"A link to a port inside", "Open a port in the browser…, conch sandbox url", level(has("preview"))},
 			{"What a sandbox has cost, as billed", "What it has cost…, conch sandbox usage; without it, the prices set in Settings", level(has("usage"))},
 			{"A region, an image or a size to choose", "Settings → Sandboxes and New Sandbox…", level(has("settings"))},
+		}
+	case KindImport:
+		// Nothing is sent anywhere: it is read on this machine, once asked.
+		return []Feature{
+			{"Its conversations, brought into conch", "Integrations → Import…, conch import NAME: each one written as a handoff an agent can read and carry on from", "yes"},
+			{"Its workspaces' repositories", "Named beside each conversation, with the folder to carry it on in", "yes"},
+			{"Resume a conversation in its own agent", "Not yet: an agent carries one on from its handoff", "no"},
 		}
 	case KindCI:
 	default:

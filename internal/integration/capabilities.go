@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"bytes"
+	"encoding/json"
 	"slices"
 	"strings"
 )
@@ -27,14 +29,22 @@ type Capabilities struct {
 	Create   []string `json:"create,omitempty"`
 	Settings []string `json:"settings,omitempty"`
 	// Size is how a size is chosen: names, limits, the plan's, or "".
-	Size     string    `json:"size,omitempty"`
+	Size string `json:"size,omitempty"`
+	// Lifetime is whether a sandbox is given a length of life. The
+	// registry's capabilities_version 1 said so as a bool, version 2 as
+	// the numbers ({"default_mins": 120, "max_mins": 43200}); both are
+	// read (UnmarshalJSON), and conch writes the bool it always has.
 	Lifetime bool      `json:"lifetime,omitempty"`
 	States   []string  `json:"states,omitempty"`
 	List     *ListCaps `json:"list,omitempty"`
 	Auth     *AuthCaps `json:"auth,omitempty"`
 	Needs    []string  `json:"needs,omitempty"`
 	Detect   []string  `json:"detect,omitempty"`
-	Follow   bool      `json:"follow,omitempty"`
+	// DetectOn is what each way of detecting looks for: an import's files,
+	// ~/ paths on this machine, which say it is here before it is
+	// installed.
+	DetectOn map[string][]string `json:"detect_on,omitempty"`
+	Follow   bool                `json:"follow,omitempty"`
 }
 
 // SSHCaps is whose key opens a sandbox (account, authorize, none), whether
@@ -179,10 +189,12 @@ func (c *Capabilities) OperationWords(kind string) string {
 // or a file of the person's own.
 func FileCapabilities(f *File) *Capabilities {
 	c := &Capabilities{Operations: append([]string{}, f.Operations()...), Detect: []string{}, States: []string{}}
-	typ := firstSet(f.Auth.Type, "header")
-	c.Auth = &AuthCaps{Type: typ}
-	if typ == "header" {
-		c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+	// An import sends nothing anywhere, so it has no way of sending a key.
+	if typ := firstSet(f.Auth.Type, "header"); f.Kind != KindImport {
+		c.Auth = &AuthCaps{Type: typ}
+		if typ == "header" {
+			c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+		}
 	}
 	if f.BaseURL == "ask" {
 		c.Needs = append(c.Needs, "base_url")
@@ -239,4 +251,44 @@ func KeepCapabilities(name string, caps *Capabilities) error {
 	rec.Capabilities = caps
 	recs[name] = rec
 	return writeRecords(recs)
+}
+
+// UnmarshalJSON reads capabilities of either version: lifetime as a bool
+// (1) or as its numbers (2). An index this conch could not read a field
+// of lost every entry at once — the Integrations page empty of the
+// registry's sandboxes and icons — so a lifetime of a shape it does not
+// know is read as none rather than failing the index.
+func (c *Capabilities) UnmarshalJSON(data []byte) error {
+	type plain Capabilities
+	var v struct {
+		*plain
+		Lifetime json.RawMessage `json:"lifetime"`
+	}
+	v.plain = (*plain)(c)
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	c.Lifetime = lifetimeGiven(v.Lifetime)
+	return nil
+}
+
+// lifetimeGiven is whether a capabilities' lifetime says sandboxes are
+// given one: true, or numbers with any above zero.
+func lifetimeGiven(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false
+	}
+	var b bool
+	if json.Unmarshal(raw, &b) == nil {
+		return b
+	}
+	var n struct {
+		DefaultMins int `json:"default_mins"`
+		MaxMins     int `json:"max_mins"`
+	}
+	if json.Unmarshal(raw, &n) == nil {
+		return n.DefaultMins > 0 || n.MaxMins > 0
+	}
+	return false
 }

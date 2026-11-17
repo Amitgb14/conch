@@ -601,3 +601,45 @@ theme = "dracula"
 		t.Fatalf("saved file lost the theme:\n%s", b)
 	}
 }
+
+// [integrations.projects] keeps the deploy integrations a project uses
+// that its files do not show, by its folder (or name): a person's switch.
+func TestIntegrationProjects(t *testing.T) {
+	var c IntegrationsCfg
+	if got := c.Chosen("web", "/w/web"); len(got) != 0 {
+		t.Fatalf("empty: %v", got)
+	}
+	c.SetChosen("/w/web", "vercel", true)
+	c.SetChosen("/w/web", "netlify", true)
+	c.SetChosen("/w/web", "vercel", true) // twice is once
+	if got := c.Chosen("web", "/w/web/"); strings.Join(got, ",") != "vercel,netlify" || c.Projects["/w/web"] != "vercel, netlify" {
+		t.Fatalf("on: %v %q", got, c.Projects["/w/web"])
+	}
+	c.SetChosen("/w/web", "vercel", false)
+	if got := c.Chosen("web", "/w/web"); strings.Join(got, ",") != "netlify" {
+		t.Fatalf("off: %v", got)
+	}
+	c.SetChosen("/w/web", "netlify", false)
+	if _, ok := c.Projects["/w/web"]; ok {
+		t.Fatal("an empty choice is kept")
+	}
+	// By name, written by hand; spaces and empties forgiven.
+	c.Projects = map[string]string{"api": " vercel ,, "}
+	if got := c.Chosen("api", "/elsewhere"); strings.Join(got, ",") != "vercel" {
+		t.Fatalf("by name: %v", got)
+	}
+	if got := c.Chosen("other", "/x"); len(got) != 0 {
+		t.Fatalf("another project: %v", got)
+	}
+	// Kept through a save and a load.
+	t.Setenv("CONCH_HOME", t.TempDir())
+	cfg := Default()
+	cfg.Integrations.SetChosen("/w/web", "vercel", true)
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Load()
+	if err != nil || strings.Join(back.Integrations.Chosen("web", "/w/web"), ",") != "vercel" {
+		t.Fatalf("loaded %v %v", back.Integrations.Projects, err)
+	}
+}

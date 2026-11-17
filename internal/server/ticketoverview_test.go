@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,7 +41,13 @@ func TestDoingFor(t *testing.T) {
 		"a PR beats queued":  {[]proto.BranchInfo{br("conch/issue-12-fix-it", open)}, queued, nil, proto.TicketDoing{State: proto.DoingPR, Schedule: "s1", Note: "2 agents are busy", Branch: "conch/issue-12-fix-it", PR: open}},
 		"idle on an open PR": {[]proto.BranchInfo{br("conch/issue-12-fix-it", open)}, nil, []proto.PaneInfo{agent("p3", "conch/issue-12-fix-it", proto.AgentIdle)}, proto.TicketDoing{State: proto.DoingPR, Pane: "p3", Branch: "conch/issue-12-fix-it", PR: open}},
 		"merged":             {[]proto.BranchInfo{br("conch/issue-12-fix-it", merged)}, nil, nil, proto.TicketDoing{State: proto.DoingMerged, Branch: "conch/issue-12-fix-it", PR: merged}},
-		"an attempt":         {[]proto.BranchInfo{br("conch/issue-12-fix-it/codex", nil)}, nil, []proto.PaneInfo{agent("p4", "conch/issue-12-fix-it/codex", proto.AgentIdle)}, proto.TicketDoing{State: proto.DoingIdle, Pane: "p4", Branch: "conch/issue-12-fix-it/codex"}},
+		// Two branches for one ticket: the open pull request is the one
+		// said, whichever branch comes first.
+		"open, then merged": {[]proto.BranchInfo{br("conch/issue-12-a", open), br("conch/issue-12-b", merged)}, nil, nil, proto.TicketDoing{State: proto.DoingPR, Branch: "conch/issue-12-b", PR: open}},
+		"merged, then open": {[]proto.BranchInfo{br("conch/issue-12-a", merged), br("conch/issue-12-b", open)}, nil, nil, proto.TicketDoing{State: proto.DoingPR, Branch: "conch/issue-12-b", PR: open}},
+		"open, then closed": {[]proto.BranchInfo{br("conch/issue-12-a", open), br("conch/issue-12-b", &proto.PRInfo{Number: 32, State: "CLOSED"})}, nil, nil, proto.TicketDoing{State: proto.DoingPR, Branch: "conch/issue-12-b", PR: open}},
+		"two merged":        {[]proto.BranchInfo{br("conch/issue-12-a", &proto.PRInfo{Number: 29, State: "MERGED"}), br("conch/issue-12-b", merged)}, nil, nil, proto.TicketDoing{State: proto.DoingMerged, Branch: "conch/issue-12-b", PR: merged}},
+		"an attempt":        {[]proto.BranchInfo{br("conch/issue-12-fix-it/codex", nil)}, nil, []proto.PaneInfo{agent("p4", "conch/issue-12-fix-it/codex", proto.AgentIdle)}, proto.TicketDoing{State: proto.DoingIdle, Pane: "p4", Branch: "conch/issue-12-fix-it/codex"}},
 		"a reviewer is not its agent": {[]proto.BranchInfo{br("conch/issue-12-fix-it", nil)}, nil,
 			[]proto.PaneInfo{func() proto.PaneInfo {
 				p := agent("p5", "conch/issue-12-fix-it", proto.AgentWorking)
@@ -54,9 +62,56 @@ func TestDoingFor(t *testing.T) {
 			got.Note != c.want.Note || (got.PR == nil) != (c.want.PR == nil) || (got.PR != nil && got.PR.Number != c.want.PR.Number) {
 			t.Errorf("%s: %+v, want %+v", name, got, c.want)
 		}
+		if got.State == proto.DoingPR && (got.PR == nil || got.PR.State != "OPEN") {
+			t.Errorf("%s: state pr beside %+v", name, got.PR)
+		}
 	}
 	if !keyBranch("ENG-142").MatchString("conch/eng-142-retry-uploads") || keyBranch("ENG-14").MatchString("conch/eng-142-retry") {
 		t.Fatal("ticket branches")
+	}
+}
+
+// TestTicketOverviewTicketsNeverNull: a tracker set up for no project
+// that fails, or has nothing open, is a group whose tickets are an empty
+// array on the wire — Conch.app's decoder takes no null there, and one
+// null loses the whole window.
+func TestTicketOverviewTicketsNeverNull(t *testing.T) {
+	s, p := afterFixture(t)
+	quietPRs(t, p)
+	t.Setenv("LINEAR_API_KEY", "")
+	failing := true
+	lin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if failing {
+			http.Error(w, "down", http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte(`{"data":{"issues":{"nodes":[]}}}`))
+	}))
+	t.Cleanup(lin.Close)
+	dir := t.TempDir()
+	gh := filepath.Join(dir, "gh")
+	os.WriteFile(gh, []byte("#!/bin/sh\ncase \"$1 $2\" in\n\"api user\") echo amit ;;\n\"issue list\") echo '[]' ;;\n\"pr list\") echo '[]' ;;\n*) exit 7 ;;\nesac\n"), 0o755)
+	t.Setenv("CONCH_GH", gh)
+	writeConfig(t, s, "[trackers.linear]\napi_key = \"k\"\napi_url = \""+lin.URL+"\"\nteam = \"ENG\"\n")
+	for _, f := range []bool{true, false} {
+		failing = f
+		ov, perr := s.ticketOverview(proto.TicketOverviewParams{})
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		if len(ov.Projects) != 2 || ov.Projects[1].Name != "Linear" || (len(ov.Projects[1].Errors) != 0) != f {
+			t.Fatalf("failing=%v: %+v", f, ov.Projects)
+		}
+		raw, _ := json.Marshal(ov)
+		if strings.Contains(string(raw), `"tickets":null`) || strings.Count(string(raw), `"tickets":[]`) != 2 {
+			t.Fatalf("failing=%v: %s", f, raw)
+		}
+	}
+	// trackerTickets fills in a group given none, whatever the path.
+	var g proto.TicketProject
+	s.trackerTickets(t.Context(), nil, errors.New("no key"), "jira", "", nil, 5, nil, nil, &g)
+	if g.Tickets == nil || len(g.Errors) != 1 {
+		t.Fatalf("%+v", g)
 	}
 }
 

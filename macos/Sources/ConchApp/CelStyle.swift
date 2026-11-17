@@ -260,7 +260,7 @@ struct CelSide: View {
                     }
                 }
             } else {
-                Button("Open to answer") { store.open(key) }.buttonStyle(.plain)
+                Button("Open to Answer") { store.open(key) }.buttonStyle(.plain)
                     .font(.ui(size: 12, weight: .bold)).foregroundStyle(Theme.accentDeep)
             }
         }

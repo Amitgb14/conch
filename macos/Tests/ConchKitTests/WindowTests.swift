@@ -579,3 +579,16 @@ import Testing
     #expect(LucideIcons.ops(SettingsNav.skillsIcon) != LucideIcons.ops("settings"))
     #expect(SettingsNav.skillsIcon != "sparkles") // the Brain's
 }
+
+// A chat, or a workbench's shell yet to start, stands for an agent pane: it
+// is that pane's machine's tab and that pane's row, not a machine "chat".
+@Test func chatAndBenchShellKeysBelongToTheirPane() {
+    let agent = key("busybox", "p5")
+    for k in [chatKey(agent), benchShellKey(agent)] {
+        #expect(machine(ofKey: k) == "busybox")
+        #expect(treeRow(forTab: k) == "pane:" + agent)
+    }
+    #expect(machine(ofKey: chatKey(key("local", "p5"))) == "local")
+    let tabs = [Tab(pane: key("local", "p1")), Tab(pane: chatKey(agent)), Tab(pane: benchShellKey(key("local", "p9")))]
+    #expect(tabGroups(tabs, machines: ["local", "busybox"]) == [TabGroup(machine: "local", indices: [0, 2]), TabGroup(machine: "busybox", indices: [1])])
+}

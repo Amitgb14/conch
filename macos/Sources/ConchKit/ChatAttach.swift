@@ -7,6 +7,20 @@ import Foundation
 public let attachMaxSize: Int64 = 20 << 20
 public let attachMaxFiles = 10
 
+/// What a thumbnail is cached by: the bytes held (their length and ends,
+/// not a hash of every byte at each redraw), else the file and its stamp
+/// (fileStamp), so an edited picture is read again. nil when there is
+/// nothing to draw: no bytes, and no file there.
+public func attachmentThumbKey(file: String?, stamp: String, data: Data?) -> String? {
+    if let d = data, !d.isEmpty {
+        var h: UInt64 = 1469598103934665603
+        for b in d.prefix(64) + d.suffix(64) { h = (h ^ UInt64(b)) &* 1099511628211 }
+        return "d:\(d.count):\(h)"
+    }
+    guard let f = file, !f.isEmpty, !stamp.isEmpty else { return nil }
+    return "f:\(stamp):" + f
+}
+
 /// A file put on a message before it is sent: a picture pasted, a file
 /// dropped from Finder or picked, or one of the checkout's own picked
 /// with @. Files in the checkout are never copied — the agent is given

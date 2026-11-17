@@ -110,6 +110,23 @@ import Testing
     #expect(argv.last == "/Applications/My \"Conch\".app")
 }
 
+// A relaunch's helper starts only when the app really terminates: a quit
+// the person cancelled leaves nothing to reopen Conch at the next quit.
+@Test func relaunchOnlyWhenReallyQuitting() {
+    var r = RelaunchOnQuit()
+    var go = r.terminating()
+    #expect(!go) // an ordinary quit
+    r.ask()
+    r.cancelled() // unsaved edits: Cancel
+    go = r.terminating()
+    #expect(!go) // the next quit is ordinary
+    r.ask()
+    go = r.terminating()
+    #expect(go)
+    go = r.terminating()
+    #expect(!go) // once
+}
+
 // Where the app replaced by an update is kept — the same place
 // internal/update's previousApp says.
 @Test func previousAppIsBeside() {

@@ -1,0 +1,81 @@
+# Netlify. The site is the one that builds from this repository; a
+# branch's previews are its deploys of that branch (deploy previews of its
+# pull request, and branch deploys), at the pull request's head when there
+# is one. Releasing publishes a deploy as it was built, as Netlify's
+# "Publish deploy" does.
+format = 3
+kind = "deploy"
+name = "netlify"
+label = "Netlify"
+api = "https://api.netlify.com/api/v1"
+key_env = "NETLIFY_AUTH_TOKEN"
+docs = "https://open-api.netlify.com/"
+adapted_by = "claude"
+adapted = "2026-11-16"
+key_help = "Netlify → User settings → Applications → Personal access tokens → New access token."
+note = "Netlify cannot publish a deploy preview (a draft): release one of the production branch's deploys — with auto publishing locked, a ready one waits for this — or an earlier one to roll back. Netlify's API has no build log: a failed deploy gives its error message."
+
+[auth]
+type = "bearer"
+
+[detect]
+files = ["netlify.toml"]
+checks = ["netlify/*"]
+
+[states]
+new = "building"
+pending_review = "building"
+accepted = "building"
+enqueued = "building"
+building = "building"
+uploading = "building"
+uploaded = "building"
+preparing = "building"
+prepared = "building"
+processing = "building"
+processed = "building"
+retrying = "building"
+ready = "ready"
+error = "failed"
+rejected = "canceled"
+
+[previews]
+items = "[*]"
+id = "id"
+name = "title"
+state = "state"
+url = "deploy_ssl_url"
+commit = "commit_ref"
+environment = "context"
+error = "error_message"
+inspect = "admin_url"
+started = "created_at"
+finished = "published_at"
+
+[[previews.steps]]
+as = "site"
+call = "GET /sites?filter=all&per_page=100"
+pick = "[build_settings/repo_path={path}]"
+
+[[previews.steps]]
+call = "GET /sites/{site.id}/deploys?branch={branch}&per_page=20"
+pick = "[*commit_ref={head}]"
+
+[failed_log]
+call = "GET /deploys/{deploy}"
+text = "error_message"
+
+# A new build of the same commit: a deploy preview again when it was one.
+[[redeploy.steps]]
+as = "dep"
+call = "GET /deploys/{deploy}"
+
+[[redeploy.steps]]
+call = "POST /sites/{dep.site_id}/builds?branch={dep.branch}&commit_sha={dep.commit_ref}&review_id={dep.review_id}"
+
+[[promote.steps]]
+as = "dep"
+call = "GET /deploys/{deploy}"
+
+[[promote.steps]]
+call = "POST /sites/{dep.site_id}/deploys/{deploy}/restore"

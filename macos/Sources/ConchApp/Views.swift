@@ -535,8 +535,14 @@ struct Counts: View {
     /// environment: given the theme here, for the views it holds.
     var body: some View { content.environment(\.conchTheme, store.themeLook) }
 
-    /// Waiting, done and to review, always there — dimmed at nothing, so the
-    /// corner says "nothing needs you" rather than looking unfinished.
+    /// Waiting, done and to review, always there — quieter at nothing, so the
+    /// corner says "nothing needs you" rather than looking unfinished. Each
+    /// is filled and none is disabled: AppKit dims a disabled toolbar
+    /// control a second time, and text bare on the toolbar takes its glass's
+    /// tint, which together left "0 waiting", "0 done", "N to review" and
+    /// the machine's name unreadable, most of all in a light theme
+    /// (2026-11-16). At zero a click does nothing: nextWaiting and nextDone
+    /// find none to go to.
     @ViewBuilder var content: some View {
         let (w, d) = store.inbox
         let r = store.reviewItems.count
@@ -549,25 +555,26 @@ struct Counts: View {
                 if Theme.ink {
                     BurstCount(text: "\(w) waiting\(w > 0 ? "!" : "")", loud: w > 0, ink: w > 0 ? Theme.inkLine : Theme.muted)
                 } else {
-                    Pill(text: "\(Theme.meadow ? "☀" : "⚑") \(w) waiting", fg: w > 0 ? Theme.onWarn : Theme.muted, bg: w > 0 ? Theme.warn : Theme.raise)
+                    Pill(text: "\(Theme.meadow ? "☀" : "⚑") \(w) waiting", fg: w > 0 ? Theme.onWarn : Theme.text2, bg: w > 0 ? Theme.warn : Theme.raise)
                 }
             }
-            .buttonStyle(.plain).disabled(w == 0)
+            .buttonStyle(.plain)
             .help(w > 0 ? "Go to the next agent waiting for you (⌘.)" : "No agent is waiting for you")
             Button { store.nextDone() } label: {
                 if Theme.ink {
                     BurstCount(text: "\(d) done", loud: false, ink: d > 0 ? Theme.inkLine : Theme.muted)
                 } else {
-                    Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.muted,
+                    Pill(text: "\(Theme.meadow ? "✿" : "✓") \(d) done", fg: d > 0 ? Theme.ok : Theme.text2,
                          bg: d > 0 ? Theme.ok.opacity(Theme.meadow ? 0.22 : 0.16) : Theme.raise)
                 }
             }
-            .buttonStyle(.plain).disabled(d == 0)
+            .buttonStyle(.plain)
             .help(d > 0 ? "Go to the next agent that finished — each click the next" : "No agent has finished")
             Button { reviewing.toggle() } label: {
                 Text("\(r) to review").font(.ui(size: 11, weight: .semibold))
-                    .foregroundStyle(r > 0 ? Theme.text2 : Theme.muted)
+                    .foregroundStyle(r > 0 ? Theme.text : Theme.text2)
                     .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: Theme.corner(20, meadow: 20, cel: 7)).fill(Theme.raise))
                     .overlay(RoundedRectangle(cornerRadius: Theme.corner(20, meadow: 20, cel: 7)).strokeBorder(r > 0 ? Theme.line2 : Theme.line))
             }
             .buttonStyle(.plain)
@@ -591,12 +598,12 @@ struct MachineChip: View {
             HStack(spacing: 5) {
                 TreeIcon(name: icon(p.kind), look: look, color: p.kind == .local ? Theme.muted : Theme.accent, size: 12)
                 Text(p.title).font(.ui(size: 11, weight: .semibold)).lineLimit(1).truncationMode(.middle)
-                    .foregroundStyle(p.kind == .local ? Theme.muted : Theme.text2)
+                    .foregroundStyle(p.kind == .local ? Theme.text2 : Theme.text)
                 if !p.online { Circle().fill(Theme.muted).frame(width: 5, height: 5) }
             }
             .padding(.horizontal, 7).padding(.vertical, 2)
             .background(RoundedRectangle(cornerRadius: Theme.corner(20, meadow: 20, cel: 7))
-                .fill(p.kind == .local ? Color.clear : Theme.accent.opacity(0.12)))
+                .fill(p.kind == .local ? Theme.raise : Theme.accent.opacity(0.12)))
             .help(p.help)
         }
     }
@@ -854,8 +861,8 @@ struct Empty: View {
             } else {
                 Text(store.status).foregroundStyle(Theme.text2).multilineTextAlignment(.center).frame(maxWidth: 520)
                 HStack {
-                    Button("Start conch's server") { store.startServer() }.disabled(store.binary == nil)
-                    Button("Try again") { store.connect() }
+                    Button("Start conch's Server") { store.startServer() }.disabled(store.binary == nil)
+                    Button("Try Again") { store.connect() }
                 }
                 if store.binary == nil {
                     Text("conch is not installed where this app looks (~/.local/bin, Homebrew, PATH). Set CONCH_BIN to its path.")
@@ -1655,7 +1662,7 @@ struct NeedsYouCard: View {
             if let q, !q.choices.isEmpty {
                 ChoiceButtons(store: store, pane: key, question: q)
             } else {
-                Button("Open to answer") { store.open(key) }.buttonStyle(.plain)
+                Button("Open to Answer") { store.open(key) }.buttonStyle(.plain)
                     .font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
             }
         }
@@ -3081,7 +3088,7 @@ struct UpdatesSheet: View {
                 .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("Not now") { store.updatesOpen = false }.keyboardShortcut(.cancelAction)
+                Button("Not Now") { store.updatesOpen = false }.keyboardShortcut(.cancelAction)
                 Button(picked.isEmpty ? "Upgrade" : "Upgrade \(picked.count)") {
                     store.applyUpdates(picked)
                     store.updatesOpen = false

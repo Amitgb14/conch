@@ -69,6 +69,26 @@ final class ChangesModel: ObservableObject {
     @Published var ciUses: [IntegrationUse] = []
     private var ciAsked = false
 
+    // deploy previews (DeployPreviews.swift)
+    /// The branch's deploys by integration (branch.previews), nil until
+    /// read or from a server without them.
+    @Published var previews: BranchPreviews?
+    var previewsAt: Date?
+    /// Why the last read of the previews failed, if it did.
+    @Published var previewsFailure: String?
+    /// A failed build's log, by "source|deploy", once Build log is pressed.
+    @Published var deployLogs: [String: String] = [:]
+    @Published var deployLogShown: String?
+    /// The release asked for, waiting on its confirmation sheet.
+    @Published var releasing: DeployConfirm?
+    /// A production build a release started (Vercel), shown as building
+    /// until the service lists it, by integration.
+    @Published var pendingBuilds: [String: DeployInfo] = [:]
+    /// What an immediate release (Netlify's publish) did, for the card.
+    @Published var releasedNote: String?
+    /// The previews as drawn: with any pending production build.
+    var shownPreviews: BranchPreviews? { previews.map { Deploys.with($0, pending: pendingBuilds) } }
+
     var mode: Mode {
         if let c = chosen { return c }
         guard let ch = changes else { return .changes }
@@ -130,6 +150,7 @@ final class ChangesModel: ObservableObject {
         await loadComments()
         if mode == .overview { await loadRecent() }
         await loadCIUses()
+        await loadPreviews()
     }
 
     /// The card for a red check conch cannot read, if there is one.

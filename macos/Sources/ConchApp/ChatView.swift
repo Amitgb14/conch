@@ -1,5 +1,6 @@
 import AppKit
 import ConchKit
+import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -913,10 +914,15 @@ struct AttachmentThumb: View {
     var file: String?
     var data: Data?
     var side: CGFloat = 28
+    @State private var loaded: (key: String, image: NSImage)?
 
+    /// Decoding the whole picture in body, at every redraw of the chat,
+    /// read a screenshot from disk each time anything moved: a thumbnail is
+    /// made once, off the main thread, and kept by its key.
     var body: some View {
         let _ = look
-        let img: NSImage? = image ? (data.flatMap { NSImage(data: $0) } ?? file.flatMap { NSImage(contentsOfFile: $0) }) : nil
+        let k = image ? attachmentThumbKey(file: file, stamp: file.map(fileStamp) ?? "", data: data) : nil
+        let img: NSImage? = k.flatMap { k in loaded?.key == k ? loaded?.image : AttachmentThumbs.cache.object(forKey: k as NSString) }
         Group {
             if let img {
                 Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
@@ -927,6 +933,45 @@ struct AttachmentThumb: View {
         .frame(width: side, height: side)
         .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise2))
         .clipShape(RoundedRectangle(cornerRadius: 5))
+        .task(id: k) {
+            guard let k else { loaded = nil; return }
+            if let c = AttachmentThumbs.cache.object(forKey: k as NSString) { loaded = (k, c); return }
+            let file = file, data = data, pixels = Int(side * 3)
+            let cg = await Task.detached(priority: .utility) { AttachmentThumbs.thumbnail(file: file, data: data, pixels: pixels) }.value
+            guard !Task.isCancelled, let cg else { return }
+            let ns = NSImage(cgImage: cg, size: .zero)
+            AttachmentThumbs.cache.setObject(ns, forKey: k as NSString)
+            loaded = (k, ns)
+        }
+    }
+}
+
+/// Thumbnails of attachments, made small once and kept while there is room.
+enum AttachmentThumbs {
+    static let cache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 200
+        return c
+    }()
+
+    /// A picture shrunk to at most pixels on a side, by ImageIO, which may
+    /// run off the main thread.
+    nonisolated static func thumbnail(file: String?, data: Data?, pixels: Int) -> CGImage? {
+        let src: CGImageSource?
+        if let d = data, !d.isEmpty {
+            src = CGImageSourceCreateWithData(d as CFData, nil)
+        } else if let f = file {
+            src = CGImageSourceCreateWithURL(URL(fileURLWithPath: f) as CFURL, nil)
+        } else {
+            src = nil
+        }
+        guard let src else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(pixels, 1),
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
     }
 }
 

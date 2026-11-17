@@ -67,6 +67,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch server` | run the server in the foreground |
 | `conch server stop` | stop the server and every pane it owns |
 | `conch server reload [-binary PATH]` | run a new conch build without stopping panes; `-binary` picks the program to reload into (default: the server's own executable path) |
+| `conch server heap [-json]` | the server's memory now, and its heap profile and goroutines written to `debug/` in conch's folder (yours alone; the newest ten kept) without stopping anything. Two taken apart, `go tool pprof -top -sample_index=inuse_space -base OLDER NEWER` shows what holds what was added |
 
 ### Panes
 
@@ -243,9 +244,9 @@ Finishing a task from a script, the same steps as the [changes view](/docs/tasks
 | `conch branch pr [-title T] [-body B] [-draft]` | push, then open a pull request into the base with `gh`, and print its URL. Without `-title`, gh fills the title and body from the commits |
 | `conch branch merge [-no-squash] [-m MESSAGE]` | merge the branch into the base where the base is checked out, squashed unless `-no-squash`. A merge that conflicts is undone and the command fails |
 | `conch branch discard [-n] [-force]` | remove the branch's worktree and delete the branch. It refuses when that would lose uncommitted files or unpushed commits, unless `-force`; `-n` only prints what would go |
-| `conch branch prune [-days N \| -merged] [-y] [-force] [BRANCH...]` | delete local branches with no commit in N days (`[git] stale_days`, else 30) that lose nothing: merged, or pushed. `-merged` takes instead every branch the base already has — merged, squashed in, or merged on GitHub with its last commit — however recent. It keeps the base branch and any branch checked out in a worktree, and — unless `-force` — one with commits neither merged nor pushed. Without `-y` it only prints what would go |
+| `conch branch prune [-days N \| -merged] [-y] [-force] [BRANCH...]` | delete local branches with no commit in N days (`[git] stale_days`, else 30) that lose nothing: merged, or pushed. `-merged` takes instead every branch the base already has — merged, squashed in, or merged on GitHub with its last commit — however recent. It keeps the base branch and any branch checked out in a worktree, and — unless `-force` — one with commits neither merged nor pushed. A branch whose commits git could not count (a git that failed, a listing that ran out of time) is kept, `-force` or not: not knowing is not losing nothing. Without `-y` it only prints what would go |
 | `conch branch fix-ci [-agent A]` | send the branch's newest failed CI run — from GitHub Actions, or, when Actions has none, from the project's CI integration (CircleCI, GitLab CI; see Integrations) — its log's end and a link to it — to the agent working on the branch, as `f` in the review queue; with none there, start one (`-agent`, else `[agents] default`) in the branch's worktree with it. Refused while that agent waits on a question of its own |
-| `conch branch rerun-ci` | re-run what failed in the branch's newest failed CI run: `gh run rerun --failed` on GitHub Actions, else through the project's CI integration |
+| `conch branch rerun-ci` | re-run what failed in the branch's CI: on GitHub Actions every workflow that failed at the branch's head, one `gh run rerun --failed` each, else the newest failed run through the project's CI integration |
 
 ```sh
 conch branch commit -m "Add the health check" && conch branch pr -title "Health check"
@@ -330,10 +331,15 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME` | say the hosts and the key's variable and ask (`-y` doesn't), check the file's hash and that it reaches nothing else, then ask for the key without echoing it (`-key-stdin` reads it) and keep it in the Keychain on a Mac — elsewhere it says the variable to set; then one read-only call against this project's branch. A revoked version is refused |
 | `conch integration key [-stdin] [-base URL] [-cwd DIR] NAME` | give an integration — shipped or installed — its key: without echo (`-stdin` reads it), kept in the Keychain on a Mac, then checked against this project; `-base` keeps the address of a service you run yourself (`[integrations.base]`) |
 | `conch integration ls [-json] [-cwd DIR]` | every integration here: built in (GitHub, GitHub Actions, GitHub Issues, Linear, Jira), shipped with conch, installed or of your own, its version, its key's state and whether the project in `DIR` uses it; a file that is not used says why (revoked, a problem in it) |
-| `conch integration update [-y] [NAME]` | take newer versions of what you installed; a file edited here is left alone, and a version reaching new hosts is asked about even with `-y` |
+| `conch integration update [-y] [NAME]` | take newer versions of what you installed; a file edited here is left alone, and a version reaching new hosts, or reading the key or user name from another variable, is asked about even with `-y`; a failed update leaves the installed version as it was |
 | `conch integration remove NAME` | delete an installed integration and its record |
 | `conch integration check [-json] NAME\|FILE` | everything wrong with a file, one line each; exits 1 when anything is |
 | `conch integration guide` | the [file format](/docs/integrations#writing-one), for writing one |
+| `conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]` | a branch's deploys on a [deploy integration](/docs/integrations#deploy-previews) (Vercel, Netlify): state, preview link, the commit, why one failed, and the service's page for the newest; with no name, the one the project uses |
+| `conch integration deploy-log [-lines N] [-cwd DIR] [NAME] DEPLOY` | the end of what a deploy's build printed, 200 lines unless `-lines` says otherwise (0 for all) |
+| `conch integration redeploy [-cwd DIR] [NAME] DEPLOY` | build a deploy again |
+| `conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY` | release a deploy to production — asks first, `-y` to skip asking; any other answer releases nothing and exits non-zero |
+| `conch integration use [-off] [-cwd DIR] NAME` | say this project deploys to a [deploy integration](/docs/integrations#deploy-previews) its files don't show (Vercel linking the repository from its own dashboard, with no `vercel.json`): kept in `config.toml` under `[integrations.projects]` by the project's folder, also from a worktree; `-off` stops |
 | `conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...` | [adapt one](/docs/integrations#adapting-one-from-its-api-docs) conch does not know: conch downloads the API docs, an agent (`-agent`, default claude) writes `NAME.toml` to the kind's contract in a pane of its own and runs `conch integration check` until it is clean, then conch reads the project in `DIR`'s runs with your key — after asking, since the file chose the variable and the host. The agent never has the key. A service conch ships or a registry lists is pointed at rather than adapted (`-new` adapts anyway); `-kind sandbox` is `conch sandbox adapt`. `-revise TEXT NAME` asks the agent for a change, `-check NAME` runs the key check, `-save NAME` keeps the draft as a file of your own |
 | `conch integration publish [-dry-run] [-json] [-y] [-cwd DIR] FILE\|NAME` | check the file with your key (asked first, unless `-y`), then open a pull request to the registry through `gh` adding the file and its index entry (kind, version — the next unused one —, hosts, key variable, operations), with the check's result in its body. Your key is never part of it |
 
@@ -510,6 +516,7 @@ conch import conductor -markdown         # and a document of each as well
 conch import conductor -resumable=false  # documents only, as conch did before
 conch import conductor -n                # say what it would do, and write nothing
 conch import conductor -json             # what was written, for a script
+conch import conductor -ids ID,ID        # only these conversations (-n -json lists them with their ids)
 ```
 
 Conductor kept its conversations in a database of its own (`~/Library/Application Support/com.conductor.app/conductor.db`), not where Claude Code and Codex keep theirs, so [Sessions](/docs/sessions) cannot list them. This reads them from there — from a copy, so a Conductor that is still open is neither locked nor written to (`-db PATH` for a database somewhere else). It needs the `sqlite3` command, which macOS has.
@@ -518,7 +525,7 @@ Conductor kept its conversations in a database of its own (`~/Library/Applicatio
 
 **Anything else becomes a handoff document**: the prompts and the agent's answers, without tool calls, command output or thinking, under `imports/conductor/REPO/` in conch's folder (`-out DIR` for another). That is every Codex conversation for now, and a Claude one conch cannot write as a session — its workspace and repository both gone, say — and the output says why. The last thing printed is the command that carries one on: an agent started where the conversation ran and told to read the file.
 
-**Importing again brings in only what is new.** What was written is kept in `imports/conductor/state.json`. A conversation imported before gets Conductor's newer messages added to its session only if that session is as conch left it; one you have carried on with in conch is left alone, and the output says so. Nothing is ever deleted, and a session you removed is not written again. Documents are replaced in place.
+**Importing again brings in only what is new.** What was written is kept in `imports/conductor/state.json`. A conversation imported before gets Conductor's newer messages added to its session only if that session is as conch left it; one you have carried on with in conch is left alone, and the output says so. Nothing is ever deleted, and a session you removed is not written again. Documents are replaced in place. `-n -json` says, for each conversation, its id, where it carries on (its workspace, or the repository once the workspace is gone), when it was last used and whether it was imported already; Conch.app's **Integrations → Import** sheet is drawn from it, and imports what you tick with `-ids`.
 
 See [Moving from Conductor](/docs/from-conductor).
 

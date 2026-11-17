@@ -159,14 +159,46 @@ func clineBinary(e Env) string {
 	return ""
 }
 
+// clineVars are what move Cline's data, and the PATH it was found in.
+var clineVars = []string{"CLINE_SESSION_DATA_DIR", "CLINE_DATA_DIR", "CLINE_DIR", "PATH"}
+
+// clineEnv is this process's environment with the store's own home and
+// Cline folders over it, so the cline that deletes a session looks where
+// the list found it — not where this process's variables point. One the
+// store leaves unset is unset for cline too.
+func clineEnv(e Env) []string {
+	drop := map[string]bool{"HOME": true}
+	for _, k := range clineVars {
+		drop[k] = true
+	}
+	var env []string
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); !drop[k] {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "HOME="+e.Home)
+	for _, k := range clineVars {
+		if v := e.get(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env
+}
+
 func clineDelete(ctx context.Context, e Env, s Session) error {
 	bin := clineBinary(e)
 	if bin == "" {
 		return fmt.Errorf("deleting a Cline session needs the cline command")
 	}
 	cmd := exec.CommandContext(ctx, bin, "history", "delete", "--session-id", s.ID)
+	// In the session's folder, for its checkpoints there; a folder since
+	// removed would fail the start itself, so home then.
 	cmd.Dir = s.Dir
-	cmd.Env = append(os.Environ(), "HOME="+e.Home)
+	if fi, err := os.Stat(s.Dir); s.Dir == "" || err != nil || !fi.IsDir() {
+		cmd.Dir = e.Home
+	}
+	cmd.Env = clineEnv(e)
 	cmd.WaitDelay = time.Second
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("cline history delete: %v: %s", err, strings.TrimSpace(string(out)))

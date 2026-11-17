@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -116,5 +117,40 @@ func TestManifestInterruptKeys(t *testing.T) {
 	k[0] = "ctrl+c"
 	if m["devin"].Interrupt[0] != "escape" {
 		t.Error("InterruptKeys handed out the manifest's own slice")
+	}
+}
+
+// TestShippedInterruptKeysMatchTheScreen: Stop sends a manifest's
+// interrupt keys, so an agent whose own screen says which key interrupts
+// it must be sent that key. Goose says "Ctrl+C to interrupt" and was sent
+// Esc, which left it working.
+func TestShippedInterruptKeysMatchTheScreen(t *testing.T) {
+	m := manifests(t)
+	if k := m["goose"].InterruptKeys(); len(k) != 1 || k[0] != "ctrl+c" {
+		t.Errorf("goose: %v", k)
+	}
+	checked := 0
+	for name, man := range m {
+		for _, r := range man.Rules {
+			// The pattern is a regular expression: read it as the words it
+			// matches, near enough for these hints.
+			hint := strings.ToLower(strings.ReplaceAll(r.Pattern, `\`, ""))
+			want := ""
+			switch {
+			case strings.Contains(hint, "ctrl+c to interrupt"):
+				want = "ctrl+c"
+			case strings.Contains(hint, "esc to interrupt"):
+				want = "escape"
+			default:
+				continue
+			}
+			checked++
+			if k := man.InterruptKeys(); len(k) != 1 || k[0] != want {
+				t.Errorf("%s: its screen says %q, and Stop sends %v", name, r.Pattern, k)
+			}
+		}
+	}
+	if checked < 2 {
+		t.Fatalf("only %d rules name an interrupt key: the hints are not being read", checked)
 	}
 }

@@ -26,6 +26,9 @@ var known = []struct {
 	{name: "bitbucket-pipelines", label: "Bitbucket Pipelines", hosts: []string{"bitbucket.org"}},
 	{name: "azure-pipelines", label: "Azure Pipelines", hosts: []string{"dev.azure.com", "visualstudio.com"}, prefixes: []string{"Azure Pipelines"}},
 	{name: "travis-ci", label: "Travis CI", hosts: []string{"travis-ci.com", "travis-ci.org"}, prefixes: []string{"continuous-integration/travis-ci"}},
+	// Deploy services report a build to GitHub as a check too.
+	{name: "vercel", label: "Vercel", hosts: []string{"vercel.com"}, prefixes: []string{"Vercel"}},
+	{name: "netlify", label: "Netlify", hosts: []string{"netlify.com"}, prefixes: []string{"netlify/"}},
 }
 
 // Label is how people write a source: an integration's label, a known
@@ -54,7 +57,8 @@ func Label(source string, files []*File) string {
 // name and link, and says whether conch can read its log: GitHub Actions
 // through gh, an integration of files whose file reads a failed log. A
 // service conch only recognises is named, unreadable; "" is one it does
-// not know.
+// not know. A deploy file's checks (Vercel's, Netlify's) are its own: a
+// failed build is read as a failed run is.
 func CheckSource(name, link string, files []*File) (source string, readable bool) {
 	u, _ := url.Parse(link)
 	host, p := "", ""
@@ -64,18 +68,22 @@ func CheckSource(name, link string, files []*File) (source string, readable bool
 	if host == "github.com" && strings.Contains(p, "/actions/runs/") {
 		return SourceActions, true
 	}
-	for _, f := range files {
-		if f.Kind != KindCI {
-			continue
-		}
-		hit := under(host, site(hostOf(f.API)))
-		for _, g := range f.Detect.Checks {
-			if ok, _ := path.Match(g, name); ok {
-				hit = true
+	// CI files first: a check both a CI and a deploy file claim is a
+	// CI run, which is what it was before deploy files existed.
+	for _, kind := range []string{KindCI, KindDeploy} {
+		for _, f := range files {
+			if f.Kind != kind {
+				continue
 			}
-		}
-		if hit {
-			return f.Name, f.FailedLog.Has()
+			hit := under(host, site(hostOf(f.API)))
+			for _, g := range f.Detect.Checks {
+				if ok, _ := path.Match(g, name); ok {
+					hit = true
+				}
+			}
+			if hit {
+				return f.Name, f.FailedLog.Has()
+			}
 		}
 	}
 	for _, k := range known {

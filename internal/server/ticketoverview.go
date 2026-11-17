@@ -82,7 +82,7 @@ func (s *Server) ticketOverview(op proto.TicketOverviewParams) (proto.TicketOver
 	if len(want) == 0 && len(cfg.Trackers.Projects) == 0 {
 		// A tracker set up for no project in particular: its own group.
 		for _, name := range tracker.Configured(cfg.Trackers, s.trackerSecret) {
-			g := proto.TicketProject{Name: tracker.Title(name)}
+			g := proto.TicketProject{Name: tracker.Title(name), Tickets: []proto.TicketRow{}}
 			tr, err := tracker.Open(cfg.Trackers, name, s.trackerSecret)
 			s.trackerTickets(ctx, tr, err, name, tracker.Scope(cfg.Trackers, "", "", name), nil, limit, sched, panes, &g)
 			out.Projects = append(out.Projects, g)
@@ -173,6 +173,11 @@ func (s *Server) projectTickets(ctx context.Context, cfg config.TrackersCfg, p *
 // trackerTickets adds the open tickets in area of tr — the tracker name
 // opened, or why it could not be — to g.
 func (s *Server) trackerTickets(ctx context.Context, tr tracker.Tracker, err error, name, area string, info *proto.ProjectInfo, limit int, sched []proto.ScheduledItem, panes []proto.PaneInfo, g *proto.TicketProject) {
+	// tickets is never null on the wire: Conch.app reads an array, and a
+	// null fails the whole Tickets window rather than this group.
+	if g.Tickets == nil {
+		g.Tickets = []proto.TicketRow{}
+	}
 	src := name
 	if area != "" {
 		src += " · " + area
@@ -240,7 +245,12 @@ func doingFor(info proto.ProjectInfo, projectID string, isTask func(proto.TaskCr
 		d.Branch = br.Name
 		if br.PR != nil {
 			pr := *br.PR
-			d.PR = &pr
+			// An open pull request is what the ticket is waiting on: a
+			// merged or closed one on another of its branches does not
+			// replace it, or the state said "pr" beside a merged one.
+			if pr.State == "OPEN" || d.PR == nil || d.PR.State != "OPEN" {
+				d.PR = &pr
+			}
 			switch pr.State {
 			case "OPEN":
 				d.State = proto.DoingPR

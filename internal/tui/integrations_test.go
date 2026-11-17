@@ -65,6 +65,10 @@ func TestIntegrationsTab(t *testing.T) {
 	if !(at("○ Jira") < at("○ Shortcut") && at("○ Shortcut") < at("Notifications") && at("Notifications") < at("○ Slack") && at("○ CircleCI") < at("Code hosts")) {
 		t.Errorf("order: %q", order)
 	}
+	// Deploy previews: none ships, so the section says where they come from.
+	if !(at("○ ntfy") < at("Deploy previews") && at("Deploy previews") < at("Vercel, Netlify — install one from the registry")) {
+		t.Errorf("deploy previews: %q", order)
+	}
 	if d := ansi.Strip(items["○ CircleCI"].detail); !strings.Contains(d, "ships with conch") || !strings.Contains(d, "$CIRCLECI_TOKEN not set") || !strings.Contains(d, "used by ceph") {
 		t.Fatalf("circleci: %q", d)
 	}
@@ -128,6 +132,35 @@ func TestIntegrationsTabInstalledAndBroken(t *testing.T) {
 	acme.run(m)
 	if text := rowsByLabel(s.tabItems(m)); text["x Remove CircleCI"].run == nil {
 		t.Fatal("an installed file cannot be removed from its page")
+	}
+}
+
+// An installed deploy file is listed under Deploy previews, in place of
+// the line saying where they come from, and opens its page.
+func TestIntegrationsTabDeploy(t *testing.T) {
+	m, s, _ := integrationsModel(t)
+	dir := filepath.Join(os.Getenv("CONCH_HOME"), "integrations")
+	os.MkdirAll(dir, 0o755)
+	data, err := os.ReadFile("../integration/testdata/deploy/vercel.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "vercel.toml"), data, 0o600)
+	var order []string
+	for _, it := range s.tabItems(m) {
+		order = append(order, strings.TrimSpace(ansi.Strip(it.label)))
+	}
+	at := slices.Index(order, "Deploy previews")
+	if at < 0 || at+1 >= len(order) || order[at+1] != "○ Vercel" || slices.Contains(order, "Vercel, Netlify — install one from the registry") {
+		t.Fatalf("order: %q", order)
+	}
+	row := rowsByLabel(s.tabItems(m))["○ Vercel"]
+	if d := ansi.Strip(row.detail); !strings.Contains(d, "$VERCEL_TOKEN not set") {
+		t.Errorf("detail %q", d)
+	}
+	row.run(m)
+	if s.page != "integration:vercel" {
+		t.Fatalf("page %q", s.page)
 	}
 }
 

@@ -56,7 +56,7 @@ type E2B struct {
 // NewE2B returns an E2B provider for cfg, reading the key and any unset
 // endpoint from the environment.
 func NewE2B(cfg config.ProviderCfg) *E2B {
-	e := &E2B{keyEnv: cfg.APIKeyEnv, tmpl: cfg.Snapshot, hc: &http.Client{Timeout: time.Minute}}
+	e := &E2B{keyEnv: cfg.APIKeyEnv, tmpl: cfg.Snapshot, hc: keyClient()}
 	if e.keyEnv == "" {
 		e.keyEnv = "E2B_API_KEY"
 	}

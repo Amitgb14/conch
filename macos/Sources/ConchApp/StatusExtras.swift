@@ -290,7 +290,7 @@ struct AskPopover: View {
             HStack {
                 Text("Nothing has run yet.").font(.ui(size: 11)).foregroundStyle(.secondary)
                 Spacer()
-                Button("Don't run") { model.confirm(false) }
+                Button("Don't Run") { model.confirm(false) }
                 Button("Run \(n) action\(n == 1 ? "" : "s")") { model.confirm(true) }.keyboardShortcut(.defaultAction)
             }
         case .running?:
@@ -298,7 +298,7 @@ struct AskPopover: View {
         case .done?:
             HStack {
                 Spacer()
-                Button("Ask something else") {
+                Button("Ask Something Else") {
                     model.again()
                     model.request = ""
                     typing = true
@@ -339,8 +339,8 @@ struct ReportPopover: View {
             HStack {
                 if opened { Text("Opened in your browser.").foregroundStyle(.secondary).font(.ui(size: 12)) }
                 Spacer()
-                Button("Show the facts") { run(open: false) }
-                Button("Open a GitHub issue") { run(open: true) }.keyboardShortcut(.defaultAction)
+                Button("Show the Facts") { run(open: false) }
+                Button("Open a GitHub Issue") { run(open: true) }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(14).frame(width: 480)
@@ -530,8 +530,8 @@ struct PairPopover: View {
                         }
                         .font(.ui(size: 11.5)).foregroundStyle(.secondary)
                         HStack {
-                            Button("Copy code") { copy(i.code) }
-                            if let l = i.link { Button("Copy link") { copy(l) } }
+                            Button("Copy Code") { copy(i.code) }
+                            if let l = i.link { Button("Copy Link") { copy(l) } }
                         }
                         .padding(.top, 2)
                     }
@@ -598,7 +598,7 @@ struct PairPopover: View {
                     ReachRow(icon: "globe", title: "Anywhere",
                              detail: "Through a relay: set [web] relay to a server running conch relay.",
                              note: nil, chip: nil, on: false) {
-                        Button("Set up…") { close(); store.openSettings("web") }.controlSize(.small)
+                        Button("Set Up…") { close(); store.openSettings("web") }.controlSize(.small)
                     }
                 }
                 Divider().padding(.leading, 34)

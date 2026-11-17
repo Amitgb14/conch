@@ -277,10 +277,11 @@ func TestProviderFileFormat4Problems(t *testing.T) {
 func TestSettingChoicesFromTheAPI(t *testing.T) {
 	var status = 200
 	var slow time.Duration
+	body := `{"items":[{"name":"a"},{"name":"a"},{"name":""},{"name":"b"}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(slow)
 		w.WriteHeader(status)
-		fmt.Fprint(w, `{"items":[{"name":"a"},{"name":"a"},{"name":""},{"name":"b"}]}`)
+		fmt.Fprint(w, body)
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("DAYTONA_API_KEY", "k")
@@ -289,6 +290,17 @@ func TestSettingChoicesFromTheAPI(t *testing.T) {
 	if ch, err := c.Choices(ctx, "image"); err != nil || len(ch) != 2 {
 		t.Fatalf("choices: %v %v", ch, err)
 	}
+	// An empty list, or one with nothing usable in it, is an empty array
+	// on the wire: Conch.app's decoder takes no null there.
+	for _, b := range []string{`{"items":[]}`, `{"items":[{"name":""}]}`} {
+		body = b
+		ch, err := c.Choices(ctx, "image")
+		raw, _ := json.Marshal(ch)
+		if err != nil || string(raw) != "[]" {
+			t.Fatalf("%s: %s %v", b, raw, err)
+		}
+	}
+	body = `{"items":[{"name":"a"}]}`
 	status = 500
 	if _, err := c.Choices(ctx, "image"); err == nil || !strings.Contains(err.Error(), "Default image") {
 		t.Fatalf("a failing call: %v", err)

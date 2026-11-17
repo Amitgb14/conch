@@ -25,7 +25,7 @@ import (
 // What was written is kept in imports/conductor/state.json, so importing
 // again adds only what is new.
 func runImport(args []string) error {
-	const usage = "usage: conch import conductor [-db PATH] [-out DIR] [-resumable=false] [-markdown] [-n] [-json]\nconch import -h explains it"
+	const usage = "usage: conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-resumable=false] [-markdown] [-n] [-json]\nconch import -h explains it"
 	if len(args) == 0 || args[0] != "conductor" {
 		return errors.New(usage)
 	}
@@ -37,6 +37,7 @@ func runImport(args []string) error {
 	markdown := fs.Bool("markdown", false, "also write each conversation as a Markdown handoff, as conch did before")
 	dry := fs.Bool("n", false, "say what would be written, and write nothing")
 	asJSON := fs.Bool("json", false, "what was written, as JSON")
+	ids := fs.String("ids", "", "only these conversations, by id, comma-separated (as -n -json gives them)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -55,6 +56,9 @@ func runImport(args []string) error {
 		if _, serr := os.Stat(*db); serr != nil {
 			return fmt.Errorf("%w\nConductor keeps it there on a Mac; give another place with -db", err)
 		}
+		return err
+	}
+	if all, err = chooseImported(all, *ids); err != nil {
 		return err
 	}
 	imp := importer{out: *out, dry: *dry, resumable: *resumable, markdown: *markdown, state: st,
@@ -79,6 +83,7 @@ func runImport(args []string) error {
 
 // importedFile is one conversation imported.
 type importedFile struct {
+	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Agent     string `json:"agent"`
 	Repo      string `json:"repo,omitempty"`
@@ -96,6 +101,38 @@ type importedFile struct {
 	SessionFile string `json:"sessionFile,omitempty"`
 	Added       int    `json:"added,omitempty"`
 	File        string `json:"file,omitempty"` // the Markdown handoff
+	// Where it carries on: "workspace" while that folder is there,
+	// "repository" once only the repository is, "gone" when neither is.
+	Where    string    `json:"where"`
+	LastUsed time.Time `json:"last_used,omitzero"`
+	// Imported: its file is there, from this import or an earlier one.
+	Imported bool `json:"imported"`
+}
+
+// chooseImported keeps the conversations ids names, in Conductor's order;
+// all of them for "". An id Conductor does not have is an error, since
+// the person chose it from a list.
+func chooseImported(all []sessions.Imported, ids string) ([]sessions.Imported, error) {
+	if strings.TrimSpace(ids) == "" {
+		return all, nil
+	}
+	want := map[string]bool{}
+	for _, id := range strings.Split(ids, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			want[id] = true
+		}
+	}
+	var out []sessions.Imported
+	for _, im := range all {
+		if want[im.Session.ID] {
+			out = append(out, im)
+			delete(want, im.Session.ID)
+		}
+	}
+	for id := range want {
+		return nil, fmt.Errorf("no conversation %q in Conductor's database", id)
+	}
+	return out, nil
 }
 
 // importer imports conversations: resumable where an agent's writer can
@@ -110,13 +147,16 @@ type importer struct {
 
 func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]importedFile, error) {
 	written := []importedFile{}
-	for _, im := range all {
+	names := importedNames(all, imp.out)
+	for i, im := range all {
 		if len(im.Turns) == 0 {
 			continue
 		}
-		f := importedFile{Title: im.Session.Title, Agent: sessions.AgentName(im.Session.Agent), Repo: im.Repo,
+		f := importedFile{ID: im.Session.ID, Where: importedWhere(im), LastUsed: im.Session.Updated,
+			Title: im.Session.Title, Agent: sessions.AgentName(im.Session.Agent), Repo: im.Repo,
 			Branch: im.Session.Branch, Workspace: im.Workspace, Dir: im.Session.Dir, Messages: len(im.Turns),
 			Status: "markdown", AgentName: im.Session.Agent}
+		_, seen := imp.state[im.Session.ID]
 		wantMarkdown := !imp.resumable || imp.markdown
 		switch {
 		case !imp.resumable:
@@ -127,7 +167,7 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 			o := imp.resume(ctx, im)
 			if o.Status == sessions.ImportFailed {
 				f.Why = "Claude Code cannot resume it: " + o.Err.Error()
-				if _, seen := imp.state[im.Session.ID]; seen {
+				if seen {
 					f.Why = "could not add what is new to its Claude Code session: " + o.Err.Error()
 				}
 				wantMarkdown = true
@@ -136,12 +176,17 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 			f.Status, f.Why, f.Added = string(o.Status), o.Why, o.Added
 			f.Session, f.SessionFile = o.AgentSessionID, o.Path
 		}
+		// Imported: there is something of it already, from an earlier
+		// import, or this one wrote it.
+		f.Imported = seen || (!imp.dry && f.Session != "")
 		if wantMarkdown {
-			file, err := imp.writeMarkdown(im)
-			if err != nil {
+			if _, err := os.Stat(names[i]); err == nil {
+				f.Imported = true
+			}
+			if err := imp.writeMarkdown(im, names[i]); err != nil {
 				return nil, err
 			}
-			f.File = file
+			f.File = names[i]
 		}
 		written = append(written, f)
 	}
@@ -165,34 +210,77 @@ func (imp *importer) resume(ctx context.Context, im sessions.Imported) sessions.
 	return o
 }
 
-// writeMarkdown writes im to out/REPO/TITLE-ID.md, the same name every
-// time, so importing again replaces rather than piles up.
-func (imp *importer) writeMarkdown(im sessions.Imported) (string, error) {
-	repo := im.Repo
-	if repo == "" {
-		repo = "unknown-repository"
-	}
-	id := im.Session.ID
-	if len(id) > 8 {
-		id = id[:8]
-	}
-	name := slugify(im.Session.Title)
-	if name == "" {
-		name = "conversation"
-	}
-	file := filepath.Join(imp.out, slugify(repo), name+"-"+slugify(id)+".md")
+// writeMarkdown writes im's handoff to file, named by importedNames: the
+// same name every time, so importing again replaces rather than piles up.
+func (imp *importer) writeMarkdown(im sessions.Imported, file string) error {
 	if imp.dry {
-		return file, nil
+		return nil
 	}
 	s := im.Session
 	if s.Dir == "" {
 		s.Dir = im.Workspace // only named in the document; it is gone
 	}
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return "", err
+		return err
 	}
 	doc := "_Imported from Conductor by `conch import conductor`._\n\n" + sessions.Handoff(s, im.Turns)
-	return file, os.WriteFile(file, []byte(doc), 0o600)
+	return os.WriteFile(file, []byte(doc), 0o600)
+}
+
+// importedWhere is where a conversation carries on: "workspace" while that
+// folder is there, "repository" once only the repository is, "gone" when
+// neither is.
+func importedWhere(im sessions.Imported) string {
+	switch {
+	case im.Session.Dir != "" && im.Session.Dir == im.Workspace:
+		return "workspace"
+	case im.Session.Dir != "":
+		return "repository"
+	}
+	return "gone"
+}
+
+// importedNames is the file each conversation is written to:
+// out/REPO/TITLE-ID8.md, ID8 the first eight characters of its id. Two
+// conversations of one title can share those — Conductor's ids are
+// time-ordered, so two started close together often do — and the second
+// would overwrite the first. So where names collide, the conversation with
+// the smallest id (the oldest) keeps the short name, as it had before the
+// other existed, and the rest are named by their whole id: a name that
+// stays the same from one import to the next, which re-importing relies on.
+func importedNames(all []sessions.Imported, out string) []string {
+	short := func(im sessions.Imported, whole bool) string {
+		repo := im.Repo
+		if repo == "" {
+			repo = "unknown-repository"
+		}
+		id := im.Session.ID
+		if !whole && len(id) > 8 {
+			id = id[:8]
+		}
+		name := slugify(im.Session.Title)
+		if name == "" {
+			name = "conversation"
+		}
+		return filepath.Join(out, slugify(repo), name+"-"+slugify(id)+".md")
+	}
+	names := make([]string, len(all))
+	first := map[string]string{} // short name → the smallest id given it
+	for i, im := range all {
+		names[i] = short(im, false)
+		if len(im.Turns) == 0 {
+			continue // never written, so it takes no name from another
+		}
+		if id, taken := first[names[i]]; !taken || im.Session.ID < id {
+			first[names[i]] = im.Session.ID
+		}
+	}
+	for i, im := range all {
+		if id := first[names[i]]; len(im.Turns) > 0 && id != im.Session.ID {
+			names[i] = short(im, true)
+		}
+	}
+	return names
 }
 
 func printImported(written []importedFile, all []sessions.Imported, dry bool) {

@@ -94,6 +94,7 @@ const (
 	scopeProjID                       // params.id is a project
 	scopeServer                       // the whole server
 	scopeHome                         // the person's own setup in their home
+	scopePerson                       // the person's alone, whatever the target
 )
 
 // scoped lists the methods that change something an agent could get wrong:
@@ -128,6 +129,11 @@ var scoped = map[string]scopeKind{
 	// Writing a file into the project, and answering for the person
 	// whether a repository's word about their keys is taken.
 	proto.MethodIntegrationTeam: scopeProject,
+	// Building a deploy again spends the project's build minutes, as a
+	// CI re-run does. Releasing one to production changes what everybody
+	// using it is shown: never an agent's, not even for its own project.
+	proto.MethodBranchRedeploy: scopeProject,
+	proto.MethodBranchPromote:  scopePerson,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 	// The cloud agent decides what every agent's environment is given.
@@ -228,6 +234,8 @@ func (s *Server) inScope(c *client, msg proto.Message) *proto.Error {
 		return outOfScope(caller, "%s the server: it runs every pane, not only this agent's", verb(msg.Method))
 	case scopeHome:
 		return outOfScope(caller, "%s: that is the person's own setup", verb(msg.Method))
+	case scopePerson:
+		return outOfScope(caller, "%s: only the person may, from conch's own window", verb(msg.Method))
 	case scopeProjID:
 		return s.projectInScope(caller, msg.Method, ref.ID)
 	case scopeProject:
@@ -439,6 +447,8 @@ var verbs = map[string]string{
 	proto.MethodBranchRebaseUndo: "undo the rebase of",
 	proto.MethodBranchResolving:  "say who resolves",
 	proto.MethodIntegrationTeam:  "change which integrations it uses",
+	proto.MethodBranchRedeploy:   "redeploy a branch of",
+	proto.MethodBranchPromote:    "release a deploy to production",
 	proto.MethodTicketUpdate:     "change a ticket",
 	proto.MethodAgentSkill:       "install or remove the agents' conch skill",
 	proto.MethodProjectFiles:     "change which local files a project copies into its worktrees",

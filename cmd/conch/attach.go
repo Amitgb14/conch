@@ -154,14 +154,50 @@ named:
 			if msg != "" {
 				fmt.Fprintln(os.Stderr, msg)
 			}
-			return err
+			return holdGone(id, err, hold, os.Stdin, os.Stdout, quit)
 		}
 	}
 	msg, err := attachLoopHold(c, id, os.Stdin, os.Stdout, size, winch, quit, hold)
 	if msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
-	return err
+	return holdGone(id, err, hold, os.Stdin, os.Stdout, quit)
+}
+
+// holdGone is -hold for a pane that was gone before it could be shown:
+// closed between the app naming it and attach reaching the server. Failing
+// at once there is worse than unhelpful in the Mac app — Ghostty takes a
+// command that exits non-zero in its first moments for one that could not
+// be launched and fills the pane with its own error about /usr/bin/login.
+// So the pane is said to be gone, as an ended one is, and a key closes it.
+// Any other error, or no -hold, is returned as it was.
+func holdGone(id string, err error, hold bool, in io.Reader, out io.Writer, quit <-chan os.Signal) error {
+	var perr *proto.Error
+	if !hold || !errors.As(err, &perr) || perr.Code != proto.ErrNotFound {
+		return err
+	}
+	fmt.Fprintf(out, "\x1b[0m\r\n\x1b[7m pane %s was closed · any key closes \x1b[0m", id)
+	keys := make(chan bool, 1)
+	go func() {
+		buf := make([]byte, 64)
+		for {
+			n, err := in.Read(buf)
+			// A mouse report is the pointer, not a key.
+			if n > 0 && !bytes.HasPrefix(buf[:n], []byte("\x1b[<")) {
+				keys <- true
+				return
+			}
+			if err != nil {
+				keys <- false
+				return
+			}
+		}
+	}()
+	select {
+	case <-keys:
+	case <-quit:
+	}
+	return nil
 }
 
 // attachRefusal says why a pane is not to be attached here: it is the

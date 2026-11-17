@@ -63,7 +63,11 @@ func (pm *projectManager) staleWorktrees(id string) (proto.WorktreeStale, *proto
 			}
 			sw.Uncommitted, sw.Unmerged = len(files), commits
 		} else if wt.Branch != "" && !sw.Base {
-			_, sw.Unmerged, _ = p.losses(ctx, info.Base, wt.Branch, "")
+			var err error
+			if _, sw.Unmerged, err = p.losses(ctx, info.Base, wt.Branch, ""); err != nil {
+				readable = false
+				sw.Reasons = append(sw.Reasons, "can't count its branch's commits")
+			}
 		}
 
 		finished := false
@@ -191,7 +195,13 @@ func (pm *projectManager) cleanupWorktrees(cp proto.WorktreeCleanupParams) (prot
 	}
 	for _, m := range pruned {
 		if m.branch != "" && m.branch != base {
-			if _, commits, _ := p.losses(ctx, base, m.branch, ""); commits > 0 && !m.force {
+			_, commits, err := p.losses(ctx, base, m.branch, "")
+			if err != nil {
+				// Unknown is not nothing: forced or not, the branch stays.
+				fail(m.path, "pruned, but kept branch %s: %v", m.branch, err)
+				continue
+			}
+			if commits > 0 && !m.force {
 				fail(m.path, "pruned, but kept branch %s: it has %s", m.branch, plural(commits, "commit")+" not merged or pushed")
 				continue
 			}
@@ -262,16 +272,21 @@ func (pm *projectManager) staleBranches(sp proto.BranchStaleParams) (proto.Branc
 		if !sb.Base {
 			// A pull request merged with this very commit is merged too,
 			// though a squash or rebase on GitHub left nothing here to see.
-			_, sb.Unmerged, _ = p.losses(ctx, base, b.Name, "")
+			// One count failing, or the listing running out of time, is
+			// no count: never 0, which would suggest deleting it.
+			var err error
+			if _, sb.Unmerged, err = p.losses(ctx, base, b.Name, ""); err != nil {
+				sb.Unknown = err.Error()
+			}
 			sb.Merged = gitx.Merged(ctx, p.root, b.Name, base) ||
-				(sb.Unmerged == 0 && p.mergedPR(ctx, b.Name))
+				(sb.Unknown == "" && sb.Unmerged == 0 && p.mergedPR(ctx, b.Name))
 		}
 		// Merged, it is the base's already and loses nothing; a branch
 		// merely pushed is not merged.
 		if sp.Merged && (!sb.Merged || sb.Unmerged > 0) {
 			continue
 		}
-		sb.Suggested = !sb.Base && sb.Worktree == "" && sb.Unmerged == 0
+		sb.Suggested = !sb.Base && sb.Worktree == "" && sb.Unmerged == 0 && sb.Unknown == ""
 		out.Branches = append(out.Branches, sb)
 	}
 	return out, nil
@@ -318,7 +333,12 @@ func (pm *projectManager) pruneBranches(bp proto.BranchPruneParams) (proto.Branc
 		res.Failed = append(res.Failed, proto.CleanupFailure{Path: name, Error: fmt.Sprintf(format, args...)})
 	}
 	for _, b := range bp.Branches {
-		if _, err := gitx.BranchHead(ctx, p.root, b.Name); err != nil || b.Name == "" || strings.HasPrefix(b.Name, "-") {
+		// A name git would read as an option never reaches git.
+		if b.Name == "" || strings.HasPrefix(b.Name, "-") {
+			fail(b.Name, "no such branch")
+			continue
+		}
+		if _, err := gitx.BranchHead(ctx, p.root, b.Name); err != nil {
 			fail(b.Name, "no such branch")
 			continue
 		}
@@ -330,7 +350,14 @@ func (pm *projectManager) pruneBranches(bp proto.BranchPruneParams) (proto.Branc
 			fail(b.Name, "checked out in %s; remove that worktree instead", at)
 			continue
 		}
-		if _, commits, _ := p.losses(ctx, base, b.Name, ""); commits > 0 && !b.Force {
+		_, commits, err := p.losses(ctx, base, b.Name, "")
+		if err != nil {
+			// Force is for commits counted and given up, not for a count
+			// nobody could make.
+			fail(b.Name, "%v", err)
+			continue
+		}
+		if commits > 0 && !b.Force {
 			fail(b.Name, "would lose %s not merged or pushed", plural(commits, "commit"))
 			continue
 		}

@@ -281,7 +281,7 @@ private struct Failing: View {
                     }
                     if model.canRerun {
                         let busy = model.rerunning[r.id] == (r.attempt ?? 1)
-                        Button(busy ? "Re-running…" : "Re-run failed jobs") { model.rerun(run: r.id, attempt: r.attempt ?? 1) }
+                        Button(busy ? "Re-running…" : "Re-run Failed Jobs") { model.rerun(run: r.id, attempt: r.attempt ?? 1) }
                             .controlSize(.small).disabled(busy)
                             .help("Runs this run's failed jobs again on GitHub, as a new attempt")
                     }
