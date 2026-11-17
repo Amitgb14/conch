@@ -598,9 +598,14 @@ func TestIntegrationIcons(t *testing.T) {
 			{"kind": "ci", "name": "circleci", "label": "CircleCI", "version": 1, "hosts": map[string]string{"api": "circleci.com"}, "icon": "icons/circleci.svg", "icon_sha256": good},
 			{"kind": "ci", "name": "badicon", "label": "Bad", "version": 1, "hosts": map[string]string{"api": "x.dev"}, "icon": "icons/badicon.svg", "icon_sha256": strings.Repeat("0", 64)},
 			{"kind": "ci", "name": "noicon", "label": "None", "version": 1, "hosts": map[string]string{"api": "y.dev"}},
+		},
+		// Listed but not installable yet: shown in the catalog, so drawn.
+		"disabled": []map[string]any{
+			{"kind": "sandbox", "name": "darkbox", "label": "Darkbox", "version": 1, "hosts": map[string]string{"api": "dark.dev"}, "icon": "icons/darkbox.svg", "icon_sha256": good},
 		}})
 	reg.mu.Lock()
 	reg.files["index.json"], reg.files["icons/circleci.svg"], reg.files["icons/badicon.svg"] = ix, []byte(svg), []byte(svg)
+	reg.files["icons/darkbox.svg"] = []byte(svg)
 	reg.mu.Unlock()
 	out, _, err := a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
 	var got iconsJSON
@@ -612,6 +617,9 @@ func TestIntegrationIcons(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(got.Icons["circleci"]); string(b) != svg {
 		t.Fatalf("circleci's icon %q", got.Icons["circleci"])
+	}
+	if b, _ := os.ReadFile(got.Icons["darkbox"]); string(b) != svg {
+		t.Fatalf("a disabled entry's icon %q", got.Icons["darkbox"])
 	}
 	if _, ok := got.Icons["badicon"]; ok || len(got.Problems) != 1 || !strings.Contains(got.Problems[0], "badicon") {
 		t.Fatalf("a bad icon: %+v", got)

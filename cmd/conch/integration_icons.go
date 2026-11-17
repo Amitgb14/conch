@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -68,7 +69,8 @@ func integrationIcons(args []string) error {
 		if out.Kinds == nil && len(ix.Kinds) > 0 {
 			out.Kinds = ix.Kinds // the first registry's, conch's own
 		}
-		for _, e := range ix.Entries {
+		// The disabled are in the catalog too, marked, so they are drawn.
+		for _, e := range slices.Concat(ix.Entries, ix.Disabled) {
 			if _, taken := out.Icons[e.Name]; e.Icon != "" && !taken {
 				out.Icons[e.Name] = ""
 				jobs = append(jobs, job{r, e})
