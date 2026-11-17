@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"time"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // conch had providers of its own once — Daytona, boat.dev, Tensorlake —
@@ -19,11 +23,41 @@ import (
 // built-in did. A file that names another is refused here and left for
 // conch sandbox provider install, which shows its hosts and asks.
 //
-// The label is for a machine that names one before its file is here.
-var former = map[string]struct{ api, keyEnv, label string }{
-	"daytona":    {"app.daytona.io", "DAYTONA_API_KEY", "Daytona"},
-	"boat":       {"boat.dev", "BOAT_API_KEY", "boat.dev"},
-	"tensorlake": {"api.tensorlake.ai", "TENSORLAKE_API_KEY", "Tensorlake"},
+// The label is for a machine that names one before its file is here. The
+// variables after it are what the built-in read when config.toml did not
+// say (formerEnv): a self-hosted Daytona was reached by DAYTONA_API_URL,
+// and without it the key went to the cloud.
+var former = map[string]formerProvider{
+	"daytona":    {api: "app.daytona.io", keyEnv: "DAYTONA_API_KEY", label: "Daytona", urlEnv: "DAYTONA_API_URL", regionEnv: "DAYTONA_TARGET"},
+	"boat":       {api: "boat.dev", keyEnv: "BOAT_API_KEY", label: "boat.dev", urlEnv: "BOAT_API_URL"},
+	"tensorlake": {api: "api.tensorlake.ai", keyEnv: "TENSORLAKE_API_KEY", label: "Tensorlake", urlEnv: "TENSORLAKE_API_URL", sshEnv: "TENSORLAKE_SSH_HOST"},
+}
+
+type formerProvider struct {
+	api, keyEnv, label        string
+	urlEnv, regionEnv, sshEnv string
+}
+
+// formerEnv lays the variables a former built-in read under cfg, as it
+// did: config.toml wins, the variable fills what it leaves empty. The ssh
+// host had no key in config.toml, so its variable is the only say.
+func formerEnv(f *ProviderFile, cfg config.ProviderCfg) config.ProviderCfg {
+	was, ok := former[f.Name]
+	if !ok {
+		return cfg
+	}
+	if cfg.APIURL == "" && was.urlEnv != "" {
+		cfg.APIURL = strings.TrimSpace(os.Getenv(was.urlEnv))
+	}
+	if cfg.RegionOr() == "" && was.regionEnv != "" {
+		cfg.Region = strings.TrimSpace(os.Getenv(was.regionEnv))
+	}
+	if was.sshEnv != "" {
+		if h := strings.TrimSpace(os.Getenv(was.sshEnv)); h != "" {
+			f.SSH.Host = h
+		}
+	}
+	return cfg
 }
 
 // ErrDropped is a provider conch no longer supports at all.
@@ -45,11 +79,34 @@ func Dropped(name string) (string, bool) {
 // adoptTimeout bounds asking the registry for a former built-in's file.
 const adoptTimeout = 30 * time.Second
 
-// adopt installs a former built-in's file from the registry.
+// adopting holds a lock per former built-in, so two Opens at once fetch
+// and install its file once: the second finds it there.
+var adopting struct {
+	sync.Mutex
+	names map[string]*sync.Mutex
+}
+
+// adopt installs a former built-in's file from the registry, unless
+// another Open just did.
 func adopt(name string) error {
 	want, ok := former[name]
 	if !ok {
 		return fmt.Errorf("unknown sandbox provider %q", name)
+	}
+	adopting.Lock()
+	if adopting.names == nil {
+		adopting.names = map[string]*sync.Mutex{}
+	}
+	mu := adopting.names[name]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		adopting.names[name] = mu
+	}
+	adopting.Unlock()
+	mu.Lock()
+	defer mu.Unlock()
+	if !fileMissing(name) {
+		return nil
 	}
 	how := fmt.Sprintf("conch sandbox provider install %s installs it", name)
 	ctx, cancel := context.WithTimeout(context.Background(), adoptTimeout)

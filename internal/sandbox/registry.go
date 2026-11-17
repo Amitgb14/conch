@@ -15,6 +15,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -275,6 +277,40 @@ func (in Installed) SameKey(f *ProviderFile) bool {
 
 func installedPath() string { return filepath.Join(ProvidersDir(), "registry.json") }
 
+// installedMu and the file lock keep each read-modify-write of
+// registry.json whole: opening two former built-ins at once adopts both,
+// and a record written over the other's was a provider update no longer
+// knew. The mutex is for this process (flock is per open file, but the
+// mutex says so plainly), the lock for a TUI, a server and a command
+// sharing one CONCH_HOME.
+var installedMu sync.Mutex
+
+func lockInstalled() (func(), error) {
+	installedMu.Lock()
+	if err := os.MkdirAll(ProvidersDir(), 0o700); err != nil {
+		installedMu.Unlock()
+		return nil, err
+	}
+	f, err := os.OpenFile(installedPath()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		installedMu.Unlock()
+		return nil, err
+	}
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		f.Close()
+		installedMu.Unlock()
+		return nil, fmt.Errorf("lock %s: %w", f.Name(), err)
+	}
+	// Closing the file drops the lock.
+	return func() { f.Close(); installedMu.Unlock() }, nil
+}
+
 // ReadInstalled is every provider installed from the registry. A missing
 // file is none.
 func ReadInstalled() (map[string]Installed, error) {
@@ -368,6 +404,11 @@ func InstallRegistryFile(name string, data []byte, caps *integration.Capabilitie
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("%s's file cannot be used here: %s", name, strings.Join(problems, "; "))
 	}
+	unlock, err := lockInstalled()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	m, err := ReadInstalled()
 	if err != nil {
 		return nil, err
@@ -386,6 +427,11 @@ func InstallRegistryFile(name string, data []byte, caps *integration.Capabilitie
 // KeepCapabilities records what the registry says name's file can do, for
 // one installed before it said.
 func KeepCapabilities(name string, caps *integration.Capabilities) error {
+	unlock, err := lockInstalled()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	m, err := ReadInstalled()
 	if err != nil {
 		return err
@@ -401,6 +447,11 @@ func KeepCapabilities(name string, caps *integration.Capabilities) error {
 
 // ForgetInstalled drops name from the record, when its file is removed.
 func ForgetInstalled(name string) error {
+	unlock, err := lockInstalled()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	m, err := ReadInstalled()
 	if err != nil {
 		return err

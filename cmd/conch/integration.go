@@ -893,7 +893,7 @@ func integrationList(args []string) error {
 
 func integrationUpdate(args []string) error {
 	fs := flag.NewFlagSet("integration update", flag.ContinueOnError)
-	yes := fs.Bool("y", false, "update without asking, unless the hosts change")
+	yes := fs.Bool("y", false, "update without asking, unless the hosts or the key's variable change")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -938,11 +938,19 @@ func integrationUpdate(args []string) error {
 			fmt.Printf("%s: edited here, so left alone; remove it to take version %d\n", n, e.Version)
 			continue
 		}
-		// New hosts are asked about even with -y: a key is not sent
-		// somewhere new without the person saying so.
-		if integration.HostsChanged(rec, e) {
-			fmt.Printf("%s %d sends your key to %s, where %d sent it to %s.", n, e.Version, hostWords(e.Hosts), rec.Version, hostWords(rec.Hosts))
-			if !askYes(" Update?") {
+		// New hosts, or a key read from another variable, are asked about
+		// even with -y: a key is not sent somewhere new, nor another key
+		// sent, without the person saying so.
+		hosts := integration.HostsChanged(rec, e)
+		was, known, key := integration.KeyChange(n, rec, e)
+		if hosts {
+			fmt.Printf("%s %d sends your key to %s, where %d sent it to %s.\n", n, e.Version, hostWords(e.Hosts), rec.Version, hostWords(rec.Hosts))
+		}
+		if key {
+			fmt.Println(keyChangeWords(n, rec.Version, was, known, e))
+		}
+		if hosts || key {
+			if !askYes("Update?") {
 				fmt.Printf("%s: not updated\n", n)
 				continue
 			}
@@ -956,15 +964,40 @@ func integrationUpdate(args []string) error {
 			fmt.Printf("%s: %v\n", n, err)
 			continue
 		}
-		if err := integration.Remove(n); err != nil {
-			return err
-		}
-		if err := integration.Install(e, data); err != nil {
-			return err
+		// Installed over the old one, which Install allows for a file as it
+		// came: removing it first lost the integration when the install
+		// then failed.
+		if err := installIntegration(e, data); err != nil {
+			return fmt.Errorf("%s: not updated, version %d is still installed: %w", n, rec.Version, err)
 		}
 		fmt.Printf("%s: updated to %d\n", n, e.Version)
 	}
 	return nil
+}
+
+// installIntegration is integration.Install, for a test to make fail.
+var installIntegration = integration.Install
+
+// keyChangeWords says which of the person's variables version e now sends,
+// and to which host, beside what the installed version sent.
+func keyChangeWords(n string, version int, was integration.KeyVars, known bool, e integration.Entry) string {
+	to := e.Hosts.API
+	if to == "" {
+		to = "your own server"
+	}
+	now := "$" + e.KeyEnv
+	if e.UserEnv != "" {
+		now += " (and $" + e.UserEnv + " as the user name)"
+	}
+	before := "what it sent was not recorded"
+	if known {
+		before = "$" + was.KeyEnv
+		if was.UserEnv != "" {
+			before += " (and $" + was.UserEnv + " as the user name)"
+		}
+		before = fmt.Sprintf("%d sent %s", version, before)
+	}
+	return fmt.Sprintf("%s %d sends %s to %s as your key, where %s.", n, e.Version, now, to, before)
 }
 
 func integrationRemove(args []string) error {

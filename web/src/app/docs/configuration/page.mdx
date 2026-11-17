@@ -34,6 +34,9 @@ Everything lives in `~/.config/conch`. Set `CONCH_HOME` to use another directory
 | `CONCH_REMOTE_BINARY` | a prebuilt conch binary to install on remote machines |
 | `CONCH_VERSION`, `CONCH_INSTALL_DIR` | release and directory for the [install script](/docs/installation#install-script) |
 | `DAYTONA_API_KEY`, `BOAT_API_KEY`, `TENSORLAKE_API_KEY` | the key for [sandboxes](/docs/sandboxes), one per provider: the variable each provider's file names |
+| `DAYTONA_API_URL`, `DAYTONA_TARGET` | Daytona's API (a self-hosted one) and region, when `[sandbox.daytona]` doesn't set `api_url` and `region` |
+| `BOAT_API_URL` | boat.dev's API, when `[sandbox.boat]` doesn't set `api_url` |
+| `TENSORLAKE_API_URL`, `TENSORLAKE_SSH_HOST` | Tensorlake's API, when `[sandbox.tensorlake]` doesn't set `api_url`, and its ssh gateway in place of the file's |
 | `CONCH_PROVIDERS_URL` | the [provider registry](/docs/sandboxes#the-provider-registry) conch installs from (`https://amitgb14.github.io/conch-integrations`, one index for sandbox providers and every other integration): its `index.json` (and `index.json.sig`, checked when `CONCH_PROVIDERS_KEY` gives the key) and the files it lists. https, or http on this computer |
 | `CONCH_LOG_CALLER` | `1` writes a line per connection saying which pane the server placed it in, with the process ancestry it climbed — for finding out why an agent that should be [scoped](/docs/agents-together#what-an-agent-may-do) is not |
 | `CONCH_STATUS` | `0` stops conch [telling the terminal what its agents are doing](/docs/agents#conch-reports-its-own-state-too), `1` makes it do so where it otherwise would not |
@@ -130,7 +133,7 @@ upload_max_mb = 25     # refuse larger files (the server takes at most 256)
 [sandbox.daytona]      # one table per installed provider ([sandbox.boat] too)
 api_key = ""           # the key itself, kept in this file; "" reads it from the environment
 api_key_env = ""       # variable holding the key; "" is the one its file names
-api_url = ""           # "" is the provider's own
+api_url = ""           # "" is the provider's own (or $DAYTONA_API_URL, $BOAT_API_URL, $TENSORLAKE_API_URL for those three)
 region = ""            # where new sandboxes run, one its file offers; "" the account's default
 image = ""             # what new sandboxes start from; "" is the provider's default
 size = ""              # a named size, for a provider whose machines come in them (boat.dev)

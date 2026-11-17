@@ -75,7 +75,12 @@ type cliRegistry struct {
 func (r *cliRegistry) publish(t *testing.T, src string, version int, hosts integration.Hosts) {
 	t.Helper()
 	sum := sha256.Sum256([]byte(src))
-	e := integration.Entry{Kind: "ci", Name: "acme-ci", Label: "Acme CI", Version: version, Format: 3, KeyEnv: "ACME_TOKEN",
+	// The variables are the file's, as the registry's index lists them.
+	keyEnv, userEnv := "ACME_TOKEN", ""
+	if f, _, err := integration.Parse([]byte(src)); err == nil {
+		keyEnv, userEnv = f.KeyEnv, f.Auth.UserEnv
+	}
+	e := integration.Entry{Kind: "ci", Name: "acme-ci", Label: "Acme CI", Version: version, Format: 3, KeyEnv: keyEnv, UserEnv: userEnv,
 		File: "integrations/acme-ci.toml", SHA256: hex.EncodeToString(sum[:]), Hosts: hosts}
 	ix, _ := json.Marshal(integration.Index{Format: 2, Entries: []integration.Entry{e}})
 	r.mu.Lock()
