@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Amitgb14/conch/internal/integration"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // deployEnv installs the registry's Vercel file (the test fixture) with
@@ -258,5 +259,21 @@ func TestAdaptKindDeploy(t *testing.T) {
 	_, _, err = a4Out(t, func() error { return runIntegration([]string{"adapt", "-kind", "deploys"}) })
 	if err == nil || !strings.Contains(err.Error(), "deploy, notify") {
 		t.Fatalf("a kind that is not one: %v", err)
+	}
+}
+
+// promote from an agent's pane is refused before anything is asked of
+// the service, -y or not: this machine's server says who is running.
+func TestIntegrationPromoteRefusedToAnAgent(t *testing.T) {
+	repo, calls := deployEnv(t)
+	a4Local(t, proto.CallerInfo{Scoped: true, Pane: "p3", Agent: "claude"}, nil, false)
+	_, _, err := a4Out(t, func() error { return runIntegration([]string{"promote", "-y", "-cwd", repo, "vercel", "dpl_1"}) })
+	if err == nil || !strings.Contains(err.Error(), "the claude agent in p3 may not release to production") {
+		t.Fatalf("from an agent: %v", err)
+	}
+	for _, c := range calls() {
+		if strings.HasPrefix(c, "POST") {
+			t.Fatalf("released from an agent's pane: %q", c)
+		}
 	}
 }

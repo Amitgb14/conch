@@ -212,7 +212,9 @@ Usage:
                                 without -y
   conch branch fix-ci [-agent A] send a branch's failed CI run to its agent (or start one
                                 in its worktree with it), as f in the review queue: GitHub
-                                Actions, else the project's CI integration (CircleCI, GitLab CI)
+                                Actions, else the project's CI integration (CircleCI, GitLab CI),
+                                else its deploy's failed build; -source vercel [-deploy ID]
+                                sends that deploy's build
   conch branch rerun-ci         re-run what failed in a branch's newest failed CI run
   conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add

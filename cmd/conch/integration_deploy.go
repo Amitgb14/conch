@@ -243,6 +243,14 @@ func integrationPromote(args []string) error {
 	if !f.Promote.Has() {
 		return fmt.Errorf("%s: its file cannot promote", f.DisplayName())
 	}
+	// What everybody is shown is the person's to change, never an
+	// agent's: asked of this machine's server, which knows from the
+	// kernel which pane is asking (a guard, as scoping is, not a lock).
+	if who, err := localCaller(); err != nil {
+		return err
+	} else if who.Scoped {
+		return fmt.Errorf("the %s agent in %s may not release to production: only the person may — from conch's window or a terminal of their own", who.Agent, who.Pane)
+	}
 	if !*yes && !confirm(fmt.Sprintf("Release %s to production on %s? Everybody using it sees it. [y/N] ", deploy, f.DisplayName()), false) {
 		return errors.New("not released")
 	}
