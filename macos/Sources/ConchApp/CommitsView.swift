@@ -568,7 +568,7 @@ struct CommitsView: View {
                                     .id(r.commit.hash)
                             }
                             if model.canReadMore {
-                                Button("Show older commits") { model.loadMore() }
+                                Button("Show Older Commits") { model.loadMore() }
                                     .buttonStyle(.link).padding(12).disabled(model.loading)
                             } else if model.more {
                                 Text("The newest \(model.count), as many as are read").font(.ui(size: 12))
@@ -1271,7 +1271,7 @@ struct AnotherAgentButton: View {
         let _ = look
         let startable = model.store.startable(on: model.machine)
         let who = resolverName(branch) ?? "the agent at it"
-        Menu("Another agent") {
+        Menu("Another Agent") {
             Section("Start one in its worktree; \(who) keeps running") {
                 ForEach(startable, id: \.name) { a in Button(a.title) { model.askToResolve(branch, start: a.name) } }
             }

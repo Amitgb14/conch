@@ -275,7 +275,7 @@ struct IntegrationsView: View {
     var side: some View {
         let cards = model.cards
         return ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 item("Discover", .discover, nil)
                 item("Installed", .installed, cards.filter(\.installed).count)
                 heading("Kinds")
@@ -284,22 +284,22 @@ struct IntegrationsView: View {
                     item(k.label, .kind(k.kind), nil, note: "\(n.installed) / \(n.listed)")
                 }
                 heading("Registry")
-                Text("conch-integrations").font(.ui(size: 12.5)).foregroundStyle(Theme.text2).padding(.horizontal, 9).padding(.vertical, 5)
-                Button("+ Add a registry…") { model.store.openSettings() }
-                    .buttonStyle(.plain).font(.ui(size: 12.5)).foregroundStyle(Theme.muted).padding(.horizontal, 9)
-                heading("Make one")
-                Button("✦ Adapt from API docs…") { adapting = true }
-                    .buttonStyle(.plain).font(.ui(size: 12.5)).foregroundStyle(Theme.accent).padding(.horizontal, 9)
+                Text("conch-integrations").font(.ui(size: 12.5)).foregroundStyle(Theme.text2).padding(.horizontal, 10).padding(.vertical, 6)
+                Button("+ Add a Registry…") { model.store.openSettings() }
+                    .buttonStyle(.plain).font(.ui(size: 12.5)).foregroundStyle(Theme.muted).padding(.horizontal, 10).padding(.vertical, 6)
+                heading("Make One")
+                Button("✦ Adapt from API Docs…") { adapting = true }
+                    .buttonStyle(.plain).font(.ui(size: 12.5)).foregroundStyle(Theme.accent).padding(.horizontal, 10).padding(.vertical, 6)
                     .help("An agent writes an integration file from a service's API docs; conch checks it with your key")
             }
-            .padding(8)
+            .padding(.horizontal, 10).padding(.top, 12).padding(.bottom, 16)
         }
         .background(Theme.side)
     }
 
     func heading(_ s: String) -> some View {
         Text(s.uppercased()).font(.ui(size: 10.5, weight: .bold)).foregroundStyle(Theme.muted)
-            .padding(.horizontal, 9).padding(.top, 12).padding(.bottom, 3)
+            .padding(.horizontal, 10).padding(.top, 20).padding(.bottom, 6)
     }
 
     func item(_ title: String, _ s: IntegrationsSection, _ n: Int?, note: String? = nil) -> some View {
@@ -312,8 +312,8 @@ struct IntegrationsView: View {
             }
             .font(.ui(size: 12.5, weight: on ? .semibold : .regular))
             .foregroundStyle(on ? Theme.text : Theme.text2)
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.accent.opacity(0.14) : .clear))
+            .padding(.horizontal, 10).padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Theme.accent.opacity(0.14) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

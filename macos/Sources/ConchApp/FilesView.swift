@@ -897,7 +897,7 @@ struct FilePreview: View {
             Text("\(e.agent) is working on \(e.lines.map { $0.count == 1 ? "line \($0.lowerBound)" : "lines \($0.lowerBound)–\($0.upperBound)" } ?? "this file")…")
                 .font(.ui(size: 12))
             Spacer()
-            if let p = e.pane { Button("Open its pane") { store.open(p) }.controlSize(.small) }
+            if let p = e.pane { Button("Open Its Pane") { store.open(p) }.controlSize(.small) }
             Button("Stop Waiting") { model.dismissAgentEdit() }.controlSize(.small)
                 .help("An ask that changes nothing — an explanation — is read in the agent's pane")
         }

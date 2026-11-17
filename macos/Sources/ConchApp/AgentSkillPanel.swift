@@ -195,8 +195,8 @@ struct AgentSkillPanel: View {
             Button(showWhere ? "Hide where" : "Show where they go") { withAnimation { showWhere.toggle() } }
                 .buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.accent)
             Spacer()
-            Button("Read again") { model.read(m) }.buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.text2).disabled(model.busy)
-            Button("Take conch's copies away…") { model.apply(m, remove: true) }
+            Button("Read Again") { model.read(m) }.buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.text2).disabled(model.busy)
+            Button("Take conch's Copies Away…") { model.apply(m, remove: true) }
                 .buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(skillAnyInstalled(res) ? Theme.err : Theme.muted)
                 .disabled(!skillAnyInstalled(res) || model.busy)
         }

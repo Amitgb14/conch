@@ -295,7 +295,7 @@ struct AddProviderSheet: View {
             HStack {
                 Text(progress.path).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                 Spacer()
-                Button("Open in editor") { NSWorkspace.shared.open(URL(fileURLWithPath: progress.path)) }
+                Button("Open in Editor") { NSWorkspace.shared.open(URL(fileURLWithPath: progress.path)) }
                     .controlSize(.small).disabled(progress.path.isEmpty)
             }
         }
@@ -356,11 +356,11 @@ struct AddProviderSheet: View {
                     .disabled(installing || registry.first(where: { $0.name == picked })?.installBlocker != nil || picked == nil)
             case .idle:
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Adapt it") { startAdapt() }.keyboardShortcut(.defaultAction)
+                Button("Adapt It") { startAdapt() }.keyboardShortcut(.defaultAction)
                     .disabled(form.url.trimmingCharacters(in: .whitespaces).isEmpty)
             case .registry:
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Adapt anyway") { form.anyway = true; progress = AdaptProgress(); startAdapt() }
+                Button("Adapt Anyway") { form.anyway = true; progress = AdaptProgress(); startAdapt() }
                 Button(installing ? "Installing…" : "Install it") { install(progress.registry) }.keyboardShortcut(.defaultAction)
                     .disabled(installing)
             case .docs, .writing:
@@ -371,7 +371,7 @@ struct AddProviderSheet: View {
                     .disabled(!progress.canSave || saving || running)
             case .failed:
                 Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Try again") { progress = AdaptProgress(); problem = "" }
+                Button("Try Again") { progress = AdaptProgress(); problem = "" }
             }
         }
     }
@@ -451,7 +451,7 @@ struct ProvidersCard: View {
 
     var body: some View {
         let _ = theme
-        SettingsCard(title: "Providers", trailing: AnyView(Button("Add provider…") { adding = true }.controlSize(.small))) {
+        SettingsCard(title: "Providers", trailing: AnyView(Button("Add Provider…") { adding = true }.controlSize(.small))) {
             VStack(alignment: .leading, spacing: 0) {
                 if providers.isEmpty {
                     HStack(spacing: 10) {
@@ -461,7 +461,7 @@ struct ProvidersCard: View {
                                 .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer()
-                        Button("Browse sandboxes") { store.openIntegrations(kind: .sandbox) }.controlSize(.small)
+                        Button("Browse Sandboxes") { store.openIntegrations(kind: .sandbox) }.controlSize(.small)
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
                 }
@@ -479,7 +479,7 @@ struct ProvidersCard: View {
                             .padding(.horizontal, 7).padding(.vertical, 1)
                             .overlay(Capsule().stroke(p.adapted == true ? Theme.warn.opacity(0.5) : Theme.line))
                         if p.offersSetKey, let setKey {
-                            Button("Set key…") { setKey(p.name, p.label) }.controlSize(.small)
+                            Button("Set Key…") { setKey(p.name, p.label) }.controlSize(.small)
                                 .help("Add \(p.label) to the providers below and open it at its API key")
                         }
                         if p.adapted == true {

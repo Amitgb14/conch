@@ -202,7 +202,7 @@ struct NewIntegrationSheet: View {
     @ViewBuilder private func action(_ id: String) -> some View {
         switch id {
         case "live" where IntegrationAdaptSteps.canCheck(progress) && !checking && form.kind != .sandbox:
-            Button("Check with my key") { check() }.controlSize(.small)
+            Button("Check with My Key") { check() }.controlSize(.small)
                 .help(progress.consent.isEmpty ? "conch reads the service with your key" : "Sends \(progress.consent); the agent never sees it")
         case "publish" where IntegrationAdaptSteps.canPublish(progress) && publish.url.isEmpty && !publish.running:
             Button("Publish…") { doPublish() }.controlSize(.small)
@@ -222,16 +222,16 @@ struct NewIntegrationSheet: View {
                     .buttonStyle(.link)
             }
             if !progress.path.isEmpty {
-                Button("Open the file") { NSWorkspace.shared.open(URL(fileURLWithPath: progress.path)) }.buttonStyle(.link)
+                Button("Open the File") { NSWorkspace.shared.open(URL(fileURLWithPath: progress.path)) }.buttonStyle(.link)
             }
             Spacer()
             Button(progress.phase == .idle ? "Cancel" : "Close") { dismiss() }.keyboardShortcut(.cancelAction)
                 .help("An agent still writing carries on in its pane")
             if progress.phase == .registry {
-                Button("Adapt anyway") { form.anyway = true; progress = AdaptProgress(); start() }
+                Button("Adapt Anyway") { form.anyway = true; progress = AdaptProgress(); start() }
             }
             if form.kind != .sandbox && progress.offline && !kept {
-                Button("Keep it here") { keep() }.disabled(running || checking)
+                Button("Keep It Here") { keep() }.disabled(running || checking)
                     .help("Save it as a file of your own; give it a key with conch integration key \(form.name)")
             }
         }

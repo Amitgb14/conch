@@ -123,7 +123,7 @@ struct DoctorSheet: View {
             HStack {
                 Text("conch doctor, on this computer").font(.ui(size: 11.5)).foregroundStyle(.secondary)
                 Spacer()
-                Button("Check again") { run() }.disabled(checks == nil && error.isEmpty)
+                Button("Check Again") { run() }.disabled(checks == nil && error.isEmpty)
                 Button("Done") { store.doctorOpen = false }.keyboardShortcut(.defaultAction)
             }
         }

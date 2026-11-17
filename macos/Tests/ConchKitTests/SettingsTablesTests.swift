@@ -8,7 +8,7 @@ private func tablesForm() throws -> (SettingsForm, SettingsSection, SettingsSect
                "sandbox":{"daytona":{"api_key_env":"DAYTONA_API_KEY"}}},
      "raw":"","version":"v1","path":"/x/config.toml","exists":true,
      "schema":[
-      {"id":"permissions","key":"","title":"Permission rules","description":"d","icon":"lock","fields":[
+      {"id":"permissions","key":"","title":"Permission Rules","description":"d","icon":"lock","fields":[
         {"key":"permissions","label":"Rules","kind":"tables","fields":[
           {"key":"tool","label":"Tool","kind":"string"},{"key":"match","label":"Matching","kind":"string"},
           {"key":"action","label":"Answer","kind":"select","options":[{"value":"allow","label":"allow"},{"value":"deny","label":"deny"}]},

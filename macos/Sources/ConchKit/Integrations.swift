@@ -190,9 +190,9 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
     case host, ci, tickets, sandbox, notify
     public var title: String {
         switch self {
-        case .host: return "Code hosts"
+        case .host: return "Code Hosts"
         case .ci: return "CI"
-        case .tickets: return "Ticket trackers"
+        case .tickets: return "Ticket Trackers"
         case .sandbox: return "Sandboxes"
         case .notify: return "Notifications"
         }
@@ -398,7 +398,11 @@ public enum IntegrationCatalog {
     /// own five (a conch whose registry predates kinds, or that has not
     /// read it yet), then any kind a card has that neither names.
     public static func kinds(_ registry: [IntegrationKindInfo]?, cards: [IntegrationCard]) -> [IntegrationKindInfo] {
-        var out = registry?.isEmpty == false ? registry! : IntegrationKind.allCases.map { IntegrationKindInfo(kind: $0.rawValue, label: $0.title, about: $0.purpose) }
+        // The registry says them in sentence case ("Code hosts"); the app's
+        // own names are in Title Case.
+        var out = registry?.isEmpty == false
+            ? registry!.map { IntegrationKindInfo(kind: $0.kind, label: titleCase($0.label), about: $0.about) }
+            : IntegrationKind.allCases.map { IntegrationKindInfo(kind: $0.rawValue, label: $0.title, about: $0.purpose) }
         for k in cards.map(\.kind) where !out.contains(where: { $0.kind == k }) {
             out.append(IntegrationKindInfo(kind: k, label: k.prefix(1).uppercased() + k.dropFirst()))
         }

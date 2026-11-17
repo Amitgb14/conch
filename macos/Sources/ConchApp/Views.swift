@@ -861,8 +861,8 @@ struct Empty: View {
             } else {
                 Text(store.status).foregroundStyle(Theme.text2).multilineTextAlignment(.center).frame(maxWidth: 520)
                 HStack {
-                    Button("Start conch's server") { store.startServer() }.disabled(store.binary == nil)
-                    Button("Try again") { store.connect() }
+                    Button("Start conch's Server") { store.startServer() }.disabled(store.binary == nil)
+                    Button("Try Again") { store.connect() }
                 }
                 if store.binary == nil {
                     Text("conch is not installed where this app looks (~/.local/bin, Homebrew, PATH). Set CONCH_BIN to its path.")
@@ -1662,7 +1662,7 @@ struct NeedsYouCard: View {
             if let q, !q.choices.isEmpty {
                 ChoiceButtons(store: store, pane: key, question: q)
             } else {
-                Button("Open to answer") { store.open(key) }.buttonStyle(.plain)
+                Button("Open to Answer") { store.open(key) }.buttonStyle(.plain)
                     .font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
             }
         }
@@ -3088,7 +3088,7 @@ struct UpdatesSheet: View {
                 .font(.ui(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("Not now") { store.updatesOpen = false }.keyboardShortcut(.cancelAction)
+                Button("Not Now") { store.updatesOpen = false }.keyboardShortcut(.cancelAction)
                 Button(picked.isEmpty ? "Upgrade" : "Upgrade \(picked.count)") {
                     store.applyUpdates(picked)
                     store.updatesOpen = false

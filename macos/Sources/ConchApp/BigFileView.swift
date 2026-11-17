@@ -316,7 +316,7 @@ struct BigFileView: View {
                 .onSubmit {
                     if let n = Int(gotoText.filter(\.isNumber)) { model.goTo(line: n) }
                 }
-            Toggle("Follow end", isOn: Binding(get: { model.follow }, set: { model.setFollow($0) }))
+            Toggle("Follow End", isOn: Binding(get: { model.follow }, set: { model.setFollow($0) }))
                 .toggleStyle(.checkbox).font(.ui(size: 12)).help("Keep the last lines in view as they are written")
             if model.canEdit {
                 Button("Edit Lines…") { model.beginEdit() }
