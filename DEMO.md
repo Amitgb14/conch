@@ -108,7 +108,8 @@ Then:
 4. In the sheet, the conversations are listed by workspace, and the
    marketing-site one says its worktree and repository are gone. Untick
    some and press **Import**.
-5. On the done screen, use **Copy Prompt** and **Show**.
+5. On the done screen, use **Copy Prompt** and **Show**. After **Done**, the
+   Conductor page lists them under **Imported**.
 
 Quit the copy with ⌘Q, or press ctrl-c in the terminal: the script stops
 the copy and its server.
