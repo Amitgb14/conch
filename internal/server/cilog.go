@@ -127,7 +127,8 @@ func (pm *projectManager) ciFor(ctx context.Context, p *project, branch string, 
 	for _, c := range pr.Runs {
 		if src, ok := integration.CheckSource(c.Name, c.URL, files); ok {
 			for _, f := range files {
-				if f.Name == src {
+				// A deploy file's check is read by deployFor.
+				if f.Name == src && f.Kind == integration.KindCI {
 					use[f.Name] = f
 				}
 			}
