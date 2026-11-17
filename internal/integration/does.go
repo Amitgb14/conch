@@ -35,6 +35,14 @@ func Does(kind string, ops []string) []Feature {
 		return []Feature{
 			{"Agent waiting, agent done, pull request merged", "Sent by conch's server, as the desktop notifications are, whether or not conch is open", level(has("send"))},
 		}
+	case KindDeploy:
+		// By hand for now: the branch view and the agent are not told yet.
+		return []Feature{
+			{"A branch's previews: state, link, why one failed", "conch integration previews", level(has("previews"))},
+			{"What a failed build printed", "conch integration deploy-log", level(has("failed_log"))},
+			{"Build a deploy again", "conch integration redeploy", level(has("redeploy"))},
+			{"Release a deploy to production", "conch integration promote, which asks first", level(has("promote"))},
+		}
 	case KindSandbox:
 		// What a sandbox provider's file describes beside the machine: its
 		// operations are the format-4 tables it has.

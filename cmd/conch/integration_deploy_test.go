@@ -246,3 +246,17 @@ func TestIntegrationKeyChecksDeploy(t *testing.T) {
 		t.Fatalf("elsewhere: %q %v", out, err)
 	}
 }
+
+// adapt takes -kind deploy: the agent is given the deploy contract. With
+// no URL it stops at the usage, past the kind.
+func TestAdaptKindDeploy(t *testing.T) {
+	integrationEnv(t)
+	_, _, err := a4Out(t, func() error { return runIntegration([]string{"adapt", "-kind", "deploy"}) })
+	if err == nil || !strings.HasPrefix(err.Error(), "usage:") {
+		t.Fatalf("adapt -kind deploy: %v", err)
+	}
+	_, _, err = a4Out(t, func() error { return runIntegration([]string{"adapt", "-kind", "deploys"}) })
+	if err == nil || !strings.Contains(err.Error(), "deploy, notify") {
+		t.Fatalf("a kind that is not one: %v", err)
+	}
+}
