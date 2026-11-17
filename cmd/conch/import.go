@@ -204,10 +204,21 @@ func printImported(written []importedFile, all []sessions.Imported, dry bool) {
 		if where := strings.Trim(f.Repo+" · "+f.Branch, " ·"); where != "" {
 			facts = append(facts, where)
 		}
-		fmt.Printf("  %s  (%s)\n    %s\n", f.Title, strings.Join(facts, ", "), f.File)
+		if w := whereWords(f.Where); w != "" {
+			facts = append(facts, w)
+		}
+		if dry && f.Imported {
+			facts = append(facts, "imported already")
+		}
+		fmt.Printf("  %s  (%s)\n", f.Title, strings.Join(facts, ", "))
+		if dry {
+			// What -ids takes: the list is what somebody chooses from.
+			fmt.Printf("    id %s\n", f.ID)
+		}
+		fmt.Printf("    %s\n", f.File)
 	}
 	if dry {
-		fmt.Println("\nconch import conductor without -n writes them.")
+		fmt.Println("\nconch import conductor without -n writes them; -ids ID,… writes only those.")
 		return
 	}
 	f := written[len(written)-1]
@@ -218,6 +229,18 @@ func printImported(written []importedFile, all []sessions.Imported, dry bool) {
 	fmt.Printf("\nTo carry one on, start an agent where it ran and point it at the file:\n\n  conch new -agent claude -cwd %s -- %s\n",
 		shellWord(dir), shellWord("Read "+f.File+" and carry on from where it leaves off."))
 	fmt.Println("\nOr drag the file into the agent's prompt, in conch or Conch.app.")
+}
+
+// whereWords says where a conversation can no longer be carried on: ""
+// while its worktree is there.
+func whereWords(where string) string {
+	switch where {
+	case "workspace":
+		return ""
+	case "repository":
+		return "worktree removed"
+	}
+	return "worktree and repository gone"
 }
 
 // slugify makes a file name of a title: lower case letters, digits and

@@ -411,7 +411,7 @@ Usage:
                                 Conductor's conversations, read from its own database (a copy of it,
                                 so an open Conductor is left alone) and each written as a handoff
                                 document an agent can read and carry on from: in imports/conductor in
-                                conch's folder unless -out; -n says what it would write, -ids only
+                                conch's folder unless -out; -n lists what it would write with ids, -ids only
                                 those conversations (Integrations → Import in Conch.app does this)
   conch keys [-bound] [-toml] [-json]
                                 what every key after the prefix does, and which key it is on now

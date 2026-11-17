@@ -288,3 +288,54 @@ func TestImportConductorChoose(t *testing.T) {
 		t.Fatalf("gone: %+v", got)
 	}
 }
+
+// The list -n prints is what somebody chooses from, so it names each
+// conversation's id — what -ids takes — and says which can no longer be
+// carried on where they ran, or were imported already.
+func TestImportConductorDryRunNamesIDs(t *testing.T) {
+	db, ws := importFixture(t)
+	out := filepath.Join(t.TempDir(), "out")
+	dry := func() string {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out, "-n"}) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stdout
+	}
+	got := dry()
+	for _, want := range []string{"    id 0123456789abcdef\n", "-ids ID,… writes only those"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("-n lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "imported already") || strings.Contains(got, "gone") || strings.Contains(got, "removed") {
+		t.Errorf("-n says more than is so:\n%s", got)
+	}
+	var err error
+	a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dry(); !strings.Contains(got, "fix/build, imported already)") {
+		t.Errorf("-n after an import:\n%s", got)
+	}
+	os.RemoveAll(ws)
+	if got := dry(); !strings.Contains(got, "worktree and repository gone, imported already)") {
+		t.Errorf("-n once the worktree and repository are gone:\n%s", got)
+	}
+	// Only a dry run names ids: what was written is named by its file.
+	stdout, _ := a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out}) })
+	if err != nil || strings.Contains(stdout, "id 0123456789abcdef") {
+		t.Errorf("an import names ids: %v\n%s", err, stdout)
+	}
+}
+
+func TestImportedWhereWords(t *testing.T) {
+	for where, want := range map[string]string{"workspace": "", "repository": "worktree removed", "gone": "worktree and repository gone", "": "worktree and repository gone"} {
+		if got := whereWords(where); got != want {
+			t.Errorf("whereWords(%q) = %q, want %q", where, got, want)
+		}
+	}
+}
