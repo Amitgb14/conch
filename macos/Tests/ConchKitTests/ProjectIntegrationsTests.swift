@@ -121,3 +121,27 @@ private func detect(_ s: String = detectJSON) throws -> IntegrationDetect {
     snap.projects[i].git = false
     #expect(!snap.menu(for: node, machine: "local", integrations: true).contains(item))
 }
+
+// A project's deploy switches: one per deploy integration installed here.
+// On when the project uses it; a use its files or checks show can't be
+// switched off here (that is the file's), one chosen can.
+@Test func projectDeploySwitches() throws {
+    let here = try JSONDecoder().decode(IntegrationList.self, from: Data(#"""
+    {"integrations":[{"name":"vercel","label":"Vercel","kind":"deploy","version":"1","source":"conch-integrations","state":"ok"},
+                     {"name":"netlify","kind":"deploy","version":"1","source":"conch-integrations","state":"key not set"},
+                     {"name":"circleci","kind":"ci","version":"-","source":"ships with conch","state":"ok"}]}
+    """#.utf8))
+    let none = ProjectIntegrations.deploySwitches(nil, installed: here)
+    #expect(none.map(\.name) == ["vercel", "netlify"] && none.allSatisfy { !$0.on && $0.fixed == nil })
+    #expect(none[1].label == "Netlify" && none[0].words == "Vercel deploys this project")
+    let d = try detect(#"""
+    {"integrations":[{"name":"vercel","label":"Vercel","kind":"deploy","why":"chosen for this project","installed":true},
+                     {"name":"netlify","label":"Netlify","kind":"deploy","why":"netlify.toml","installed":true}]}
+    """#)
+    let s = ProjectIntegrations.deploySwitches(d, installed: here)
+    #expect(s[0].on && s[0].fixed == nil)
+    #expect(s[1].on && s[1].fixed == "found netlify.toml")
+    #expect(ProjectIntegrations.useArguments(name: "vercel", on: false, dir: "/w/web") == ["integration", "use", "-off", "-cwd", "/w/web", "vercel"])
+    #expect(ProjectIntegrations.useArguments(name: "vercel", on: true, dir: "/w/web") == ["integration", "use", "-cwd", "/w/web", "vercel"])
+    #expect(ProjectIntegrations.deploySwitches(d, installed: nil).isEmpty)
+}
