@@ -40,8 +40,8 @@ INSERT INTO sessions VALUES ` + sessRows + `;
 INSERT INTO session_messages VALUES
  ('m1', 's1', 'user', 'Why does the build fail?', '2026-07-10 15:19:01'),
  ('m2', 's1', 'assistant', '{"type":"system","subtype":"init","session_id":"c1"}', '2026-07-10 15:19:02'),
- ('m3', 's1', 'assistant', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Let me look."},{"type":"tool_use","name":"Bash","input":{"command":"make"}}]}}', '2026-07-10 15:19:03'),
- ('m4', 's1', 'assistant', '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"make: *** error"}]}}', '2026-07-10 15:19:04'),
+ ('m3', 's1', 'assistant', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Let me look."},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"make"}}]}}', '2026-07-10 15:19:03'),
+ ('m4', 's1', 'assistant', '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"make: *** error"}]}}', '2026-07-10 15:19:04'),
  ('m5', 's1', 'assistant', '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"A missing header; fixed."}]}}', '2026-07-10 15:19:05'),
  ('m6', 's1', 'assistant', 'not json at all', '2026-07-10 15:19:06'),
  ('m7', 's1', 'assistant', '{"no":"type"}', '2026-07-10 15:19:07'),
