@@ -211,8 +211,10 @@ func (s *Server) Run() error {
 			return ErrAlreadyRunning
 		}
 	}
-	// The run log is this server's now; until here it was the live one's.
+	// The run log and the autopilot's checks are this server's now; until
+	// here they were the live one's.
 	s.runs.settle()
+	s.autopilot.settleFresh()
 
 	exe, err := buildinfo.Executable()
 	if err != nil {

@@ -352,11 +352,23 @@ func TestSecondServerLeavesTheRunLogAlone(t *testing.T) {
 	if err := os.WriteFile(path, live, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// And a check the live server's autopilot is running.
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.CheckPanes["p3"] = branchKey("r", "x")
+	s.autopilot.saved.CheckHeads["p3"] = "abc"
+	s.autopilot.saveLocked()
+	s.autopilot.mu.Unlock()
+	apPath := s.autopilot.file
+	apLive, _ := os.ReadFile(apPath)
+
 	second := New(sock, dir)
 	if err := second.Run(); err != ErrAlreadyRunning {
 		t.Fatalf("second server: %v", err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != string(live) {
 		t.Fatalf("the live server's run log was rewritten:\n%s", b)
+	}
+	if b, _ := os.ReadFile(apPath); string(b) != string(apLive) {
+		t.Fatalf("the live server's autopilot checks were rewritten:\n%s", b)
 	}
 }
