@@ -14,13 +14,16 @@ type Release struct {
 	Verb string `json:"verb"`
 	What string `json:"what"`
 	Note string `json:"note,omitempty"`
+	// Rebuilds: releasing starts a new build for production (Vercel), so
+	// production moves only once it is ready; else it is immediate.
+	Rebuilds bool `json:"rebuilds,omitempty"`
 }
 
 // ReleaseOf is f's words for releasing a deploy.
 func ReleaseOf(f *File) Release {
 	switch f.Name {
 	case "vercel":
-		return Release{Verb: "Promote",
+		return Release{Verb: "Promote", Rebuilds: true,
 			What: "This commit is built again for production, as Vercel's “Promote to Production” does. The production domains move to it once that build is ready.",
 			Note: "It is built with production's environment variables: a preview's never reach production."}
 	case "netlify":

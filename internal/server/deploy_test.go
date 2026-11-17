@@ -192,7 +192,7 @@ func TestBranchPreviews(t *testing.T) {
 		t.Fatalf("integrations: %+v", got)
 	}
 	v := got.Integrations[0]
-	if v.Service != "Vercel" || v.Why != "" || !v.Redeploy || !v.Promote || v.Release == nil || v.Release.Verb != "Promote" {
+	if v.Service != "Vercel" || v.Why != "" || !v.Redeploy || !v.Promote || v.Release == nil || v.Release.Verb != "Promote" || !v.Release.Rebuilds {
 		t.Fatalf("vercel: %+v", v)
 	}
 	// With a pull request: only the deploys at its head.

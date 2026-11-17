@@ -78,7 +78,7 @@ func TestRelease(t *testing.T) {
 	d := func(state, env string) Deploy { return Deploy{Run: Run{ID: "d1", State: state}, Environment: env} }
 
 	r := ReleaseOf(vercel)
-	if r.Verb != "Promote" || !strings.Contains(r.What, "built again for production") || !strings.Contains(r.What, "once that build is ready") || r.Note == "" {
+	if r.Verb != "Promote" || !r.Rebuilds || !strings.Contains(r.What, "built again for production") || !strings.Contains(r.What, "once that build is ready") || r.Note == "" {
 		t.Errorf("vercel's words: %+v", r)
 	}
 	if ok, why := CanRelease(vercel, d("ready", "")); !ok || why != "" {
@@ -89,7 +89,7 @@ func TestRelease(t *testing.T) {
 	}
 
 	r = ReleaseOf(netlify)
-	if r.Verb != "Publish" || !strings.Contains(r.What, "published deploy") || !strings.Contains(r.Note, "Nothing is built again") {
+	if r.Verb != "Publish" || r.Rebuilds || !strings.Contains(r.What, "published deploy") || !strings.Contains(r.Note, "Nothing is built again") {
 		t.Errorf("netlify's words: %+v", r)
 	}
 	if ok, why := CanRelease(netlify, d("ready", "deploy-preview")); ok || why != "A deploy preview can't be published. Publish a production-branch deploy — when auto publishing is locked a ready one waits for this — or an earlier one to roll back." {

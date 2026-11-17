@@ -179,7 +179,7 @@ func (pm *projectManager) branchPreviews(lp proto.BranchCILogParams) (proto.Bran
 			BuildLog: integration.HasBuildLog(d.f), Redeploy: d.f.Redeploy.Has(), Promote: d.f.Promote.Has()}
 		if src.Promote {
 			r := integration.ReleaseOf(d.f)
-			src.Release = &proto.DeployRelease{Verb: r.Verb, What: r.What, Note: r.Note}
+			src.Release = &proto.DeployRelease{Verb: r.Verb, What: r.What, Note: r.Note, Rebuilds: r.Rebuilds}
 		}
 		if d.conn != nil {
 			deps, err := d.conn.Previews(ctx, d.target)

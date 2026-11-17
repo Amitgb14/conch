@@ -2261,6 +2261,9 @@ type DeployRelease struct {
 	Verb string `json:"verb"`
 	What string `json:"what"`
 	Note string `json:"note,omitempty"`
+	// Rebuilds: releasing starts a new production build (Vercel), which
+	// is building until ready; else the release is immediate (Netlify).
+	Rebuilds bool `json:"rebuilds,omitempty"`
 }
 
 // DeployInfo is one deploy, newest first in its list. State is ready,
