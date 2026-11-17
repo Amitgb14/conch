@@ -104,6 +104,7 @@ var projectKinds = []struct{ kind, title, none string }{
 	{integration.KindTickets, "Tickets", "Linear, Jira, GitHub Issues…"},
 	{integration.KindSandbox, "Sandboxes", "Daytona, E2B, boat.dev…"},
 	{integration.KindNotify, "Notifications", "Slack, Discord, ntfy…"},
+	{integration.KindDeploy, "Deploy previews", "Vercel, Netlify…"},
 }
 
 // useChip is a service's state in a word: the sheet's chip.

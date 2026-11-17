@@ -1364,6 +1364,9 @@ var helpGroups = []helpGroup{{
 		{keys: "I / O", what: "a red check conch can't read: install its integration · open it on its service", more: []string{
 			"the card above the files says which check, why conch thinks the project uses that service, and goes once an integration reads it; every check is listed under it with where it ran",
 		}},
+		{keys: "v", what: "open the branch's newest deploy preview (Vercel, Netlify), or a failed build's page", more: []string{
+			"a line a deploy integration under the checks: its newest deploy's state, commit and link, or why it failed; a failed build goes to the agent as a failed CI run does (f in the review queue)",
+		}},
 		{keys: "D", what: "discard the branch and its worktree"},
 		{keys: "A", what: "compare the attempts at this task (t runs a command in each, o shows its terminal)"},
 		{keys: "y", what: "copy the path, or the diff"},
