@@ -12,18 +12,30 @@ import SwiftUI
 // decisions are ConchKit's Deploy.swift. Nothing here exists against an
 // older server.
 
-/// How often the previews are asked again while the tab reloads: the
-/// server keeps them a moment itself.
-private let previewsEvery: TimeInterval = 15
-
 extension ChangesModel {
+    /// Reads the branch's previews, at most every Deploys.askEvery unless
+    /// forced. A failure is said in previewsFailure rather than dropped,
+    /// and the last answer is kept.
     func loadPreviews(force: Bool = false) async {
         guard let c = connection, can(branchPreviewsCapability) else { return }
-        if !force, let at = previewsAt, Date().timeIntervalSince(at) < previewsEvery { return }
+        if !force, !Deploys.askAgain(lastAt: previewsAt) { return }
         previewsAt = Date()
         struct P: Encodable { var project_id: String; var branch: String }
-        if let p = try? await c.call("branch.previews", P(project_id: project, branch: branch), as: BranchPreviews.self) {
-            previews = p
+        do {
+            previews = try await c.call("branch.previews", P(project_id: project, branch: branch), as: BranchPreviews.self)
+            previewsFailure = nil
+        } catch {
+            previewsFailure = Deploys.readFailure("\(error)")
+        }
+    }
+
+    /// Asks again while the tab is on screen: an answer read before the
+    /// project was marked as deploying, or before the server was reloaded,
+    /// would otherwise stay until git moved in the project.
+    func keepPreviews() async {
+        while !Task.isCancelled {
+            await loadPreviews()
+            try? await Task.sleep(nanoseconds: UInt64(Deploys.askEvery * 1_000_000_000))
         }
     }
 
