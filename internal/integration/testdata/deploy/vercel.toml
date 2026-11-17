@@ -1,0 +1,78 @@
+# Vercel. The project is the one linked to this repository; a branch's
+# previews are its deployments of that branch, at the pull request's head
+# when there is one. Releasing a preview to production builds it again
+# with the production environment, as Vercel's own "Promote to
+# Production" does: a preview's environment variables never reach
+# production.
+format = 3
+kind = "deploy"
+name = "vercel"
+label = "Vercel"
+api = "https://api.vercel.com"
+key_env = "VERCEL_TOKEN"
+docs = "https://vercel.com/docs/rest-api"
+adapted_by = "claude"
+adapted = "2026-11-16"
+key_help = "Vercel → Account Settings → Tokens → Create Token. Scope it to the account that owns the project; a token that can only read is enough for previews and logs."
+note = "Reads projects in your own account. A project owned by a Vercel team needs the team named in the call (teamId), which this file cannot ask for yet. A commit is read from GitHub's metadata (meta.githubCommitSha)."
+
+[auth]
+type = "bearer"
+
+[detect]
+files = ["vercel.json", ".vercel/project.json"]
+checks = ["Vercel*"]
+
+[states]
+QUEUED = "building"
+INITIALIZING = "building"
+BUILDING = "building"
+READY = "ready"
+ERROR = "failed"
+BLOCKED = "failed"
+CANCELED = "canceled"
+DELETED = "canceled"
+
+[previews]
+items = "deployments"
+id = "uid"
+name = "name"
+state = "readyState"
+url = "https://{item.url}"
+commit = "meta.githubCommitSha"
+environment = "target"
+error = "errorMessage"
+inspect = "inspectorUrl"
+started = "created"
+finished = "ready"
+
+[[previews.steps]]
+as = "project"
+call = "GET /v10/projects?repoUrl=https://{host}/{path}&limit=1"
+pick = "projects.0"
+
+[[previews.steps]]
+call = "GET /v7/deployments?projectId={project.id}&branch={branch}&sha={head}&limit=20"
+
+[failed_log]
+call = "GET /v3/deployments/{deploy}/events?builds=1&direction=forward&limit=-1"
+text = "[*].payload.text"
+
+# A new build of the same commit and settings, as a preview.
+[[redeploy.steps]]
+as = "dep"
+call = "GET /v13/deployments/{deploy}"
+
+[[redeploy.steps]]
+call = "POST /v13/deployments?forceNew=1"
+body = { name = "{dep.name}", deploymentId = "{deploy}" }
+
+# The same commit built for production, which takes the production domains
+# when it is ready.
+[[promote.steps]]
+as = "dep"
+call = "GET /v13/deployments/{deploy}"
+
+[[promote.steps]]
+call = "POST /v13/deployments"
+body = { name = "{dep.name}", deploymentId = "{deploy}", target = "production" }

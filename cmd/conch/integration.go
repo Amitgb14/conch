@@ -48,6 +48,15 @@ const integrationUsage = `Usage:
   conch integration remove NAME                  delete an installed one
   conch integration check [-json] NAME|FILE      what is wrong with a file (offline)
   conch integration guide                        the file format, for writing one
+  conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]
+                                                 a branch's deploys on a deploy integration (Vercel,
+                                                 Netlify): state, preview link, why one failed
+  conch integration deploy-log [-lines N] [-cwd DIR] [NAME] DEPLOY
+                                                 the end of what a deploy's build printed (200 lines)
+  conch integration redeploy [-cwd DIR] [NAME] DEPLOY
+                                                 build a deploy again
+  conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY
+                                                 release a deploy to production; asks first
   conch integration icons [-json]                the registries' kinds, and each integration's icon
                                                  downloaded here, checked against the index (Conch.app
                                                  draws the catalog with them)
@@ -92,6 +101,14 @@ func runIntegration(args []string) error {
 		return integrationPublish(args)
 	case "icons":
 		return integrationIcons(args)
+	case "previews":
+		return integrationPreviews(args)
+	case "deploy-log":
+		return integrationDeployLog(args)
+	case "redeploy":
+		return integrationRedeploy(args)
+	case "promote":
+		return integrationPromote(args)
 	case "guide":
 		fmt.Print(integration.Guide)
 		return nil
@@ -683,13 +700,17 @@ func usedHere(f *integration.File, dir string) string {
 	return ""
 }
 
-// liveCheckHere tries the key: a CI's runs of this project's branch and
-// a tracker's open tickets — one read-only call each — or, for a webhook,
-// a message saying it works, which is the only way to know it does.
+// liveCheckHere tries the key: a CI's runs or a deploy service's previews
+// of this project's branch and a tracker's open tickets — reads only — or,
+// for a webhook, a message saying it works, which is the only way to know
+// it does.
 func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) string {
 	root, rem, branch := projectHere(ctx, dir)
 	if f.Kind == integration.KindCI && (root == "" || !f.Uses(root, rem)) {
 		return "not checked: run conch integration install from a project that uses it, or conch branch fix-ci there"
+	}
+	if f.Kind == integration.KindDeploy && (root == "" || !f.Uses(root, rem)) {
+		return "not checked: run conch integration install from a project that uses it, or conch integration previews there"
 	}
 	if f.Kind == integration.KindTickets && f.Project.ID != "" && rem.Host == "" {
 		return "not checked: run it from a project whose tickets these are"
@@ -717,6 +738,12 @@ func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) st
 			return "the check failed: " + err.Error()
 		}
 		return "checked: sent a test message through " + f.DisplayName()
+	case integration.KindDeploy:
+		deps, err := conn.Previews(ctx, target)
+		if err != nil {
+			return "the check failed: " + err.Error()
+		}
+		return fmt.Sprintf("checked: read %d deploys of %s on %s", len(deps), branch, f.DisplayName())
 	}
 	runs, err := conn.Runs(ctx, target)
 	if err != nil {

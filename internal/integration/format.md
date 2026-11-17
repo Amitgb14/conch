@@ -2,7 +2,7 @@
 
 An integration file tells conch how to use a service's HTTP API for one
 kind of job conch already does. It is the sandbox provider file grown a
-`kind`. This conch reads three:
+`kind`. This conch reads four:
 
 - `ci`: a branch's runs, what a failed one printed, and re-running it —
   so a failure on CircleCI or GitLab CI reaches the branch's agent as a
@@ -12,6 +12,9 @@ kind of job conch already does. It is the sandbox provider file grown a
 - `notify`: where conch says an agent is waiting, an agent is done, or a
   pull request merged — a Slack or Discord webhook, ntfy — see
   [Notify](#notify).
+- `deploy`: where a branch is built and shown (Vercel, Netlify) — its
+  preview links, a failed build's log, building again and releasing to
+  production — see [Deploy previews](#deploy-previews).
 
 A file runs nothing. Its calls go to its own `api` (or the URL the person
 gave for `base_url = "ask"`), with the person's key; a URL a reply hands
@@ -253,6 +256,87 @@ allow, and only while `[notify] enabled`), and when the autopilot merges a
 pull request. `{url}` is empty when there is nothing to link to — a
 template's empty placeholder is left out, and a header that ends up empty
 is not sent. `{title}` and `{body}` are cut to 200 and 1500 characters.
+
+## Deploy previews
+
+```toml
+format = 3
+kind = "deploy"
+name = "acme-deploy"
+label = "Acme Deploy"
+api = "https://api.acme.dev"
+key_env = "ACME_TOKEN"
+
+[auth]
+type = "bearer"
+
+[detect]                      # required, as for ci: how conch knows a project uses it
+files = ["acme.json"]
+checks = ["Acme*"]
+
+[states]                      # every state the API documents → ready building failed canceled
+READY = "ready"
+BUILDING = "building"
+ERROR = "failed"
+CANCELED = "canceled"
+
+[previews]                    # required: a branch's deploys, newest first
+items = "deployments"
+id = "uid"
+name = "name"
+state = "state"
+url = "https://{item.host}"   # the preview's address
+commit = "sha"
+environment = "target"        # production, preview…
+error = "error_message"       # why it failed
+inspect = "inspector_url"     # the service's own page for it
+started = "created"
+finished = "ready"
+
+[[previews.steps]]            # find the project by the repository it builds from
+as = "proj"
+call = "GET /projects?repo=https://{host}/{path}"
+pick = "projects.0"
+
+[[previews.steps]]
+call = "GET /deployments?project={proj.id}&branch={branch}&sha={head}"
+
+[failed_log]                  # what failed deploy {deploy} printed
+call = "GET /deployments/{deploy}/events"
+text = "[*].text"
+
+[redeploy]                    # build {deploy} again
+call = "POST /deployments/{deploy}/redeploy"
+
+[[promote.steps]]             # release {deploy} to production
+as = "dep"
+call = "GET /deployments/{deploy}"
+
+[[promote.steps]]
+call = "POST /deployments"
+body = { from = "{deploy}", name = "{dep.name}", target = "production" }
+```
+
+| Operation | | conch asks it | placeholders |
+| --- | --- | --- | --- |
+| `previews` | required | a branch's deploys, newest first, at `{head}` when there is one | `{branch}`, `{head}`, the remote's parts |
+| `failed_log` | optional | what a failed build printed: the end goes to the agent | `{deploy}` |
+| `redeploy` | optional | build a deploy again | `{deploy}` |
+| `promote` | optional | release a deploy to production | `{deploy}` |
+
+A deploy's fields are a run's (`items`, `id`, `name`, `state`, `url` —
+the preview's address — `commit`, `started`, `finished`) and three more:
+`environment`, `error` and `inspect`. `[states]` maps every state to
+`ready`, `building`, `failed` or `canceled`, and must map something to
+`ready` and to `failed`; a state the file does not name is read as
+`building`. A pick that finds nothing in `previews` is no deploys; in
+`redeploy` or `promote` it is an error, since nothing was done. A
+`failed_log` that reads as empty text is no log.
+
+A query may hold a URL (`repo=https://{host}/{path}`, escaped where it
+lands); the path may not. conch asks the person before `promote`, which
+changes what everybody is shown: `conch integration promote` asks, and
+`-y` is the person saying yes beforehand.
 
 Check a file with `conch integration check FILE`, and fix what it reports
 until it reports nothing.

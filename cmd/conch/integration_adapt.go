@@ -33,7 +33,7 @@ import (
 // result in its body.
 
 // integrationKinds are the kinds a file may be, in the sheet's order.
-var integrationKinds = []string{integration.KindCI, integration.KindHost, integration.KindTickets, integration.KindSandbox, integration.KindNotify}
+var integrationKinds = []string{integration.KindCI, integration.KindHost, integration.KindTickets, integration.KindSandbox, integration.KindDeploy, integration.KindNotify}
 
 // integrationDraftDir is where an integration is adapted: the docs, the
 // format, the file the agent writes, and which pane it is in.
@@ -236,7 +236,7 @@ func integrationAdapt(args []string) error {
 	}
 	c, ok := integration.Contract(k)
 	if !ok {
-		return fail(fmt.Errorf("this conch reads no %s integration files yet: it reads ci, tickets and notify files (and sandbox providers, with -kind sandbox)", k))
+		return fail(fmt.Errorf("this conch reads no %s integration files yet: it reads ci, tickets, deploy and notify files (and sandbox providers, with -kind sandbox)", k))
 	}
 	if fs.NArg() == 0 {
 		return usage

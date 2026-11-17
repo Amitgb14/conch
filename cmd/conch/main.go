@@ -262,8 +262,8 @@ Usage:
                                 check a provider of yours with your key, then propose it to the registry
                                 as a pull request through gh (your key is never part of it)
   conch integration search [-json] [KIND|WORDS]
-                                CI services, trackers (tickets) and webhooks (notify) conch can
-                                talk to, from the registries
+                                CI services, trackers (tickets), webhooks (notify) and deploy
+                                previews conch can talk to, from the registries
                                 (each a file describing an API, never code)
   conch integration info [-json] NAME
                                 what it does in conch, where your key goes, who wrote it
@@ -277,6 +277,13 @@ Usage:
   conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide | icons [-json]
                                 take newer versions (new hosts always asked), delete one, check a
                                 file, or print the format to write one
+  conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]
+                                a branch's deploys on Vercel or Netlify (a deploy integration):
+                                state, preview link, why one failed
+  conch integration deploy-log [-lines N] [-cwd DIR] [NAME] DEPLOY | redeploy [-cwd DIR] [NAME] DEPLOY
+                                the end of a deploy's build log, or build it again
+  conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY
+                                release a deploy to production; asks first, -y to skip asking
   conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
                                 an agent in a pane of its own reads a service's API docs and writes
                                 NAME.toml; conch checks it, then reads the service with your key once
