@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -327,5 +328,41 @@ func TestBranchPreviewsWithoutAPullRequest(t *testing.T) {
 	if len(got.Integrations) != 1 || got.Integrations[0].Missing != "No Vercel project in your account is linked to github.com/acme/elsewhere. Projects owned by a Vercel team aren't supported yet." ||
 		got.Integrations[0].Why != "" || len(got.Integrations[0].Deploys) != 0 {
 		t.Fatalf("nothing linked: %+v", got)
+	}
+}
+
+// A project Vercel links from its own dashboard has no vercel.json and,
+// without a pull request, no check: conch knows it deploys there only
+// when the person says so ([integrations.projects], the project sheet's
+// switch). Then its previews are read, and detection says why.
+func TestBranchPreviewsChosenForAProject(t *testing.T) {
+	r := newDeployRigPR(t, true, false)
+	t.Setenv("VERCEL_TOKEN", vercelKey)
+	os.Remove(filepath.Join(r.proj.Path, "vercel.json"))
+	var got proto.BranchPreviews
+	if err := r.call(proto.MethodBranchPreviews, proto.BranchCILogParams{ProjectID: r.proj.ID, Branch: "main"}, &got); err != nil || len(got.Integrations) != 0 {
+		t.Fatalf("not chosen: %+v %v", got, err)
+	}
+	cfg := config.Default()
+	cfg.Integrations.SetChosen(r.proj.Path, "vercel", true)
+	if err := config.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Seen at once: the empty answer just given is not the one kept.
+	if got := r.previews(); len(got.Integrations) != 1 || len(got.Integrations[0].Deploys) != 3 {
+		t.Fatalf("chosen: %+v", got)
+	}
+	var d proto.IntegrationDetect
+	if err := r.call(proto.MethodIntegrationDetect, proto.IntegrationDetectParams{ProjectID: r.proj.ID}, &d); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range d.Integrations {
+		if u.Name == "vercel" {
+			found = u.Kind == "deploy" && u.Why == "chosen for this project" && u.Installed && u.Connected
+		}
+	}
+	if !found {
+		t.Fatalf("detect: %+v", d.Integrations)
 	}
 }

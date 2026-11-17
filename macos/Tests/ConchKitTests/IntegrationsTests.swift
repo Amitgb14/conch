@@ -371,12 +371,12 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let places = DeployPlaces.projects("vercel", uses: uses)
     #expect(places.map(\.project) == ["site", "web-app"] && places.map(\.why) == ["check Vercel", "vercel.json"])
     #expect(DeployPlaces.projects("netlify", uses: uses).isEmpty)
-    #expect(DeployPlaces.none(info) == "No project here deploys to Vercel. A branch's previews show in its git tab once a project has vercel.json or .vercel/project.json, or a pull request with a Vercel check.")
+    #expect(DeployPlaces.none(info) == "No project here deploys to Vercel. A branch's previews show in its git tab once a project has vercel.json or .vercel/project.json, or a pull request with a Vercel check. Or turn it on in a project's Integrations sheet, for one Vercel links from its own side.")
     var n = info
     n.name = "netlify"; n.label = "Netlify"
     #expect(n.keyHelpShown == n.keyHelp)
     #expect(DeployPlaces.none(n).contains("netlify.toml, or a pull request with a netlify/… check"))
     var other = info
     other.name = "acme"; other.label = "Acme"
-    #expect(DeployPlaces.none(other) == "No project here deploys to Acme. A branch's previews show in its git tab once a project uses it.")
+    #expect(DeployPlaces.none(other).hasPrefix("No project here deploys to Acme. A branch's previews show in its git tab once a project uses it. Or turn it on"))
 }

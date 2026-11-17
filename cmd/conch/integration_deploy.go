@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -262,4 +264,71 @@ func integrationPromote(args []string) error {
 	}
 	fmt.Printf("Releasing %s to production on %s.\n", deploy, f.DisplayName())
 	return nil
+}
+
+// integrationUse turns a deploy integration on (or, -off, off) for the
+// project here, for a service that links the repository from its own side
+// and leaves no file conch could find (Vercel's dashboard): kept in
+// config.toml's [integrations.projects] by the project's folder, which the
+// server reads when it looks for a branch's previews.
+func integrationUse(args []string) error {
+	fs := flag.NewFlagSet("integration use", flag.ContinueOnError)
+	dir := fs.String("cwd", "", "the project's checkout, or a worktree of it (default: here)")
+	off := fs.Bool("off", false, "stop using it for this project")
+	if err := fs.Parse(reorderFlags(args)); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: conch integration use [-off] [-cwd DIR] NAME")
+	}
+	name := fs.Arg(0)
+	var f *integration.File
+	all, _ := integration.All()
+	for _, x := range all {
+		if x.Name == name {
+			f = x
+		}
+	}
+	switch {
+	case f == nil:
+		return fmt.Errorf("no integration %s here: conch integration install %s", name, name)
+	case f.Kind != integration.KindDeploy:
+		return fmt.Errorf("%s is not a deploy integration (it is %s): only deploy integrations are chosen per project", name, f.Kind)
+	}
+	root, err := mainCheckout(*dir)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	cfg.Integrations.SetChosen(root, name, !*off)
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
+	if *off {
+		fmt.Printf("%s is no longer used for %s (unless its files show it)\n", f.DisplayName(), filepath.Base(root))
+	} else {
+		fmt.Printf("%s is used for %s: kept in config.toml, [integrations.projects]\n", f.DisplayName(), filepath.Base(root))
+	}
+	return nil
+}
+
+// mainCheckout is the project dir belongs to: the main checkout, even
+// from a worktree of it, since that is the folder a project is known by.
+func mainCheckout(dir string) (string, error) {
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return "", fmt.Errorf("%s is not in a git checkout", dir)
+	}
+	common := strings.TrimSpace(string(out))
+	root := filepath.Dir(common)
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	return root, nil
 }

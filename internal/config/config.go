@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -283,6 +284,61 @@ type IntegrationsCfg struct {
 	// for one (base_url = "ask"): a self-hosted GitLab or Jenkins, by the
 	// integration's name.
 	Base map[string]string `toml:"base,omitempty"`
+	// Projects are the deploy integrations a project uses that its files
+	// do not show — Vercel linking a repository from its own dashboard,
+	// with no vercel.json — by the project's folder (or its name), as a
+	// comma-separated list: "/Users/me/web" = "vercel". The person's
+	// switch in a project's Integrations sheet, or conch integration use.
+	Projects map[string]string `toml:"projects,omitempty"`
+}
+
+// Chosen is the integrations [integrations.projects] gives the project
+// named name at root, by its folder first, then its name.
+func (c IntegrationsCfg) Chosen(name, root string) []string {
+	v, ok := "", false
+	if root != "" {
+		for k, names := range c.Projects {
+			if filepath.Clean(k) == filepath.Clean(root) {
+				v, ok = names, true
+			}
+		}
+	}
+	if !ok && name != "" {
+		v = c.Projects[name]
+	}
+	var out []string
+	for _, n := range strings.Split(v, ",") {
+		if n = strings.TrimSpace(n); n != "" && !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// SetChosen turns integration on or off for the project at root, keyed by
+// its folder; a project left with none has no entry.
+func (c *IntegrationsCfg) SetChosen(root, integration string, on bool) {
+	root = filepath.Clean(root)
+	names := c.Chosen("", root)
+	for k := range c.Projects {
+		if filepath.Clean(k) == root && k != root {
+			delete(c.Projects, k) // one entry, under the clean folder
+		}
+	}
+	switch {
+	case !on:
+		names = slices.DeleteFunc(names, func(n string) bool { return n == integration })
+	case !slices.Contains(names, integration):
+		names = append(names, integration)
+	}
+	if len(names) == 0 {
+		delete(c.Projects, root)
+		return
+	}
+	if c.Projects == nil {
+		c.Projects = map[string]string{}
+	}
+	c.Projects[root] = strings.Join(names, ", ")
 }
 
 // RegistryCfg is one registry: where its index is, and the public key

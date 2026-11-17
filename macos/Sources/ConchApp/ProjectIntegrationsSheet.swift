@@ -55,6 +55,9 @@ final class ProjectIntegrationsModel: ObservableObject {
     @Published var loading = false
     /// The team file's question, once per opening.
     @Published var asking: String?
+    /// What this Mac has installed (conch integration ls), for the deploy
+    /// switches.
+    @Published var installed: IntegrationList?
     private var asked = false
 
     init(store: Store, machine: String, project: String, integrations: @escaping () -> IntegrationsWindow?) {
@@ -79,6 +82,10 @@ final class ProjectIntegrationsModel: ObservableObject {
         loading = true
         Task { @MainActor in
             defer { loading = false }
+            if here, installed == nil, let b = store.binary,
+               let out = try? await runConch(b, ["integration", "ls", "-json"]) {
+                installed = try? JSONDecoder().decode(IntegrationList.self, from: out)
+            }
             do {
                 let d = try await c.call("integration.detect", P(project_id: project), as: IntegrationDetect.self)
                 detect = d
@@ -100,6 +107,20 @@ final class ProjectIntegrationsModel: ObservableObject {
             do {
                 detect = try await c.call("integration.team", T(project_id: project, action: action, names: names), as: IntegrationDetect.self)
                 failure = ""
+            } catch {
+                failure = "\(error)"
+            }
+        }
+    }
+
+    /// Turns a deploy integration on or off for this project
+    /// (`conch integration use`, kept in config.toml), then reads it again.
+    func use(_ sw: DeploySwitch, on: Bool) {
+        guard here, let b = store.binary, let dir = store.snapshots[machine]?.project(project)?.path else { return }
+        Task { @MainActor in
+            do {
+                _ = try await runConch(b, ProjectIntegrations.useArguments(name: sw.name, on: on, dir: dir))
+                load()
             } catch {
                 failure = "\(error)"
             }
@@ -135,6 +156,22 @@ struct ProjectIntegrationsView: View {
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 9).fill(Theme.well))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line))
+            let switches = ProjectIntegrations.deploySwitches(model.detect, installed: model.installed)
+            if !switches.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("DEPLOY PREVIEWS FOR THIS PROJECT").font(.ui(size: 10.5, weight: .bold)).foregroundStyle(Theme.muted)
+                    ForEach(switches) { sw in
+                        HStack(spacing: 8) {
+                            Toggle(sw.words, isOn: Binding(get: { sw.on }, set: { model.use(sw, on: $0) }))
+                                .toggleStyle(.switch).controlSize(.small).font(.ui(size: 12.5))
+                                .disabled(sw.fixed != nil || !model.here)
+                            if let f = sw.fixed { Text(f).font(.ui(size: 11.5)).foregroundStyle(Theme.muted) }
+                        }
+                        .help(sw.fixed != nil ? "Its files or checks show it; remove them to stop."
+                              : "For a service that links this repository from its own side, with no file conch can find. Kept in config.toml, [integrations.projects].")
+                    }
+                }
+            }
             if !model.failure.isEmpty {
                 Text(model.failure).font(.ui(size: 12)).foregroundStyle(Theme.warn).textSelection(.enabled)
             }

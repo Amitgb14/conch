@@ -74,6 +74,18 @@ text is the corrected Vercel key help. (Added after the first install
 showed the page with nowhere to go: no project of the person's used
 Vercel.)
 
+**A project Vercel links from its own side.** Vercel can link a
+repository from its dashboard with no `vercel.json`, and a branch
+without a pull request has no Vercel check. The project's Integrations
+sheet therefore has a switch per installed deploy integration: *Vercel
+deploys this project*. It runs `conch integration use [-off] -cwd DIR
+vercel`, and the TUI's sheet has the same switch, saved with the TUI's
+settings. The choice is kept in `config.toml` under
+`[integrations.projects]` by the project's folder. The server reads it
+for previews and `integration.detect` ("chosen for this project"), and a
+change shows at once. A use the project's files or checks show has no
+switch.
+
 **Screen 2: Connect sheet.** The existing install flow:
 1. Agree to the one host.
 2. Give the token. It is kept in the Keychain, or read from

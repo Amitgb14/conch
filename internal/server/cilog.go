@@ -282,6 +282,22 @@ func (pm *projectManager) integrationsOf(projectID string) (proto.IntegrationDet
 		}
 		out.Integrations = append(out.Integrations, u)
 	}
+	// Deploy integrations the person chose for this project, which its
+	// files do not show ([integrations.projects]).
+	if cfg, err := config.Load(); err == nil {
+		for _, name := range cfg.Integrations.Chosen(p.snapshot().Name, p.root) {
+			for _, f := range files {
+				if f.Name != name || f.Kind != integration.KindDeploy {
+					continue
+				}
+				u := proto.IntegrationUse{Name: f.Name, Label: f.DisplayName(), Kind: f.Kind, Why: "chosen for this project", Installed: true,
+					KeyEnv: f.KeyEnv, Connected: pm.s.trackerSecret(f.KeyEnv) != ""}
+				if i := slices.IndexFunc(out.Integrations, func(o proto.IntegrationUse) bool { return o.Name == name }); i < 0 {
+					out.Integrations = append(out.Integrations, u)
+				}
+			}
+		}
+	}
 	for _, u := range pm.settingsUses(p.snapshot().Name, p.root) {
 		// Settings know a tracker's key and scope better than a name in
 		// the team file does.

@@ -306,10 +306,11 @@ public enum DeployPlaces {
     /// What the page says when no project here deploys there.
     public static func none(_ info: IntegrationInfo) -> String {
         let lead = "No project here deploys to \(info.label). A branch's previews show in its git tab once a project"
+        let say = " Or turn it on in a project's Integrations sheet, for one \(info.label) links from its own side."
         switch info.name {
-        case "vercel": return lead + " has vercel.json or .vercel/project.json, or a pull request with a Vercel check."
-        case "netlify": return lead + " has netlify.toml, or a pull request with a netlify/… check."
-        default: return lead + " uses it."
+        case "vercel": return lead + " has vercel.json or .vercel/project.json, or a pull request with a Vercel check." + say
+        case "netlify": return lead + " has netlify.toml, or a pull request with a netlify/… check." + say
+        default: return lead + " uses it." + say
         }
     }
 }
