@@ -51,9 +51,21 @@ conch lists a project's branches from `git worktree list`, so each Conductor wor
 
 </Step>
 
-<Step title="Pick up the conversations">
+<Step title="Bring your conversations">
 
-Conductor ran Claude Code and Codex, and they saved their conversations themselves. Select the project's **Sessions** section in the tree ([Sessions](/docs/sessions)): the conversations from every worktree, Conductor's included. `enter` resumes one in its folder (`claude --resume`, `codex resume`).
+Conductor kept its conversations in its own database, not where Claude Code and Codex keep theirs, so conch reads them from there:
+
+```sh
+conch import conductor
+```
+
+Each conversation becomes a Markdown file under `imports/conductor/` in conch's folder: your prompts and the agent's answers, without the tool calls. It ends with the command that carries one on — an agent started where it ran and told to read the file:
+
+```sh
+conch new -agent claude -cwd ~/src/app -- 'Read FILE and carry on from where it leaves off.'
+```
+
+Run it before you delete Conductor: the database goes with the app. A cloud workspace's conversation is kept on Conductor's servers, so transfer the workspace to your Mac first (step 1). `-n` shows what it would write; [more](/docs/cli#import).
 
 </Step>
 
@@ -149,9 +161,15 @@ The project appears in the sidebar under **local**. Open its **Branches**: each 
 
 </Step>
 
-<Step title="Pick up the conversations">
+<Step title="Bring your conversations">
 
-Open the project's **Sessions** in the sidebar. The Claude Code and Codex conversations from every worktree are listed, Conductor's included; **Resume** picks one up in its folder.
+Conductor kept its conversations in its own database. Right-click the project → **Open Terminal in Project** and run:
+
+```sh
+/Applications/Conch.app/Contents/Resources/conch import conductor
+```
+
+Each conversation becomes a Markdown file under `~/.config/conch/imports/conductor/`. To carry one on, start an agent on its branch (right-click the branch → **Start an Agent on This Branch**) and drag the file into its prompt, or tell it to read the file. Do this before you delete Conductor: the database goes with the app.
 
 </Step>
 
@@ -218,6 +236,7 @@ Quitting the app stops nothing; sleeping the Mac does. To keep going with the li
 | Diff viewer | A branch's changes: hunks to stage, commit, notes on a line the agent answers |
 | Pull request and checks | `p` opens the pull request; a failed check goes back to the agent with its log |
 | Parallel agents | `conch task -n 3 "…"` or `-agent claude,codex`; `A` compares the attempts |
+| Chat history | `conch import conductor`: each conversation as a file an agent can carry on from |
 | Claude Code, Codex, OpenCode | Supported, with their sessions — and Gemini CLI, Copilot CLI, Devin and [more](/docs/agents) |
 | Cursor | Cursor CLI runs in conch; its sessions are not listed yet |
 | The Mac app | [Conch.app](/docs/mac-app) (beta), the TUI and [your phone](/docs/phone) — clients of the same server |

@@ -502,6 +502,18 @@ conch works; 2 things worth a look.
 
 It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by side, so one slow thing costs only its own wait. It changes nothing and starts nothing — not even the server — and it does not dial your machines, so a machine that is asleep cannot make it hang. Whether `gh` is signed in is asked without reaching GitHub, so an offline laptop is not called signed out (a `gh` too old for that is asked the usual way), and the token `gh` hands back is thrown away. It checks this computer: on another machine, run it there. The TUI runs the same checks a moment after it starts and shows what they find on this computer's page; `,` → **Check conch…** lists them there and checks again.
 
+### import
+
+```sh
+conch import conductor        # Conductor's conversations, each as a document an agent can carry on from
+conch import conductor -n     # say what it would write, and write nothing
+conch import conductor -json  # what was written, for a script
+```
+
+Conductor kept its conversations in a database of its own (`~/Library/Application Support/com.conductor.app/conductor.db`), not where Claude Code and Codex keep theirs, so [Sessions](/docs/sessions) cannot list them. This reads them from there — from a copy, so a Conductor that is still open is neither locked nor written to — and writes each one that has anything said in it as a handoff document: the prompts and the agent's answers, without tool calls, command output or thinking, under `imports/conductor/REPO/` in conch's folder (`-out DIR` for another; `-db PATH` for a database somewhere else). Importing again replaces the same files. It needs the `sqlite3` command, which macOS has.
+
+It ends with the command that carries the latest one on: an agent started where the conversation ran — its workspace, or the repository when the workspace is gone — and told to read the file. See [Moving from Conductor](/docs/from-conductor).
+
 ### keys
 
 ```sh
