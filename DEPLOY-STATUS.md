@@ -79,7 +79,7 @@ come from the files and my reading of the docs, not from a live call.
   services, and `vercel.json`, `.vercel/project.json`, `netlify.toml` are
   markers, so `integration.detect` names them with kind `deploy`.
 - **Protocol** (`branch.previews.v1`): `branch.previews` (each deploy
-  integration the project uses or whose check its PR has, with the
+  integration the project uses or whose check any of its PRs has, with the
   deploys at the PR's head — or, with no PR, the branch's history —
   newest first: state, link, inspect, error, commit and its subject from
   the checkout's git, `promotable` / `not_promotable`; per integration

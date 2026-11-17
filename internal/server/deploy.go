@@ -42,8 +42,9 @@ type deploySource struct {
 func (d deploySource) label() string { return d.f.DisplayName() }
 
 // deployFor is the deploy integrations to ask about branch: those the
-// checkout or its remote shows it uses, and those a check of its pull
-// request came from — in name order, each connected with its key or
+// checkout or its remote shows it uses, the person chose for the project,
+// and those a check of any of the project's pull requests came from — in
+// name order, each connected with its key or
 // saying why not. With a pull request only the deploys at its head are
 // asked for (the files' sha={head}); without one, the branch's history.
 func (pm *projectManager) deployFor(ctx context.Context, p *project, branch string, pr proto.PRInfo) []deploySource {
@@ -63,7 +64,16 @@ func (pm *projectManager) deployFor(ctx context.Context, p *project, branch stri
 			use[f.Name] = f
 		}
 	}
-	for _, c := range pr.Runs {
+	// A check on any of the project's pull requests says the project
+	// deploys there, as integration.detect says: the base branch, which has
+	// none of its own, then lists its history rather than nothing.
+	runs := slices.Clone(pr.Runs)
+	p.mu.Lock()
+	for _, o := range p.prs {
+		runs = append(runs, o.Runs...)
+	}
+	p.mu.Unlock()
+	for _, c := range runs {
 		src, _ := integration.CheckSource(c.Name, c.URL, files)
 		for _, f := range files {
 			if src != "" && f.Name == src && f.Kind == integration.KindDeploy {

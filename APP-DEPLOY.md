@@ -11,7 +11,8 @@ detail.
 
 **Server and protocol** (`branch.previews.v1`, `internal/server/deploy.go`)
 - **`branch.previews`** lists every deploy integration the project uses
-  (its `[detect]` files or remote) or whose check its pull request has.
+  (its `[detect]` files or remote, or chosen for it) or whose check any of
+  its pull requests has, so a base branch with no PR still lists its history.
   - With a pull request, it reads only the deploys at the PR's head
     commit (the files' `sha={head}`), and says that head. Without one,
     it reads the branch's history.
