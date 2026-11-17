@@ -362,7 +362,7 @@ func (c *Custom) Choices(ctx context.Context, key string) ([]Choice, error) {
 	if !ok {
 		return nil, fmt.Errorf("%s's %s: %q is not a list in the reply", c.label(), firstSet(s.Label, s.Key), s.Items)
 	}
-	var out []Choice
+	out := []Choice{} // never null on the wire: Conch.app reads an array
 	for _, it := range items {
 		v := pickStr(it, s.Value)
 		if v == "" || slices.ContainsFunc(out, func(c Choice) bool { return c.Value == v }) {

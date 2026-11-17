@@ -179,8 +179,9 @@ func New(sockPath, configDir string) *Server {
 	s.uploads.filesOn = s.filesOn
 	s.packs = newPacks(configDir)
 	s.sshFiles = newSSHFiles()
-	// A reload keeps the panes, so their runs are not interrupted.
-	s.runs = loadRunLog(configDir, os.Getenv(reloadStateEnv) != "")
+	// A reload keeps the panes, so their runs are not interrupted. Read
+	// only: Run writes it back once the socket is this server's.
+	s.runs = readRunLog(configDir, os.Getenv(reloadStateEnv) != "")
 	return s
 }
 
@@ -210,6 +211,8 @@ func (s *Server) Run() error {
 			return ErrAlreadyRunning
 		}
 	}
+	// The run log is this server's now; until here it was the live one's.
+	s.runs.settle()
 
 	exe, err := buildinfo.Executable()
 	if err != nil {

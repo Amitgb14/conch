@@ -238,7 +238,20 @@ func firstLabel(have []string, want map[string]bool) string {
 // verdict file in it.
 func (s *Server) triageDir(id string) string { return filepath.Join(s.configDir, "triage", id) }
 
-const verdictFile = ".conch-triage.json"
+// verdictFile is the file the agent reading issue writes. It names the
+// issue: an agent left over from an earlier triage — one a restart
+// resumed, or one that kept writing after it was given up on — writes its
+// own issue's file, which is never read as another's.
+func verdictFile(issue int) string { return fmt.Sprintf(".conch-triage-%d.json", issue) }
+
+// clearVerdicts removes every verdict file in the checkout: this issue's,
+// any an earlier agent left behind, and the one name older builds used.
+func clearVerdicts(dir string) {
+	old, _ := filepath.Glob(filepath.Join(dir, ".conch-triage*.json"))
+	for _, f := range old {
+		os.Remove(f)
+	}
+}
 
 func (s *Server) triageStart(ctx context.Context, p *project, rec triageRecord, pol proto.AutopilotPolicy) {
 	b := s.triage
@@ -257,14 +270,14 @@ func (s *Server) triageStart(ctx context.Context, p *project, rec triageRecord, 
 		b.note(p.id, fmt.Sprintf("#%d: a checkout to read in: %v", rec.Issue, err))
 		return
 	}
-	os.Remove(filepath.Join(dir, verdictFile))
+	clearVerdicts(dir)
 	agent := pol.TriageAgent
 	if agent == "" {
 		agent = "claude"
 	}
 	rec.Name = fmt.Sprintf("%s#%d", proto.TriagePrefix, rec.Issue)
 	pi, perr := s.create(proto.PaneCreateParams{Name: rec.Name, Agent: agent, Cwd: dir,
-		Prompt: triagePrompt(is, filepath.Join(dir, verdictFile))})
+		Prompt: triagePrompt(is, filepath.Join(dir, verdictFile(rec.Issue)))})
 	if perr != nil {
 		rec.Ended, rec.Failed = time.Now(), "the agent did not start: "+perr.Message
 		b.put(rec)
@@ -280,6 +293,9 @@ func (s *Server) triageStart(ctx context.Context, p *project, rec triageRecord, 
 
 // triageVerdict is what the agent writes.
 type triageVerdict struct {
+	// Issue is the issue it is about: one naming another is not this
+	// issue's verdict, whoever wrote it.
+	Issue   int    `json:"issue,omitempty"`
 	Verdict string `json:"verdict"`
 	Size    string `json:"size,omitempty"`
 	Comment string `json:"comment"`
@@ -289,7 +305,7 @@ type triageVerdict struct {
 // has gone or taken too long. Either way the agent is closed.
 func (s *Server) triageFinish(p *project, rec triageRecord, label string, pol proto.AutopilotPolicy) {
 	b := s.triage
-	path := filepath.Join(s.triageDir(p.id), verdictFile)
+	path := filepath.Join(s.triageDir(p.id), verdictFile(rec.Issue))
 	raw, rerr := os.ReadFile(path)
 	alive := false
 	if e, perr := s.get(rec.Pane); perr == nil {
@@ -302,7 +318,11 @@ func (s *Server) triageFinish(p *project, rec triageRecord, label string, pol pr
 	case rerr == nil:
 		var v triageVerdict
 		if err := json.Unmarshal(raw, &v); err != nil || strings.TrimSpace(v.Comment) == "" || !validVerdict(v.Verdict) {
-			rec.Failed = "its verdict did not read: want {verdict, size, comment}"
+			rec.Failed = "its verdict did not read: want {issue, verdict, size, comment}"
+			break
+		}
+		if v.Issue != 0 && v.Issue != rec.Issue {
+			rec.Failed = fmt.Sprintf("its verdict is about #%d, not #%d", v.Issue, rec.Issue)
 			break
 		}
 		if err := s.triagePost(p, rec, v, label, pol); err != nil {
@@ -412,7 +432,7 @@ Read the issue and the code it is about, then decide:
 - too-big: it is more than one pull request's work.
 
 Write your answer as one JSON object to ` + verdict + `, and nothing else there:
-{"verdict": "ready" | "needs-info" | "too-big", "size": "S" | "M" | "L", "comment": "markdown for the issue"}
+{"issue": ` + fmt.Sprint(is.Number) + `, "verdict": "ready" | "needs-info" | "too-big", "size": "S" | "M" | "L", "comment": "markdown for the issue"}
 
 The comment, for ready: "Done means" (each point something a test can check), "Size" with the files it will touch, and "Out of scope". For needs-info: the questions, each one answerable, and what you found that raised them. For too-big: the parts it splits into, each one a ticket of its own. Keep it short. When the file is written, say "triage written" and stop.
 `)
