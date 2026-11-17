@@ -58,13 +58,21 @@ detail.
 - what its file can do, as chips
 - "Your key goes only to api.vercel.com"
 - "Found vercel.json in this repo"
-- **Install and connect**
+- **Install and Connect**
 
 The icons are the registry's own `deploy/vercel/icon.svg` and
 `deploy/netlify/icon.svg`. `conch integration icons` downloads them and
 checks their hashes, as for every other card; nothing is bundled. The
 banner says a project "deploys to Vercel", and the project sheet has a
 Deploy previews row.
+
+A deploy integration's page has a **Where it shows** box. It lists each
+project here that deploys there, with why ("found vercel.json") and
+**Open Its Previews**, which opens the project's base branch in a git
+tab. With none, it says so and what conch looks for. The page's setup
+text is the corrected Vercel key help. (Added after the first install
+showed the page with nowhere to go: no project of the person's used
+Vercel.)
 
 **Screen 2: Connect sheet.** The existing install flow:
 1. Agree to the one host.
@@ -97,13 +105,13 @@ For a deploy file the sheet adds:
     subject) · Preview · Built · Actions.
   - **All four states:** Ready (link), Failed (error in red), Building
     ("Building…") and Canceled ("Canceled before it was ready").
-  - **A failed deploy:** Vercel offers **Build log**, which expands with
-    the log and **Send to the branch's agent** (`fix-ci -source -deploy`).
-    Netlify offers **Error message**, the error with "Netlify's API gives
+  - **A failed deploy:** Vercel offers **Build Log**, which expands with
+    the log and **Send to the Branch's Agent** (`fix-ci -source -deploy`).
+    Netlify offers **Error Message**, the error with "Netlify's API gives
     no build log: this is the deploy's error message. The full log is on
     Netlify's deploy page.", and Send ("the error message, with the
     commit"). Both offer **Redeploy** and a link to the service's page.
-  - **A ready deploy:** **Promote to production** / **Publish to
+  - **A ready deploy:** **Promote to Production** / **Publish to
     production**, behind a sheet with the service's title, words and
     note.
   - **After the sheet:** Vercel's promote adds a **Building** row with a
@@ -147,9 +155,9 @@ to `~/.config/conch/integrations/vercel.toml` (or Netlify's likewise).
    card's preview line and the Overview's card show the deploys at its
    head. A branch with no pull request shows its history.
 4. Break the build and push. The row turns Failed. On Vercel, open
-   **Build log**; on Netlify, **Error message**. Then **Send to the
+   **Build Log**; on Netlify, **Error Message**. Then **Send to the
    branch's agent**, and **Redeploy**.
-5. On a ready Vercel preview, **Promote to production**. Cancel first;
+5. On a ready Vercel preview, **Promote to Production**. Cancel first;
    nothing happens. Then Promote: a Building production row appears. On
    Netlify, a production-branch deploy's **Publish**.
 
