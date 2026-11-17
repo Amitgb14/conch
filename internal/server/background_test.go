@@ -159,6 +159,39 @@ func TestAgentJobs(t *testing.T) {
 	}
 }
 
+// TestIsHelperMCP: an MCP server is told by its name, not by the letters
+// "mcp" anywhere in the line, which hid real jobs.
+func TestIsHelperMCP(t *testing.T) {
+	for _, c := range []struct {
+		args   string
+		helper bool
+	}{
+		{"npx -y @modelcontextprotocol/server-github", true},
+		{"npx -y @playwright/mcp@latest", true},
+		{"uvx mcp-server-git --repository /x", true},
+		{"uvx awslabs.aws-documentation-mcp-server@latest", true},
+		{"python3 -m mcp_server_time", true},
+		{"docker run -i --rm -e TOKEN ghcr.io/github/github-mcp-server", true},
+		{"node /opt/servers/mcp-server/build/index.js", true},
+		{"/usr/local/bin/context7-mcp", true},
+		{"npx mcp-remote https://x/sse", true},
+		{"MCP", true},
+
+		{"npm run dev --prefix /x/my-mcp-app", false},
+		{"node server.js --mcp-port 3000", false},
+		{"node server.js --config=/x/mcp-server.json", false},
+		{"go run ./cmd/mcpx", false},
+		{"pytest tests/test_mcps.py", false},
+		{"npm run dev", false},
+		{"", false},
+	} {
+		p := processOf(psRow{args: c.args})
+		if got := isHelper(bgManifest(), p, c.args); got != c.helper {
+			t.Errorf("isHelper(%q) = %v, want %v", c.args, got, c.helper)
+		}
+	}
+}
+
 func TestJobsKey(t *testing.T) {
 	now := time.Now()
 	a := agentJobs(10, 11, bgManifest(), map[int]psRow{

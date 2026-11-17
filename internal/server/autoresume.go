@@ -45,6 +45,14 @@ func (s *Server) autoResume() {
 	seen := map[string]bool{}
 	resumed := 0
 	for i, r := range runs {
+		// A triage agent belongs to its triage, which a restart ends
+		// (triageFinish finds it gone): resumed, it would read on with
+		// nobody to take its verdict, spending usage, in the checkout the
+		// next triage reads in. The run log leaves them out; this is the
+		// last word.
+		if proto.IsTriager(proto.PaneInfo{Name: r.Name}) {
+			continue
+		}
 		// Two runs of one agent in one folder with no session id would
 		// both resume "the latest here": the same conversation twice.
 		key := r.Agent + "\x00" + r.Dir + "\x00" + r.Session

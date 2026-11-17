@@ -164,8 +164,29 @@ func (c *previewCache) put(key string, out proto.BranchPreviews) {
 	if c.kept == nil {
 		c.kept = map[string]previewsKept{}
 	}
-	c.kept[key] = previewsKept{at: time.Now(), out: out}
+	// Every push is a new key (the head is in it), so a long-lived server
+	// would otherwise keep every answer it ever gave: what has expired goes,
+	// and past the cap the oldest does.
+	now := time.Now()
+	for k, v := range c.kept {
+		if now.Sub(v.at) > previewsFor {
+			delete(c.kept, k)
+		}
+	}
+	for len(c.kept) >= previewsMax {
+		oldest, at := "", now
+		for k, v := range c.kept {
+			if oldest == "" || v.at.Before(at) {
+				oldest, at = k, v.at
+			}
+		}
+		delete(c.kept, oldest)
+	}
+	c.kept[key] = previewsKept{at: now, out: out}
 }
+
+// previewsMax is how many answers are kept at most.
+const previewsMax = 256
 
 // forgetBranch drops a branch's answers (keys starting with prefix),
 // after something was asked of one of its deploys: the next look should

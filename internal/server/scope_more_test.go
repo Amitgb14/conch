@@ -187,11 +187,27 @@ func TestRefusedStopKeepsServer(t *testing.T) {
 	if stopped() {
 		t.Fatal("a refused stop stopped the server")
 	}
+	// Nor is it written down as asked for: the next server would leave
+	// every agent for I rather than resume it after a crash.
+	marked := func() bool {
+		s.runs.mu.Lock()
+		defer s.runs.mu.Unlock()
+		var f runLogFile
+		b, _ := os.ReadFile(s.runs.path)
+		_ = json.Unmarshal(b, &f)
+		return s.runs.stopped || f.Stopped
+	}
+	if marked() {
+		t.Fatal("a refused stop was recorded as a stop")
+	}
 	if m := stop(""); m.Error != nil {
 		t.Fatalf("from outside: %+v", m.Error)
 	}
 	if !stopped() {
 		t.Fatal("a stop from outside the panes didn't stop it")
+	}
+	if !marked() {
+		t.Fatal("a stop from outside was not recorded")
 	}
 }
 

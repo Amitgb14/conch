@@ -132,8 +132,37 @@ func isHelper(m *detect.Manifest, p detect.Process, args string) bool {
 			return true
 		}
 	}
-	a := strings.ToLower(args)
-	return strings.Contains(a, "modelcontextprotocol") || strings.Contains(a, "mcp")
+	return runsMCPServer(args)
+}
+
+// runsMCPServer says whether a command line runs an MCP server: one of
+// its words — the program, a package a launcher runs (npx, uvx, docker),
+// a script and the folders on its way — is named as MCP servers are.
+// Flags are not read, and a name merely holding the letters is not one:
+// "mcp" anywhere in the line once hid `npm run dev --prefix ~/my-mcp-app`
+// and anything given `--mcp-port`.
+func runsMCPServer(args string) bool {
+	for _, w := range strings.Fields(strings.ToLower(args)) {
+		if strings.HasPrefix(w, "-") {
+			continue
+		}
+		for _, el := range strings.Split(w, "/") {
+			if i := strings.LastIndexByte(el, '@'); i > 0 {
+				el = el[:i] // a package's version: @playwright/mcp@latest
+			}
+			if mcpName(el) || mcpName(strings.TrimSuffix(el, filepath.Ext(el))) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mcpName(n string) bool {
+	return n == "mcp" || strings.HasPrefix(n, "mcp-") || strings.HasPrefix(n, "mcp_") ||
+		strings.HasSuffix(n, "-mcp") || strings.HasSuffix(n, "_mcp") ||
+		strings.Contains(n, "mcp-server") || strings.Contains(n, "mcp_server") || strings.Contains(n, "mcpserver") ||
+		strings.Contains(n, "modelcontextprotocol")
 }
 
 // processOf is a row as detect matches processes: its name is the base of

@@ -260,3 +260,115 @@ func TestServerStopIsRemembered(t *testing.T) {
 		t.Fatalf("the stop is not recorded: %s", b)
 	}
 }
+
+// TestAutoResumeLeavesTriagersAlone: a triage agent's triage ends with
+// the server, so the next one neither resumes it nor offers it — an
+// orphan would read on, spending usage, in the checkout the next triage
+// reads in. Runs beside it come back as before, and the run log never
+// records a triager in the first place.
+func TestAutoResumeLeavesTriagersAlone(t *testing.T) {
+	arConfig(t, false)
+	now := time.Now()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	dir := arEnv(t, runLogFile{
+		Active: []agentRun{
+			{Pane: "p1", Agent: "claude", Dir: root, Session: "s-triage", Name: proto.TriagePrefix + "#12", Started: now, Seen: now},
+			{Pane: "p2", Agent: "claude", Dir: root, Session: "s-work", Name: "builder", Started: now, Seen: now},
+		},
+		Interrupted: []agentRun{{Pane: "p0", Agent: "claude", Dir: root, Session: "s-old", Name: proto.TriagePrefix + "#9", Seen: now}},
+	})
+	s := New(filepath.Join(dir, "s.sock"), dir)
+	go s.Run()
+	t.Cleanup(s.StopAndWait)
+
+	a5WaitFor(t, "the builder resumed", func() bool {
+		for _, p := range arPanes(s) {
+			if p.Name == "builder" {
+				return true
+			}
+		}
+		return false
+	})
+	for _, p := range arPanes(s) {
+		if strings.Contains(strings.Join(p.Command, " "), "s-triage") || proto.IsTriager(p) {
+			t.Fatalf("a triager was resumed: %+v", p)
+		}
+	}
+	if runs := s.runs.interruptedRuns(); len(runs) != 0 {
+		t.Fatalf("triagers offered in Sessions: %+v", runs)
+	}
+
+	// The guard in autoResume itself, for runs handed over some other way.
+	s2 := New(filepath.Join(dir, "t.sock"), t.TempDir())
+	t.Cleanup(s2.Stop)
+	s2.runs.fresh = []agentRun{{Pane: "p1", Agent: "claude", Dir: root, Session: "s-triage", Name: proto.TriagePrefix + "#12", Seen: now}}
+	s2.autoResume() // no adapters: it must not get as far as starting one
+	if p := arPanes(s2); len(p) != 0 {
+		t.Fatalf("resumed a triager: %+v", p)
+	}
+
+	// note leaves a triager out, and drops one it had.
+	l := loadRunLog(t.TempDir(), false)
+	tri := proto.PaneInfo{ID: "p5", State: proto.PaneRunning, Name: proto.TriagePrefix + "#3", Agent: &proto.AgentStatus{Name: "claude"}}
+	l.note(tri, "/d", now)
+	if len(l.active) != 0 {
+		t.Fatalf("a triager noted: %+v", l.active)
+	}
+	l.active["p5"] = agentRun{Pane: "p5", Agent: "claude"}
+	l.note(tri, "/d", now)
+	if len(l.active) != 0 {
+		t.Fatalf("a triager kept: %+v", l.active)
+	}
+}
+
+// TestSecondServerLeavesTheRunLogAlone: a second conch server on the same
+// config directory finds the socket taken and goes — without rewriting
+// the live server's run log, which would turn its running agents into
+// interrupted ones and forget a stop it was asked for.
+func TestSecondServerLeavesTheRunLogAlone(t *testing.T) {
+	arConfig(t, false)
+	now := time.Now()
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	dir := arEnv(t, runLogFile{})
+	sock := filepath.Join(dir, "s.sock")
+	s := New(sock, dir)
+	go s.Run()
+	t.Cleanup(s.StopAndWait)
+	a5WaitFor(t, "the first server listening", func() bool {
+		c, err := conchclient.Dial(sock, "test")
+		if err == nil {
+			c.Close()
+		}
+		return err == nil
+	})
+
+	// What the live server has written since: an agent running, and a stop.
+	path := filepath.Join(dir, "agent-runs.json")
+	live, _ := json.MarshalIndent(runLogFile{
+		Active:      []agentRun{{Pane: "p1", Agent: "claude", Dir: root, Session: "s1", Started: now, Seen: now}},
+		Interrupted: []agentRun{},
+		Stopped:     true,
+	}, "", "  ")
+	if err := os.WriteFile(path, live, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// And a check the live server's autopilot is running.
+	s.autopilot.mu.Lock()
+	s.autopilot.saved.CheckPanes["p3"] = branchKey("r", "x")
+	s.autopilot.saved.CheckHeads["p3"] = "abc"
+	s.autopilot.saveLocked()
+	s.autopilot.mu.Unlock()
+	apPath := s.autopilot.file
+	apLive, _ := os.ReadFile(apPath)
+
+	second := New(sock, dir)
+	if err := second.Run(); err != ErrAlreadyRunning {
+		t.Fatalf("second server: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != string(live) {
+		t.Fatalf("the live server's run log was rewritten:\n%s", b)
+	}
+	if b, _ := os.ReadFile(apPath); string(b) != string(apLive) {
+		t.Fatalf("the live server's autopilot checks were rewritten:\n%s", b)
+	}
+}

@@ -119,7 +119,7 @@ func sandboxSettings(args []string) error {
 			cancel()
 			if err != nil {
 				j.Error = err.Error()
-			} else {
+			} else if ch != nil { // a nil list stays [] for Conch.app
 				j.Choices = ch
 			}
 		}

@@ -428,6 +428,9 @@ func doingWords(d proto.TicketDoing) string {
 	case proto.DoingWorking:
 		return "agent working (" + d.Pane + ")"
 	case proto.DoingPR:
+		if d.PR == nil { // a server that said so without saying which
+			return "PR open"
+		}
 		s := fmt.Sprintf("PR #%d", d.PR.Number)
 		if d.PR.Checks != "" {
 			s += " · CI " + d.PR.Checks

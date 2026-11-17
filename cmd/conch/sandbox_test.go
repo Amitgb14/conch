@@ -1563,6 +1563,7 @@ func TestSandboxSettingsInstabox(t *testing.T) {
 	a4Env(t)
 	var mu sync.Mutex
 	var created []map[string]any
+	templates := `{"templates":[{"id":"agent-browser","creatable":true},{"id":"ci","creatable":true}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -1570,7 +1571,7 @@ func TestSandboxSettingsInstabox(t *testing.T) {
 		case r.URL.Path == "/v1/orgs":
 			fmt.Fprint(w, `{"orgs":[{"allowedSpecs":[{"vcpus":2,"memMiB":4096},{"vcpus":4,"memMiB":8192}]}]}`)
 		case r.URL.Path == "/v1/templates":
-			fmt.Fprint(w, `{"templates":[{"id":"agent-browser","creatable":true},{"id":"ci","creatable":true}]}`)
+			fmt.Fprint(w, templates)
 		case r.URL.Path == "/v1/snapshots":
 			fmt.Fprint(w, `{"snapshots":[]}`)
 		case r.Method == "POST" && r.URL.Path == "/v1/machines":
@@ -1613,5 +1614,14 @@ func TestSandboxSettingsInstabox(t *testing.T) {
 	defer mu.Unlock()
 	if len(created) != 1 || created[0]["templateId"] != "agent-browser" || created[0]["vcpus"] != 2.0 || created[0]["memMiB"] != 4096.0 {
 		t.Fatalf("create: %v %v", created, err)
+	}
+	// No templates at all: an empty list, never null, which Conch.app
+	// cannot read.
+	templates = `{"templates":[]}`
+	mu.Unlock()
+	out, _, err = a4Out(t, func() error { return runSandbox([]string{"-provider", "instabox", "settings", "-json"}) })
+	mu.Lock()
+	if err != nil || strings.Contains(strings.ReplaceAll(out, " ", ""), `"choices":null`) || !strings.Contains(strings.ReplaceAll(out, " ", ""), `"choices":[]`) {
+		t.Fatalf("no templates: %q %v", out, err)
 	}
 }
