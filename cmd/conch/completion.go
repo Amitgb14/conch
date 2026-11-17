@@ -71,6 +71,7 @@ var compCommands = []compItem{
 	{"update", "the newest release, without stopping agents"},
 	{"doctor", "check what conch needs, and how to fix it"},
 	{"keys", "what each key after the prefix does"},
+	{"import", "bring in Conductor's conversations"},
 	{"app", "open conch in a terminal of its own"},
 	{"bug", "the facts for a bug report"},
 	{"mcp", "an MCP server for an agent"},
