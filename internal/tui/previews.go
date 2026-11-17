@@ -84,6 +84,9 @@ func (m Model) deployLines(cv *changesView, w int) []string {
 		case src.Why != "":
 			lines = append(lines, styleMuted.Render(ansi.Truncate(src.Service+": "+src.Why, w, "…")))
 			continue
+		case src.Missing != "":
+			lines = append(lines, styleWarn.Render(ansi.Truncate(src.Missing, w, "…")))
+			continue
 		case len(src.Deploys) == 0:
 			lines = append(lines, styleMuted.Render(ansi.Truncate(src.Service+": no deploy of "+cv.branch+" yet", w, "…")))
 			continue

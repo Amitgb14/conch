@@ -53,6 +53,13 @@ func TestPreviewLines(t *testing.T) {
 	if out := a2Plain(cv.render(*none, 140, 30)); !strings.Contains(out, "Vercel: no deploy of feat yet") {
 		t.Fatalf("none yet:\n%s", out)
 	}
+	// Nothing builds from here: said in the service's words.
+	missing := a2Model()
+	missing.previews = map[string]previewsEntry{localMachine + "|r1|feat": {out: proto.BranchPreviews{Integrations: []proto.DeploySource{{Source: "netlify", Service: "Netlify",
+		Missing: "No Netlify site in your account builds from acme/api. Only your first 100 sites are read."}}}}}
+	if out := a2Plain(cv.render(*missing, 140, 30)); !strings.Contains(out, "No Netlify site in your account builds from acme/api") {
+		t.Fatalf("missing:\n%s", out)
+	}
 	if lines := a2Model().deployLines(cv, 80); len(lines) != 0 {
 		t.Fatalf("nothing read: %q", lines)
 	}
