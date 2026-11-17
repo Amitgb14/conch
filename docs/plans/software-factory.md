@@ -1,7 +1,7 @@
 # The software factory in conch
 
 Status: proposal, 2026-11-17. Research: [software-factory-research.md](software-factory-research.md).
-Mocks: the "Conch software factory" canvas (link in the PR).
+Mocks: https://claude.ai/artifact/TZ1b6Bas1wkXurw6CSbram (floor, run, inbox, line).
 
 ## The problem
 
@@ -54,19 +54,20 @@ open; clients only draw it and answer its gates.
 
 ```toml
 # .conch/factory.toml, or [factory] in config.toml per project
-autonomy = "L4"          # L3: you approve every merge · L4: you approve specs · L5: no gates
+autonomy = "L4"          # L3: you approve specs and merges · L4: specs only · L5: no gates
 wip = 3                  # runs building at once (was intake_wip)
 budget_usd = 15          # per run; over it the run stops and asks
 merge_queue = true
+holdout = "~/.config/conch/holdout/conch"   # outside every checkout the builder sees
 
 # the default stages
 stages = [
   { name = "triage",   by = "agent:claude" },                  # triage.go
   { name = "spec",     by = "agent:claude", gate = "person" }, # SPEC.md kept in the run
   { name = "build",    by = "agent:claude" },
-  { name = "check",    by = "command" },                       # [verify] commands
+  { name = "check",    by = "command",      fixes = 3 },        # [verify] commands, auto_fix
   { name = "review",   by = "agent:codex",  rounds = 3 },
-  { name = "validate", by = "agent:claude", holdout = "~/.config/conch/holdout/conch/" },
+  { name = "validate", by = "agent:claude", attempts = 2 },
   { name = "merge",    by = "conch",        gate = "ci" },     # PR, CI, auto_fix, queue
 ]
 ```
