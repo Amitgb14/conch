@@ -89,6 +89,21 @@ func (w ClaudeWriter) Write(ctx context.Context, im Imported, dir string) (strin
 	return r.sid, path, nil
 }
 
+// Check says whether Write would write im, writing nothing.
+func (w ClaudeWriter) Check(ctx context.Context, im Imported, dir string) error {
+	r, err := w.prepare(ctx, im, dir, "check")
+	if err != nil {
+		return err
+	}
+	if _, err := r.render(im.Messages); err != nil {
+		return err
+	}
+	if r.main == "" {
+		return errors.New("nothing was said in it that Claude Code could resume")
+	}
+	return nil
+}
+
 // Append adds the messages after the one with id after to the session at
 // path, which an earlier Write made from the same conversation. The lines
 // already written are rebuilt from the messages up to after, so the new

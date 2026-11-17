@@ -364,10 +364,16 @@ func TestClaudeWriterRefuses(t *testing.T) {
 			msg("m2", "assistant", `{"type":"user","uuid":"x","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"nope","content":""}]}}`, 2)}}, dir, "nope"},
 	}
 	for name, c := range cases {
+		if err := (ClaudeWriter{Env: env}).Check(context.Background(), c.im, c.dir); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: Check said %v; want an error naming %q", name, err, c.want)
+		}
 		_, path, err := ClaudeWriter{Env: env}.Write(context.Background(), c.im, c.dir)
 		if err == nil || !strings.Contains(err.Error(), c.want) || path != "" {
 			t.Errorf("%s: %q, %v; want an error naming %q", name, path, err, c.want)
 		}
+	}
+	if err := (ClaudeWriter{Env: env}).Check(context.Background(), good, dir); err != nil {
+		t.Errorf("Check refused a good conversation: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
