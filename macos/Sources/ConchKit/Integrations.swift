@@ -187,7 +187,7 @@ public struct IntegrationTeam: Decodable, Equatable, Sendable {
 
 /// The kinds, in the sidebar's order, with how people write them.
 public enum IntegrationKind: String, CaseIterable, Sendable {
-    case host, ci, tickets, sandbox, notify
+    case host, ci, tickets, sandbox, notify, deploy
     public var title: String {
         switch self {
         case .host: return "Code Hosts"
@@ -195,6 +195,7 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
         case .tickets: return "Ticket Trackers"
         case .sandbox: return "Sandboxes"
         case .notify: return "Notifications"
+        case .deploy: return "Deploy previews"
         }
     }
     /// The one line under a section's heading: what the kind is for in conch.
@@ -205,6 +206,7 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
         case .tickets: return "tickets to tasks, intake"
         case .sandbox: return "machines in the cloud for agents"
         case .notify: return "agent waiting, done, merged — elsewhere"
+        case .deploy: return "a branch's preview, failed builds to agents, release to production"
         }
     }
 }
@@ -271,6 +273,12 @@ public struct IntegrationCard: Equatable, Identifiable, Sendable {
     /// card a detection points to, drawn with the accent and a primary
     /// Install.
     public var wanted: Bool
+    /// What its file can do, and the one host its key goes to, from the
+    /// registry: a deploy card lists them, as the deploy mock does.
+    public var operations: [String] = []
+    public var host: String = ""
+    /// Why a project here is thought to use it: "vercel.json".
+    public var found: String?
     /// Listed and not installable yet: a sandbox provider with no ssh.
     public var off: Bool = false
     public var id: String { name }
@@ -300,6 +308,12 @@ public enum IntegrationCatalog {
             return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "notify":
             return operations.contains("send") ? "Agent waiting, done and merged, sent there by conch's server." : ""
+        case "deploy":
+            var parts = operations.contains("previews") ? ["A branch's preview link"] : []
+            if operations.contains("failed_log") { parts.append("its failed build's log to the agent") }
+            if operations.contains("redeploy") { parts.append("redeploy") }
+            if operations.contains("promote") { parts.append("release to production (asks first)") }
+            return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "ci":
             break
         default:
@@ -370,6 +384,14 @@ public enum IntegrationCatalog {
                                        summary: summary(kind: e.kind, operations: e.operations ?? e.capabilities?.operations ?? [], capabilities: e.capabilities),
                                        usedIn: usedIn(e.name), wanted: e.off != true && wantedNow(e.name), off: e.off == true))
         }
+        // What the registry says of each, and why a project here uses it.
+        for i in out.indices {
+            if let e = listed.first(where: { $0.name == out[i].name }) {
+                out[i].operations = e.operations ?? []
+                out[i].host = e.hosts.api
+            }
+            out[i].found = uses.keys.sorted().lazy.compactMap { uses[$0]?.first(where: { projectUse($0, out[i].name) })?.why }.first
+        }
         return out
     }
 
@@ -439,17 +461,17 @@ public enum IntegrationCatalog {
         var out: [String] = []
         for project in uses.keys.sorted() {
             for u in uses[project] ?? [] where found(u) {
-                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : "builds on"
+                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : u.kind == "deploy" ? "deploys to" : "builds on"
                 out.append("\(project) \(verb) \(u.label) (\(u.why))")
             }
         }
         return out
     }
 
-    /// Whether a use is one the banner names: a CI, host or tracker with
-    /// no key or nothing here to read it.
+    /// Whether a use is one the banner names: a CI, host, tracker or
+    /// deploy service with no key or nothing here to read it.
     static func found(_ u: IntegrationUse) -> Bool {
-        ["ci", "host", "tickets"].contains(u.kind) && (u.installed != true || u.connected != true)
+        ["ci", "host", "tickets", "deploy"].contains(u.kind) && (u.installed != true || u.connected != true)
     }
 
     /// The names the banner's Show button filters to.
@@ -500,6 +522,41 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
         var s = "Your \(info.label) key will be sent to \(api) only."
         if let f = info.hosts.follow, !f.isEmpty { s += " Logs are read from \(f.joined(separator: ", ")) without it." }
         return s
+    }
+
+    /// Step 3 before it runs: where the one read-only check is made. A
+    /// deploy file finds its project (Vercel) or site (Netlify) by the
+    /// repository it builds from, so the sheet says so.
+    public var checkWords: String {
+        guard let dir = checkIn, !dir.isEmpty else { return "Checked when a project uses it." }
+        let name = (dir as NSString).lastPathComponent
+        if info.kind == IntegrationKind.deploy.rawValue {
+            let what = info.name == "netlify" ? "site" : "project"
+            return "One read-only call against \(name): the \(info.label) \(what) that builds from its repository, and a branch's deploys. Found by the repository it builds from: there is nothing to choose."
+        }
+        return "One read-only call, against \(name)."
+    }
+
+    /// The key's help under its field. Vercel's is a personal account's
+    /// token: a project owned by a team needs a teamId no file can ask for
+    /// yet, so the sheet says so rather than suggest scoping it to one.
+    public var keyHelpWords: String? {
+        guard info.name == "vercel", info.kind == IntegrationKind.deploy.rawValue else { return info.keyHelp }
+        return "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet."
+    }
+
+    /// The check found nothing to read: the key works and is kept, but
+    /// nothing on the service builds from this repository.
+    public var checkWarns: Bool {
+        if case .ok(let s) = check { return s.hasPrefix("the key works, but") }
+        return false
+    }
+
+    /// The deploy mock's "This file can": what a deploy file does, from
+    /// its page's rows that are not "no". Empty for other kinds, whose
+    /// page says it.
+    public var can: [IntegrationFeature] {
+        info.kind == IntegrationKind.deploy.rawValue ? info.does.filter { $0.level != "no" } : []
     }
 
     /// What stops Install, in words; nil when it can be pressed.

@@ -370,6 +370,8 @@ func (cv *changesView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 		return false, cv.installCI(m)
 	case "r":
 		return false, cv.rerunCI(m)
+	case "v":
+		return false, cv.openPreview(m)
 	case "y":
 		if files > 0 {
 			return false, copyText(cv.data.Files[cv.sel].Path)
@@ -463,6 +465,7 @@ func (cv *changesView) filesTop(m Model) int {
 	}
 	top += len(m.branchRiskLines(cv.machine, cv.projectID, cv.branch)) // what it would collide with, a file to a line
 	top += len(m.ciLines(cv, 80))                                      // a line each, whatever the width
+	top += len(m.deployLines(cv, 80))
 	return top
 }
 
@@ -517,6 +520,7 @@ func (cv *changesView) render(m Model, w, h int) []string {
 		}
 	}
 	lines = append(lines, m.ciLines(cv, w)...)
+	lines = append(lines, m.deployLines(cv, w)...)
 	lines = append(lines, "")
 
 	switch {

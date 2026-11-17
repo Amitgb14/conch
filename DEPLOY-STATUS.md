@@ -1,7 +1,10 @@
 # Deploy previews: status
 
-Branch `conch/add-new-integration-kind-deploy`, not pushed. Steps 1 and 2
-are done; step 3 is written up in [DEPLOY-NEXT.md](DEPLOY-NEXT.md).
+Steps 1 and 2 were done on `conch/add-new-integration-kind-deploy`; steps
+3 and 4 of [DEPLOY-NEXT.md](DEPLOY-NEXT.md) (protocol, server, autopilot,
+TUI and Conch.app) were done on `conch/build-deploy-previews-flow-conch`
+— see "Step 3 and 4: what now works" below and
+[APP-DEPLOY.md](APP-DEPLOY.md) for the app.
 
 ## What works
 
@@ -68,9 +71,62 @@ are done; step 3 is written up in [DEPLOY-NEXT.md](DEPLOY-NEXT.md).
 keys, and tests must not reach the network). The endpoint shapes below
 come from the files and my reading of the docs, not from a live call.
 
+## Step 3 and 4: what now works
+
+- **Recognised with nothing installed.** `CheckSource` reads a deploy
+  file's checks after CI files' (a check both claim stays CI's); Vercel
+  (`Vercel*`, vercel.com) and Netlify (`netlify/*`, netlify.com) are known
+  services, and `vercel.json`, `.vercel/project.json`, `netlify.toml` are
+  markers, so `integration.detect` names them with kind `deploy`.
+- **Protocol** (`branch.previews.v1`): `branch.previews` (each deploy
+  integration the project uses or whose check its PR has, with the
+  deploys at the PR's head — or, with no PR, the branch's history —
+  newest first: state, link, inspect, error, commit and its subject from
+  the checkout's git, `promotable` / `not_promotable`; per integration
+  `head`, `build_log`, `missing` and the release words with `rebuilds`),
+  `branch.deploy_log`
+  (a build's log as a `BranchCILog`), `branch.redeploy`, `branch.promote`.
+  Kept 15 s per branch; an answer that could not ask (no key) is not kept.
+- **Nothing found** (`ErrUnlinked`, `integration.Unlinked`): a named
+  lookup step before the last that picks nothing (Vercel's project,
+  Netlify's site) is told apart from "no deploys yet" and said in the
+  service's terms; `conch integration key/install` says the key works
+  and is kept, `previews` fails with it.
+- **Build log** (`HasBuildLog`): Netlify's failed_log reads previews' own
+  error field, so it is not a build log; the app shows the error.
+- **Release rules** (`integration.ReleaseOf`, `CanRelease`): only a ready
+  deploy; Netlify will not publish a deploy preview or branch deploy;
+  Vercel rebuilds for production, Netlify publishes as built. The server
+  checks them before calling promote.
+- **Scope**: `branch.promote` is `scopePerson` — refused to every agent,
+  even in its own project; `branch.redeploy` is project-scoped like a CI
+  re-run. `conch integration promote` asks the local server who is
+  running and refuses an agent's pane before calling anything.
+- **Agent**: `branch.ci_log` falls back to the newest failed build at the
+  head when no CI failed, so the autopilot's auto_fix, `fix-ci` and the
+  review queue send it with `CIFailurePrompt` unchanged; a build with no
+  log is sent its error. `conch branch fix-ci -source S [-deploy ID]`
+  sends one build. Nothing in the autopilot promotes or redeploys.
+- **TUI**: Settings → Integrations has a Deploy previews section; the
+  project sheet a row; the branch view a line per deploy integration
+  (newest deploy, commit, link or error), `v` to open it.
+- **Conch.app**: see APP-DEPLOY.md.
+- `Does(KindDeploy)` says where each shows now.
+
+Tested with fakes only: `internal/integration/deploysource_test.go`,
+`internal/server/deploy_test.go` (a fake Vercel through the registry's
+file, a fake gh, a real git checkout), `TestScopeDeploys`,
+`cmd/conch` `TestBranchFixCIDeploy` and
+`TestIntegrationPromoteRefusedToAnAgent`, `internal/tui/previews_test.go`,
+ConchKit `DeployTests` and `IntegrationsTests`. End-to-end row 9.205 is
+not run.
+
 ## What is left
 
-Step 3 — DEPLOY-NEXT.md. Also: deploy files are not shipped with conch
+Live checks against Vercel and Netlify (row 9.205 in
+docs/testing/end-to-end.md); a production row (what is live now: the
+contract reads a branch's deploys only); Vercel teams (item 4 below).
+Also: deploy files are not shipped with conch
 (they come from the registry); installing one needs the registry's index
 to stop marking the kind as needing a newer conch once this is released.
 

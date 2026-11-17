@@ -59,6 +59,7 @@ public enum ProjectIntegrations {
         case .tickets: return "Tickets"
         case .sandbox: return "Sandboxes"
         case .notify: return "Notifications"
+        case .deploy: return "Deploy previews"
         }
     }
 
@@ -70,6 +71,7 @@ public enum ProjectIntegrations {
         case .tickets: return "Linear, Jira, GitHub Issues…"
         case .sandbox: return "Daytona, E2B, boat.dev…"
         case .notify: return "Slack, Discord, ntfy…"
+        case .deploy: return "Vercel, Netlify…"
         }
     }
 

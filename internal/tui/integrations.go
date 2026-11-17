@@ -56,6 +56,14 @@ func (s *settings) integrationItems(m *Model) []settingItem {
 	items = append(items, settingItem{header: true, label: "Notifications"},
 		settingItem{label: "  ✓ Desktop", detail: "built in · Settings → Notifications"})
 	items = append(items, s.fileRows(m, files, integration.KindNotify)...)
+	items = append(items, settingItem{header: true, label: "Deploy previews"})
+	if deploys := s.fileRows(m, files, integration.KindDeploy); len(deploys) > 0 {
+		items = append(items, deploys...)
+	} else {
+		// None ships with conch: Vercel's and Netlify's are the registry's.
+		items = append(items, settingItem{label: styleMuted.Render("  Vercel, Netlify — install one from the registry"),
+			detail: "a branch's preview, its failed build to the agent"})
+	}
 	items = append(items,
 		settingItem{},
 		settingItem{label: "* Install one from the registry…", detail: "agree to its hosts, then give its key",

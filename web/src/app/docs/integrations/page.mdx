@@ -60,7 +60,20 @@ A webhook's address **is** its secret, so it is kept like a key: read from the v
 
 ## Deploy previews
 
-A **deploy** integration is where a branch is built and shown: Vercel and Netlify, installed from the registry (`conch integration install vercel`). conch finds the project or site by the repository it builds from, and for now it is used by hand:
+A **deploy** integration is where a branch is built and shown: Vercel and Netlify, installed from the registry. In Conch.app, **Window → Integrations** has a *Deploy previews* section with a card for each — what its file can do, the one host your key goes to, and what was found in your projects (*Found vercel.json in this repo*). **Install and connect** asks you to agree to that host, takes the token (kept in the Keychain, or read from `$VERCEL_TOKEN` / `$NETLIFY_AUTH_TOKEN`), and checks it once by reading a branch's deploys in a project that uses it. conch finds the Vercel project or Netlify site by the repository it builds from. From a terminal: `conch integration install vercel`.
+
+Once it is connected, a branch shows its deploys:
+
+- **Conch.app's git tab.** The header has the newest deploy's state as a chip (*Vercel · Ready*). A click opens the preview, or a failed build's page. The pull request's card has the newest ready preview's link. The overview has a **Deploy previews** card. With a pull request it lists the deploys at its head commit; without one, the branch's history. Each row has its state (ready, building, failed or canceled), commit, subject (from your git), the preview link or the error, and when it was built.
+- **A failed build** has **Build log** on Vercel. Netlify's API has no build log, so there it is **Error message**. Both have **Send to the branch's agent** and **Redeploy**.
+- **A ready deploy** has **Promote to production** (Vercel) or **Publish to production** (Netlify), which asks first in that service's words. Vercel builds the commit again with production's environment and shows that build as Building until it is ready. Netlify publishes the deploy as it was built, at once. Netlify can't publish a deploy preview: publish a production-branch deploy, or an earlier one to roll back.
+- **Nothing found:** when no Vercel project (team projects aren't supported yet) or Netlify site (only your first 100 are read) builds from the repository, the card says so. The connect sheet's check says so too, and keeps the key.
+- **The TUI's branch view.** Under the checks, a line for each deploy integration shows its newest deploy's state, commit and preview address, or a failed build's error. `v` opens the preview, or the failed build's page.
+- **The agent.** When no CI run failed, a failed build at the pull request's head is what `branch.ci_log` reads. The autopilot's *auto_fix*, `conch branch fix-ci` and the review queue's `f` send it as they send a failed CI run: the end of its log, with a link to it. `conch branch fix-ci -source vercel -deploy dpl_123` sends one build. A red Vercel or Netlify check with nothing installed is named (*Vercel: install its integration to read its log*), as an unreadable CI check is.
+
+Releasing is the person's. An agent can't promote, even in its own project. The server refuses `branch.promote` from any agent's pane, and `conch integration promote` run there refuses before it calls anything. The autopilot never releases. Redeploy follows a CI re-run's rule: an agent may for its own project.
+
+By hand:
 
 ```sh
 conch integration previews            # this branch's deploys: state, preview link, why one failed
@@ -69,9 +82,7 @@ conch integration redeploy dpl_123    # build it again
 conch integration promote dpl_123     # release it to production: asks first, -y to skip
 ```
 
-With no name, the deploy integration the project uses is taken (`vercel.json`, `netlify.toml`). `-head SHA` keeps the deploys of one commit, as at a pull request's head. Releasing changes what everybody is shown, so `promote` asks, and anything but yes releases nothing. On Vercel it builds the deploy again for production, as *Promote to Production* does; on Netlify it publishes the deploy as it was built, and a deploy preview cannot be published. Netlify's API has no build log: a failed deploy gives its error message.
-
-Preview links on the branch and a failed build sent to the branch's agent are not here yet.
+With no name, the deploy integration the project uses is taken (`vercel.json`, `netlify.toml`). `-head SHA` keeps the deploys of one commit, as at a pull request's head. `promote` asks, and anything but yes releases nothing. Netlify's API has no build log, so a failed deploy gives its error message instead, and that is what the agent is sent.
 
 ## When a check can't be read
 
@@ -183,4 +194,4 @@ conch downloads the docs into a folder of their own, with the format and the kin
 
 ## Not yet
 
-These are planned but not here yet: code hosts besides GitHub, and intake from a tickets integration (intake reads GitHub issues only, as it does for Linear and Jira). A deploy integration's previews on the branch and in the pull request view, and a failed build sent to the branch's agent as a failed CI run is. `conch integration guide` has the tickets, notify and deploy formats.
+These are planned but not here yet: code hosts besides GitHub, and intake from a tickets integration (intake reads GitHub issues only, as it does for Linear and Jira). For deploy previews, these are missing: what is in production now (no operation reads production's deploy, domain or commit, so there is no *Production* row), a Vercel project owned by a team (its calls need a `teamId` the file can't ask for), a preview chip on the branch's row in the tree, and releasing from the TUI (use `conch integration promote`). `conch integration guide` has the tickets, notify and deploy formats.
