@@ -254,11 +254,11 @@ struct DeployPreviewsCard: View {
                             .fixedSize(horizontal: false, vertical: true).help(why)
                     }
                     if a.release, let r = s.release {
-                        Button("\(r.verb) to production") { model.releasing = DeployConfirm(source: s, deploy: d) }
+                        Button("\(r.verb) to Production") { model.releasing = DeployConfirm(source: s, deploy: d) }
                             .buttonStyle(.borderedProminent).controlSize(.small).disabled(model.busy != nil)
                     }
                     if a.log {
-                        Button(model.deployLogShown == key ? "Hide" : Deploys.logLabel(s)) { model.toggleDeployLog(s, d) }.controlSize(.small)
+                        Button(model.deployLogShown == key ? "Hide" : titleCase(Deploys.logLabel(s))) { model.toggleDeployLog(s, d) }.controlSize(.small)
                     }
                     if a.redeploy {
                         Button("Redeploy") { model.redeploy(s, d) }.controlSize(.small).disabled(model.busy != nil)
@@ -289,7 +289,7 @@ struct DeployPreviewsCard: View {
                         .frame(maxHeight: 220)
                     }
                     HStack(spacing: 10) {
-                        Button(model.agent.map { "Send to \($0.name.isEmpty ? ($0.agent?.name ?? "the branch's agent") : $0.name)" } ?? "Send to the branch's agent") {
+                        Button(model.agent.map { "Send to \($0.name.isEmpty ? ($0.agent?.name ?? "the Branch's Agent") : $0.name)" } ?? "Send to the Branch's Agent") {
                             model.sendDeploy(s, d)
                         }
                         .buttonStyle(.borderedProminent).controlSize(.small).disabled(!a.send)

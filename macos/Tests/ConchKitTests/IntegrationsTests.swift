@@ -353,3 +353,30 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     f.checkIn = "/w/web-app"
     #expect(f.checkWords.hasSuffix("Found by the repository it builds from: there is nothing to choose."))
 }
+
+// A deploy integration's page says where its previews show: each project
+// here that deploys there, and why conch thinks so — or, with none, that
+// none does and what conch looks for. Its key help is the corrected one.
+@Test func deployIntegrationPageWhereItShows() throws {
+    let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(#"""
+    {"name":"vercel","label":"Vercel","kind":"deploy","source":"conch-integrations","installed":true,"hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN",
+     "key_help":"Vercel → Account Settings → Tokens → Create Token. Scope it to the account that owns the project.","key_set":true}
+    """#.utf8))
+    #expect(info.keyHelpShown == "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet.")
+    let uses: [String: [IntegrationUse]] = [
+        "web-app": [IntegrationUse(name: "vercel", label: "Vercel", kind: "deploy", why: "vercel.json", installed: true, connected: true)],
+        "api": [IntegrationUse(name: "circleci", label: "CircleCI", kind: "ci", why: ".circleci/config.yml")],
+        "site": [IntegrationUse(name: "vercel", label: "Vercel", kind: "deploy", why: "check Vercel", installed: true)],
+    ]
+    let places = DeployPlaces.projects("vercel", uses: uses)
+    #expect(places.map(\.project) == ["site", "web-app"] && places.map(\.why) == ["check Vercel", "vercel.json"])
+    #expect(DeployPlaces.projects("netlify", uses: uses).isEmpty)
+    #expect(DeployPlaces.none(info) == "No project here deploys to Vercel. A branch's previews show in its git tab once a project has vercel.json or .vercel/project.json, or a pull request with a Vercel check.")
+    var n = info
+    n.name = "netlify"; n.label = "Netlify"
+    #expect(n.keyHelpShown == n.keyHelp)
+    #expect(DeployPlaces.none(n).contains("netlify.toml, or a pull request with a netlify/… check"))
+    var other = info
+    other.name = "acme"; other.label = "Acme"
+    #expect(DeployPlaces.none(other) == "No project here deploys to Acme. A branch's previews show in its git tab once a project uses it.")
+}

@@ -292,3 +292,34 @@ public struct DeployConfirm: Equatable, Identifiable, Sendable {
 public func fixDeployArguments(dir: String, branch: String, agent: String, source: String, deploy: String) -> [String] {
     ["branch", "fix-ci", "-cwd", dir, "-branch", branch, "-agent", agent, "-source", source, "-deploy", deploy]
 }
+
+/// Where a deploy integration's previews show, for its page in the
+/// Integrations window: the projects here that deploy there.
+public enum DeployPlaces {
+    /// Each project that uses the integration named, by name, with why.
+    public static func projects(_ name: String, uses: [String: [IntegrationUse]]) -> [(project: String, why: String)] {
+        uses.keys.sorted().compactMap { p in
+            uses[p]?.first(where: { $0.name == name }).map { (p, $0.why) }
+        }
+    }
+
+    /// What the page says when no project here deploys there.
+    public static func none(_ info: IntegrationInfo) -> String {
+        let lead = "No project here deploys to \(info.label). A branch's previews show in its git tab once a project"
+        switch info.name {
+        case "vercel": return lead + " has vercel.json or .vercel/project.json, or a pull request with a Vercel check."
+        case "netlify": return lead + " has netlify.toml, or a pull request with a netlify/… check."
+        default: return lead + " uses it."
+        }
+    }
+}
+
+extension IntegrationInfo {
+    /// The key's help as conch shows it. Vercel's is a personal account's
+    /// token: a project owned by a team needs a teamId no file can ask for
+    /// yet, so it says so rather than suggest scoping it to one.
+    public var keyHelpShown: String? {
+        guard name == "vercel", kind == IntegrationKind.deploy.rawValue else { return keyHelp }
+        return "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet."
+    }
+}

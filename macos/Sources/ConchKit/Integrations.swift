@@ -540,10 +540,7 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
     /// The key's help under its field. Vercel's is a personal account's
     /// token: a project owned by a team needs a teamId no file can ask for
     /// yet, so the sheet says so rather than suggest scoping it to one.
-    public var keyHelpWords: String? {
-        guard info.name == "vercel", info.kind == IntegrationKind.deploy.rawValue else { return info.keyHelp }
-        return "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet."
-    }
+    public var keyHelpWords: String? { info.keyHelpShown }
 
     /// The check found nothing to read: the key works and is kept, but
     /// nothing on the service builds from this repository.

@@ -77,6 +77,8 @@ final class IntegrationsModel: ObservableObject {
     @Published var uses: [String: [IntegrationUse]] = [:]
     /// A project's checkout, by its name, to check a key against.
     var paths: [String: String] = [:]
+    /// Each project's id here, by name, to open one of its branches.
+    var ids: [String: String] = [:]
     @Published var section: IntegrationsSection = .discover
     @Published var filter: IntegrationFilter = .all
     @Published var query = ""
@@ -152,9 +154,20 @@ final class IntegrationsModel: ObservableObject {
             if let d = try? await c.call("integration.detect", P(project_id: pr.id), as: IntegrationDetect.self) {
                 out[pr.name] = d.integrations.filter { $0.name != "github" && $0.name != "github-actions" }
                 paths[pr.name] = pr.path
+                ids[pr.name] = pr.id
             }
         }
         uses = out
+    }
+
+    /// A project's previews: its base branch's git tab in the main window
+    /// (the Overview has the Deploy previews card).
+    func openPreviews(of project: String) {
+        guard let id = ids[project] else { return }
+        let base = store.snapshots["local"]?.project(id)?.base ?? "main"
+        store.openChanges(project: key("local", id), branch: base)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first { $0.title != "Integrations" && $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
     }
 
     func open(_ card: IntegrationCard) {
@@ -418,7 +431,7 @@ struct IntegrationCardView: View {
                     }
                     Spacer()
                     if !newer && !card.off && (!card.installed || card.wanted) {
-                        Text(card.installed ? "Connect" : card.kind == IntegrationKind.deploy.rawValue ? "Install and connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
+                        Text(card.installed ? "Connect" : card.kind == IntegrationKind.deploy.rawValue ? "Install and Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
                             .foregroundStyle(card.wanted ? Color.white : Theme.text)
                             .padding(.horizontal, 10).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 5).fill(card.wanted ? Theme.accent : Theme.raise))
@@ -578,7 +591,24 @@ struct IntegrationPage: View {
                                 if info.isSandbox, let cr = c.create, !cr.isEmpty { row("asks for", cr.joined(separator: ", ")) }
                             }
                         }
-                        if let help = info.keyHelp {
+                        if info.kind == IntegrationKind.deploy.rawValue {
+                            box("Where it shows") {
+                                let places = DeployPlaces.projects(info.name, uses: model.uses)
+                                if places.isEmpty {
+                                    Text(DeployPlaces.none(info)).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                                }
+                                ForEach(places, id: \.project) { p in
+                                    HStack(spacing: 8) {
+                                        Text(p.project).font(.ui(size: 12.5, weight: .medium))
+                                        Text("found " + p.why).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                                        Spacer()
+                                        Button("Open Its Previews") { model.openPreviews(of: p.project) }.controlSize(.small)
+                                            .help("Its base branch's git tab; any branch's tab has its own previews")
+                                    }
+                                }
+                            }
+                        }
+                        if let help = info.keyHelpShown {
                             box("Setting it up") {
                                 Text(help + " conch keeps it in your Keychain, never in a file.").font(.ui(size: 12)).foregroundStyle(Theme.text2)
                                 if let s = info.scopes, !s.isEmpty { Text("Scopes: " + s.joined(separator: " ")).font(.ui(size: 11.5)).foregroundStyle(Theme.muted) }
