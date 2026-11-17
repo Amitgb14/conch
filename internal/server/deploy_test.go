@@ -28,16 +28,20 @@ const vercelKey = "vercel-key-1234"
 // at the head, a ready one at the head, and an older ready one at the
 // checkout's own commit.
 type deployRig struct {
-	t     *testing.T
-	c     *client.Client
-	proj  proto.ProjectInfo
-	head  atomic.Value // the checkout's commit, for the older deploy
-	mu    sync.Mutex
-	posts []string
-	gets  int32
+	t        *testing.T
+	c        *client.Client
+	proj     proto.ProjectInfo
+	head     atomic.Value // the checkout's commit, for the older deploy
+	mu       sync.Mutex
+	posts    []string
+	gets     int32
+	headFile string
 }
 
-func newDeployRig(t *testing.T, install bool) *deployRig {
+func newDeployRig(t *testing.T, install bool) *deployRig { return newDeployRigPR(t, install, true) }
+
+// newDeployRigPR is the rig, with or without a pull request on main.
+func newDeployRigPR(t *testing.T, install, pr bool) *deployRig {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("CONCH_HOME", home)
@@ -67,14 +71,23 @@ func newDeployRig(t *testing.T, install bool) *deployRig {
 				io.WriteString(w, `{"deployments": []}`)
 				return
 			}
-			io.WriteString(w, `{"deployments": [
-			 {"uid": "dpl_2", "name": "widgets", "url": "widgets-git-main-acme.vercel.app", "readyState": "ERROR", "target": null,
+			head := r.head.Load().(string)
+			all := []struct{ commit, json string }{
+				{head, `{"uid": "dpl_2", "name": "widgets", "url": "widgets-git-main-acme.vercel.app", "readyState": "ERROR", "target": null,
 			  "errorMessage": "Build failed: type error in PlanCard.tsx", "inspectorUrl": "https://vercel.com/acme/widgets/dpl_2",
-			  "meta": {"githubCommitSha": "abc123"}, "created": 1731740000000},
-			 {"uid": "dpl_1", "name": "widgets", "url": "widgets-abc-acme.vercel.app", "readyState": "READY", "target": null,
-			  "inspectorUrl": "https://vercel.com/acme/widgets/dpl_1", "meta": {"githubCommitSha": "abc123"}, "created": 1731730000000, "ready": 1731730060000},
-			 {"uid": "dpl_0", "name": "widgets", "url": "widgets-old-acme.vercel.app", "readyState": "READY", "target": null,
-			  "meta": {"githubCommitSha": "`+r.head.Load().(string)+`"}, "created": 1731720000000}]}`)
+			  "meta": {"githubCommitSha": "` + head + `"}, "created": 1731740000000}`},
+				{head, `{"uid": "dpl_1", "name": "widgets", "url": "widgets-abc-acme.vercel.app", "readyState": "READY", "target": null,
+			  "inspectorUrl": "https://vercel.com/acme/widgets/dpl_1", "meta": {"githubCommitSha": "` + head + `"}, "created": 1731730000000, "ready": 1731730060000}`},
+				{"0ld0ld0", `{"uid": "dpl_0", "name": "widgets", "url": "widgets-old-acme.vercel.app", "readyState": "CANCELED", "target": null,
+			  "meta": {"githubCommitSha": "0ld0ld0"}, "created": 1731720000000}`},
+			}
+			var deps []string
+			for _, d := range all {
+				if sha := q.Get("sha"); sha == "" || sha == d.commit {
+					deps = append(deps, d.json)
+				}
+			}
+			io.WriteString(w, `{"deployments": [`+strings.Join(deps, ",")+`]}`)
 		case "GET /v3/deployments/dpl_2/events":
 			io.WriteString(w, `[{"payload": {"text": "> next build"}}, {"payload": {"text": "Type error: Property 'annual' does not exist"}}]`)
 		case "GET /v13/deployments/dpl_2", "GET /v13/deployments/dpl_1":
@@ -101,10 +114,15 @@ func newDeployRig(t *testing.T, install bool) *deployRig {
 	}
 	ghDir := t.TempDir()
 	gh := filepath.Join(ghDir, "gh")
+	// The pull request's head is the checkout's own commit, written once
+	// it is made; with no file, the branch has no pull request.
+	headFile := filepath.Join(ghDir, "head")
+	r.headFile = headFile
 	check := `{"__typename":"StatusContext","context":"Vercel","state":"FAILURE","targetUrl":"https://vercel.com/acme/widgets/dpl_2"}`
 	os.WriteFile(gh, []byte(`#!/bin/sh
 case "$1 $2" in
-"pr list") echo '[{"number":42,"title":"Pricing","state":"OPEN","url":"https://github.com/acme/widgets/pull/42","headRefName":"main","headRefOid":"abc123","statusCheckRollup":[`+check+`]}]' ;;
+"pr list") [ -f `+headFile+` ] || { echo '[]'; exit 0; }
+  echo '[{"number":42,"title":"Pricing","state":"OPEN","url":"https://github.com/acme/widgets/pull/42","headRefName":"main","headRefOid":"'$(cat `+headFile+`)'","statusCheckRollup":[`+check+`]}]' ;;
 "run list") echo '[]' ;;
 *) exit 7 ;;
 esac
@@ -115,11 +133,19 @@ esac
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.head.Store(strings.TrimSpace(string(out)))
+	sha := strings.TrimSpace(string(out))
+	r.head.Store(sha)
+	if pr {
+		os.WriteFile(headFile, []byte(sha), 0o600)
+	} else {
+		// No check to name Vercel by: the checkout's own file does.
+		os.WriteFile(filepath.Join(proj.Path, "vercel.json"), []byte("{}"), 0o644)
+	}
 	git(t, proj.Path, "remote", "add", "origin", "https://github.com/acme/widgets.git")
+	c.Notify(proto.MethodProjectRefresh, proto.ProjectRef{ID: proj.ID})
 	r.proj = waitProject(t, c, func(p proto.ProjectInfo) bool {
 		for _, b := range p.Branches {
-			if b.Name == "main" && b.PR != nil && len(b.PR.Runs) > 0 {
+			if b.Name == "main" && (!pr || b.PR != nil && b.PR.Head == sha && len(b.PR.Runs) > 0) {
 				return true
 			}
 		}
@@ -169,10 +195,11 @@ func TestBranchPreviews(t *testing.T) {
 	if v.Service != "Vercel" || v.Why != "" || !v.Redeploy || !v.Promote || v.Release == nil || v.Release.Verb != "Promote" {
 		t.Fatalf("vercel: %+v", v)
 	}
-	if len(v.Deploys) != 3 {
-		t.Fatalf("deploys: %+v", v.Deploys)
+	// With a pull request: only the deploys at its head.
+	if v.Head != r.head.Load().(string) || !v.BuildLog || v.Missing != "" || len(v.Deploys) != 2 {
+		t.Fatalf("at the head: %+v", v)
 	}
-	failed, ready, old := v.Deploys[0], v.Deploys[1], v.Deploys[2]
+	failed, ready := v.Deploys[0], v.Deploys[1]
 	if failed.ID != "dpl_2" || failed.State != "failed" || failed.Error != "Build failed: type error in PlanCard.tsx" ||
 		failed.Inspect != "https://vercel.com/acme/widgets/dpl_2" || !failed.AtHead || failed.Promotable || failed.NotPromotable != "" {
 		t.Errorf("failed: %+v", failed)
@@ -180,8 +207,9 @@ func TestBranchPreviews(t *testing.T) {
 	if ready.State != "ready" || ready.URL != "https://widgets-abc-acme.vercel.app" || !ready.Promotable || !ready.AtHead || ready.Finished == nil {
 		t.Errorf("ready: %+v", ready)
 	}
-	if old.AtHead || old.Subject != "init" || !old.Promotable {
-		t.Errorf("older, at the checkout's commit: %+v", old)
+	// The commit's subject, from the checkout's git.
+	if ready.Subject != "init" || failed.Subject != "init" {
+		t.Errorf("subjects %q %q", ready.Subject, failed.Subject)
 	}
 	// Kept for a moment: a second look asks Vercel nothing.
 	n := atomic.LoadInt32(&r.gets)
@@ -279,5 +307,25 @@ func TestBranchRedeployAndPromote(t *testing.T) {
 	var b map[string]any
 	if json.Unmarshal([]byte(strings.SplitN(posts[1], " ", 2)[1]), &b) != nil || b["target"] != "production" || b["deploymentId"] != "dpl_1" {
 		t.Fatalf("promote's post: %q", posts[1])
+	}
+}
+
+// Without a pull request, the branch's deploys are its history, every
+// state among them; a repository Vercel has no project for is said.
+func TestBranchPreviewsWithoutAPullRequest(t *testing.T) {
+	r := newDeployRigPR(t, true, false)
+	t.Setenv("VERCEL_TOKEN", vercelKey)
+	v := r.previews().Integrations[0]
+	if v.Head != "" || len(v.Deploys) != 3 || v.Deploys[2].State != "canceled" || v.Deploys[2].AtHead {
+		t.Fatalf("history: %+v", v)
+	}
+	git(t, r.proj.Path, "remote", "set-url", "origin", "https://github.com/acme/elsewhere.git")
+	var got proto.BranchPreviews
+	if err := r.call(proto.MethodBranchPreviews, proto.BranchCILogParams{ProjectID: r.proj.ID, Branch: "feat"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Integrations) != 1 || got.Integrations[0].Missing != "No Vercel project in your account is linked to github.com/acme/elsewhere. Projects owned by a Vercel team aren't supported yet." ||
+		got.Integrations[0].Why != "" || len(got.Integrations[0].Deploys) != 0 {
+		t.Fatalf("nothing linked: %+v", got)
 	}
 }

@@ -78,7 +78,7 @@ func TestRelease(t *testing.T) {
 	d := func(state, env string) Deploy { return Deploy{Run: Run{ID: "d1", State: state}, Environment: env} }
 
 	r := ReleaseOf(vercel)
-	if r.Verb != "Promote" || !strings.Contains(r.What, "built again for production") || r.Note == "" {
+	if r.Verb != "Promote" || !strings.Contains(r.What, "built again for production") || !strings.Contains(r.What, "once that build is ready") || r.Note == "" {
 		t.Errorf("vercel's words: %+v", r)
 	}
 	if ok, why := CanRelease(vercel, d("ready", "")); !ok || why != "" {
@@ -92,7 +92,7 @@ func TestRelease(t *testing.T) {
 	if r.Verb != "Publish" || !strings.Contains(r.What, "published deploy") || !strings.Contains(r.Note, "Nothing is built again") {
 		t.Errorf("netlify's words: %+v", r)
 	}
-	if ok, why := CanRelease(netlify, d("ready", "deploy-preview")); ok || why != "A deploy preview can't be published: merge, then publish the production branch's deploy" {
+	if ok, why := CanRelease(netlify, d("ready", "deploy-preview")); ok || why != "A deploy preview can't be published. Publish a production-branch deploy — when auto publishing is locked a ready one waits for this — or an earlier one to roll back." {
 		t.Errorf("netlify deploy preview: %v %q", ok, why)
 	}
 	if ok, why := CanRelease(netlify, d("ready", "branch-deploy")); ok || !strings.HasPrefix(why, "A branch deploy can't be published") {
@@ -123,5 +123,39 @@ func TestRelease(t *testing.T) {
 	r = ReleaseOf(&other)
 	if r.Verb != "Promote" || !strings.Contains(r.What, "Acme") {
 		t.Errorf("another file's words: %+v", r)
+	}
+}
+
+// Nothing found is said in the service's own terms, naming the repository
+// and what conch cannot see yet.
+func TestUnlinkedWords(t *testing.T) {
+	rem := Remote{Host: "github.com", Path: "acme/web-app"}
+	if got := Unlinked(fixture(t, "vercel"), rem); got != "No Vercel project in your account is linked to github.com/acme/web-app. Projects owned by a Vercel team aren't supported yet." {
+		t.Errorf("vercel: %q", got)
+	}
+	if got := Unlinked(fixture(t, "netlify"), rem); got != "No Netlify site in your account builds from acme/web-app. Only your first 100 sites are read." {
+		t.Errorf("netlify: %q", got)
+	}
+	other := *fixture(t, "vercel")
+	other.Name, other.Label = "acme-deploy", "Acme"
+	if got := Unlinked(&other, rem); got != "Nothing on Acme builds from github.com/acme/web-app." {
+		t.Errorf("other: %q", got)
+	}
+}
+
+// Netlify's failed_log reads the deploy's error field, which previews has
+// already: that is no build log, and the app says so rather than offering
+// one. Vercel's reads the build's events.
+func TestHasBuildLog(t *testing.T) {
+	if !HasBuildLog(fixture(t, "vercel")) {
+		t.Error("vercel has a build log")
+	}
+	if HasBuildLog(fixture(t, "netlify")) {
+		t.Error("netlify's is the error message")
+	}
+	none := *fixture(t, "vercel")
+	none.FailedLog = LogOp{}
+	if HasBuildLog(&none) || HasBuildLog(nil) {
+		t.Error("no failed_log")
 	}
 }

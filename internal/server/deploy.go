@@ -43,9 +43,8 @@ func (d deploySource) label() string { return d.f.DisplayName() }
 // deployFor is the deploy integrations to ask about branch: those the
 // checkout or its remote shows it uses, and those a check of its pull
 // request came from — in name order, each connected with its key or
-// saying why not. The branch's deploys are asked for whatever their
-// commit, newest first, so the list is its history; the head is kept to
-// say which built it.
+// saying why not. With a pull request only the deploys at its head are
+// asked for (the files' sha={head}); without one, the branch's history.
 func (pm *projectManager) deployFor(ctx context.Context, p *project, branch string, pr proto.PRInfo) []deploySource {
 	rem, _ := integration.ParseRemote(gitx.RemoteURL(ctx, p.root))
 	files := integration.Cached()
@@ -75,7 +74,7 @@ func (pm *projectManager) deployFor(ctx context.Context, p *project, branch stri
 	var out []deploySource
 	for _, n := range names {
 		f := use[n]
-		d := deploySource{f: f, target: integration.Target{Remote: rem, Branch: branch}, head: pr.Head}
+		d := deploySource{f: f, target: integration.Target{Remote: rem, Branch: branch, Head: pr.Head}, head: pr.Head}
 		switch {
 		case rem.Host == "":
 			d.why = "the project has no remote to name it by"
@@ -176,15 +175,18 @@ func (pm *projectManager) branchPreviews(lp proto.BranchCILogParams) (proto.Bran
 	out := proto.BranchPreviews{Integrations: []proto.DeploySource{}}
 	var shas []string
 	for _, d := range pm.deployFor(ctx, p, lp.Branch, pr) {
-		src := proto.DeploySource{Source: d.f.Name, Service: d.label(), Why: d.why,
-			Redeploy: d.f.Redeploy.Has(), Promote: d.f.Promote.Has()}
+		src := proto.DeploySource{Source: d.f.Name, Service: d.label(), Why: d.why, Head: d.head,
+			BuildLog: integration.HasBuildLog(d.f), Redeploy: d.f.Redeploy.Has(), Promote: d.f.Promote.Has()}
 		if src.Promote {
 			r := integration.ReleaseOf(d.f)
 			src.Release = &proto.DeployRelease{Verb: r.Verb, What: r.What, Note: r.Note}
 		}
 		if d.conn != nil {
 			deps, err := d.conn.Previews(ctx, d.target)
-			if err != nil {
+			switch {
+			case errors.Is(err, integration.ErrUnlinked):
+				src.Missing = integration.Unlinked(d.f, d.target.Remote)
+			case err != nil:
 				src.Why = err.Error()
 			}
 			for _, dep := range deps {
@@ -322,6 +324,9 @@ func (d deploySource) failedDeploy(ctx context.Context, id string) (integration.
 		return integration.Deploy{}, d.label() + ": " + d.why
 	}
 	deps, err := d.conn.Previews(ctx, d.target)
+	if errors.Is(err, integration.ErrUnlinked) {
+		return integration.Deploy{}, d.label() + ": " + integration.Unlinked(d.f, d.target.Remote)
+	}
 	if err != nil {
 		return integration.Deploy{}, d.label() + ": " + err.Error()
 	}

@@ -2235,11 +2235,20 @@ type BranchPreviews struct {
 
 // DeploySource is one deploy integration's word on a branch. Why says
 // what is wrong when it could not be asked (no key, no remote, the
-// service failed); Redeploy and Promote say whether its file can.
+// service failed); Missing, that the service has nothing that builds from
+// this repository, in its own terms. Head is the pull request's head the
+// deploys were read at — only that commit's are listed — and empty for a
+// branch with no pull request, whose deploys are its history. BuildLog:
+// its failed_log reads a build's output (Netlify's API has none, and a
+// failed deploy's log is its error message). Redeploy and Promote say
+// whether its file can.
 type DeploySource struct {
 	Source   string         `json:"source"`
 	Service  string         `json:"service"`
 	Why      string         `json:"why,omitempty"`
+	Missing  string         `json:"missing,omitempty"`
+	Head     string         `json:"head,omitempty"`
+	BuildLog bool           `json:"build_log,omitempty"`
 	Deploys  []DeployInfo   `json:"deploys,omitempty"`
 	Redeploy bool           `json:"redeploy,omitempty"`
 	Promote  bool           `json:"promote,omitempty"`

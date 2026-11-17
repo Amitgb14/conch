@@ -679,6 +679,11 @@ func liveCheckHere(ctx context.Context, f *integration.File, key, dir string) st
 		return "checked: sent a test message through " + f.DisplayName()
 	case integration.KindDeploy:
 		deps, err := conn.Previews(ctx, target)
+		if errors.Is(err, integration.ErrUnlinked) {
+			// The key was taken (its first call answered); the service just
+			// has nothing building from here. The key is kept.
+			return fmt.Sprintf("checked: the key works, but %s The key is kept; previews show once one builds from this repository.", integration.Unlinked(f, target.Remote))
+		}
 		if err != nil {
 			return "the check failed: " + err.Error()
 		}

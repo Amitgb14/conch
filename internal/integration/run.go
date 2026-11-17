@@ -18,6 +18,13 @@ import (
 // failed, no log to read. It is an answer, not a failure.
 var ErrNothing = errors.New("nothing there")
 
+// ErrUnlinked means a deploy file's lookup of the project — a named
+// step before the last, such as Vercel's project by repository or
+// Netlify's site — found nothing: the service has nothing that builds
+// from this repository, which is said, where a branch with no deploys
+// yet is simply none. It is also ErrNothing.
+var ErrUnlinked = errors.New("nothing linked to this repository")
+
 // ErrNoKey means the integration's key is not set.
 var ErrNoKey = errors.New("no key")
 
@@ -145,6 +152,9 @@ func (c *Conn) runs(ctx context.Context, t Target, op RunsOp) ([]Run, error) {
 func (c *Conn) items(ctx context.Context, t Target, what string, op RunsOp, read func(Run, func(string) string)) error {
 	vals := c.vars(t, "")
 	last, err := c.steps(ctx, what, op.Operation, vals)
+	if errors.Is(err, ErrUnlinked) && c.f.Kind == KindDeploy {
+		return ErrUnlinked
+	}
 	if errors.Is(err, ErrNothing) {
 		return nil
 	}
@@ -307,6 +317,8 @@ func (c *Conn) steps(ctx context.Context, what string, op Operation, vals map[st
 				return nil, fmt.Errorf("%w: [%s] step %d found nothing to read", ErrNothing, what, i+1)
 			}
 			last = joinLines(texts)
+		case len(picked) == 0 && s.As != "" && i < len(op.steps())-1:
+			return nil, fmt.Errorf("%w: %w: [%s] step %d picked nothing", ErrNothing, ErrUnlinked, what, i+1)
 		case len(picked) == 0:
 			return nil, fmt.Errorf("%w: [%s] step %d picked nothing", ErrNothing, what, i+1)
 		case s.Each != "":

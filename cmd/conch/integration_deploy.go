@@ -103,6 +103,9 @@ func integrationPreviews(args []string) error {
 		return errors.New("no branch: give -branch")
 	}
 	deps, err := conn.Previews(ctx, t)
+	if errors.Is(err, integration.ErrUnlinked) {
+		return errors.New(integration.Unlinked(f, t.Remote))
+	}
 	if err != nil {
 		return err
 	}
