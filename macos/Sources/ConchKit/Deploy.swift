@@ -16,7 +16,12 @@ public struct DeployRelease: Decodable, Equatable, Sendable {
     public var verb: String
     public var what: String
     public var note: String?
-    public init(verb: String, what: String, note: String? = nil) { self.verb = verb; self.what = what; self.note = note }
+    /// Releasing starts a new production build (Vercel); else it is
+    /// immediate (Netlify).
+    public var rebuilds: Bool?
+    public init(verb: String, what: String, note: String? = nil, rebuilds: Bool? = nil) {
+        self.verb = verb; self.what = what; self.note = note; self.rebuilds = rebuilds
+    }
 }
 
 /// One deploy, newest first in its list.
@@ -55,16 +60,29 @@ public struct DeploySource: Decodable, Equatable, Identifiable, Sendable {
     public var source: String
     public var service: String
     public var why: String?
+    /// Nothing on the service builds from this repository, in its words.
+    public var missing: String?
+    /// The pull request's head the deploys were read at; nil for a branch
+    /// with none, whose deploys are its history.
+    public var head: String?
+    /// Its failed_log reads a build's output; else (Netlify) a failed
+    /// deploy's log is its error message.
+    public var buildLog: Bool?
     public var deploys: [DeployInfo]?
     public var redeploy: Bool?
     public var promote: Bool?
     public var release: DeployRelease?
     public var id: String { source }
 
-    public init(source: String, service: String, why: String? = nil, deploys: [DeployInfo]? = nil,
-                redeploy: Bool? = nil, promote: Bool? = nil, release: DeployRelease? = nil) {
-        self.source = source; self.service = service; self.why = why; self.deploys = deploys
-        self.redeploy = redeploy; self.promote = promote; self.release = release
+    enum CodingKeys: String, CodingKey {
+        case source, service, why, missing, head, deploys, redeploy, promote, release
+        case buildLog = "build_log"
+    }
+
+    public init(source: String, service: String, why: String? = nil, missing: String? = nil, head: String? = nil, buildLog: Bool? = nil,
+                deploys: [DeployInfo]? = nil, redeploy: Bool? = nil, promote: Bool? = nil, release: DeployRelease? = nil) {
+        self.source = source; self.service = service; self.why = why; self.missing = missing; self.head = head; self.buildLog = buildLog
+        self.deploys = deploys; self.redeploy = redeploy; self.promote = promote; self.release = release
     }
 }
 
@@ -147,9 +165,86 @@ public enum Deploys {
                              log: failed, redeploy: failed && s.redeploy == true, send: failed)
     }
 
-    /// The line under a deploy's commit: the commit's subject, else the
-    /// deploy's name.
-    public static func message(_ d: DeployInfo) -> String { d.subject ?? d.name ?? "" }
+    /// The line under a deploy's commit: the commit's subject, read from
+    /// this repository's git by the server. A deploy's name (Vercel's
+    /// project name) is not a commit message, so without git's there is
+    /// none.
+    public static func message(_ d: DeployInfo) -> String { d.subject ?? "" }
+
+    /// What a building or canceled deploy says where a link or error goes.
+    public static func quietText(_ d: DeployInfo) -> String? {
+        switch d.state {
+        case "building": return "Building…"
+        case "canceled": return "Canceled before it was ready"
+        default: return nil
+        }
+    }
+
+    /// Above the table: which deploys these are.
+    public static func scopeLine(_ s: DeploySource) -> String {
+        if let h = s.head, !h.isEmpty {
+            return "Deploys at the pull request's head, \(short(h)), newest first. Earlier commits' deploys aren't listed."
+        }
+        return "No pull request: the branch's deploys, newest first."
+    }
+
+    /// A failed deploy's button: its build log, or (Netlify) its error.
+    public static func logLabel(_ s: DeploySource) -> String { s.buildLog == true ? "Build log" : "Error message" }
+
+    /// Under an error shown in place of a log: why there is no log.
+    public static func noLogNote(_ s: DeploySource) -> String? {
+        s.buildLog == true ? nil : "\(s.service)'s API gives no build log: this is the deploy's error message. The full log is on \(s.service)'s deploy page."
+    }
+
+    /// Beside Send to the branch's agent: what it is sent.
+    public static func sendWhat(_ s: DeploySource) -> String {
+        s.buildLog == true ? "As a failed CI run is: the end of the log, with the commit." : "As a failed CI run is: the error message, with the commit."
+    }
+
+    /// A reason's first sentence, for a row; the whole goes under the table.
+    public static func firstSentence(_ s: String) -> String {
+        if let r = s.range(of: ". ") { return String(s[..<r.lowerBound]) }
+        return s.hasSuffix(".") ? String(s.dropLast()) : s
+    }
+
+    /// The reasons a ready deploy here may not be released, each once.
+    public static func notReleasableNotes(_ s: DeploySource) -> [String] {
+        var out: [String] = []
+        for d in s.deploys ?? [] {
+            if let w = d.notPromotable, !w.isEmpty, !out.contains(w) { out.append(w) }
+        }
+        return out
+    }
+
+    /// After a release that starts a new production build (Vercel): that
+    /// build, shown as building until the service lists it.
+    public static func pendingBuild(_ c: DeployConfirm) -> DeployInfo? {
+        guard c.source.release?.rebuilds == true else { return nil }
+        return DeployInfo(id: "pending-production-" + c.deploy.id, state: "building", url: nil, environment: "production",
+                          commit: c.deploy.commit, subject: c.deploy.subject, started: Date())
+    }
+
+    /// The previews with a pending production build first in its
+    /// integration's list, until the service lists a production deploy of
+    /// that commit itself.
+    public static func with(_ p: BranchPreviews, pending: [String: DeployInfo]) -> BranchPreviews {
+        var out = p
+        for i in out.integrations.indices {
+            guard let b = pending[out.integrations[i].source] else { continue }
+            let deps = out.integrations[i].deploys ?? []
+            if deps.contains(where: { $0.environment == "production" && $0.commit == b.commit && $0.id != b.id }) { continue }
+            out.integrations[i].deploys = [b] + deps.filter { $0.id != b.id }
+        }
+        return out
+    }
+
+    /// What is said once a release was asked for.
+    public static func releasedWords(_ c: DeployConfirm) -> String {
+        if c.source.release?.rebuilds == true {
+            return "\(c.source.service) is building \(c.what) for production: the production domains move to it once that build is ready."
+        }
+        return "\(c.source.service) now serves \(c.what): it published the deploy as it was built."
+    }
 
     /// When it was built, in the rows' words: "2 min ago".
     public static func when(_ d: DeployInfo, now: Date = Date()) -> String {

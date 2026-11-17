@@ -79,6 +79,13 @@ final class ChangesModel: ObservableObject {
     @Published var deployLogShown: String?
     /// The release asked for, waiting on its confirmation sheet.
     @Published var releasing: DeployConfirm?
+    /// A production build a release started (Vercel), shown as building
+    /// until the service lists it, by integration.
+    @Published var pendingBuilds: [String: DeployInfo] = [:]
+    /// What an immediate release (Netlify's publish) did, for the card.
+    @Published var releasedNote: String?
+    /// The previews as drawn: with any pending production build.
+    var shownPreviews: BranchPreviews? { previews.map { Deploys.with($0, pending: pendingBuilds) } }
 
     var mode: Mode {
         if let c = chosen { return c }

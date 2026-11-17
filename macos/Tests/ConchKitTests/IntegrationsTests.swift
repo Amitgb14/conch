@@ -320,7 +320,7 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     var f = IntegrationInstallFlow(info: info)
     #expect(f.checkWords == "Checked when a project uses it.")
     f.checkIn = "/Users/a/web-app"
-    #expect(f.checkWords == "One read-only call against web-app: the Vercel project that builds from its repository, and a branch's deploys.")
+    #expect(f.checkWords.hasPrefix("One read-only call against web-app: the Vercel project that builds from its repository, and a branch's deploys."))
     #expect(f.can.map(\.what) == ["A branch's previews: state, link, why one failed"])
     #expect(f.hostsWords == "Your Vercel key will be sent to api.vercel.com only.")
     #expect(f.arguments == ["integration", "install", "-y", "-key-stdin", "-cwd", "/Users/a/web-app", "vercel"])
@@ -330,4 +330,26 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     var ci = f
     ci.info.kind = "ci"
     #expect(ci.checkWords == "One read-only call, against web-app." && ci.can.isEmpty)
+}
+
+// Vercel's key: a personal account's token, and team projects not
+// supported yet, whatever the file's help says; the check's nothing-found
+// answer is a warning, the key kept.
+@Test func integrationInstallDeployKeyAndNothingFound() throws {
+    let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(#"""
+    {"name":"vercel","label":"Vercel","kind":"deploy","source":"registry","installed":false,"hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN",
+     "key_help":"Vercel → Account Settings → Tokens → Create Token. Scope it to the account that owns the project.","key_set":false}
+    """#.utf8))
+    var f = IntegrationInstallFlow(info: info)
+    #expect(f.keyHelpWords == "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet.")
+    f.finished(output: "checked: the key works, but No Vercel project in your account is linked to github.com/acme/web-app. Projects owned by a Vercel team aren't supported yet. The key is kept; previews show once one builds from this repository.\n", error: nil)
+    #expect(f.checkWarns)
+    if case .ok(let s) = f.check { #expect(s.hasPrefix("the key works, but No Vercel project")) } else { Issue.record("not ok") }
+    f.finished(output: "checked: read 2 deploys of main on Vercel\n", error: nil)
+    #expect(!f.checkWarns)
+    var n = f
+    n.info.name = "netlify"; n.info.keyHelp = "Netlify → User settings → Applications → Personal access tokens → New access token."
+    #expect(n.keyHelpWords == n.info.keyHelp)
+    f.checkIn = "/w/web-app"
+    #expect(f.checkWords.hasSuffix("Found by the repository it builds from: there is nothing to choose."))
 }

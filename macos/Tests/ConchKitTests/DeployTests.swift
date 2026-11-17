@@ -7,7 +7,8 @@ import Testing
 private let previewsJSON = """
 {"integrations":[
  {"source":"vercel","service":"Vercel","redeploy":true,"promote":true,
-  "release":{"verb":"Promote","what":"This commit is built again for production, as Vercel's “Promote to Production” does.","note":"It is built with production's environment variables."},
+  "head":"3f2a91c0ffee","build_log":true,
+  "release":{"verb":"Promote","rebuilds":true,"what":"This commit is built again for production, as Vercel's “Promote to Production” does.","note":"It is built with production's environment variables."},
   "deploys":[
    {"id":"dpl_1","state":"ready","url":"https://web-app-3f2a91c-acme.vercel.app","commit":"3f2a91c0ffee","subject":"Pricing page: annual toggle","inspect":"https://vercel.com/acme/web-app/dpl_1","started":"2026-11-16T10:00:00.123456789Z","finished":"2026-11-16T10:01:00Z","at_head":true,"promotable":true},
    {"id":"dpl_2","state":"failed","commit":"9c41e0d","name":"web-app","error":"Build failed: type error in PlanCard.tsx","inspect":"https://vercel.com/acme/web-app/dpl_2","started":"2026-11-16T09:44:00Z"},
@@ -43,7 +44,8 @@ private func previews() throws -> BranchPreviews {
     #expect(Deploys.stateText("") == "Unknown" && Deploys.stateText("queued") == "Queued")
     #expect(Deploys.short(ready.commit) == "3f2a91c" && Deploys.short(nil) == "")
     #expect(Deploys.shown(ready.url) == "web-app-3f2a91c-acme.vercel.app" && Deploys.shown("https://x.app/") == "x.app")
-    #expect(Deploys.message(ready) == "Pricing page: annual toggle" && Deploys.message(failed) == "web-app" && Deploys.message(building) == "")
+    // The commit's message is git's, by sha; a deploy's name is not one.
+    #expect(Deploys.message(ready) == "Pricing page: annual toggle" && Deploys.message(failed) == "" && Deploys.message(building) == "")
     #expect(Deploys.when(ready, now: ready.finished!.addingTimeInterval(120)) == agoText(ready.finished!, now: ready.finished!.addingTimeInterval(120)))
     #expect(Deploys.when(building) == "")
 
@@ -85,4 +87,74 @@ private func previews() throws -> BranchPreviews {
 @Test func deployFixArguments() {
     #expect(fixDeployArguments(dir: "/w", branch: "feat", agent: "claude", source: "vercel", deploy: "dpl_2")
         == ["branch", "fix-ci", "-cwd", "/w", "-branch", "feat", "-agent", "claude", "-source", "vercel", "-deploy", "dpl_2"])
+}
+
+// Every state has its words, colour and line where a link or error goes.
+@Test func deployFourStates() {
+    #expect(["ready", "building", "failed", "canceled"].map(Deploys.stateText) == ["Ready", "Building", "Failed", "Canceled"])
+    #expect(["ready", "building", "failed", "canceled"].map(Deploys.tone) == [.ok, .busy, .bad, .quiet])
+    #expect(Deploys.quietText(DeployInfo(id: "a", state: "building")) == "Building…")
+    #expect(Deploys.quietText(DeployInfo(id: "a", state: "canceled")) == "Canceled before it was ready")
+    #expect(Deploys.quietText(DeployInfo(id: "a", state: "ready")) == nil)
+}
+
+// With a pull request, the deploys at its head; without, the history.
+@Test func deployScopeLine() throws {
+    var v = try previews().integrations[0]
+    #expect(Deploys.scopeLine(v) == "Deploys at the pull request's head, 3f2a91c, newest first. Earlier commits' deploys aren't listed.")
+    v.head = nil
+    #expect(Deploys.scopeLine(v) == "No pull request: the branch's deploys, newest first.")
+}
+
+// Nothing builds from here: said, with no table.
+@Test func deployMissing() throws {
+    let p = try conchDecoder().decode(BranchPreviews.self, from: Data(#"""
+    {"integrations":[{"source":"netlify","service":"Netlify","missing":"No Netlify site in your account builds from acme/web-app. Only your first 100 sites are read."}]}
+    """#.utf8))
+    #expect(p.integrations[0].missing?.hasPrefix("No Netlify site") == true)
+    #expect(Deploys.chip(p) == nil && Deploys.hasAny(p))
+}
+
+// Netlify's API has no build log: the panel is the error message, said so.
+@Test func deployLogWords() {
+    let netlify = DeploySource(source: "netlify", service: "Netlify", buildLog: false)
+    let vercel = DeploySource(source: "vercel", service: "Vercel", buildLog: true)
+    #expect(Deploys.logLabel(netlify) == "Error message" && Deploys.logLabel(vercel) == "Build log")
+    #expect(Deploys.noLogNote(netlify) == "Netlify's API gives no build log: this is the deploy's error message. The full log is on Netlify's deploy page.")
+    #expect(Deploys.noLogNote(vercel) == nil)
+    #expect(Deploys.sendWhat(netlify) == "As a failed CI run is: the error message, with the commit.")
+    #expect(Deploys.sendWhat(vercel) == "As a failed CI run is: the end of the log, with the commit.")
+}
+
+// The row says the first sentence of why it can't be published; the note
+// under the table says it all, once.
+@Test func deployNotReleasableShort() {
+    let why = "A deploy preview can't be published. Publish a production-branch deploy — when auto publishing is locked a ready one waits for this — or an earlier one to roll back."
+    #expect(Deploys.firstSentence(why) == "A deploy preview can't be published")
+    let s = DeploySource(source: "netlify", service: "Netlify", deploys: [DeployInfo(id: "d1", state: "ready", notPromotable: why), DeployInfo(id: "d0", state: "ready", notPromotable: why)])
+    #expect(Deploys.notReleasableNotes(s) == [why])
+    #expect(Deploys.notReleasableNotes(DeploySource(source: "vercel", service: "Vercel")).isEmpty)
+}
+
+// Vercel's promote is a new production build: shown as Building until the
+// service lists it; Netlify's publish is immediate, said as a banner.
+@Test func deployAfterRelease() throws {
+    let p = try previews()
+    let v = p.integrations[0]
+    let c = DeployConfirm(source: v, deploy: v.deploys![0])
+    let pending = try #require(Deploys.pendingBuild(c))
+    #expect(pending.state == "building" && pending.environment == "production" && pending.commit == "3f2a91c0ffee")
+    let merged = Deploys.with(p, pending: ["vercel": pending])
+    #expect(merged.integrations[0].deploys?.first == pending && merged.integrations[0].deploys?.count == 4)
+    // Once the service lists a production build of that commit, it is that.
+    var listed = p
+    listed.integrations[0].deploys!.insert(DeployInfo(id: "dpl_9", state: "building", environment: "production", commit: "3f2a91c0ffee"), at: 0)
+    #expect(Deploys.with(listed, pending: ["vercel": pending]).integrations[0].deploys?.first?.id == "dpl_9")
+    #expect(Deploys.with(listed, pending: ["vercel": pending]).integrations[0].deploys?.count == 4)
+    // Netlify: no pending build; the words say it is live.
+    let n = DeploySource(source: "netlify", service: "Netlify", release: DeployRelease(verb: "Publish", what: "x"))
+    let nc = DeployConfirm(source: n, deploy: DeployInfo(id: "d2", state: "ready", url: "https://web-app.netlify.app", commit: "e18b03f"))
+    #expect(Deploys.pendingBuild(nc) == nil)
+    #expect(Deploys.releasedWords(nc) == "Netlify now serves e18b03f: it published the deploy as it was built.")
+    #expect(Deploys.releasedWords(c) == "Vercel is building 3f2a91c for production: the production domains move to it once that build is ready.")
 }

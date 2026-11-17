@@ -667,7 +667,7 @@ struct IntegrationInstallSheet: View {
                 }
                 SecureField(f.info.keySet ? "Set already — type to replace it" : "\(f.info.label) key ($\(f.info.keyEnv))", text: bind(\.key))
                     .textFieldStyle(.roundedBorder)
-                if f.info.kind == IntegrationKind.deploy.rawValue, let help = f.info.keyHelp {
+                if f.info.kind == IntegrationKind.deploy.rawValue, let help = f.keyHelpWords {
                     Text(help).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 }
                 Text("🔑 Kept in the Keychain, or read from $\(f.info.keyEnv)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
@@ -686,7 +686,7 @@ struct IntegrationInstallSheet: View {
                 case .idle: Text(f.checkWords)
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 case .running: HStack { ProgressView().controlSize(.small); Text("Checking…").font(.ui(size: 12)) }
-                case .ok(let s): Text("Checked: " + s).font(.ui(size: 12)).foregroundStyle(Theme.ok).textSelection(.enabled)
+                case .ok(let s): Text("Checked: " + s).font(.ui(size: 12)).foregroundStyle(f.checkWarns ? Theme.warn : Theme.ok).textSelection(.enabled)
                 case .failed(let s): Text(s).font(.ui(size: 12)).foregroundStyle(Theme.err).textSelection(.enabled)
                 }
             }

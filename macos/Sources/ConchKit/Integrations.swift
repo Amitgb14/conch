@@ -504,9 +504,24 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
         let name = (dir as NSString).lastPathComponent
         if info.kind == IntegrationKind.deploy.rawValue {
             let what = info.name == "netlify" ? "site" : "project"
-            return "One read-only call against \(name): the \(info.label) \(what) that builds from its repository, and a branch's deploys."
+            return "One read-only call against \(name): the \(info.label) \(what) that builds from its repository, and a branch's deploys. Found by the repository it builds from: there is nothing to choose."
         }
         return "One read-only call, against \(name)."
+    }
+
+    /// The key's help under its field. Vercel's is a personal account's
+    /// token: a project owned by a team needs a teamId no file can ask for
+    /// yet, so the sheet says so rather than suggest scoping it to one.
+    public var keyHelpWords: String? {
+        guard info.name == "vercel", info.kind == IntegrationKind.deploy.rawValue else { return info.keyHelp }
+        return "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet."
+    }
+
+    /// The check found nothing to read: the key works and is kept, but
+    /// nothing on the service builds from this repository.
+    public var checkWarns: Bool {
+        if case .ok(let s) = check { return s.hasPrefix("the key works, but") }
+        return false
     }
 
     /// The deploy mock's "This file can": what a deploy file does, from

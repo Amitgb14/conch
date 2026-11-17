@@ -43,7 +43,7 @@ extension ChangesModel {
         let k = s.source + "|" + d.id
         if deployLogShown == k { deployLogShown = nil; return }
         deployLogShown = k
-        guard deployLogs[k] == nil, let c = connection else { return }
+        guard s.buildLog == true, deployLogs[k] == nil, let c = connection else { return }
         struct Log: Decodable { var log: String }
         Task {
             do {
@@ -64,20 +64,29 @@ extension ChangesModel {
         act("branch.redeploy", s, d, doing: "Redeploying", done: "Building \(Deploys.short(d.commit).isEmpty ? d.id : Deploys.short(d.commit)) again on \(s.service)")
     }
 
-    /// After the sheet: the person has said yes.
+    /// After the sheet: the person has said yes. A release that starts a
+    /// new production build (Vercel) shows that build as building; one
+    /// that is immediate (Netlify) says what is live now.
     func release(_ c: DeployConfirm) {
         releasing = nil
         act("branch.promote", c.source, c.deploy, doing: c.verb == "Publish" ? "Publishing" : "Promoting",
-            done: "\(c.verb == "Publish" ? "Published" : "Promoting") \(c.what) to production on \(c.source.service)")
+            done: Deploys.releasedWords(c)) { [weak self] in
+            if let b = Deploys.pendingBuild(c) {
+                self?.pendingBuilds[c.source.source] = b
+            } else {
+                self?.releasedNote = Deploys.releasedWords(c)
+            }
+        }
     }
 
-    private func act(_ method: String, _ s: DeploySource, _ d: DeployInfo, doing: String, done: String) {
+    private func act(_ method: String, _ s: DeploySource, _ d: DeployInfo, doing: String, done: String, then: (() -> Void)? = nil) {
         guard let c = connection else { return }
         busy = doing
         Task {
             defer { busy = nil }
             do {
                 try await c.call(method, deployRef(s, d))
+                then?()
                 store?.say(done)
                 await loadPreviews(force: true)
             } catch {
@@ -166,15 +175,30 @@ struct DeployPreviewsCard: View {
                     .padding(.bottom, 6)
                     if let why = s.why, !why.isEmpty {
                         Text(why).font(.ui(size: 12)).foregroundStyle(Theme.warn).textSelection(.enabled)
-                    } else if (s.deploys ?? []).isEmpty {
-                        Text("No deploy of \(model.branch) yet: it is built once it is pushed.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                    } else if let missing = s.missing, !missing.isEmpty {
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            Image(systemName: "exclamationmark.circle").foregroundStyle(Theme.warn).font(.ui(size: 12))
+                            Text(missing).font(.ui(size: 12)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        }
                     } else {
-                        header
-                        ForEach(s.deploys ?? []) { d in row(s, d) }
+                        Text(Deploys.scopeLine(s)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).padding(.bottom, 4)
+                        if let note = model.releasedNote {
+                            Text(note).font(.ui(size: 12)).foregroundStyle(Theme.ok).padding(.bottom, 4)
+                        }
+                        if (s.deploys ?? []).isEmpty {
+                            Text(s.head != nil ? "No deploy of this commit yet: it is built once the service sees the push." : "No deploy of \(model.branch) yet.")
+                                .font(.ui(size: 12)).foregroundStyle(Theme.muted)
+                        } else {
+                            header
+                            ForEach(s.deploys ?? []) { d in row(s, d) }
+                        }
+                        ForEach(Deploys.notReleasableNotes(s), id: \.self) { n in
+                            Text(n).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
+                        }
                     }
                 }
             }
-            Text("The newest ready preview is also on the pull request, and the newest deploy's state in the header.")
+            Text("Commit messages come from this repository's git. The newest ready preview is also on the pull request, and the newest deploy's state in the header.")
                 .font(.ui(size: 11)).foregroundStyle(Theme.muted)
         }
         .task { await DeployIcons.shared.load(model.store?.binary) }
@@ -206,7 +230,7 @@ struct DeployPreviewsCard: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
                         Text(Deploys.short(d.commit).isEmpty ? d.id : Deploys.short(d.commit)).font(.ui(size: 12, design: .monospaced))
-                        if d.atHead == true { Text("head").font(.ui(size: 10)).foregroundStyle(Theme.muted) }
+                        if let env = d.environment, !env.isEmpty { Text(env).font(.ui(size: 10)).foregroundStyle(Theme.muted) }
                     }
                     let msg = Deploys.message(d)
                     if !msg.isEmpty { Text(msg).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.tail) }
@@ -218,7 +242,7 @@ struct DeployPreviewsCard: View {
                     } else if d.state == "failed" {
                         Text(d.error ?? "The build failed").font(.ui(size: 11.5)).foregroundStyle(Theme.err)
                     } else {
-                        Text("").font(.ui(size: 11.5))
+                        Text(Deploys.quietText(d) ?? "").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                     }
                 }
                 .lineLimit(1).truncationMode(.middle)
@@ -226,15 +250,15 @@ struct DeployPreviewsCard: View {
                 Text(Deploys.when(d)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).frame(width: 70, alignment: .leading)
                 HStack(spacing: 6) {
                     if let why = a.notReleasable {
-                        Text(why).font(.ui(size: 11)).foregroundStyle(Theme.muted).multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(Deploys.firstSentence(why)).font(.ui(size: 11)).foregroundStyle(Theme.muted).multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true).help(why)
                     }
                     if a.release, let r = s.release {
                         Button("\(r.verb) to production") { model.releasing = DeployConfirm(source: s, deploy: d) }
                             .buttonStyle(.borderedProminent).controlSize(.small).disabled(model.busy != nil)
                     }
                     if a.log {
-                        Button(model.deployLogShown == key ? "Hide log" : "Build log") { model.toggleDeployLog(s, d) }.controlSize(.small)
+                        Button(model.deployLogShown == key ? "Hide" : Deploys.logLabel(s)) { model.toggleDeployLog(s, d) }.controlSize(.small)
                     }
                     if a.redeploy {
                         Button("Redeploy") { model.redeploy(s, d) }.controlSize(.small).disabled(model.busy != nil)
@@ -251,18 +275,25 @@ struct DeployPreviewsCard: View {
             .padding(.vertical, 6)
             if model.deployLogShown == key {
                 VStack(alignment: .leading, spacing: 10) {
-                    ScrollView {
-                        Text(model.deployLogs[key] ?? "Reading the build's log…")
-                            .font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
-                            .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                    if let note = Deploys.noLogNote(s) {
+                        // No build log to read: the error the list already has.
+                        Text(d.error ?? "It gave no error message.")
+                            .font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).textSelection(.enabled)
+                        Text(note).font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                    } else {
+                        ScrollView {
+                            Text(model.deployLogs[key] ?? "Reading the build's log…")
+                                .font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
+                                .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 220)
                     }
-                    .frame(maxHeight: 220)
                     HStack(spacing: 10) {
                         Button(model.agent.map { "Send to \($0.name.isEmpty ? ($0.agent?.name ?? "the branch's agent") : $0.name)" } ?? "Send to the branch's agent") {
                             model.sendDeploy(s, d)
                         }
                         .buttonStyle(.borderedProminent).controlSize(.small).disabled(!a.send)
-                        Text("As a failed CI run is: the end of the log, with the commit.").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                        Text(Deploys.sendWhat(s)).font(.ui(size: 11)).foregroundStyle(Theme.muted)
                     }
                 }
                 .padding(12)
