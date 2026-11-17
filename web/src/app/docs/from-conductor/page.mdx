@@ -67,7 +67,10 @@ conch project setup ID 'pnpm install && pnpm run build'
 Or keep your script unchanged and hand it the names it expects:
 
 ```sh
-conch project setup ID 'CONDUCTOR_ROOT_PATH="$CONCH_ROOT" CONDUCTOR_WORKSPACE_PATH="$CONCH_WORKTREE" CONDUCTOR_WORKSPACE_NAME="$CONCH_BRANCH" CONDUCTOR_PORT="$CONCH_PORT" ./script/setup.sh'
+conch project setup ID 'CONDUCTOR_ROOT_PATH="$CONCH_ROOT" \
+  CONDUCTOR_WORKSPACE_PATH="$CONCH_WORKTREE" \
+  CONDUCTOR_WORKSPACE_NAME="$CONCH_BRANCH" \
+  CONDUCTOR_PORT="$CONCH_PORT" ./script/setup.sh'
 ```
 
 You can usually drop `cp "$CONDUCTOR_ROOT_PATH/.env" .env`: conch already copies `.env`, `.env.*`, `.envrc`, `.claude/settings.local.json`, `.mcp.json` and similar local files into each new worktree. `F` on the project changes which ([Local files](/docs/tasks#local-files-in-worktrees)).
@@ -88,6 +91,34 @@ A branch, a worktree, the setup command, and an agent working in it. Press `q` t
 
 </Steps>
 
+## Prefer a window? Conch.app
+
+If you liked Conductor because it was a Mac app, [Conch.app](/docs/mac-app) is conch in a native macOS window: the same agents, branches and terminals as the TUI, since both are clients of the same server. Closing it stops nothing.
+
+<Shot
+  name="desktop-agents"
+  alt="Conch.app with agents in the sidebar, a waiting agent's question with its answers, and a working agent in its tab"
+  caption="Agents down the left. One waiting for you, with its answers to click, while another works."
+/>
+
+**A branch's changes** open in a tab, like Conductor's diff viewer. Tick hunks and commit, leave the agent a note on a line, and follow the pull request's checks beside them.
+
+<Shot
+  name="desktop-git"
+  alt="Conch.app's Changes view: uncommitted files, a diff with a note answered by the agent, and the commit box and checks beside it"
+  caption="Review, commit and follow the checks without leaving the window."
+/>
+
+**The dev server's page** sits in a tab too (⇧⌘B), where Conductor had its Run button: start it on `$CONCH_PORT` in a terminal and open the page beside the agent that is changing it.
+
+<Shot
+  name="desktop-browser"
+  alt="Conch.app with a browser tab showing a dev server's page"
+  caption="What the agent just changed, one tab over."
+/>
+
+**How:** download `Conch_<version>_macos_arm64.dmg` (or the `.zip`) from the [latest release](https://github.com/Amitgb14/conch/releases/latest) and drag it into **Applications**. It needs Apple Silicon and macOS 14 or later. It is in **beta**: a few things are still the TUI's alone ([Mac app](/docs/mac-app)).
+
 ## What maps to what
 
 | In Conductor | In conch |
@@ -105,7 +136,7 @@ A branch, a worktree, the setup command, and an agent working in it. Press `q` t
 | Parallel agents | `conch task -n 3 "…"` or `-agent claude,codex`; `A` compares the attempts |
 | Claude Code, Codex, OpenCode | Supported, with their sessions — and Gemini CLI, Copilot CLI, Devin and [more](/docs/agents) |
 | Cursor | Cursor CLI runs in conch; its sessions are not listed yet |
-| The Mac app | The TUI, [Conch.app](/docs/mac-app) (beta) and [your phone](/docs/phone) — clients of the same server |
+| The Mac app | [Conch.app](/docs/mac-app) (beta), the TUI and [your phone](/docs/phone) — clients of the same server |
 | Conductor Cloud | Your own machine over ssh ([Remote machines](/docs/remote-machines)) or a [sandbox](/docs/sandboxes) |
 
 ## Agents that keep working with the laptop closed
@@ -121,7 +152,7 @@ Then close the laptop. `conch web` puts the same agents on your phone, with a wa
 
 ## What is different
 
-- **It is a terminal first.** The TUI is the whole of conch; Conch.app is another window onto it, in beta, and the phone a third.
+- **The terminal came first.** The TUI does everything; Conch.app is another window onto the same agents, in beta, and the phone a third.
 - **Your agents outlive the window.** A background server owns the terminals, so quitting the TUI or the app stops nothing.
 - **No account.** conch talks to your git, your `gh` and your agents' own sign-ins. Nothing goes through a service of ours.
 - **macOS and Linux.** On Windows, WSL.
