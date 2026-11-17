@@ -197,7 +197,7 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
 }
 
 // The sidebar's kinds are the registry's, in its order with its names;
-// before it is read, conch's own five; and a kind only a card has is
+// before it is read, conch's own five and Import; and a kind only a card has is
 // listed too. A kind conch has no code for is not "known".
 @Test func integrationKindsFromTheRegistry() throws {
     let icons = try JSONDecoder().decode(IntegrationIcons.self, from: Data(#"{"kinds":[{"kind":"ci","label":"CI","about":"checks"},{"kind":"deploy","label":"Deploys"}],"icons":{"circleci":"/h/icons/circleci-0123456789ab.svg"}}"#.utf8))
@@ -207,7 +207,7 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     #expect(ks.map(\.kind) == ["ci", "deploy", "build"] && ks[1].label == "Deploys" && ks[2].label == "Build")
     #expect(ks[0].known && !ks[1].known)
     let none = IntegrationCatalog.kinds(nil, cards: [])
-    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify"] && none[3].label == "Sandboxes")
+    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify", "import"] && none[3].label == "Sandboxes")
 }
 
 // Sandboxes and notifications are where work runs and what it tells you,

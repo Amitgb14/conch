@@ -83,6 +83,8 @@ final class IntegrationsModel: ObservableObject {
     @Published var only: Set<String>?
     @Published var page: IntegrationInfo?
     @Published var flow: IntegrationInstallFlow?
+    /// Integrations → Import's sheet: another app's conversations.
+    @Published var importing: ImportFlow?
     @Published var loading = false
     @Published var failure = ""
     @Published var registryNote = ""
@@ -203,6 +205,43 @@ final class IntegrationsModel: ObservableObject {
         }
     }
 
+    /// Import…: installs the import if it is not yet (it has no key and
+    /// sends nothing, so there is nothing to agree to), then lists what
+    /// the app has for the sheet.
+    func startImport(_ info: IntegrationInfo) {
+        guard let bin = store.binary, let reader = info.reader else { return }
+        var f = ImportFlow(name: info.name, label: info.label, reader: reader)
+        importing = f
+        Task { @MainActor in
+            do {
+                if !info.installed {
+                    _ = try await runConch(bin, ["integration", "install", "-y", info.name])
+                    refreshPage()
+                    load()
+                }
+                f.scanned(try await runConch(bin, f.scanArguments))
+            } catch {
+                f.phase = .failed("\(error)")
+            }
+            if importing?.name == f.name { importing = f }
+        }
+    }
+
+    /// Import N: brings in the ticked conversations.
+    func runImport() {
+        guard var f = importing, f.canImport, let bin = store.binary else { return }
+        f.phase = .importing
+        importing = f
+        Task { @MainActor in
+            do {
+                f.imported(try await runConch(bin, f.runArguments))
+            } catch {
+                f.phase = .failed("\(error)")
+            }
+            if importing?.name == f.name { importing = f }
+        }
+    }
+
     func startInstall(_ info: IntegrationInfo) {
         var f = IntegrationInstallFlow(info: info)
         f.checkIn = uses.first(where: { $0.value.contains { $0.name == info.name } }).flatMap { paths[$0.key] }
@@ -264,6 +303,9 @@ struct IntegrationsView: View {
         .focusEffectDisabled()
         .sheet(isPresented: Binding(get: { model.flow != nil }, set: { if !$0 { model.flow = nil } }), onDismiss: { model.load(); model.refreshPage() }) {
             IntegrationInstallSheet(model: model)
+        }
+        .sheet(isPresented: Binding(get: { model.importing != nil }, set: { if !$0 { model.importing = nil } })) {
+            ImportSheet(model: model)
         }
         .sheet(isPresented: $adapting) {
             NewIntegrationSheet(store: model.store) { model.load() }
@@ -369,7 +411,7 @@ struct IntegrationsView: View {
                         if !of.isEmpty {
                             (Text(k.label).bold() + Text("  " + (k.about ?? "")).foregroundColor(Theme.muted)).font(.ui(size: 12.5))
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-                                ForEach(of) { c in IntegrationCardView(card: c, icon: model.icon(c.name), newer: !k.known) { model.open(c) } }
+                                ForEach(of) { c in IntegrationCardView(card: c, icon: model.icon(c.name), newer: !k.known || c.needsNewer != nil) { model.open(c) } }
                             }
                         }
                     }
@@ -416,8 +458,8 @@ struct IntegrationCardView: View {
                         chip(card.auth, Theme.muted)
                     }
                     Spacer()
-                    if !newer && !card.off && (!card.installed || card.wanted) {
-                        Text(card.installed ? "Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
+                    if !newer && !card.off && (card.kind == IntegrationKindInfo.importKind ? card.wanted : (!card.installed || card.wanted)) {
+                        Text(card.kind == IntegrationKindInfo.importKind ? "Import…" : card.installed ? "Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
                             .foregroundStyle(card.wanted ? Color.white : Theme.text)
                             .padding(.horizontal, 10).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 5).fill(card.wanted ? Theme.accent : Theme.raise))
@@ -454,6 +496,7 @@ func kindWord(_ kind: String) -> String {
     case "tickets": return "Tickets"
     case "notify": return "Notify"
     case "sandbox": return "Sandbox"
+    case IntegrationKindInfo.importKind: return "Import"
     default: return kind
     }
 }
@@ -524,6 +567,12 @@ struct IntegrationPage: View {
                         Text(v).font(.ui(size: 11)).foregroundStyle(Theme.ok).padding(.horizontal, 8).padding(.vertical, 3)
                             .overlay(Capsule().stroke(Theme.ok.opacity(0.5)))
                     }
+                    if info.isImport {
+                        Button("Import…") { model.startImport(info) }
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(info.needsNewer != nil || (info.found ?? []).isEmpty || info.reader == nil)
+                            .help((info.found ?? []).isEmpty ? "Not found on this Mac" : "Choose which conversations come over")
+                    }
                     if info.offersKey {
                         Button(info.installed ? (info.keySet ? "Change Key…" : "Connect…") : "Install") { model.startInstall(info) }
                             .keyboardShortcut(.defaultAction)
@@ -565,6 +614,9 @@ struct IntegrationPage: View {
                             Text(n).font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                         }
                     }
+                    if info.isImport {
+                        importSide.frame(width: 300)
+                    } else {
                     VStack(alignment: .leading, spacing: 14) {
                         box("Your key goes to") {
                             host(info.baseURL == "ask" ? "your own server" : info.hosts.api, "API")
@@ -585,9 +637,39 @@ struct IntegrationPage: View {
                         }
                     }
                     .frame(width: 300)
+                    }
                 }
             }
             .padding(18)
+        }
+    }
+
+    /// An import's side of the page: what it reads, on this Mac only, and
+    /// whether it is here.
+    var importSide: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let why = info.needsNewer {
+                Text("This conch cannot read it: \(why). Update Conch.").font(.ui(size: 12)).foregroundStyle(Theme.warn)
+            }
+            box("On this Mac") {
+                if let f = info.found?.first {
+                    HStack { Circle().fill(Theme.ok).frame(width: 7, height: 7); Text("Found").font(.ui(size: 12, weight: .semibold)) }
+                    Text(f).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).textSelection(.enabled)
+                } else {
+                    HStack { Circle().fill(Theme.muted).frame(width: 7, height: 7); Text("Not found on this Mac").font(.ui(size: 12, weight: .semibold)) }
+                }
+            }
+            box("What it reads") {
+                if let p = info.path { Text(p).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).textSelection(.enabled) }
+                Text("Read from a copy, on this Mac only: nothing is sent anywhere, and the app's own files are left as they are.")
+                    .font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+            }
+            box("About") {
+                if let r = info.reader { row("reader", r + (info.minReader.map { " v\($0) or later" } ?? "")) }
+                if let by = info.adaptedBy { row("written by", by + (info.adapted.map { ", " + $0 } ?? "")) }
+                if let r = info.registry { row("registry", r + (info.signed == false ? " (unsigned)" : "")) }
+                if let d = info.docs, let u = URL(string: d) { Link("Docs", destination: u).font(.ui(size: 11.5)) }
+            }
         }
     }
 
