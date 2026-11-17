@@ -11,6 +11,7 @@ export const docs: DocSection[] = [
       { title: "Installation", href: "/docs/installation", description: "Install, update and reload conch." },
       { title: "Quick start", href: "/docs/quick-start", description: "From an empty terminal to agents working in parallel." },
       { title: "Why conch", href: "/docs/why", description: "What conch does that other agent orchestrators leave to you." },
+      { title: "Moving from Conductor", href: "/docs/from-conductor", description: "Bring your Conductor workspaces, setup scripts and conversations to conch before Conductor Cloud shuts down." },
     ],
   },
   {
