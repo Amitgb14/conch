@@ -40,7 +40,11 @@ type Capabilities struct {
 	Auth     *AuthCaps `json:"auth,omitempty"`
 	Needs    []string  `json:"needs,omitempty"`
 	Detect   []string  `json:"detect,omitempty"`
-	Follow   bool      `json:"follow,omitempty"`
+	// DetectOn is what each way of detecting looks for: an import's files,
+	// ~/ paths on this machine, which say it is here before it is
+	// installed.
+	DetectOn map[string][]string `json:"detect_on,omitempty"`
+	Follow   bool                `json:"follow,omitempty"`
 }
 
 // SSHCaps is whose key opens a sandbox (account, authorize, none), whether
@@ -185,10 +189,12 @@ func (c *Capabilities) OperationWords(kind string) string {
 // or a file of the person's own.
 func FileCapabilities(f *File) *Capabilities {
 	c := &Capabilities{Operations: append([]string{}, f.Operations()...), Detect: []string{}, States: []string{}}
-	typ := firstSet(f.Auth.Type, "header")
-	c.Auth = &AuthCaps{Type: typ}
-	if typ == "header" {
-		c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+	// An import sends nothing anywhere, so it has no way of sending a key.
+	if typ := firstSet(f.Auth.Type, "header"); f.Kind != KindImport {
+		c.Auth = &AuthCaps{Type: typ}
+		if typ == "header" {
+			c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+		}
 	}
 	if f.BaseURL == "ask" {
 		c.Needs = append(c.Needs, "base_url")

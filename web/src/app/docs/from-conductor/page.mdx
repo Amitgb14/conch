@@ -53,7 +53,7 @@ conch lists a project's branches from `git worktree list`, so each Conductor wor
 
 <Step title="Bring your conversations">
 
-Conductor kept its conversations in its own database, not where Claude Code and Codex keep theirs, so conch reads them from there:
+Conductor kept its conversations in its own database, not where Claude Code and Codex keep theirs, so conch reads them from there. In Conch.app: **Integrations → Import → Conductor → Import…**, then choose which come over. From a terminal:
 
 ```sh
 conch import conductor
@@ -163,13 +163,9 @@ The project appears in the sidebar under **local**. Open its **Branches**: each 
 
 <Step title="Bring your conversations">
 
-Conductor kept its conversations in its own database. Right-click the project → **Open Terminal in Project** and run:
+Conductor kept its conversations in its own database. Open **Window → Integrations**, choose **Import** in the sidebar, and on the Conductor card (it says *Found on this Mac*) press **Import…**. The sheet lists the conversations by workspace; untick any you don't want and press **Import**.
 
-```sh
-/Applications/Conch.app/Contents/Resources/conch import conductor
-```
-
-Each conversation becomes a Markdown file under `~/.config/conch/imports/conductor/`. To carry one on, start an agent on its branch (right-click the branch → **Start an Agent on This Branch**) and drag the file into its prompt, or tell it to read the file. Do this before you delete Conductor: the database goes with the app.
+Each conversation becomes a Markdown file under `~/.config/conch/imports/conductor/`. To carry one on, start an agent on its branch (right-click the branch → **Start an Agent on This Branch**) and use **Copy Prompt** from the list, or drag the file into its prompt. Do this before you delete Conductor: the database goes with the app.
 
 </Step>
 

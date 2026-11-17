@@ -401,11 +401,12 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
-  conch import conductor [-db PATH] [-out DIR] [-n] [-json]
+  conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-n] [-json]
                                 Conductor's conversations, read from its own database (a copy of it,
                                 so an open Conductor is left alone) and each written as a handoff
                                 document an agent can read and carry on from: in imports/conductor in
-                                conch's folder unless -out; -n says what it would write
+                                conch's folder unless -out; -n says what it would write, -ids only
+                                those conversations (Integrations → Import in Conch.app does this)
   conch keys [-bound] [-toml] [-json]
                                 what every key after the prefix does, and which key it is on now
                                 (tmux's list-keys); rebind one under [keys.bind] in config.toml,

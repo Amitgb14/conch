@@ -61,6 +61,9 @@ func Detected(root string, rem Remote, checks []CheckRef, files []*File) []Detec
 		return err == nil
 	}
 	for _, f := range files {
+		if f.Kind == KindImport {
+			continue // about this machine, not the project: Found says
+		}
 		for _, p := range f.Detect.Files {
 			if exists(p) {
 				add(Detection{Name: f.Name, Label: f.DisplayName(), Kind: f.Kind, Why: p, Installed: true})

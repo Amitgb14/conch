@@ -85,6 +85,12 @@ conch integration promote dpl_123     # release it to production: asks first, -y
 
 With no name, the deploy integration the project uses is taken (`vercel.json`, `netlify.toml`). `-head SHA` keeps the deploys of one commit, as at a pull request's head. `promote` asks, and anything but yes releases nothing. Netlify's API has no build log, so a failed deploy gives its error message instead, and that is what the agent is sent.
 
+## Import
+
+An **import** brings another app's conversations into conch: so far Conductor, whose conversations live in its own database and go when the app is removed. Its file has no key and reaches no service. It says where the app keeps its conversations on this machine and which of conch's readers reads them, and conch's own code does the reading, from a copy, so the app is left as it was. Nothing is sent anywhere.
+
+In Conch.app it is **Integrations → Import**. The card says whether the app is found on this Mac. **Import…** lists its conversations by workspace, ticked but for those imported already, and writes each one you keep ticked as a handoff an agent can read and carry on from. On the command line it is `conch import conductor` ([more](/docs/cli#import)). An import whose reader this conch does not have, or has an older version of, says it needs a newer conch.
+
 ## When a check can't be read
 
 If the failure came from a service conch recognises but has no integration for, such as Bitbucket Pipelines, `fix-ci` says *Bitbucket Pipelines: install its integration to read its log*. It doesn't stop at "no failed GitHub Actions run". If an integration is there but its key isn't, the message names the variable to set.
@@ -123,7 +129,7 @@ conch integration info circleci      # what it does in conch, where your key goe
 conch integration search ci          # what the registries list
 conch integration install NAME       # agree to its hosts, give its key, check it against this project
 conch integration update             # newer versions; new hosts are always asked about
-conch integration check ./mine.toml  # what is wrong with a file
+conch integration check ./mine.toml  # what is wrong with a file, an import's too
 conch integration adapt URL          # an agent writes a file from the service's API docs
 conch integration publish NAME       # propose yours to the registry
 ```
