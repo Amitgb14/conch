@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"bytes"
+	"encoding/json"
 	"slices"
 	"strings"
 )
@@ -27,7 +29,11 @@ type Capabilities struct {
 	Create   []string `json:"create,omitempty"`
 	Settings []string `json:"settings,omitempty"`
 	// Size is how a size is chosen: names, limits, the plan's, or "".
-	Size     string    `json:"size,omitempty"`
+	Size string `json:"size,omitempty"`
+	// Lifetime is whether a sandbox is given a length of life. The
+	// registry's capabilities_version 1 said so as a bool, version 2 as
+	// the numbers ({"default_mins": 120, "max_mins": 43200}); both are
+	// read (UnmarshalJSON), and conch writes the bool it always has.
 	Lifetime bool      `json:"lifetime,omitempty"`
 	States   []string  `json:"states,omitempty"`
 	List     *ListCaps `json:"list,omitempty"`
@@ -239,4 +245,44 @@ func KeepCapabilities(name string, caps *Capabilities) error {
 	rec.Capabilities = caps
 	recs[name] = rec
 	return writeRecords(recs)
+}
+
+// UnmarshalJSON reads capabilities of either version: lifetime as a bool
+// (1) or as its numbers (2). An index this conch could not read a field
+// of lost every entry at once — the Integrations page empty of the
+// registry's sandboxes and icons — so a lifetime of a shape it does not
+// know is read as none rather than failing the index.
+func (c *Capabilities) UnmarshalJSON(data []byte) error {
+	type plain Capabilities
+	var v struct {
+		*plain
+		Lifetime json.RawMessage `json:"lifetime"`
+	}
+	v.plain = (*plain)(c)
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	c.Lifetime = lifetimeGiven(v.Lifetime)
+	return nil
+}
+
+// lifetimeGiven is whether a capabilities' lifetime says sandboxes are
+// given one: true, or numbers with any above zero.
+func lifetimeGiven(raw json.RawMessage) bool {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return false
+	}
+	var b bool
+	if json.Unmarshal(raw, &b) == nil {
+		return b
+	}
+	var n struct {
+		DefaultMins int `json:"default_mins"`
+		MaxMins     int `json:"max_mins"`
+	}
+	if json.Unmarshal(raw, &n) == nil {
+		return n.DefaultMins > 0 || n.MaxMins > 0
+	}
+	return false
 }
