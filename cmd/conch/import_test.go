@@ -176,8 +176,8 @@ func TestImportConductorMarkdown(t *testing.T) {
 	if rerr != nil || len(importSessions(t)) != 1 {
 		t.Fatalf("-markdown: %v, sessions %v\n%s", rerr, importSessions(t), stdout)
 	}
-	if !strings.Contains(stdout, "and as Markdown: "+file) {
-		t.Errorf("-markdown output:\n%s", stdout)
+	if !strings.Contains(stdout, "and as Markdown: "+file) || !strings.Contains(string(doc), "# Handoff: Fix the build: now!") {
+		t.Errorf("-markdown output:\n%s\n%s", stdout, doc)
 	}
 
 	out2 := filepath.Join(t.TempDir(), "out")
