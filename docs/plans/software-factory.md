@@ -2,6 +2,7 @@
 
 Status: proposal, 2026-11-17. Research: [software-factory-research.md](software-factory-research.md).
 Mocks: https://claude.ai/artifact/TZ1b6Bas1wkXurw6CSbram (floor, run, inbox, line).
+Report: https://claude.ai/artifact/BV8dzLXpZtMNtSN1rhkn9V.
 
 ## The problem
 
