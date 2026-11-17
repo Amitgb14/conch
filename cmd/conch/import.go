@@ -221,7 +221,15 @@ func printImported(written []importedFile, all []sessions.Imported, dry bool) {
 		fmt.Println("\nconch import conductor without -n writes them; -ids ID,… writes only those.")
 		return
 	}
+	// The newest that can be carried on where it ran; a conversation whose
+	// folders are all gone would offer only a placeholder.
 	f := written[len(written)-1]
+	for i := len(written) - 1; i >= 0; i-- {
+		if written[i].Dir != "" {
+			f = written[i]
+			break
+		}
+	}
 	dir := f.Dir
 	if dir == "" {
 		dir = "~/src/REPO"

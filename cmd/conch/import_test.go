@@ -339,3 +339,24 @@ func TestImportedWhereWords(t *testing.T) {
 		}
 	}
 }
+
+// The command an import ends with carries on a conversation that can be:
+// the newest written whose worktree or repository is still here, not one
+// whose folders are gone, which only had a placeholder to offer.
+func TestImportedCarryOnSkipsGone(t *testing.T) {
+	here := t.TempDir()
+	written := []importedFile{
+		{Title: "older", Dir: here, Where: "workspace", File: "/x/older.md"},
+		{Title: "newer", Dir: here, Where: "repository", File: "/x/newer.md"},
+		{Title: "gone", Where: "gone", File: "/x/gone.md"},
+	}
+	stdout, _ := a4Capture(t, "", func() { printImported(written, nil, false) })
+	if !strings.Contains(stdout, "conch new -agent claude -cwd "+here+" -- 'Read /x/newer.md") {
+		t.Errorf("did not carry on the newest that can be:\n%s", stdout)
+	}
+	// Every one gone: the placeholder, since there is nothing better.
+	stdout, _ = a4Capture(t, "", func() { printImported(written[2:], nil, false) })
+	if !strings.Contains(stdout, "-cwd ~/src/REPO -- 'Read /x/gone.md") {
+		t.Errorf("all gone:\n%s", stdout)
+	}
+}
