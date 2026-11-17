@@ -265,6 +265,12 @@ public struct IntegrationCard: Equatable, Identifiable, Sendable {
     /// card a detection points to, drawn with the accent and a primary
     /// Install.
     public var wanted: Bool
+    /// What its file can do, and the one host its key goes to, from the
+    /// registry: a deploy card lists them, as the deploy mock does.
+    public var operations: [String] = []
+    public var host: String = ""
+    /// Why a project here is thought to use it: "vercel.json".
+    public var found: String?
     public var id: String { name }
 
     public var community: Bool { source != "built in" && source != "ships with conch" && standing == .notChecked }
@@ -353,6 +359,14 @@ public enum IntegrationCatalog {
                                        auth: authWord(userEnv: e.userEnv, builtIn: false, name: e.name),
                                        summary: summary(kind: e.kind, operations: e.operations ?? []),
                                        usedIn: usedIn(e.name), wanted: wantedNow(e.name)))
+        }
+        // What the registry says of each, and why a project here uses it.
+        for i in out.indices {
+            if let e = listed.first(where: { $0.name == out[i].name }) {
+                out[i].operations = e.operations ?? []
+                out[i].host = e.hosts.api
+            }
+            out[i].found = uses.keys.sorted().lazy.compactMap { uses[$0]?.first(where: { projectUse($0, out[i].name) })?.why }.first
         }
         return out
     }
@@ -480,6 +494,26 @@ public struct IntegrationInstallFlow: Equatable, Sendable {
         var s = "Your \(info.label) key will be sent to \(api) only."
         if let f = info.hosts.follow, !f.isEmpty { s += " Logs are read from \(f.joined(separator: ", ")) without it." }
         return s
+    }
+
+    /// Step 3 before it runs: where the one read-only check is made. A
+    /// deploy file finds its project (Vercel) or site (Netlify) by the
+    /// repository it builds from, so the sheet says so.
+    public var checkWords: String {
+        guard let dir = checkIn, !dir.isEmpty else { return "Checked when a project uses it." }
+        let name = (dir as NSString).lastPathComponent
+        if info.kind == IntegrationKind.deploy.rawValue {
+            let what = info.name == "netlify" ? "site" : "project"
+            return "One read-only call against \(name): the \(info.label) \(what) that builds from its repository, and a branch's deploys."
+        }
+        return "One read-only call, against \(name)."
+    }
+
+    /// The deploy mock's "This file can": what a deploy file does, from
+    /// its page's rows that are not "no". Empty for other kinds, whose
+    /// page says it.
+    public var can: [IntegrationFeature] {
+        info.kind == IntegrationKind.deploy.rawValue ? info.does.filter { $0.level != "no" } : []
     }
 
     /// What stops Install, in words; nil when it can be pressed.

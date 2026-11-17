@@ -406,6 +406,7 @@ struct IntegrationCardView: View {
                     if card.usedIn.isEmpty { Text(card.summary) } else { Text(card.summary + " Used in ") + Text(card.usedIn.joined(separator: ", ")).bold() + Text(".") }
                 }
                 .font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(3).frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
+                if card.kind == IntegrationKind.deploy.rawValue { deployDetail }
                 HStack(spacing: 5) {
                     if newer {
                         chip("needs a newer conch", Theme.muted)
@@ -415,7 +416,7 @@ struct IntegrationCardView: View {
                     }
                     Spacer()
                     if !newer && (!card.installed || card.wanted) {
-                        Text(card.installed ? "Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
+                        Text(card.installed ? "Connect" : card.kind == IntegrationKind.deploy.rawValue ? "Install and connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
                             .foregroundStyle(card.wanted ? Color.white : Theme.text)
                             .padding(.horizontal, 10).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 5).fill(card.wanted ? Theme.accent : Theme.raise))
@@ -428,6 +429,27 @@ struct IntegrationCardView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// A deploy card, as the deploy mock has it: what its file can do,
+    /// the one host the key goes to, and what was found in a project here.
+    @ViewBuilder var deployDetail: some View {
+        if !card.operations.isEmpty {
+            HStack(spacing: 5) {
+                ForEach(card.operations, id: \.self) { op in
+                    Text(op).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
+                }
+            }
+        }
+        if !card.host.isEmpty {
+            (Text("Your key goes only to ") + Text(card.host).font(.ui(size: 11.5, design: .monospaced)).foregroundColor(Theme.text))
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+        }
+        if let f = card.found {
+            Text("Found \(f) in this repo").font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+        }
     }
 
     var standingColor: Color {
@@ -645,11 +667,23 @@ struct IntegrationInstallSheet: View {
                 }
                 SecureField(f.info.keySet ? "Set already — type to replace it" : "\(f.info.label) key ($\(f.info.keyEnv))", text: bind(\.key))
                     .textFieldStyle(.roundedBorder)
+                if f.info.kind == IntegrationKind.deploy.rawValue, let help = f.info.keyHelp {
+                    Text(help).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
                 Text("🔑 Kept in the Keychain, or read from $\(f.info.keyEnv)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            }
+            if !f.can.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("This file can").font(.ui(size: 12, weight: .medium))
+                    ForEach(f.can, id: \.what) { d in
+                        Text("• " + d.what).font(.ui(size: 11.5)).foregroundStyle(Theme.text2)
+                    }
+                }
+                .padding(.leading, 30)
             }
             step(3, done: { if case .ok = f.check { return true }; return false }()) {
                 switch f.check {
-                case .idle: Text(f.checkIn == nil ? "Checked when a project uses it." : "One read-only call, against \((f.checkIn! as NSString).lastPathComponent).")
+                case .idle: Text(f.checkWords)
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 case .running: HStack { ProgressView().controlSize(.small); Text("Checking…").font(.ui(size: 12)) }
                 case .ok(let s): Text("Checked: " + s).font(.ui(size: 12)).foregroundStyle(Theme.ok).textSelection(.enabled)

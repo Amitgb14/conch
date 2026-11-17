@@ -298,7 +298,36 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let cards = IntegrationCatalog.cards(here: nil, listed: listed, uses: uses)
     #expect(cards.map(\.name) == ["vercel", "netlify"] && cards.allSatisfy { $0.kind == "deploy" && $0.community })
     #expect(cards[0].usedIn == ["web-app"] && cards[0].wanted && !cards[1].wanted)
+    // The mock's card: what the file can do, the one host the key goes to,
+    // and what was found in the repository.
+    #expect(cards[0].operations == ["previews", "failed_log", "redeploy", "promote"] && cards[0].host == "api.vercel.com")
+    #expect(cards[0].found == "vercel.json" && cards[1].found == nil && cards[1].host == "api.netlify.com")
     #expect(IntegrationCatalog.filter(cards, filter: .all, kind: "deploy", query: "").count == 2)
     #expect(IntegrationCatalog.banner(uses) == ["web-app deploys to Vercel (vercel.json)"])
     #expect(IntegrationCatalog.bannerNames(uses) == ["vercel"])
+}
+
+// Connecting Vercel (the deploy mock's second screen): the check is one
+// read against a project that builds there, and the sheet lists what the
+// file can do. Other kinds keep their own words.
+@Test func integrationInstallDeploy() throws {
+    let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(#"""
+    {"name":"vercel","label":"Vercel","kind":"deploy","source":"registry","installed":false,"registry":"conch-integrations",
+     "does":[{"what":"A branch's previews: state, link, why one failed","where":"The app's git tab","level":"yes"},
+             {"what":"Build a deploy again","where":"Redeploy","level":"no"}],
+     "hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN","key_help":"Vercel → Account Settings → Tokens.","key_set":false}
+    """#.utf8))
+    var f = IntegrationInstallFlow(info: info)
+    #expect(f.checkWords == "Checked when a project uses it.")
+    f.checkIn = "/Users/a/web-app"
+    #expect(f.checkWords == "One read-only call against web-app: the Vercel project that builds from its repository, and a branch's deploys.")
+    #expect(f.can.map(\.what) == ["A branch's previews: state, link, why one failed"])
+    #expect(f.hostsWords == "Your Vercel key will be sent to api.vercel.com only.")
+    #expect(f.arguments == ["integration", "install", "-y", "-key-stdin", "-cwd", "/Users/a/web-app", "vercel"])
+    var n = f
+    n.info.name = "netlify"; n.info.label = "Netlify"
+    #expect(n.checkWords.contains("the Netlify site that builds"))
+    var ci = f
+    ci.info.kind = "ci"
+    #expect(ci.checkWords == "One read-only call, against web-app." && ci.can.isEmpty)
 }
