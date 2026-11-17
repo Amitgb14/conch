@@ -51,7 +51,9 @@ type File struct {
 	// KeyHelp says where the key is made and what access it needs.
 	KeyHelp string `toml:"key_help"`
 
-	Detect  Detect            `toml:"detect"`
+	Detect Detect `toml:"detect"`
+	// Source is kind import's: where the app keeps what is brought in.
+	Source  ImportSource      `toml:"source"`
 	Project Project           `toml:"project"`
 	States  map[string]string `toml:"states"`
 
@@ -335,6 +337,17 @@ func (f *File) Problems() []string {
 	case f.Format != Format:
 		add("format = %d: an integration file says so, so that an older conch refuses it", Format)
 	}
+	if f.Kind == KindImport {
+		if !nameRE.MatchString(f.Name) {
+			add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
+		}
+		f.importProblems(add)
+		sort.Strings(p)
+		return p
+	}
+	if f.Source.Reader != "" || f.Source.Path != "" || f.Source.Store != "" || len(f.Source.Platforms) > 0 || f.Source.MinReader != 0 {
+		add("[source]: only an import file has one")
+	}
 	c, known := contracts[f.Kind]
 	switch {
 	case known:
@@ -343,7 +356,7 @@ func (f *File) Problems() []string {
 	case f.Kind == KindHost:
 		add("kind %q: this conch does not read it yet", f.Kind)
 	default:
-		add("kind %q: one of ci, tickets, notify, deploy, host, sandbox", f.Kind)
+		add("kind %q: one of ci, tickets, notify, deploy, import, host, sandbox", f.Kind)
 	}
 	if !nameRE.MatchString(f.Name) {
 		add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)

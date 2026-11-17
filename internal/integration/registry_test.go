@@ -52,7 +52,8 @@ func (fr *fakeRegistry) publish(t *testing.T, src string, v int, hosts Hosts, re
 	}
 	sum := sha256.Sum256([]byte(src))
 	e := Entry{Kind: f.Kind, Name: f.Name, Label: f.Label, KeyEnv: f.KeyEnv, Version: v, Format: 3, File: "integrations/" + f.Name + ".toml",
-		SHA256: hex.EncodeToString(sum[:]), Hosts: hosts, Operations: f.Operations(), Tier: "community", Revoked: revoked}
+		SHA256: hex.EncodeToString(sum[:]), Hosts: hosts, Operations: f.Operations(), Tier: "community", Revoked: revoked,
+		Platforms: f.Source.Platforms, Reader: f.Source.Reader, MinReader: f.Source.MinReader}
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
 	fr.files[e.File] = []byte(src)

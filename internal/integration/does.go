@@ -53,6 +53,13 @@ func Does(kind string, ops []string) []Feature {
 			{"What a sandbox has cost, as billed", "What it has cost…, conch sandbox usage; without it, the prices set in Settings", level(has("usage"))},
 			{"A region, an image or a size to choose", "Settings → Sandboxes and New Sandbox…", level(has("settings"))},
 		}
+	case KindImport:
+		// Nothing is sent anywhere: it is read on this machine, once asked.
+		return []Feature{
+			{"Its conversations, brought into conch", "Integrations → Import…, conch import NAME: each one written as a handoff an agent can read and carry on from", "yes"},
+			{"Its workspaces' repositories", "Named beside each conversation, with the folder to carry it on in", "yes"},
+			{"Resume a conversation in its own agent", "Not yet: an agent carries one on from its handoff", "no"},
+		}
 	case KindCI:
 	default:
 		// Never nil: a list of nothing is read as such, where null was not.

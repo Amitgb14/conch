@@ -116,6 +116,11 @@ type Entry struct {
 	// Capabilities are what it can do, worked out from its file by the
 	// registry; nil for a built-in or an index from before them.
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	// Platforms, Reader and MinReader are an import's [source]: where the
+	// app ran, and which of conch's readers reads it, from which version.
+	Platforms []string `json:"platforms,omitempty"`
+	Reader    string   `json:"reader,omitempty"`
+	MinReader int      `json:"min_reader,omitempty"`
 
 	// Registry is which index it was read from.
 	Registry string `json:"-"`
@@ -425,8 +430,10 @@ func FetchFile(ctx context.Context, r Registry, e Entry) ([]byte, *File, error) 
 		return nil, nil, fmt.Errorf("%s is built into conch: there is nothing to install", e.DisplayName())
 	case e.Kind == KindSandbox:
 		return nil, nil, fmt.Errorf("%s is a sandbox provider: conch sandbox provider install %s", e.Name, e.Name)
-	case contracts[e.Kind].required == nil:
+	case !Reads(e.Kind):
 		return nil, nil, fmt.Errorf("%s is kind %q, which this conch does not read: update conch", e.Name, e.Kind)
+	case e.NeedsNewer() != "":
+		return nil, nil, fmt.Errorf("%s needs a newer conch: %s", e.DisplayName(), e.NeedsNewer())
 	case e.Format > Format:
 		return nil, nil, fmt.Errorf("%s's file is format %d; this conch reads up to %d: update conch", e.Name, e.Format, Format)
 	case !strings.HasPrefix(e.File, "integrations/") || strings.Contains(e.File, ".."):
@@ -447,6 +454,9 @@ func FetchFile(ctx context.Context, r Registry, e Entry) ([]byte, *File, error) 
 		return nil, nil, fmt.Errorf("%s's file cannot be used here: %s", e.Name, strings.Join(problems, "; "))
 	case f.Name != e.Name || f.Kind != e.Kind:
 		return nil, nil, fmt.Errorf("%s's file is %s %q, not what the index lists", e.Name, f.Kind, f.Name)
+	case f.Kind == KindImport && (f.Source.Reader != e.Reader || f.Source.MinReader != e.MinReader):
+		return nil, nil, fmt.Errorf("%s's file asks for reader %q version %d, not the %q version %d the index lists: not installed",
+			e.Name, f.Source.Reader, f.Source.MinReader, e.Reader, e.MinReader)
 	}
 	if f.KeyEnv != e.KeyEnv {
 		return nil, nil, fmt.Errorf("%s's file reads your key from $%s, not the $%s the index lists: not installed", e.Name, f.KeyEnv, e.KeyEnv)

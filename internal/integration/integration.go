@@ -213,6 +213,10 @@ func ParseRemote(raw string) (Remote, bool) {
 // Uses says whether the project checked out at root, whose remote is rem,
 // uses the service.
 func (f *File) Uses(root string, rem Remote) bool {
+	if f.Kind == KindImport {
+		// Its [detect] files are in the person's home, not a checkout.
+		return false
+	}
 	for _, name := range f.Detect.Files {
 		if root != "" {
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err == nil {

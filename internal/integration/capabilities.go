@@ -185,10 +185,12 @@ func (c *Capabilities) OperationWords(kind string) string {
 // or a file of the person's own.
 func FileCapabilities(f *File) *Capabilities {
 	c := &Capabilities{Operations: append([]string{}, f.Operations()...), Detect: []string{}, States: []string{}}
-	typ := firstSet(f.Auth.Type, "header")
-	c.Auth = &AuthCaps{Type: typ}
-	if typ == "header" {
-		c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+	// An import sends nothing anywhere, so it has no way of sending a key.
+	if typ := firstSet(f.Auth.Type, "header"); f.Kind != KindImport {
+		c.Auth = &AuthCaps{Type: typ}
+		if typ == "header" {
+			c.Auth.Header = firstSet(f.Auth.Header, "Authorization")
+		}
 	}
 	if f.BaseURL == "ask" {
 		c.Needs = append(c.Needs, "base_url")
