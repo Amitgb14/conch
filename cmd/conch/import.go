@@ -22,7 +22,7 @@ import (
 // out as a handoff document an agent can read and carry on from.
 func runImport(args []string) error {
 	if len(args) == 0 || args[0] != "conductor" {
-		return errors.New("usage: conch import conductor [-db PATH] [-out DIR] [-n] [-json]\nconch import -h explains it")
+		return errors.New("usage: conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-n] [-json]\nconch import -h explains it")
 	}
 	fs := flag.NewFlagSet("import conductor", flag.ContinueOnError)
 	home, _ := os.UserHomeDir()
@@ -30,6 +30,7 @@ func runImport(args []string) error {
 	out := fs.String("out", filepath.Join(config.Dir(), "imports", "conductor"), "where to write the conversations")
 	dry := fs.Bool("n", false, "say what would be written, and write nothing")
 	asJSON := fs.Bool("json", false, "what was written, as JSON")
+	ids := fs.String("ids", "", "only these conversations, by id, comma-separated (as -n -json gives them)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -43,6 +44,9 @@ func runImport(args []string) error {
 		if _, serr := os.Stat(*db); serr != nil {
 			return fmt.Errorf("%w\nConductor keeps it there on a Mac; give another place with -db", err)
 		}
+		return err
+	}
+	if all, err = chooseImported(all, *ids); err != nil {
 		return err
 	}
 	written, err := writeImported(all, *out, *dry)
@@ -60,6 +64,7 @@ func runImport(args []string) error {
 
 // importedFile is one conversation written out.
 type importedFile struct {
+	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Agent     string `json:"agent"`
 	Repo      string `json:"repo,omitempty"`
@@ -68,6 +73,38 @@ type importedFile struct {
 	Dir       string `json:"dir,omitempty"` // where to carry on: the workspace, or the repository
 	Messages  int    `json:"messages"`
 	File      string `json:"file"`
+	// Where it carries on: "workspace" while that folder is there,
+	// "repository" once only the repository is, "gone" when neither is.
+	Where    string    `json:"where"`
+	LastUsed time.Time `json:"last_used,omitzero"`
+	// Imported: its file is there, from this import or an earlier one.
+	Imported bool `json:"imported"`
+}
+
+// chooseImported keeps the conversations ids names, in Conductor's order;
+// all of them for "". An id Conductor does not have is an error, since
+// the person chose it from a list.
+func chooseImported(all []sessions.Imported, ids string) ([]sessions.Imported, error) {
+	if strings.TrimSpace(ids) == "" {
+		return all, nil
+	}
+	want := map[string]bool{}
+	for _, id := range strings.Split(ids, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			want[id] = true
+		}
+	}
+	var out []sessions.Imported
+	for _, im := range all {
+		if want[im.Session.ID] {
+			out = append(out, im)
+			delete(want, im.Session.ID)
+		}
+	}
+	for id := range want {
+		return nil, fmt.Errorf("no conversation %q in Conductor's database", id)
+	}
+	return out, nil
 }
 
 // writeImported writes each conversation that has something said in it to
@@ -96,7 +133,15 @@ func writeImported(all []sessions.Imported, out string, dry bool) ([]importedFil
 		if s.Dir == "" {
 			s.Dir = im.Workspace // only named in the document; it is gone
 		}
-		f := importedFile{Title: im.Session.Title, Agent: sessions.AgentName(im.Session.Agent), Repo: im.Repo,
+		where := "gone"
+		switch {
+		case im.Session.Dir != "" && im.Session.Dir == im.Workspace:
+			where = "workspace"
+		case im.Session.Dir != "":
+			where = "repository"
+		}
+		_, had := os.Stat(file)
+		f := importedFile{ID: im.Session.ID, Where: where, LastUsed: im.Session.Updated, Imported: had == nil || !dry, Title: im.Session.Title, Agent: sessions.AgentName(im.Session.Agent), Repo: im.Repo,
 			Branch: im.Session.Branch, Workspace: im.Workspace, Dir: im.Session.Dir, Messages: len(im.Turns), File: file}
 		if !dry {
 			if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {

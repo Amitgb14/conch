@@ -178,4 +178,13 @@ func TestIntegrationImportFoundBeforeInstall(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &info) != nil || info.Installed || len(info.Found) != 1 || info.Found[0] != db {
 		t.Fatalf("info: %q %v", out, err)
 	}
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"search", "-json"}) })
+	if err != nil || !strings.Contains(out, `"found":[`+mustJSON(db)+`]`) {
+		t.Fatalf("search: %q %v", out, err)
+	}
+}
+
+func mustJSON(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

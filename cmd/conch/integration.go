@@ -221,15 +221,18 @@ func integrationSearch(args []string) error {
 		// NeedsNewer is why this conch cannot use it: a kind it has no
 		// code for, or an import's reader it lacks.
 		NeedsNewer string `json:"needs_newer,omitempty"`
+		// Found are an import's files on this machine.
+		Found []string `json:"found,omitempty"`
 	}
 	var rows []row
+	home, _ := os.UserHomeDir()
 	term := strings.Join(fs.Args(), " ")
 	for _, ix := range indexes(ctx, os.Stderr) {
 		for _, e := range ix.Search(term) {
-			rows = append(rows, row{e, ix.Signed, false, e.NeedsNewer()})
+			rows = append(rows, row{e, ix.Signed, false, e.NeedsNewer(), e.FoundEntry(home)})
 		}
 		for _, e := range ix.SearchDisabled(term) {
-			rows = append(rows, row{e, ix.Signed, true, e.NeedsNewer()})
+			rows = append(rows, row{e, ix.Signed, true, e.NeedsNewer(), e.FoundEntry(home)})
 		}
 	}
 	if *asJSON {

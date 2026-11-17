@@ -161,3 +161,53 @@ func TestShellWord(t *testing.T) {
 		}
 	}
 }
+
+// What Conch.app's Import sheet is drawn from (-n -json), and its Import
+// button (-ids): each conversation by its whole id, where it carries on,
+// when it was last used, and whether it was brought in already.
+func TestImportConductorChoose(t *testing.T) {
+	db, ws := importFixture(t)
+	out := filepath.Join(t.TempDir(), "out")
+	scan := func() []importedFile {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out, "-n", "-json"}) })
+		var got []importedFile
+		if err != nil || json.Unmarshal([]byte(stdout), &got) != nil {
+			t.Fatalf("scan: %v %q", err, stdout)
+		}
+		return got
+	}
+	got := scan()
+	if len(got) != 1 || got[0].ID != "0123456789abcdef" || got[0].Where != "workspace" || got[0].Imported ||
+		got[0].LastUsed.IsZero() || got[0].Dir != ws {
+		t.Fatalf("scan: %+v", got)
+	}
+
+	var err error
+	a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out, "-ids", "nope"}) })
+	if err == nil || !strings.Contains(err.Error(), `no conversation "nope"`) {
+		t.Fatalf("an id Conductor does not have: %v", err)
+	}
+	// "empty" is a conversation with nothing said: chosen, it is skipped
+	// rather than written as an empty document.
+	stdout, _ := a4Capture(t, "", func() {
+		err = runImport([]string{"conductor", "-db", db, "-out", out, "-ids", "0123456789abcdef,empty", "-json"})
+	})
+	var wrote []importedFile
+	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 || !wrote[0].Imported {
+		t.Fatalf("import of the chosen: %v %q", err, stdout)
+	}
+	if _, err := os.Stat(wrote[0].File); err != nil {
+		t.Fatal(err)
+	}
+	if got := scan(); !got[0].Imported {
+		t.Fatalf("imported already: %+v", got)
+	}
+
+	// The workspace gone, and the repository too: nowhere to carry it on.
+	os.RemoveAll(ws)
+	if got := scan(); got[0].Where != "gone" || got[0].Dir != "" {
+		t.Fatalf("gone: %+v", got)
+	}
+}
