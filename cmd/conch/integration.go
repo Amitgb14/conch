@@ -245,8 +245,11 @@ func integrationSearch(args []string) error {
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	for _, r := range rows {
 		where := hostWords(r.Hosts)
-		if r.BuiltIn {
+		switch {
+		case r.BuiltIn:
 			where = "conch's own code"
+		case r.Kind == integration.KindImport:
+			where = "this machine only"
 		}
 		st := standing(r.Entry, r.Signed)
 		if r.Off {

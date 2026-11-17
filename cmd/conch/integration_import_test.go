@@ -144,6 +144,10 @@ func TestIntegrationImportNeedsNewerReader(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"needs_newer":"reader \"conductor\" version 2`) {
 		t.Fatalf("search: %q %v", out, err)
 	}
+	out, _, err = a4Out(t, func() error { return runIntegration([]string{"search"}) })
+	if err != nil || !strings.Contains(out, "needs a newer conch") || !strings.Contains(out, "this machine only") || strings.Contains(out, "your own server") {
+		t.Fatalf("search: %q %v", out, err)
+	}
 	out, _, err = a4Out(t, func() error { return runIntegration([]string{"info", "-json", "conductor"}) })
 	if err != nil || !strings.Contains(out, `"needs_newer":"reader \"conductor\" version 2`) {
 		t.Fatalf("info: %q %v", out, err)
