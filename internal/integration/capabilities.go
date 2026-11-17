@@ -40,7 +40,11 @@ type Capabilities struct {
 	Auth     *AuthCaps `json:"auth,omitempty"`
 	Needs    []string  `json:"needs,omitempty"`
 	Detect   []string  `json:"detect,omitempty"`
-	Follow   bool      `json:"follow,omitempty"`
+	// DetectOn is what each way of detecting looks for: an import's files,
+	// ~/ paths on this machine, which say it is here before it is
+	// installed.
+	DetectOn map[string][]string `json:"detect_on,omitempty"`
+	Follow   bool                `json:"follow,omitempty"`
 }
 
 // SSHCaps is whose key opens a sandbox (account, authorize, none), whether

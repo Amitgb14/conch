@@ -214,3 +214,34 @@ func TestImportCapabilitiesAndDoes(t *testing.T) {
 		t.Fatalf("does: %+v", d)
 	}
 }
+
+func TestFoundEntryFromTheIndex(t *testing.T) {
+	// As the registry's index carries it.
+	var ix Index
+	src := `{"format":2,"entries":[{"kind":"import","name":"conductor","label":"Conductor","version":1,"format":3,
+		"file":"integrations/conductor.toml","sha256":"x","hosts":{"api":"","follow":[]},"key_env":"","operations":[],
+		"capabilities":{"operations":[],"needs":[],"detect":["files"],"detect_on":{"files":["~/c/conductor.db"]},"states":[],"follow":false},
+		"platforms":["` + runtime.GOOS + `"],"reader":"conductor","min_reader":1}]}`
+	got, err := ParseIndex([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix = *got
+	e, _ := ix.Find("conductor")
+	if e.Reader != "conductor" || e.MinReader != 1 || e.NeedsNewer() != "" {
+		t.Fatalf("entry %+v", e)
+	}
+	home := t.TempDir()
+	if len(e.FoundEntry(home)) != 0 {
+		t.Fatal("nothing there yet")
+	}
+	os.MkdirAll(filepath.Join(home, "c"), 0o700)
+	os.WriteFile(filepath.Join(home, "c", "conductor.db"), nil, 0o600)
+	if f := e.FoundEntry(home); len(f) != 1 {
+		t.Fatalf("found: %v", f)
+	}
+	e.Capabilities = nil
+	if len(e.FoundEntry(home)) != 0 {
+		t.Fatal("an index without capabilities says nothing")
+	}
+}

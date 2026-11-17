@@ -625,14 +625,14 @@ func TestIntegrationIcons(t *testing.T) {
 	if json.Unmarshal([]byte(out), &got) != nil || !got.Cached || got.Icons["circleci"] == "" || len(got.Kinds) != 2 {
 		t.Fatalf("offline: %s", out)
 	}
-	// An index from before kinds: conch's own six, deploy previews among them.
+	// An index from before kinds: conch's own seven, deploy previews and import among them.
 	t.Setenv("CONCH_HOME", t.TempDir())
 	reg.mu.Lock()
 	reg.files["index.json"] = []byte(`{"format":2,"entries":[]}`)
 	reg.mu.Unlock()
 	out, _, _ = a4Out(t, func() error { return runIntegration([]string{"icons", "-json"}) })
 	got = iconsJSON{}
-	if json.Unmarshal([]byte(out), &got) != nil || len(got.Kinds) != 6 || got.Kinds[3].Kind != "sandbox" || got.Kinds[4].Label != "Deploy previews" {
+	if json.Unmarshal([]byte(out), &got) != nil || len(got.Kinds) != 7 || got.Kinds[3].Kind != "sandbox" || got.Kinds[4].Label != "Deploy previews" || got.Kinds[6].Kind != "import" {
 		t.Fatalf("no kinds: %s", out)
 	}
 }

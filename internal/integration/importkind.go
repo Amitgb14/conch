@@ -117,6 +117,16 @@ func (f *File) Found(home string) []string {
 	return out
 }
 
+// FoundEntry is Found for an import not installed yet, from what the
+// registry's index says its [detect] files are.
+func (e Entry) FoundEntry(home string) []string {
+	if e.Kind != KindImport || e.Capabilities == nil || !slices.Contains(e.Platforms, runtime.GOOS) {
+		return nil
+	}
+	f := &File{Kind: KindImport, Source: ImportSource{Platforms: e.Platforms}, Detect: Detect{Files: e.Capabilities.DetectOn["files"]}}
+	return f.Found(home)
+}
+
 // RunsHere says whether the app an import file reads ran on this
 // platform.
 func (f *File) RunsHere() bool { return slices.Contains(f.Source.Platforms, runtime.GOOS) }

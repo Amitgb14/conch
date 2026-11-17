@@ -218,15 +218,18 @@ func integrationSearch(args []string) error {
 		Signed bool `json:"signed"`
 		// Off is listed and cannot be installed yet (no ssh yet).
 		Off bool `json:"off,omitempty"`
+		// NeedsNewer is why this conch cannot use it: a kind it has no
+		// code for, or an import's reader it lacks.
+		NeedsNewer string `json:"needs_newer,omitempty"`
 	}
 	var rows []row
 	term := strings.Join(fs.Args(), " ")
 	for _, ix := range indexes(ctx, os.Stderr) {
 		for _, e := range ix.Search(term) {
-			rows = append(rows, row{e, ix.Signed, false})
+			rows = append(rows, row{e, ix.Signed, false, e.NeedsNewer()})
 		}
 		for _, e := range ix.SearchDisabled(term) {
-			rows = append(rows, row{e, ix.Signed, true})
+			rows = append(rows, row{e, ix.Signed, true, e.NeedsNewer()})
 		}
 	}
 	if *asJSON {
@@ -245,6 +248,9 @@ func integrationSearch(args []string) error {
 		st := standing(r.Entry, r.Signed)
 		if r.Off {
 			st = offWords
+		}
+		if r.NeedsNewer != "" {
+			st = "needs a newer conch"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", firstSetStr(r.Label, r.Name), r.Kind, st, where, r.Capabilities.OperationWords(r.Kind))
 	}
@@ -285,6 +291,14 @@ type infoJSON struct {
 	Capabilities *integration.Capabilities `json:"capabilities,omitempty"`
 	// Off is one the registry lists and cannot offer yet (no ssh yet).
 	Off bool `json:"off,omitempty"`
+	// An import's: the reader that reads it and where, the files of it
+	// found on this machine, and why this conch cannot use it.
+	Reader     string   `json:"reader,omitempty"`
+	MinReader  int      `json:"min_reader,omitempty"`
+	Platforms  []string `json:"platforms,omitempty"`
+	Path       string   `json:"path,omitempty"`
+	Found      []string `json:"found,omitempty"`
+	NeedsNewer string   `json:"needs_newer,omitempty"`
 }
 
 func integrationInfo(args []string) error {
@@ -374,10 +388,14 @@ func integrationInfo(args []string) error {
 			sandboxKeyed = true
 		}
 	}
+	imp := importOf(f, e, listed)
 	if *asJSON {
 		j := infoJSON{Name: name, Label: firstSetStr(label, name), Kind: kind, Source: source, Installed: installedHere,
 			Does: integration.Does(kind, ops), Hosts: hosts, KeyEnv: keyEnv, KeyHelp: keyHelp, Note: note, Docs: docs,
 			Capabilities: caps, Off: off}
+		if kind == integration.KindImport {
+			j.Reader, j.MinReader, j.Platforms, j.Path, j.Found, j.NeedsNewer = imp.reader, imp.min, imp.platforms, imp.path, imp.found, imp.needsNewer
+		}
 		if f != nil {
 			j.UserEnv, j.AuthType, j.Scopes, j.BaseURL = f.Auth.UserEnv, f.Auth.Type, f.Auth.Scopes, f.BaseURL
 			j.AdaptedBy, j.Adapted = f.AdaptedBy, f.Adapted
@@ -420,11 +438,15 @@ func integrationInfo(args []string) error {
 		mark := map[string]string{"yes": "✓", "partly": "◐", "no": "✗", "built-in": "—"}[d.Level]
 		fmt.Printf("  %s %s\n      %s\n", mark, d.What, d.Where)
 	}
-	fmt.Printf("\nYour key ($%s) goes to %s only", keyEnv, firstSetStr(hosts.API, "the address you give"))
-	if len(hosts.Follow) > 0 {
-		fmt.Printf("; it also reads %s, without your key", strings.Join(hosts.Follow, ", "))
+	if kind == integration.KindImport {
+		fmt.Println("\n" + imp.words(firstSetStr(label, name)))
+	} else {
+		fmt.Printf("\nYour key ($%s) goes to %s only", keyEnv, firstSetStr(hosts.API, "the address you give"))
+		if len(hosts.Follow) > 0 {
+			fmt.Printf("; it also reads %s, without your key", strings.Join(hosts.Follow, ", "))
+		}
+		fmt.Println(". No programs run: HTTP only.")
 	}
-	fmt.Println(". No programs run: HTTP only.")
 	if keyHelp != "" {
 		fmt.Println("\nSetting it up: " + keyHelp)
 	}
@@ -496,7 +518,13 @@ func integrationInstall(args []string) error {
 	if recs, _ := integration.Records(); recs[name].Version != 0 {
 		return fmt.Errorf("%s is installed already: conch integration update %s takes the newest", name, name)
 	}
+	if why := e.NeedsNewer(); why != "" {
+		return fmt.Errorf("%s needs a newer conch: %s", e.DisplayName(), why)
+	}
 	reg, _ := registryNamed(e.Registry)
+	if e.Kind == integration.KindImport {
+		return installImport(ctx, reg, e, ix.Signed, *yes)
+	}
 	fmt.Printf("%s sends your key ($%s) to %s only.", name, e.KeyEnv, firstSetStr(e.Hosts.API, "the address you give"))
 	if len(e.Hosts.Follow) > 0 {
 		fmt.Printf(" It reads %s without it.", strings.Join(e.Hosts.Follow, ", "))
@@ -801,7 +829,9 @@ func integrationList(args []string) error {
 		} else if !f.Shipped() {
 			r.Source = "a file of your own"
 		}
-		if keyFor(f.KeyEnv) == "" {
+		if f.Kind == integration.KindImport {
+			r.State = importState(f)
+		} else if keyFor(f.KeyEnv) == "" {
 			r.State = "key: $" + f.KeyEnv + " not set"
 			if keychainHere() {
 				r.State += ", nor in the Keychain"

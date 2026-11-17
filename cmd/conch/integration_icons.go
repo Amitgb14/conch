@@ -23,7 +23,7 @@ type iconsJSON struct {
 	Problems []string               `json:"problems,omitempty"`
 }
 
-// defaultKinds are the kinds when no registry says them: the six this
+// defaultKinds are the kinds when no registry says them: the seven this
 // conch has code for.
 var defaultKinds = []integration.KindInfo{
 	{Kind: integration.KindHost, Label: "Code hosts", About: "where the code and its pull requests live"},
@@ -32,6 +32,7 @@ var defaultKinds = []integration.KindInfo{
 	{Kind: integration.KindSandbox, Label: "Sandboxes", About: "machines in the cloud for agents"},
 	{Kind: integration.KindDeploy, Label: "Deploy previews", About: "where a branch is built and shown, and released to production"},
 	{Kind: integration.KindNotify, Label: "Notifications", About: "where conch says an agent is waiting"},
+	{Kind: integration.KindImport, Label: "Import", About: "other apps whose conversations conch can bring in"},
 }
 
 // iconFetchers bounds the icons downloaded at once.
