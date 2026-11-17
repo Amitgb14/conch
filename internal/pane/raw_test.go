@@ -2,9 +2,12 @@ package pane
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/vt"
 )
 
 func TestQueryFilterTakesOutWhatConchAnswers(t *testing.T) {
@@ -253,5 +256,52 @@ func TestRepaintStartsRawAgainOnce(t *testing.T) {
 	if c2 != cols-1 || r2 != rows {
 		// Repaint started from cols-1 here, and went back to it.
 		t.Fatalf("after repaint the pane is %dx%d, want %dx%d", c2, r2, cols-1, rows)
+	}
+}
+
+// A program that keeps its prompt still and scrolls only the lines above
+// it does so with a scroll region (DECSTBM) — Devin's interface does
+// (#282). The replay has to set it too: a terminal started from one without
+// it scrolls the whole screen at the program's next line, the prompt with
+// it, and every line after leaves another copy of the prompt behind.
+func TestRawReplayCarriesScrollRegion(t *testing.T) {
+	// Rows 1–4 scroll; rows 5 and 6 are the prompt, which stays put.
+	p := a5Script(t, `printf '\033[1;4r\033[5;1HPROMPT-TOP\033[6;1HPROMPT-BOTTOM\033[4;1Hline-a\nline-b\nready'; sleep 30`, 40, 6)
+	a5Wait(t, "ready", func() bool { return strings.Contains(a5Screen(p), "ready") })
+
+	replay, cols, rows, sub := p.SubscribeRaw()
+	p.UnsubscribeRaw(sub)
+
+	// A terminal of the client's, given the replay and then more lines.
+	term := vt.NewEmulator(cols, rows)
+	term.Write([]byte(replay))                           //nolint:errcheck
+	term.Write([]byte("\r\nmore-1\r\nmore-2\r\nmore-3")) //nolint:errcheck
+	lines := make([]string, rows)
+	for y := range rows {
+		var b strings.Builder
+		for x := range cols {
+			if c := term.CellAt(x, y); c != nil {
+				b.WriteString(c.Content)
+			}
+		}
+		lines[y] = strings.TrimRight(b.String(), " ")
+	}
+	if lines[4] != "PROMPT-TOP" || lines[5] != "PROMPT-BOTTOM" || lines[3] != "more-3" {
+		t.Fatalf("the prompt scrolled with the lines above it; the client's screen:\n%s", strings.Join(lines, "\n"))
+	}
+	if strings.Count(strings.Join(lines, "\n"), "PROMPT-TOP") != 1 {
+		t.Fatalf("the prompt was left behind:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// A screen that scrolls whole sets no region, which is a terminal's own
+// start: the replay leaves it alone.
+func TestRawReplayWithoutScrollRegion(t *testing.T) {
+	p := a5Script(t, `printf 'ready'; sleep 30`, 40, 6)
+	a5Wait(t, "ready", func() bool { return strings.Contains(a5Screen(p), "ready") })
+	replay, _, _, sub := p.SubscribeRaw()
+	p.UnsubscribeRaw(sub)
+	if regexp.MustCompile(`\x1b\[[0-9;]*r`).MatchString(replay) {
+		t.Fatalf("a scroll region set for a whole screen: %q", replay)
 	}
 }

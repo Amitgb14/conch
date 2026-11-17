@@ -97,6 +97,30 @@ func dropAltScrollback(e *vt.Emulator) {
 	alt.SetScrollback(nil)
 }
 
+// scrollRegion is the rows the emulator's current screen scrolls, top and
+// bottom from 1, and whether that is less than the whole screen — a
+// program that keeps its prompt still below lines that scroll sets one
+// (DECSTBM). A replay has to set it again, or the terminal it is drawn in
+// scrolls the prompt away with everything else (#282). The emulator says
+// which screen is current only to itself, so it is found by reflection; if
+// the emulator changes shape this says there is none, and
+// TestRawReplayCarriesScrollRegion says so.
+func scrollRegion(e *vt.Emulator) (top, bottom int, ok bool) {
+	f := reflect.ValueOf(e).Elem().FieldByName("scr")
+	if !f.IsValid() || f.Type() != reflect.TypeFor[*vt.Screen]() {
+		return 0, 0, false
+	}
+	scr := *(**vt.Screen)(unsafe.Pointer(f.UnsafeAddr()))
+	if scr == nil {
+		return 0, 0, false
+	}
+	r := scr.ScrollRegion()
+	if r.Min.Y <= 0 && r.Max.Y >= e.Height() || r.Min.Y >= r.Max.Y {
+		return 0, 0, false
+	}
+	return r.Min.Y + 1, r.Max.Y, true
+}
+
 // parserData is how much of one escape sequence's payload — an OSC's
 // text, a DCS's, an APC's — the emulator keeps; the rest of a longer one
 // is dropped, as the emulator always did past its own limit. Nothing conch

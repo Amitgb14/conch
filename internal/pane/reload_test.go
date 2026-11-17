@@ -372,3 +372,36 @@ func TestAdoptInBandResizeMode(t *testing.T) {
 	}
 	waitScreen(t, q, "[48;8;50")
 }
+
+// A reload keeps a program's scroll region (#282): the new server's
+// emulator, drawn from the replay, scrolls the same rows the old one did,
+// so the program's next line does not carry its prompt up the screen.
+func TestAdoptKeepsScrollRegion(t *testing.T) {
+	p := a5Script(t, `printf '\033[2;5r\033[6;1HPROMPT\033[5;1Hready'; sleep 30`, 40, 6)
+	a5Wait(t, "ready", func() bool { return strings.Contains(a5Screen(p), "ready") })
+	p.emuMu.Lock()
+	top, bottom, ok := scrollRegion(p.emu)
+	p.emuMu.Unlock()
+	if !ok || top != 2 || bottom != 5 {
+		t.Fatalf("scroll region %d–%d (%v), want 2–5", top, bottom, ok)
+	}
+	snap, ptmx, err := p.Detach()
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := Adopt(snap, a5Dup(t, p, ptmx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(q.Close)
+	q.emuMu.Lock()
+	top, bottom, ok = scrollRegion(q.emu)
+	cur := q.emu.CursorPosition()
+	q.emuMu.Unlock()
+	if !ok || top != 2 || bottom != 5 {
+		t.Fatalf("after a reload the scroll region is %d–%d (%v), want 2–5", top, bottom, ok)
+	}
+	if cur.Y != 4 || cur.X != len("ready") {
+		t.Fatalf("cursor at %v after a reload, want where it was (5, 4)", cur)
+	}
+}
