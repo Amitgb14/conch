@@ -656,7 +656,14 @@ func TestSandboxKeyInTheKeychain(t *testing.T) {
 	// Opened as the server opens it: the Keychain is asked when nothing
 	// else has the key.
 	old := sandbox.KeyLookup
-	t.Cleanup(func() { sandbox.KeyLookup = old })
+	t.Cleanup(func() {
+		sandbox.KeyLookup = old
+		// The key read here stays cached for a while: no later test may
+		// find it.
+		keychainCache.Lock()
+		keychainCache.m = nil
+		keychainCache.Unlock()
+	})
 	sandbox.KeyLookup = keychainKey
 	p, err := sandbox.Open("daytona", config.SandboxCfg{})
 	if err != nil || !errors.Is(p.Check(), sandbox.ErrNotConfigured) {
