@@ -260,7 +260,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             quitting = true
             Task { @MainActor in
                 let saved = await saveAll(items)
-                if !saved { self.quitting = false }
+                if !saved {
+                    self.quitting = false
+                    AppUpdater.shared.quitCancelled()
+                }
                 NSApp.reply(toApplicationShouldTerminate: saved)
             }
             return .terminateLater
@@ -268,6 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             quitting = true
             return .terminateNow
         default:
+            AppUpdater.shared.quitCancelled()
             return .terminateCancel
         }
     }
@@ -315,6 +319,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         for s in AppWindows.shared.stores { s.shutdown() }
+        // Only now, when the app is really going: a relaunch helper started
+        // before a quit that was then cancelled waited on and reopened Conch
+        // at whatever quit came next.
+        AppUpdater.shared.terminating()
     }
 
     // MARK: menu

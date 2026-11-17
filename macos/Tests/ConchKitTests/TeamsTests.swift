@@ -36,6 +36,36 @@ import Testing
         #expect(parseTeams(toml: "").isEmpty)
     }
 
+    // Arrays over several lines, comments after a value or inside an array,
+    // and a header spaced out are all TOML Go reads; so must the app.
+    @Test func readsMultiLineArraysAndComments() {
+        let toml = """
+        [[ teams ]]   # the server side
+        name = "Backend" # who
+        projects = [
+          "api",   # the "web" one is not here]
+          'worker',
+        ]
+        branches = ["conch/cloud-*"] # and ["x"]
+
+        [[teams]]
+        name = "UI"
+        branches = [
+          "ui/*"
+        ]
+        projects = ["web"]
+        """
+        #expect(parseTeams(toml: toml) == [
+            AgentTeam(name: "Backend", projects: ["api", "worker"], branches: ["conch/cloud-*"]),
+            AgentTeam(name: "UI", projects: ["web"], branches: ["ui/*"]),
+        ])
+        // A line inside an array that starts with "[" is not a header.
+        let nested = "[[teams]]\nname = \"A\"\nprojects = [\n\"p\"\n]\n[[teams]]\nname = \"B\""
+        #expect(parseTeams(toml: nested).map(\.name) == ["A", "B"])
+        // Never closed: what it held, and the team is kept.
+        #expect(parseTeams(toml: "[[teams]]\nname = \"A\"\nprojects = [\"p\",") == [AgentTeam(name: "A", projects: ["p"])])
+    }
+
     // The same cases as Go's TestTeamFor: the app and the CLI say the same team.
     @Test func ruleOrHand() {
         let cases: [(String?, String?, String?, String?)] = [

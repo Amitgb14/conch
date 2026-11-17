@@ -2960,6 +2960,15 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(b.suggestions("size") == ["small", "default", "large"])
 }
 
+// "choices": null (choices that could not be read, from an older conch)
+// must not fail the whole decode: the sheet would lose region, image and size.
+@Test func sandboxSettingsToleratesNullChoices() throws {
+    let j = #"{"name":"d","label":"D","ready":true,"settings":[{"key":"region","label":"Region","choices":null,"error":"answered 500"},{"key":"image","label":"Image","choices":[{"value":"ubuntu"}]}],"size":{"names":["small"]},"chosen":{}}"#
+    let d = try JSONDecoder().decode(SandboxSettingsInfo.self, from: Data(j.utf8))
+    #expect(d.setting("region")?.choices == [] && d.setting("region")?.error == "answered 500")
+    #expect(d.setting("image")?.values == ["ubuntu"] && d.suggestions("region") == nil && d.suggestions("size") == ["small"])
+}
+
 // A pane is named as conch's commands take it: p12 here, busybox:p12 on
 // another machine (its ID when the label can't be typed). The row menu
 // copies it, and the palette finds a pane by it.

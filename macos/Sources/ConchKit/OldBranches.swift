@@ -104,6 +104,22 @@ public enum OldBranches {
         public func answered(_ f: BranchStale) -> Bool { self == .old || f.merged == true }
     }
 
+    /// What a find asked for: which branches, of which project (machine|id).
+    public struct Request: Equatable, Sendable {
+        public var which: Which
+        public var project: String
+        public init(which: Which, project: String) {
+            self.which = which
+            self.project = project
+        }
+
+        /// Whether an answer to this request still belongs on the card
+        /// showing now. A find for project A answered after the picker moved
+        /// to B was put under B, and Delete then asked B's server to delete
+        /// — perhaps force-delete — B's branches of the same names.
+        public func applies(to now: Request) -> Bool { !project.isEmpty && self == now }
+    }
+
     /// A branch that may be ticked at all: never the base, never one
     /// checked out, since the server refuses both.
     public static func deletable(_ b: StaleBranch) -> Bool {

@@ -71,6 +71,7 @@ public struct SandboxSettingsInfo: Decodable, Equatable, Sendable {
         /// Why the choices could not be read; a value can still be typed.
         public var error: String?
         public var values: [String] { choices.map(\.value) }
+        enum CodingKeys: String, CodingKey { case key, label, help, `default`, free, choices, error }
     }
     public struct Choice: Decodable, Equatable, Sendable {
         public var value: String
@@ -275,5 +276,21 @@ public struct NewSandboxFields: Equatable, Sendable {
         } else {
             size = .numbers(parts.filter { st?.takesPart($0) ?? true })
         }
+    }
+}
+
+// "choices": null — a setting whose choices could not be read, from an
+// older conch — must not lose the whole settings (and with them region,
+// image and size) to a failed decode.
+extension SandboxSettingsInfo.Setting {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        label = try c.decode(String.self, forKey: .label)
+        help = try c.decodeIfPresent(String.self, forKey: .help)
+        `default` = try c.decodeIfPresent(String.self, forKey: .default)
+        free = try c.decodeIfPresent(Bool.self, forKey: .free)
+        choices = try c.decodeIfPresent([SandboxSettingsInfo.Choice].self, forKey: .choices) ?? []
+        error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }

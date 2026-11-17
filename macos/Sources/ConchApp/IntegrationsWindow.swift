@@ -167,9 +167,12 @@ final class IntegrationsModel: ObservableObject {
     func openPreviews(of project: String) {
         guard let id = ids[project] else { return }
         let base = store.snapshots["local"]?.project(id)?.base ?? "main"
-        store.openChanges(project: key("local", id), branch: base)
+        // In the main window last in front, brought forward: not whatever
+        // visible window NSApp.windows lists first (Settings, the Monitor).
+        let s = AppWindows.shared.frontStore ?? store
+        s.openChanges(project: key("local", id), branch: base)
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first { $0.title != "Integrations" && $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+        AppWindows.shared.bringForward(s)
     }
 
     func open(_ card: IntegrationCard) {

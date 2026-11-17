@@ -38,6 +38,28 @@ private let scanJSON = """
     #expect(f.runArguments == ["import", "conductor", "-json", "-ids", "a1,d4"])
 }
 
+// Newest first by the time, not the text: an offset, fractional seconds or
+// a lower-case z must not change the order the strings would give.
+@Test func importGroupsSortByTimeNotText() {
+    var f = ImportFlow(name: "conductor", label: "Conductor", reader: "conductor")
+    func c(_ id: String, _ repo: String, _ t: String?) -> ImportConversation {
+        ImportConversation(id: id, title: id, agent: "Claude Code", repo: repo, branch: "b", messages: 1, file: "/f/" + id, lastUsed: t)
+    }
+    f.conversations = [
+        c("plain", "r", "2026-11-10T12:00:00Z"),           // 12:00 UTC
+        c("offset", "r", "2026-11-10T15:00:00+05:30"),     // 09:30 UTC: older, though its text is bigger
+        c("frac", "r", "2026-11-10T12:00:00.5Z"),          // half a second after plain; as text, "." < "Z"
+        c("nano", "r", "2026-11-10T11:59:59.123456789-00:00"),
+        c("none", "r", nil),
+        c("bad", "r", "yesterday"),
+        c("west", "s", "2026-11-10T08:00:00-05:00"),       // 13:00 UTC: newest of all
+    ]
+    let g = f.groups
+    #expect(g.map(\.repo) == ["s", "r"])
+    #expect(g[1].conversations.map(\.id) == ["frac", "plain", "nano", "offset", "none", "bad"])
+    #expect(parseRFC3339("2026-11-10T12:00:00Z") != nil && parseRFC3339("not a time") == nil)
+}
+
 @Test func importScanEdges() {
     var f = ImportFlow(name: "conductor", label: "Conductor", reader: "conductor")
     f.scanned(Data("null".utf8))

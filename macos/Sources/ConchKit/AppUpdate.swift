@@ -122,6 +122,22 @@ public func updatedSince(installed: String?, running: String) -> Bool {
     return installed == running
 }
 
+/// Whether a quit relaunches the app. A relaunch is asked for, then the
+/// app quits — and that quit can be cancelled (unsaved edits). The helper
+/// that reopens the app starts only once it is really terminating: started
+/// before, it outlived a cancelled quit and reopened Conch at the next one.
+public struct RelaunchOnQuit: Equatable, Sendable {
+    public private(set) var wanted = false
+    public init() {}
+    public mutating func ask() { wanted = true }
+    public mutating func cancelled() { wanted = false }
+    /// Terminating: whether to start the helper now, once.
+    public mutating func terminating() -> Bool {
+        defer { wanted = false }
+        return wanted
+    }
+}
+
 /// What relaunches the app once this process has quit: a shell waiting for
 /// the pid to be gone, then open. The app's path is the script's $0.
 public func relaunchCommand(pid: Int32, app: String) -> [String] {

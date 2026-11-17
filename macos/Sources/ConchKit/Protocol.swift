@@ -429,22 +429,28 @@ public struct Question: Decodable, Equatable, Sendable {
     public var choices: [Choice]
 }
 
+/// A time as Go writes it (RFC 3339), with or without fractional seconds
+/// and at any offset; nil for anything else.
+public func parseRFC3339(_ s: String) -> Date? {
+    let frac = ISO8601DateFormatter()
+    frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    // Foundation takes at most milliseconds; Go writes nanoseconds.
+    var trimmed = s
+    if let dot = s.firstIndex(of: "."), let end = s[dot...].firstIndex(where: { $0 == "Z" || $0 == "z" || $0 == "+" || $0 == "-" }) {
+        let digits = s[s.index(after: dot)..<end]
+        trimmed = String(s[..<dot]) + "." + String(digits.prefix(3)) + String(s[end...])
+    }
+    return frac.date(from: trimmed) ?? plain.date(from: s)
+}
+
 /// The server's times are Go's RFC 3339, with nanoseconds when it has them.
 public func conchDecoder() -> JSONDecoder {
     let d = JSONDecoder()
     d.dateDecodingStrategy = .custom { decoder in
-        let frac = ISO8601DateFormatter()
-        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
         let s = try decoder.singleValueContainer().decode(String.self)
-        // Foundation takes at most milliseconds; Go writes nanoseconds.
-        var trimmed = s
-        if let dot = s.firstIndex(of: "."), let end = s[dot...].firstIndex(where: { $0 == "Z" || $0 == "+" || $0 == "-" }) {
-            let digits = s[s.index(after: dot)..<end]
-            trimmed = String(s[..<dot]) + "." + String(digits.prefix(3)) + String(s[end...])
-        }
-        if let date = frac.date(from: trimmed) ?? plain.date(from: s) { return date }
+        if let date = parseRFC3339(s) { return date }
         return Date(timeIntervalSince1970: 0)
     }
     return d

@@ -235,3 +235,17 @@ private func att(_ name: String, _ size: Int64, _ src: ChatAttachment.Source = .
     let bare = try JSONDecoder().decode(AttachFolder.self, from: Data(#"{"dir":"/d","root":"/r","cwd":"/c"}"#.utf8))
     #expect(bare.maxSize == nil)
 }
+
+// A thumbnail is read once per picture: cached by the bytes, or by the file
+// and its stamp, so an edited picture is read again and nothing is decoded
+// at every redraw.
+@Test func attachmentThumbKeys() {
+    let a = Data(repeating: 1, count: 500), b = Data(repeating: 2, count: 500)
+    #expect(attachmentThumbKey(file: nil, stamp: "", data: a) == attachmentThumbKey(file: "/x", stamp: "9", data: a))
+    #expect(attachmentThumbKey(file: nil, stamp: "", data: a) != attachmentThumbKey(file: nil, stamp: "", data: b))
+    #expect(attachmentThumbKey(file: nil, stamp: "", data: a) != attachmentThumbKey(file: nil, stamp: "", data: a + Data([1])))
+    #expect(attachmentThumbKey(file: "/p.png", stamp: "1:10", data: nil) != attachmentThumbKey(file: "/p.png", stamp: "2:10", data: nil))
+    #expect(attachmentThumbKey(file: "/p.png", stamp: "1:10", data: Data()) == "f:1:10:/p.png")
+    #expect(attachmentThumbKey(file: "/gone.png", stamp: "", data: nil) == nil)
+    #expect(attachmentThumbKey(file: nil, stamp: "", data: nil) == nil)
+}
