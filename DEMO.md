@@ -133,8 +133,8 @@ things blocked it:
 Granting either permission is for you to decide, so I did not ask for it
 mid-run. The other route was adding a snapshot mode to the shipping app,
 where it draws its own windows to PNGs. That is app code written only for
-screenshots, so I left it out. So `app.sh` above sets the app up for
-you to record by hand instead.
+screenshots, so I left it out. Instead, `app.sh` above sets the app up
+for you to record by hand.
 
 Also not shown: a real agent reading the handoff. A real Claude Code would
 have called a model, so the demo stops at the agent being started in the
