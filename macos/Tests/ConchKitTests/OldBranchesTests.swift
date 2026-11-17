@@ -90,4 +90,17 @@ import Testing
         let m = try JSONDecoder().decode(BranchStale.self, from: Data(#"{"days":30,"merged":true,"branches":[]}"#.utf8))
         #expect(merged.answered(m))
     }
+
+    // A find for one project answered after the picker moved to another is
+    // dropped: shown, Delete would go to the other project's branches.
+    @Test func anAnswerAppliesOnlyToWhatWasAsked() {
+        typealias R = OldBranches.Request
+        let a = R(which: .old, project: "local|a")
+        #expect(a.applies(to: R(which: .old, project: "local|a")))
+        #expect(!a.applies(to: R(which: .old, project: "local|b")))
+        #expect(!a.applies(to: R(which: .old, project: "box|a"))) // same id, another machine
+        #expect(!a.applies(to: R(which: .merged, project: "local|a")))
+        #expect(!a.applies(to: R(which: .old, project: "")))
+        #expect(!R(which: .old, project: "").applies(to: R(which: .old, project: "")))
+    }
 }

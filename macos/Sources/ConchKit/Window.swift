@@ -107,6 +107,9 @@ public struct TabGroup: Equatable, Sendable {
 /// The machine a tab belongs to: its focused pane's, or that of the
 /// branch, project or files it shows.
 public func machine(ofKey k: String) -> String {
+    // A chat or a workbench's shell yet to start stands for an agent pane:
+    // its machine, not "chat" or "benchshell" read off the key's front.
+    if let p = parseChatKey(k) ?? parseBenchShellKey(k) { return unkey(p).machine }
     if let c = parseChangesKey(k) { return c.machine }
     if let s = parseSessionsKey(k) { return s.machine }
     if let c = parseCommitsKey(k) { return c.machine }
@@ -313,6 +316,7 @@ public func sidebarExtra(scale: Double, base: Double = 250) -> Double { max(0, (
 /// in the sidebar named a terminal while the window showed a branch.
 public func treeRow(forTab k: String) -> String? {
     if parseBrowserKey(k) != nil { return nil }
+    if let p = parseChatKey(k) ?? parseBenchShellKey(k) { return "pane:" + p }
     if let t = parseTaskKey(k) { return "gt:\(t.machine):\(t.group):\(t.branch)" }
     if let c = parseChangesKey(k) { return "b:\(key(c.machine, c.project)):\(c.branch)" }
     if let f = parseFilesKey(k) { return "s:\(key(f.machine, f.project)):files" }

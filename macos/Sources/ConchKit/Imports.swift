@@ -115,9 +115,19 @@ public struct ImportFlow: Equatable, Sendable {
             if by[g.id] == nil { order.append(g.id); by[g.id] = g }
             by[g.id]!.conversations.append(c)
         }
+        // By time, not by text: "…+05:30" and "…Z", or ".5Z" and "Z", sort
+        // wrongly as strings. A time that cannot be read goes last; ties
+        // keep the order they came in.
+        let when: (ImportConversation) -> Date = { $0.lastUsed.flatMap(parseRFC3339) ?? .distantPast }
+        func newestFirst<T>(_ xs: [T], _ d: (T) -> Date) -> [T] {
+            xs.enumerated().sorted { a, b in
+                let da = d(a.element), db = d(b.element)
+                return da != db ? da > db : a.offset < b.offset
+            }.map(\.element)
+        }
         var out = order.map { by[$0]! }
-        for i in out.indices { out[i].conversations.sort { ($0.lastUsed ?? "") > ($1.lastUsed ?? "") } }
-        out.sort { ($0.conversations.first?.lastUsed ?? "") > ($1.conversations.first?.lastUsed ?? "") }
+        for i in out.indices { out[i].conversations = newestFirst(out[i].conversations, when) }
+        out = newestFirst(out) { $0.conversations.first.map(when) ?? .distantPast }
         return out
     }
 

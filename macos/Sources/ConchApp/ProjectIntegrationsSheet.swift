@@ -9,16 +9,22 @@ import SwiftUI
 /// sheet at the key, Install… its install, Browse… the window at the kind —
 /// and the checkbox that saves the names in .conch/integrations.toml for
 /// the team. The rows are ConchKit's (ProjectIntegrations.swift).
+@MainActor
 final class ProjectIntegrationsWindow {
     private var windows: [String: NSWindow] = [:]
     private var looks: [String: AnyCancellable] = [:]
+    private var closing: [String: NSObjectProtocol] = [:]
     private let integrations: () -> IntegrationsWindow?
 
     init(integrations: @escaping () -> IntegrationsWindow?) { self.integrations = integrations }
 
-    /// The project's sheet, by its key (machine|id), one window each.
-    @MainActor func show(project pk: String, store: Store) {
-        if let w = windows[pk] {
+    /// The project's sheet, by its key (machine|id) and the window's store
+    /// it was opened from, one window each. A closed sheet is forgotten:
+    /// kept, its model held the Store of a window since closed, said "Not
+    /// connected" for ever and kept that Store alive.
+    func show(project pk: String, store: Store) {
+        let id = "\(ObjectIdentifier(store).hashValue)#" + pk
+        if let w = windows[id] {
             (w.contentView as? NSHostingView<ProjectIntegrationsView>)?.rootView.model.load()
             w.makeKeyAndOrderFront(nil)
             return
@@ -32,14 +38,25 @@ final class ProjectIntegrationsWindow {
         let model = ProjectIntegrationsModel(store: store, machine: m, project: pid, integrations: integrations)
         model.close = { [weak w] in w?.close() }
         w.contentView = NSHostingView(rootView: ProjectIntegrationsView(model: model, look: store.look))
-        looks[pk] = store.look.$theme.sink { [weak w] t in
+        looks[id] = store.look.$theme.sink { [weak w] t in
             w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
             w?.backgroundColor = Theme.ns(t.chrome)
         }
+        closing[id] = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.forget(id) }
+        }
         w.center()
-        windows[pk] = w
+        windows[id] = w
         model.load()
         w.makeKeyAndOrderFront(nil)
+    }
+
+    /// Drops a closed sheet's window, model and the Store it held.
+    private func forget(_ id: String) {
+        windows[id]?.contentView = nil
+        windows[id] = nil
+        looks[id] = nil
+        if let o = closing.removeValue(forKey: id) { NotificationCenter.default.removeObserver(o) }
     }
 }
 

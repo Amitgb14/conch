@@ -18,6 +18,9 @@ struct OldBranchesCard: View {
     @State private var project = ""
     @State private var which = OldBranches.Which.old
     @State private var found: BranchStale?
+    /// What found was the answer to: Delete goes to that project, and only
+    /// while the card still shows it.
+    @State private var foundFor: OldBranches.Request?
     @State private var ticked: Set<String> = []
     @State private var busy = false
     @State private var failure = ""
@@ -47,7 +50,7 @@ struct OldBranchesCard: View {
                     Text("Older than \(days) days").tag(OldBranches.Which.old)
                     Text("Merged").tag(OldBranches.Which.merged)
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280)
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 280).disabled(busy)
                 Text(which.intro(days: days))
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
@@ -56,6 +59,7 @@ struct OldBranchesCard: View {
                         ForEach(projects, id: \.key) { p in Text(p.label).tag(p.key) }
                     }
                     .labelsHidden().frame(maxWidth: 320, alignment: .leading)
+                    .disabled(busy) // a find or delete is for the project shown
                     Button(which.find) { find() }.disabled(project.isEmpty || busy)
                     if busy { ProgressView().controlSize(.small) }
                     Spacer()
@@ -73,8 +77,8 @@ struct OldBranchesCard: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
         }
-        .onChange(of: project) { _, _ in found = nil; ticked = []; failure = "" }
-        .onChange(of: which) { _, _ in found = nil; ticked = []; failure = "" }
+        .onChange(of: project) { _, _ in found = nil; foundFor = nil; ticked = []; failure = "" }
+        .onChange(of: which) { _, _ in found = nil; foundFor = nil; ticked = []; failure = "" }
     }
 
     @ViewBuilder func list(_ branches: [StaleBranch]) -> some View {
@@ -113,7 +117,9 @@ struct OldBranchesCard: View {
         }
     }
 
-    func connection() -> (Connection, String)? {
+    var showing: OldBranches.Request { OldBranches.Request(which: which, project: project) }
+
+    func connection(_ project: String) -> (Connection, String)? {
         let (m, pid) = unkey(project)
         guard let c = model.store.connection(m) else {
             failure = "\(model.store.label(m)) is not connected."
@@ -128,20 +134,22 @@ struct OldBranchesCard: View {
 
     func find() {
         failure = ""
-        guard let (c, pid) = connection() else { return }
+        let req = showing
+        guard let (c, pid) = connection(req.project) else { return }
         struct P: Encodable { var project_id: String; var days: Int; var merged: Bool? }
-        let asked = which
+        let asked = req.which
         busy = true
         Task {
             defer { busy = false }
             do {
                 let f = try await c.call("branch.stale", P(project_id: pid, days: days, merged: asked == .merged ? true : nil), as: BranchStale.self)
-                guard asked == which else { return } // switched while it was asked
+                guard req.applies(to: showing) else { return } // switched while it was asked
                 guard asked.answered(f) else {
                     failure = "That server did not list merged branches: reload it (conch server reload)."
                     return
                 }
                 found = f
+                foundFor = req
                 ticked = OldBranches.initialTicks(f.branches)
             } catch {
                 failure = "Could not list the branches: \(error)"
@@ -150,7 +158,8 @@ struct OldBranchesCard: View {
     }
 
     func delete(_ chosen: [StaleBranch]) {
-        guard !chosen.isEmpty, let (c, pid) = connection() else { return }
+        // To the project the list is of, and only while it is still shown.
+        guard !chosen.isEmpty, let req = foundFor, req.applies(to: showing), let (c, pid) = connection(req.project) else { return }
         let what = OldBranches.confirm(chosen)
         let a = NSAlert()
         a.messageText = what.title
@@ -158,7 +167,7 @@ struct OldBranchesCard: View {
         a.alertStyle = what.losing ? .warning : .informational
         a.addButton(withTitle: what.losing ? "Delete Anyway" : "Delete")
         a.addButton(withTitle: "Cancel")
-        guard a.runModal() == .alertFirstButtonReturn else { return }
+        guard a.runModal() == .alertFirstButtonReturn, req.applies(to: showing) else { return }
         struct B: Encodable { var name: String; var force: Bool? }
         struct P: Encodable { var project_id: String; var branches: [B] }
         // Forced only where the person ticked one that loses commits, having
@@ -174,7 +183,7 @@ struct OldBranchesCard: View {
                     failure = failed.map { "Kept \($0.path): \($0.error)" }.joined(separator: "\n")
                 }
                 model.say("Deleted \(n) branch\(n == 1 ? "" : "es")")
-                find()
+                if req.applies(to: showing) { find() }
             } catch {
                 failure = "Could not delete: \(error)"
             }

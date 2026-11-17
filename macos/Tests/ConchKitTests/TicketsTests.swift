@@ -86,3 +86,11 @@ private func overview() throws -> TicketOverview {
     #expect(tomlTableValues("verify", "intake", in: nil).isEmpty)
     #expect(tomlTableValues("verify", "intake", in: "[verify]\nauto_pr = true\n").isEmpty)
 }
+
+@Test func ticketOverviewToleratesNullTickets() throws {
+    let j = #"{"projects":[{"name":"Linear","sources":["linear"],"tickets":null,"errors":["refused the key"]}]}"#
+    let ov = try JSONDecoder().decode(TicketOverview.self, from: Data(j.utf8))
+    #expect(ov.projects.count == 1 && ov.projects[0].tickets.isEmpty && ov.projects[0].errors == ["refused the key"])
+    let none = try JSONDecoder().decode(TicketOverview.self, from: Data(#"{"projects":null}"#.utf8))
+    #expect(none.projects.isEmpty)
+}

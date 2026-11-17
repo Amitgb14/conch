@@ -76,26 +76,26 @@ final class TicketsModel: ObservableObject {
     // MARK: actions
 
     /// New Task in the main window with the ticket picked.
+    /// In the main window last in front, not the first window's store:
+    /// that window may be closed, or behind the one being looked at.
     func start(_ t: TicketRow, in p: TicketProject) {
         guard let id = p.projectID else { return }
-        store.newTask(project: key("local", id))
-        store.taskDraft?.issue = t.issue
-        store.taskDraft?.ticket = t.ticket ?? ""
-        bringMain()
+        let s = AppWindows.shared.frontStore ?? store
+        s.newTask(project: key("local", id))
+        s.taskDraft?.issue = t.issue
+        s.taskDraft?.ticket = t.ticket ?? ""
+        NSApp.activate(ignoringOtherApps: true)
+        AppWindows.shared.bringForward(s)
     }
 
     func open(_ s: String?) {
         if let s, let u = URL(string: s) { NSWorkspace.shared.open(u) }
     }
 
+    /// The agent's pane in the window that holds it, brought forward.
     func agent(_ pane: String) {
-        store.focus(key("local", pane))
-        bringMain()
-    }
-
-    private func bringMain() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first { $0.title != "Tickets" && $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+        (AppWindows.shared.frontStore ?? store).showPaneOf(machine: "local", pane: pane)
     }
 }
 

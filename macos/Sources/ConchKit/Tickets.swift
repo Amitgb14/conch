@@ -73,11 +73,29 @@ public struct TicketProject: Decodable, Equatable, Sendable, Identifiable {
         self.tickets = tickets
         self.errors = errors
     }
+
+    // An older server sends "tickets": null for a tracker that failed or
+    // has none; one project's null must not lose the whole window.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        projectID = try c.decodeIfPresent(String.self, forKey: .projectID)
+        name = try c.decode(String.self, forKey: .name)
+        sources = try c.decodeIfPresent([String].self, forKey: .sources)
+        tickets = try c.decodeIfPresent([TicketRow].self, forKey: .tickets) ?? []
+        errors = try c.decodeIfPresent([String].self, forKey: .errors)
+    }
 }
 
 public struct TicketOverview: Decodable, Equatable, Sendable {
     public var projects: [TicketProject]
     public init(projects: [TicketProject]) { self.projects = projects }
+
+    enum CodingKeys: String, CodingKey { case projects }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        projects = try c.decodeIfPresent([TicketProject].self, forKey: .projects) ?? []
+    }
 }
 
 /// The views down the side of the Tickets window.

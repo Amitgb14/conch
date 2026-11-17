@@ -42,11 +42,23 @@ public func parseTeams(toml: String) -> [AgentTeam] {
         if let c = cur, !c.name.isEmpty { out.append(c) }
         cur = nil
     }
+    // An array that runs over several lines is gathered here until it
+    // closes; its continuation lines are never read as headers or keys.
+    var pending: (key: String, text: String)? = nil
+    func setArray(_ k: String, _ v: [String]) {
+        if k == "projects" { cur?.projects = v } else { cur?.branches = v }
+    }
     for raw in toml.components(separatedBy: "\n") {
+        if let p = pending {
+            let text = p.text + "\n" + raw
+            let a = scanTOMLArray(text)
+            if a.closed { setArray(p.key, a.strings); pending = nil } else { pending = (p.key, text) }
+            continue
+        }
         let line = raw.trimmingCharacters(in: .whitespaces)
         if line.hasPrefix("[") {
             flush()
-            if line.replacingOccurrences(of: " ", with: "").hasPrefix("[[teams]]") { cur = AgentTeam(name: "") }
+            if line.filter({ $0 != " " && $0 != "\t" }).hasPrefix("[[teams]]") { cur = AgentTeam(name: "") }
             continue
         }
         guard cur != nil, !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
@@ -55,13 +67,55 @@ public func parseTeams(toml: String) -> [AgentTeam] {
         switch k {
         case "name": cur?.name = (tomlString(v) ?? "").trimmingCharacters(in: .whitespaces)
         case "color": cur?.color = (tomlString(v) ?? "").trimmingCharacters(in: .whitespaces).lowercased()
-        case "projects": cur?.projects = tomlStrings(v)
-        case "branches": cur?.branches = tomlStrings(v)
+        case "projects", "branches":
+            guard v.hasPrefix("[") else { setArray(k, []); continue }
+            let a = scanTOMLArray(v)
+            if a.closed { setArray(k, a.strings) } else { pending = (k, v) }
         default: break
         }
     }
+    // An array never closed: what it held so far, as a reader that gives up
+    // at the end of the file would have nothing better.
+    if let p = pending { setArray(p.key, scanTOMLArray(p.text).strings) }
     flush()
     return out
+}
+
+/// A TOML array of strings from its opening "[", over as many lines as it
+/// takes: its strings, and whether it closed. Comments (# outside a
+/// string) run to the end of their line, so a quote or bracket in one is
+/// not read as the array's.
+func scanTOMLArray(_ v: String) -> (strings: [String], closed: Bool) {
+    var out: [String] = [], cur = ""
+    var quote: Character? = nil, escaped = false, comment = false, depth = 0
+    for ch in v {
+        if comment {
+            if ch == "\n" { comment = false }
+            continue
+        }
+        if let q = quote {
+            if q == "\"" && escaped { cur.append(ch); escaped = false; continue }
+            if q == "\"" && ch == "\\" { cur.append(ch); escaped = true; continue }
+            if ch == q {
+                out.append(q == "\"" ? unescapeTOML(cur) : cur)
+                cur = ""
+                quote = nil
+            } else {
+                cur.append(ch)
+            }
+            continue
+        }
+        switch ch {
+        case "#": comment = true
+        case "\"", "'": quote = ch
+        case "[": depth += 1
+        case "]":
+            depth -= 1
+            if depth == 0 { return (out, true) }
+        default: break
+        }
+    }
+    return (out, false)
 }
 
 /// The team an agent is in: the one it was put in by hand (set), else the
