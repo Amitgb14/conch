@@ -200,14 +200,15 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
 // before it is read, conch's own five and Import; and a kind only a card has is
 // listed too. A kind conch has no code for is not "known".
 @Test func integrationKindsFromTheRegistry() throws {
-    let icons = try JSONDecoder().decode(IntegrationIcons.self, from: Data(#"{"kinds":[{"kind":"ci","label":"CI","about":"checks"},{"kind":"deploy","label":"Deploys"}],"icons":{"circleci":"/h/icons/circleci-0123456789ab.svg"}}"#.utf8))
+    let icons = try JSONDecoder().decode(IntegrationIcons.self, from: Data(#"{"kinds":[{"kind":"ci","label":"CI","about":"checks"},{"kind":"edge","label":"Edges"}],"icons":{"circleci":"/h/icons/circleci-0123456789ab.svg"}}"#.utf8))
     #expect(icons.icons?["circleci"]?.hasSuffix(".svg") == true)
     let card = IntegrationCard(name: "drone", label: "Drone", kind: "build", source: "registry", installed: false, builtIn: false, standing: .notChecked, auth: "token", summary: "", usedIn: [], wanted: false)
     let ks = IntegrationCatalog.kinds(icons.kinds, cards: [card])
-    #expect(ks.map(\.kind) == ["ci", "deploy", "build"] && ks[1].label == "Deploys" && ks[2].label == "Build")
+    #expect(ks.map(\.kind) == ["ci", "edge", "build"] && ks[1].label == "Edges" && ks[2].label == "Build")
     #expect(ks[0].known && !ks[1].known)
     let none = IntegrationCatalog.kinds(nil, cards: [])
-    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify", "import"] && none[3].label == "Sandboxes")
+    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify", "deploy", "import"] && none[3].label == "Sandboxes" && none[5].label == "Deploy previews")
+    #expect(IntegrationKindInfo(kind: "deploy", label: "Deploy previews").known)
 }
 
 // Sandboxes and notifications are where work runs and what it tells you,
@@ -278,4 +279,104 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let use = try JSONDecoder().decode([IntegrationUse].self, from: Data(#"[{"name":"daytona","label":"Daytona","kind":"sandbox","why":"for tasks run off this machine","installed":true},{"name":"boat","label":"boat.dev","kind":"sandbox","why":"for tasks run off this machine","installed":true}]"#.utf8))
     let cards = IntegrationCatalog.cards(here: here, listed: listed, uses: ["ceph": use, "conch": use])
     for c in cards { #expect(c.usedIn.isEmpty && !c.wanted, "\(c.name)") }
+}
+
+// Deploy previews are a kind of their own: Vercel and Netlify as cards with
+// a summary from their operations, and a project that builds there is in
+// the banner like one that builds on a CI.
+@Test func integrationDeployKind() throws {
+    #expect(IntegrationKind.deploy.title == "Deploy previews")
+    #expect(IntegrationKind.deploy.purpose.contains("preview"))
+    #expect(IntegrationCatalog.summary(kind: "deploy", operations: ["previews", "failed_log", "redeploy", "promote"])
+        == "A branch's preview link, its failed build's log to the agent, redeploy, release to production (asks first).")
+    #expect(IntegrationCatalog.summary(kind: "deploy", operations: ["previews"]) == "A branch's preview link.")
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data(#"""
+    [{"kind":"deploy","name":"vercel","label":"Vercel","version":1,"hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN","operations":["previews","failed_log","redeploy","promote"],"tier":"community"},
+     {"kind":"deploy","name":"netlify","label":"Netlify","version":1,"hosts":{"api":"api.netlify.com"},"key_env":"NETLIFY_AUTH_TOKEN","operations":["previews","failed_log","redeploy","promote"],"tier":"community"}]
+    """#.utf8))
+    let uses: [String: [IntegrationUse]] = ["web-app": [IntegrationUse(name: "vercel", label: "Vercel", kind: "deploy", why: "vercel.json", installed: false)]]
+    let cards = IntegrationCatalog.cards(here: nil, listed: listed, uses: uses)
+    #expect(cards.map(\.name) == ["vercel", "netlify"] && cards.allSatisfy { $0.kind == "deploy" && $0.community })
+    #expect(cards[0].usedIn == ["web-app"] && cards[0].wanted && !cards[1].wanted)
+    // The mock's card: what the file can do, the one host the key goes to,
+    // and what was found in the repository.
+    #expect(cards[0].operations == ["previews", "failed_log", "redeploy", "promote"] && cards[0].host == "api.vercel.com")
+    #expect(cards[0].found == "vercel.json" && cards[1].found == nil && cards[1].host == "api.netlify.com")
+    #expect(IntegrationCatalog.filter(cards, filter: .all, kind: "deploy", query: "").count == 2)
+    #expect(IntegrationCatalog.banner(uses) == ["web-app deploys to Vercel (vercel.json)"])
+    #expect(IntegrationCatalog.bannerNames(uses) == ["vercel"])
+}
+
+// Connecting Vercel (the deploy mock's second screen): the check is one
+// read against a project that builds there, and the sheet lists what the
+// file can do. Other kinds keep their own words.
+@Test func integrationInstallDeploy() throws {
+    let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(#"""
+    {"name":"vercel","label":"Vercel","kind":"deploy","source":"registry","installed":false,"registry":"conch-integrations",
+     "does":[{"what":"A branch's previews: state, link, why one failed","where":"The app's git tab","level":"yes"},
+             {"what":"Build a deploy again","where":"Redeploy","level":"no"}],
+     "hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN","key_help":"Vercel → Account Settings → Tokens.","key_set":false}
+    """#.utf8))
+    var f = IntegrationInstallFlow(info: info)
+    #expect(f.checkWords == "Checked when a project uses it.")
+    f.checkIn = "/Users/a/web-app"
+    #expect(f.checkWords.hasPrefix("One read-only call against web-app: the Vercel project that builds from its repository, and a branch's deploys."))
+    #expect(f.can.map(\.what) == ["A branch's previews: state, link, why one failed"])
+    #expect(f.hostsWords == "Your Vercel key will be sent to api.vercel.com only.")
+    #expect(f.arguments == ["integration", "install", "-y", "-key-stdin", "-cwd", "/Users/a/web-app", "vercel"])
+    var n = f
+    n.info.name = "netlify"; n.info.label = "Netlify"
+    #expect(n.checkWords.contains("the Netlify site that builds"))
+    var ci = f
+    ci.info.kind = "ci"
+    #expect(ci.checkWords == "One read-only call, against web-app." && ci.can.isEmpty)
+}
+
+// Vercel's key: a personal account's token, and team projects not
+// supported yet, whatever the file's help says; the check's nothing-found
+// answer is a warning, the key kept.
+@Test func integrationInstallDeployKeyAndNothingFound() throws {
+    let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(#"""
+    {"name":"vercel","label":"Vercel","kind":"deploy","source":"registry","installed":false,"hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN",
+     "key_help":"Vercel → Account Settings → Tokens → Create Token. Scope it to the account that owns the project.","key_set":false}
+    """#.utf8))
+    var f = IntegrationInstallFlow(info: info)
+    #expect(f.keyHelpWords == "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet.")
+    f.finished(output: "checked: the key works, but No Vercel project in your account is linked to github.com/acme/web-app. Projects owned by a Vercel team aren't supported yet. The key is kept; previews show once one builds from this repository.\n", error: nil)
+    #expect(f.checkWarns)
+    if case .ok(let s) = f.check { #expect(s.hasPrefix("the key works, but No Vercel project")) } else { Issue.record("not ok") }
+    f.finished(output: "checked: read 2 deploys of main on Vercel\n", error: nil)
+    #expect(!f.checkWarns)
+    var n = f
+    n.info.name = "netlify"; n.info.keyHelp = "Netlify → User settings → Applications → Personal access tokens → New access token."
+    #expect(n.keyHelpWords == n.info.keyHelp)
+    f.checkIn = "/w/web-app"
+    #expect(f.checkWords.hasSuffix("Found by the repository it builds from: there is nothing to choose."))
+}
+
+// A deploy integration's page says where its previews show: each project
+// here that deploys there, and why conch thinks so — or, with none, that
+// none does and what conch looks for. Its key help is the corrected one.
+@Test func deployIntegrationPageWhereItShows() throws {
+    let info = try JSONDecoder().decode(IntegrationInfo.self, from: Data(#"""
+    {"name":"vercel","label":"Vercel","kind":"deploy","source":"conch-integrations","installed":true,"hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN",
+     "key_help":"Vercel → Account Settings → Tokens → Create Token. Scope it to the account that owns the project.","key_set":true}
+    """#.utf8))
+    #expect(info.keyHelpShown == "Vercel → Account Settings → Tokens → Create Token, for your personal account. Projects owned by a Vercel team aren't supported yet.")
+    let uses: [String: [IntegrationUse]] = [
+        "web-app": [IntegrationUse(name: "vercel", label: "Vercel", kind: "deploy", why: "vercel.json", installed: true, connected: true)],
+        "api": [IntegrationUse(name: "circleci", label: "CircleCI", kind: "ci", why: ".circleci/config.yml")],
+        "site": [IntegrationUse(name: "vercel", label: "Vercel", kind: "deploy", why: "check Vercel", installed: true)],
+    ]
+    let places = DeployPlaces.projects("vercel", uses: uses)
+    #expect(places.map(\.project) == ["site", "web-app"] && places.map(\.why) == ["check Vercel", "vercel.json"])
+    #expect(DeployPlaces.projects("netlify", uses: uses).isEmpty)
+    #expect(DeployPlaces.none(info) == "No project here deploys to Vercel. A branch's previews show in its git tab once a project has vercel.json or .vercel/project.json, or a pull request with a Vercel check.")
+    var n = info
+    n.name = "netlify"; n.label = "Netlify"
+    #expect(n.keyHelpShown == n.keyHelp)
+    #expect(DeployPlaces.none(n).contains("netlify.toml, or a pull request with a netlify/… check"))
+    var other = info
+    other.name = "acme"; other.label = "Acme"
+    #expect(DeployPlaces.none(other) == "No project here deploys to Acme. A branch's previews show in its git tab once a project uses it.")
 }

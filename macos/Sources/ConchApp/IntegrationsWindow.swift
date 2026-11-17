@@ -77,6 +77,8 @@ final class IntegrationsModel: ObservableObject {
     @Published var uses: [String: [IntegrationUse]] = [:]
     /// A project's checkout, by its name, to check a key against.
     var paths: [String: String] = [:]
+    /// Each project's id here, by name, to open one of its branches.
+    var ids: [String: String] = [:]
     @Published var section: IntegrationsSection = .discover
     @Published var filter: IntegrationFilter = .all
     @Published var query = ""
@@ -154,9 +156,20 @@ final class IntegrationsModel: ObservableObject {
             if let d = try? await c.call("integration.detect", P(project_id: pr.id), as: IntegrationDetect.self) {
                 out[pr.name] = d.integrations.filter { $0.name != "github" && $0.name != "github-actions" }
                 paths[pr.name] = pr.path
+                ids[pr.name] = pr.id
             }
         }
         uses = out
+    }
+
+    /// A project's previews: its base branch's git tab in the main window
+    /// (the Overview has the Deploy previews card).
+    func openPreviews(of project: String) {
+        guard let id = ids[project] else { return }
+        let base = store.snapshots["local"]?.project(id)?.base ?? "main"
+        store.openChanges(project: key("local", id), branch: base)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first { $0.title != "Integrations" && $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
     }
 
     func open(_ card: IntegrationCard) {
@@ -448,6 +461,7 @@ struct IntegrationCardView: View {
                     if card.usedIn.isEmpty { Text(card.summary) } else { Text(card.summary + " Used in ") + Text(card.usedIn.joined(separator: ", ")).bold() + Text(".") }
                 }
                 .font(.ui(size: 12)).foregroundStyle(Theme.text2).lineLimit(3).frame(maxWidth: .infinity, minHeight: 46, alignment: .topLeading)
+                if card.kind == IntegrationKind.deploy.rawValue { deployDetail }
                 HStack(spacing: 5) {
                     if newer {
                         chip("needs a newer conch", Theme.muted)
@@ -459,7 +473,7 @@ struct IntegrationCardView: View {
                     }
                     Spacer()
                     if !newer && !card.off && (card.kind == IntegrationKindInfo.importKind ? card.wanted : (!card.installed || card.wanted)) {
-                        Text(card.kind == IntegrationKindInfo.importKind ? "Import…" : card.installed ? "Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
+                        Text(card.kind == IntegrationKindInfo.importKind ? "Import…" : card.installed ? "Connect" : card.kind == IntegrationKind.deploy.rawValue ? "Install and Connect" : "Install").font(.ui(size: 11.5, weight: .semibold))
                             .foregroundStyle(card.wanted ? Color.white : Theme.text)
                             .padding(.horizontal, 10).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 5).fill(card.wanted ? Theme.accent : Theme.raise))
@@ -472,6 +486,27 @@ struct IntegrationCardView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// A deploy card, as the deploy mock has it: what its file can do,
+    /// the one host the key goes to, and what was found in a project here.
+    @ViewBuilder var deployDetail: some View {
+        if !card.operations.isEmpty {
+            HStack(spacing: 5) {
+                ForEach(card.operations, id: \.self) { op in
+                    Text(op).font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.raise))
+                }
+            }
+        }
+        if !card.host.isEmpty {
+            (Text("Your key goes only to ") + Text(card.host).font(.ui(size: 11.5, design: .monospaced)).foregroundColor(Theme.text))
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+        }
+        if let f = card.found {
+            Text("Found \(f) in this repo").font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+        }
     }
 
     var standingColor: Color {
@@ -496,6 +531,7 @@ func kindWord(_ kind: String) -> String {
     case "tickets": return "Tickets"
     case "notify": return "Notify"
     case "sandbox": return "Sandbox"
+    case "deploy": return "Deploy"
     case IntegrationKindInfo.importKind: return "Import"
     default: return kind
     }
@@ -604,7 +640,24 @@ struct IntegrationPage: View {
                                 if info.isSandbox, let cr = c.create, !cr.isEmpty { row("asks for", cr.joined(separator: ", ")) }
                             }
                         }
-                        if let help = info.keyHelp {
+                        if info.kind == IntegrationKind.deploy.rawValue {
+                            box("Where it shows") {
+                                let places = DeployPlaces.projects(info.name, uses: model.uses)
+                                if places.isEmpty {
+                                    Text(DeployPlaces.none(info)).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                                }
+                                ForEach(places, id: \.project) { p in
+                                    HStack(spacing: 8) {
+                                        Text(p.project).font(.ui(size: 12.5, weight: .medium))
+                                        Text("found " + p.why).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                                        Spacer()
+                                        Button("Open Its Previews") { model.openPreviews(of: p.project) }.controlSize(.small)
+                                            .help("Its base branch's git tab; any branch's tab has its own previews")
+                                    }
+                                }
+                            }
+                        }
+                        if let help = info.keyHelpShown {
                             box("Setting it up") {
                                 Text(help + " conch keeps it in your Keychain, never in a file.").font(.ui(size: 12)).foregroundStyle(Theme.text2)
                                 if let s = info.scopes, !s.isEmpty { Text("Scopes: " + s.joined(separator: " ")).font(.ui(size: 11.5)).foregroundStyle(Theme.muted) }
@@ -740,14 +793,26 @@ struct IntegrationInstallSheet: View {
                 }
                 SecureField(f.info.keySet ? "Set already — type to replace it" : "\(f.info.label) key ($\(f.info.keyEnv))", text: bind(\.key))
                     .textFieldStyle(.roundedBorder)
+                if f.info.kind == IntegrationKind.deploy.rawValue, let help = f.keyHelpWords {
+                    Text(help).font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
                 Text("🔑 Kept in the Keychain, or read from $\(f.info.keyEnv)").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+            }
+            if !f.can.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("This file can").font(.ui(size: 12, weight: .medium))
+                    ForEach(f.can, id: \.what) { d in
+                        Text("• " + d.what).font(.ui(size: 11.5)).foregroundStyle(Theme.text2)
+                    }
+                }
+                .padding(.leading, 30)
             }
             step(3, done: { if case .ok = f.check { return true }; return false }()) {
                 switch f.check {
-                case .idle: Text(f.checkIn == nil ? "Checked when a project uses it." : "One read-only call, against \((f.checkIn! as NSString).lastPathComponent).")
+                case .idle: Text(f.checkWords)
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 case .running: HStack { ProgressView().controlSize(.small); Text("Checking…").font(.ui(size: 12)) }
-                case .ok(let s): Text("Checked: " + s).font(.ui(size: 12)).foregroundStyle(Theme.ok).textSelection(.enabled)
+                case .ok(let s): Text("Checked: " + s).font(.ui(size: 12)).foregroundStyle(f.checkWarns ? Theme.warn : Theme.ok).textSelection(.enabled)
                 case .failed(let s): Text(s).font(.ui(size: 12)).foregroundStyle(Theme.err).textSelection(.enabled)
                 }
             }

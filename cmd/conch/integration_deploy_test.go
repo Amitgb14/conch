@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/Amitgb14/conch/internal/integration"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // deployEnv installs the registry's Vercel file (the test fixture) with
@@ -37,6 +38,10 @@ func deployEnv(t *testing.T) (repo string, calls func() []string) {
 		mu.Unlock()
 		switch r.Method + " " + r.URL.Path {
 		case "GET /v10/projects":
+			if strings.Contains(r.URL.Query().Get("repoUrl"), "elsewhere") {
+				io.WriteString(w, `{"projects": []}`)
+				return
+			}
 			io.WriteString(w, `{"projects": [{"id": "prj_9", "name": "app"}]}`)
 		case "GET /v7/deployments":
 			if r.URL.Query().Get("sha") == "fff" {
@@ -240,6 +245,17 @@ func TestIntegrationKeyChecksDeploy(t *testing.T) {
 			t.Fatalf("a check that changed something: %q", c)
 		}
 	}
+	// A repository Vercel has no project for: the key works and is kept,
+	// and the check says what it could not find; previews says it too.
+	exec.Command("git", "-C", repo, "remote", "set-url", "origin", "https://github.com/acme/elsewhere.git").Run()
+	out, _ = a4Capture(t, "vc-key\n", func() { err = runIntegration([]string{"key", "-stdin", "-cwd", repo, "vercel"}) })
+	if err != nil || !strings.Contains(out, "checked: the key works, but No Vercel project in your account is linked to github.com/acme/elsewhere") {
+		t.Fatalf("no project: %q %v", out, err)
+	}
+	t.Setenv("VERCEL_TOKEN", "vc-key")
+	if _, _, err := a4Out(t, func() error { return runIntegration([]string{"previews", "-cwd", repo}) }); err == nil || !strings.Contains(err.Error(), "team aren't supported yet") {
+		t.Fatalf("previews with no project: %v", err)
+	}
 	// Outside a project that uses it there is nothing to read.
 	out, _ = a4Capture(t, "vc-key\n", func() { err = runIntegration([]string{"key", "-stdin", "-cwd", t.TempDir(), "vercel"}) })
 	if !strings.Contains(out, "not checked") {
@@ -258,5 +274,21 @@ func TestAdaptKindDeploy(t *testing.T) {
 	_, _, err = a4Out(t, func() error { return runIntegration([]string{"adapt", "-kind", "deploys"}) })
 	if err == nil || !strings.Contains(err.Error(), "deploy, notify") {
 		t.Fatalf("a kind that is not one: %v", err)
+	}
+}
+
+// promote from an agent's pane is refused before anything is asked of
+// the service, -y or not: this machine's server says who is running.
+func TestIntegrationPromoteRefusedToAnAgent(t *testing.T) {
+	repo, calls := deployEnv(t)
+	a4Local(t, proto.CallerInfo{Scoped: true, Pane: "p3", Agent: "claude"}, nil, false)
+	_, _, err := a4Out(t, func() error { return runIntegration([]string{"promote", "-y", "-cwd", repo, "vercel", "dpl_1"}) })
+	if err == nil || !strings.Contains(err.Error(), "the claude agent in p3 may not release to production") {
+		t.Fatalf("from an agent: %v", err)
+	}
+	for _, c := range calls() {
+		if strings.HasPrefix(c, "POST") {
+			t.Fatalf("released from an agent's pane: %q", c)
+		}
 	}
 }

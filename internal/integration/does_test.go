@@ -59,7 +59,11 @@ func TestDoesDeploy(t *testing.T) {
 	if got := levels(Does(KindDeploy, []string{"previews"})); got != "yes no no no " {
 		t.Fatalf("previews only: %q", got)
 	}
-	if all[3].Where == "" || !strings.Contains(all[3].Where, "asks first") {
+	if all[3].Where == "" || !strings.Contains(all[3].Where, "asks first") || !strings.Contains(all[3].Where, "never an agent") {
 		t.Fatalf("promote: %+v", all[3])
+	}
+	// Where they show now that the branch is told.
+	if !strings.Contains(all[0].Where, "git tab") || !strings.Contains(all[1].Where, "branch's agent") || !strings.Contains(all[1].Where, "autopilot") {
+		t.Fatalf("previews and logs: %+v", all[:2])
 	}
 }

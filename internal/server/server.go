@@ -458,7 +458,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true, proto.MethodBranchPreviews: true, proto.MethodBranchDeployLog: true, proto.MethodBranchRedeploy: true, proto.MethodBranchPromote: true,
 	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodBranchStale: true, proto.MethodBranchPrune: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
@@ -1666,6 +1666,34 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.projects.branchCIRerun(lp)
+
+	case proto.MethodBranchPreviews:
+		lp, perr := decode[proto.BranchCILogParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchPreviews(lp)
+
+	case proto.MethodBranchDeployLog:
+		dp, perr := decode[proto.BranchDeployParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchDeployLog(dp)
+
+	case proto.MethodBranchRedeploy:
+		dp, perr := decode[proto.BranchDeployParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchRedeploy(dp)
+
+	case proto.MethodBranchPromote:
+		dp, perr := decode[proto.BranchDeployParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.projects.branchPromote(dp)
 
 	case proto.MethodBranchGit:
 		gp, perr := decode[proto.BranchGitParams](msg)

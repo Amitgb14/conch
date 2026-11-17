@@ -66,7 +66,7 @@ func TestScopeEveryMethod(t *testing.T) {
 			t.Errorf("%s on another's: %v", method, out)
 		}
 		in := s.inScope(caller, proto.Message{Method: method, Params: params(kind, "p1", mine.id)})
-		if kind == scopeServer || kind == scopeHome {
+		if kind == scopeServer || kind == scopeHome || kind == scopePerson {
 			if in == nil {
 				t.Errorf("%s: the server and the person's setup are never an agent's", method)
 			}
@@ -303,13 +303,13 @@ func TestScopeRemoteCaller(t *testing.T) {
 			out, in = map[string]any{"ids": []string{own, target}, "text": "x"}, map[string]any{"ids": []string{own, "p7"}, "text": "x"}
 		case scopeProjID, scopeProject:
 			continue // below
-		case scopeServer, scopeHome:
+		case scopeServer, scopeHome, scopePerson:
 			out = nil
 		}
 		if perr := s.inScope(far, msg(method, out)); perr == nil || perr.Code != proto.ErrOutOfScope {
 			t.Errorf("%s on another's: %v", method, perr)
 		}
-		if kind != scopeServer && kind != scopeHome {
+		if kind != scopeServer && kind != scopeHome && kind != scopePerson {
 			if perr := s.inScope(far, msg(method, in)); perr != nil {
 				t.Errorf("%s on its own: %v", method, perr)
 			}
@@ -554,5 +554,40 @@ func TestScopeSSHFiles(t *testing.T) {
 	// A person's own connection is never held.
 	if perr := s.inScope(&client{}, proto.Message{Method: proto.MethodFSList, Params: proto.Marshal(map[string]any{"ssh": "p2"})}); perr != nil {
 		t.Errorf("from outside the panes: %v", perr)
+	}
+}
+
+// Releasing a deploy to production is never an agent's — not even for
+// its own project — while building one again is, as re-running CI is.
+// Reading previews and logs is left open.
+func TestScopeDeploys(t *testing.T) {
+	s, _, work := shareFixture(t)
+	mine, err := s.projects.add(work, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	me := agentPane(t, s, "p1", "claude", work, "stty -echo; exec cat")
+	me.mu.Lock()
+	me.project = mine
+	me.mu.Unlock()
+	agent := &client{pane: "p1"}
+	params := proto.Marshal(proto.BranchDeployParams{ProjectID: mine.id, Branch: "main", Source: "vercel", Deploy: "dpl_1"})
+	perr := s.inScope(agent, proto.Message{Method: proto.MethodBranchPromote, Params: params})
+	if perr == nil || perr.Code != proto.ErrOutOfScope || !strings.Contains(perr.Message, "release a deploy to production: only the person may") {
+		t.Fatalf("promote from its own project: %v", perr)
+	}
+	far := &client{}
+	s.actFor(far, proto.ActForParams{ID: "laptop/p4@1", Agent: "codex"})
+	if perr := s.inScope(far, proto.Message{Method: proto.MethodBranchPromote, Params: params}); perr == nil {
+		t.Fatal("promote from an agent elsewhere")
+	}
+	for _, m := range []string{proto.MethodBranchRedeploy, proto.MethodBranchPreviews, proto.MethodBranchDeployLog} {
+		if perr := s.inScope(agent, proto.Message{Method: m, Params: params}); perr != nil {
+			t.Errorf("%s on its own project: %v", m, perr)
+		}
+	}
+	// The person — the TUI, the app, a terminal — may.
+	if perr := s.inScope(&client{}, proto.Message{Method: proto.MethodBranchPromote, Params: params}); perr != nil {
+		t.Errorf("promote from outside the panes: %v", perr)
 	}
 }

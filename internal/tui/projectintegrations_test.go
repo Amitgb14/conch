@@ -56,6 +56,7 @@ func TestProjectIntegrations(t *testing.T) {
 		"Tickets · Jira (RGW)  connected",
 		"Sandboxes · Daytona  set up",
 		"Notifications · none — Slack, Discord, ntfy…",
+		"Deploy previews · none — Vercel, Netlify…",
 		"☐ Save in .conch/integrations.toml for the team",
 	}
 	if got := labelsOf(mu.items); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -71,7 +72,7 @@ func TestProjectIntegrations(t *testing.T) {
 	saved := mock5
 	saved.Team = &proto.IntegrationTeam{Path: ".conch/integrations.toml", Names: []string{"circleci"}, State: "used"}
 	peer.setResult(proto.MethodIntegrationTeam, saved)
-	msg := mu.items[7].run(m)().(projectIntegrationsMsg)
+	msg := mu.items[8].run(m)().(projectIntegrationsMsg)
 	var tp proto.IntegrationTeamParams
 	sentParams(t, peer, proto.MethodIntegrationTeam, &tp)
 	if tp.Action != proto.TeamSave || strings.Join(tp.Names, ",") != "github,circleci,github-actions,jira" || tp.ProjectID != "r1" {
@@ -169,7 +170,7 @@ func TestProjectIntegrationsRefusals(t *testing.T) {
 	c, _ := a1FakeClient(t, proto.CapIntegrationDetect, proto.CapIntegrationTeam)
 	mach.c = c
 	items := m.projectIntegrationItems(mach.id, "r1", proto.IntegrationDetect{}, true)
-	if len(items) != 5 || !strings.HasSuffix(items[3].label, "Daytona, E2B, boat.dev…") {
+	if len(items) != 6 || !strings.HasSuffix(items[3].label, "Daytona, E2B, boat.dev…") || !strings.HasSuffix(items[5].label, "Vercel, Netlify…") {
 		t.Fatalf("empty: %q", labelsOf(items))
 	}
 	items[3].run(m)

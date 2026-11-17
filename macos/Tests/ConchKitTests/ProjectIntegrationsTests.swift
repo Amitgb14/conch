@@ -23,7 +23,7 @@ private func detect(_ s: String = detectJSON) throws -> IntegrationDetect {
 
 @Test func projectIntegrationRows() throws {
     let rows = ProjectIntegrations.rows(try detect())
-    #expect(rows.map(\.title) == ["Code host", "CI", "Tickets", "Sandboxes", "Notifications"])
+    #expect(rows.map(\.title) == ["Code host", "CI", "Tickets", "Sandboxes", "Notifications", "Deploy previews"])
 
     #expect(rows[0].names == "GitHub" && rows[0].detail == "from the github.com remote" && rows[0].chips == [.connected] && rows[0].actions.isEmpty)
 
@@ -40,6 +40,7 @@ private func detect(_ s: String = detectJSON) throws -> IntegrationDetect {
     let none = rows[4]
     #expect(none.names == "none" && none.detail == "Slack, Discord, ntfy…" && none.chips.isEmpty && none.actions == [.browse(.notify)])
     #expect(none.actions[0].words == "Browse…")
+    #expect(rows[5].title == "Deploy previews" && rows[5].detail == "Vercel, Netlify…" && rows[5].actions == [.browse(.deploy)])
 }
 
 @Test func projectIntegrationRowsWithNothing() throws {
@@ -47,7 +48,7 @@ private func detect(_ s: String = detectJSON) throws -> IntegrationDetect {
     // every kind is a row, each with Browse.
     for d in [nil, try detect(#"{"integrations":[]}"#)] {
         let rows = ProjectIntegrations.rows(d)
-        #expect(rows.count == 5)
+        #expect(rows.count == 6)
         #expect(rows.allSatisfy { $0.names == "none" && $0.actions.count == 1 })
         #expect(ProjectIntegrations.teamNames(d).isEmpty)
         #expect(!ProjectIntegrations.saved(d) && ProjectIntegrations.question(d) == nil)

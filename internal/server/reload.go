@@ -208,7 +208,7 @@ func (s *Server) adopt(st *reloadState) {
 		s.setLimits(l)
 	}
 	for _, rp := range st.Panes {
-		ptmx := os.NewFile(uintptr(rp.FD), "ptmx")
+		ptmx := pane.LowFD(os.NewFile(uintptr(rp.FD), "ptmx"))
 		p, err := pane.Adopt(rp.Snapshot, ptmx)
 		if err != nil {
 			log.Printf("reload: pane %s lost: %v", rp.Snapshot.ID, err)

@@ -31,6 +31,9 @@ var markers = []struct{ path, name, kind string }{
 	{"bitbucket-pipelines.yml", "bitbucket-pipelines", KindCI},
 	{"azure-pipelines.yml", "azure-pipelines", KindCI},
 	{".travis.yml", "travis-ci", KindCI},
+	{"vercel.json", "vercel", KindDeploy},
+	{".vercel/project.json", "vercel", KindDeploy},
+	{"netlify.toml", "netlify", KindDeploy},
 }
 
 // Detected lists the services the project at root uses: its code host from
@@ -79,12 +82,28 @@ func Detected(root string, rem Remote, checks []CheckRef, files []*File) []Detec
 	}
 	for _, c := range checks {
 		if src, _ := CheckSource(c.Name, c.URL, files); src != "" {
-			add(Detection{Name: src, Label: Label(src, files), Kind: KindCI, Why: "check " + c.Name,
+			add(Detection{Name: src, Label: Label(src, files), Kind: kindOf(src, files), Why: "check " + c.Name,
 				Installed: src == SourceActions || hasName(files, src)})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind == KindHost && out[j].Kind != KindHost })
 	return out
+}
+
+// kindOf is a check's source's kind: its file's, else a known deploy
+// service's, else CI.
+func kindOf(source string, files []*File) string {
+	for _, f := range files {
+		if f.Name == source {
+			return f.Kind
+		}
+	}
+	for _, m := range markers {
+		if m.name == source {
+			return m.kind
+		}
+	}
+	return KindCI
 }
 
 func hasName(files []*File, name string) bool {

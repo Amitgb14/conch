@@ -100,6 +100,9 @@ type Model struct {
 	// (integration.detect), by machine|project then service, for the
 	// branch view's card; a project asked about has an entry (cicard.go).
 	ciWhy map[string]map[string]string
+	// previews is each shown branch's deploy previews, by
+	// machine|project|branch (previews.go).
+	previews map[string]previewsEntry
 	// idleChecked is when the idle watch last looked at the sandboxes, and
 	// boxesAsked when the providers were last asked what they have.
 	idleChecked time.Time
@@ -789,7 +792,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cv == nil {
 					continue
 				}
-				cmds = append(cmds, m.detectCI(cv))
+				cmds = append(cmds, m.detectCI(cv), m.askPreviews(cv))
 				if !cv.receive(msg) {
 					continue
 				}
@@ -805,6 +808,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ciDetectMsg:
 		m.receiveCIDetect(msg)
+		return m, nil
+
+	case previewsMsg:
+		m.receivePreviews(msg)
 		return m, nil
 
 	case changesPollMsg:

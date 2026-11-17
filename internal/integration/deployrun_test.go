@@ -156,13 +156,15 @@ func TestVercelDeploys(t *testing.T) {
 	if last := s.all()[len(s.all())-1]; strings.Contains(last, "sha=") {
 		t.Fatalf("an empty head asked for: %s", last)
 	}
-	// A head with no deploy, a branch with none, a repository Vercel has
-	// no project for: nothing, and not an error.
-	for _, tg := range []Target{{Remote: app.Remote, Branch: "fix-login", Head: "fff"}, {Remote: app.Remote, Branch: "other"},
-		{Remote: Remote{Host: "github.com", Path: "acme/elsewhere"}, Branch: "fix-login"}} {
+	// A head with no deploy, a branch with none: nothing, and not an error.
+	for _, tg := range []Target{{Remote: app.Remote, Branch: "fix-login", Head: "fff"}, {Remote: app.Remote, Branch: "other"}} {
 		if deps, err := c.Previews(ctx, tg); err != nil || len(deps) != 0 {
 			t.Fatalf("%+v: %+v %v", tg, deps, err)
 		}
+	}
+	// A repository Vercel has no project for is said: nothing is linked.
+	if deps, err := c.Previews(ctx, Target{Remote: Remote{Host: "github.com", Path: "acme/elsewhere"}, Branch: "fix-login"}); !errors.Is(err, ErrUnlinked) || len(deps) != 0 {
+		t.Fatalf("no project: %+v %v", deps, err)
 	}
 
 	lg, err := c.FailedLog(ctx, app, "dpl_2")
@@ -298,12 +300,13 @@ func TestNetlifyDeploys(t *testing.T) {
 	if deps, err := c.Previews(ctx, noHead); err != nil || len(deps) != 2 || deps[1].State != "ready" || deps[1].Finished.Sub(deps[1].Started) != time.Minute {
 		t.Fatalf("no head: %+v %v", deps, err)
 	}
-	// A repository no site builds from, a head nothing was built at.
-	for _, tg := range []Target{{Remote: Remote{Host: "github.com", Path: "acme/nope"}, Branch: "fix-login"},
-		{Remote: app.Remote, Branch: "fix-login", Head: "fff"}} {
-		if deps, err := c.Previews(ctx, tg); err != nil || len(deps) != 0 {
-			t.Fatalf("%+v: %+v %v", tg, deps, err)
-		}
+	// A head nothing was built at is none — building soon, not missing;
+	// a repository no site builds from is said.
+	if deps, err := c.Previews(ctx, Target{Remote: app.Remote, Branch: "fix-login", Head: "fff"}); err != nil || len(deps) != 0 {
+		t.Fatalf("head with none: %+v %v", deps, err)
+	}
+	if _, err := c.Previews(ctx, Target{Remote: Remote{Host: "github.com", Path: "acme/nope"}, Branch: "fix-login"}); !errors.Is(err, ErrUnlinked) {
+		t.Fatalf("no site: %v", err)
 	}
 
 	lg, err := c.FailedLog(ctx, app, "d2")
