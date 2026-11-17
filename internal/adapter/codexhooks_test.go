@@ -1,6 +1,8 @@
 package adapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os/exec"
 	"strings"
 	"testing"
@@ -33,6 +35,34 @@ func TestCodexHookHashIsCodexs(t *testing.T) {
 		codexHookHash("Stop", "a", 5) == codexHookHash("Stop", "b", 5) ||
 		codexHookHash("Stop", "a", 5) == codexHookHash("Interrupt", "a", 5) {
 		t.Fatal("hash ignores part of the hook")
+	}
+}
+
+// A command with U+2028 or U+2029 in it (a path, say) is hashed as
+// serde_json writes it — the character itself, where Go's encoder writes
+// the escape   — or Codex trusts a different hook than conch says.
+// A command's own backslash before "u2028" stays the escaped backslash.
+func TestCodexHookHashLineSeparators(t *testing.T) {
+	want := func(ev, jsonCommand string) string {
+		s := `{"event_name":"` + codexEventKey(ev) + `","hooks":[{"async":false,"command":"` + jsonCommand + `","timeout":5,"type":"command"}]}`
+		sum := sha256.Sum256([]byte(s))
+		return "sha256:" + hex.EncodeToString(sum[:])
+	}
+	for _, c := range []struct{ command, asJSON string }{
+		{"/Users/a\u2028b/hook.sh", "/Users/a\u2028b/hook.sh"},
+		{"/x\u2029y\u2028z", "/x\u2029y\u2028z"},
+		{`/x\u2028`, `/x\\u2028`},        // six characters of its own, not U+2028
+		{"/x\\\u2028", "/x\\\\\u2028"},   // a backslash, then the character
+		{`a "b" & <c>`, `a \"b\" & <c>`}, // the rest as before
+		{"tab\there", `tab\there`},       // a two-byte escape
+		{"", ""},
+	} {
+		if got := codexHookHash("Stop", c.command, 5); got != want("Stop", c.asJSON) {
+			t.Errorf("%q: %s, serde_json's is %s", c.command, got, want("Stop", c.asJSON))
+		}
+	}
+	if unescapeLineSeparators(`trailing\`) != `trailing\` {
+		t.Error("a lone backslash at the end")
 	}
 }
 

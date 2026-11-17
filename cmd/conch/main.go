@@ -216,7 +216,7 @@ Usage:
                                 Actions, else the project's CI integration (CircleCI, GitLab CI),
                                 else its deploy's failed build; -source vercel [-deploy ID]
                                 sends that deploy's build
-  conch branch rerun-ci         re-run what failed in a branch's newest failed CI run
+  conch branch rerun-ci         re-run what failed in a branch's CI (every Actions workflow red at its head)
   conch review [ls | add | rm | send | reply] [-cwd DIR] [-branch B] ...
                                 comments on a branch's diff for its agent: list them, add
                                 FILE[:LINE] NOTE, rm ID, send [-agent A] them to it, or
@@ -274,6 +274,9 @@ Usage:
                                 says the hosts your key goes to first, checks the file's hash,
                                 asks for the key (kept in the Keychain on a Mac) and checks it here:
                                 a CI's runs, a tracker's tickets, a test message for a webhook
+  conch integration key [-stdin] [-base URL] [-cwd DIR] NAME
+                                give an integration, shipped or installed, its key: without echo,
+                                kept in the Keychain on a Mac (elsewhere it says the variable)
   conch integration ls [-json] [-cwd DIR]
                                 every integration here — built in, shipped, installed — its key's
                                 state and whether this project uses it

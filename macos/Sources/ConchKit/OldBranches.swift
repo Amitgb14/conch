@@ -21,11 +21,14 @@ public struct StaleBranch: Decodable, Equatable, Sendable, Identifiable {
     public var unmerged: Int?
     /// It can go without losing anything.
     public var suggested: Bool?
+    /// Why unmerged could not be counted (git failed, the listing ran out
+    /// of time): the server keeps such a branch, forced or not.
+    public var unknown: String?
 
     public var id: String { name }
 
     public init(name: String, committed: Date? = nil, upstream: String? = nil, base: Bool? = nil, worktree: String? = nil,
-                merged: Bool? = nil, unmerged: Int? = nil, suggested: Bool? = nil) {
+                merged: Bool? = nil, unmerged: Int? = nil, suggested: Bool? = nil, unknown: String? = nil) {
         self.name = name
         self.committed = committed
         self.upstream = upstream
@@ -33,6 +36,7 @@ public struct StaleBranch: Decodable, Equatable, Sendable, Identifiable {
         self.worktree = worktree
         self.merged = merged
         self.unmerged = unmerged
+        self.unknown = unknown
         self.suggested = suggested
     }
 }
@@ -102,7 +106,11 @@ public enum OldBranches {
 
     /// A branch that may be ticked at all: never the base, never one
     /// checked out, since the server refuses both.
-    public static func deletable(_ b: StaleBranch) -> Bool { b.base != true && b.worktree == nil }
+    public static func deletable(_ b: StaleBranch) -> Bool {
+        // A branch whose commits could not be counted is refused by the
+        // server anyway; offering it would only end in that refusal.
+        b.base != true && b.worktree == nil && (b.unknown ?? "").isEmpty
+    }
 
     /// Ticked when the list arrives: the ones that lose nothing. One that
     /// would lose commits is offered, unticked, for the person to choose.
@@ -114,6 +122,8 @@ public enum OldBranches {
     public static func state(_ b: StaleBranch) -> (text: String, warn: Bool) {
         if b.base == true { return ("base branch · kept", false) }
         if let wt = b.worktree { return ("checked out in \(abbreviate(wt)) · remove its worktree", false) }
+        // Not "nothing of its own": nobody knows what it has.
+        if let why = b.unknown, !why.isEmpty { return ("can't count its commits · kept (\(why))", true) }
         if let n = b.unmerged, n > 0 { return ("\(n) commit\(n == 1 ? "" : "s") not merged or pushed · lost if deleted", true) }
         if b.merged == true { return ("merged", false) }
         if let up = b.upstream, !up.isEmpty, b.gone != true { return ("pushed to \(up)", false) }

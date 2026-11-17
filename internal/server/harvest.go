@@ -356,7 +356,8 @@ func (pm *projectManager) discardBranch(dp proto.BranchDiscardParams) (proto.Bra
 
 // losses reads what removing the checkout at dir ("" for none) and deleting
 // branch ("" when detached) would lose: uncommitted files, and commits kept
-// nowhere else.
+// nowhere else. Commits it could not count are an error, never 0, since 0
+// is what lets the branch go; a branch that is not there loses none.
 func (p *project) losses(ctx context.Context, base, branch, dir string) (uncommitted []string, commits int, err error) {
 	if dir != "" {
 		files, err := gitx.StatusFiles(ctx, dir)
@@ -369,12 +370,20 @@ func (p *project) losses(ctx context.Context, base, branch, dir string) (uncommi
 	}
 	switch {
 	case branch != "":
-		commits = gitx.Unmerged(ctx, p.root, branch, base)
+		commits, err = gitx.Unmerged(ctx, p.root, branch, base)
+		if errors.Is(err, gitx.ErrNoBranch) {
+			return uncommitted, 0, nil
+		}
+		if err != nil {
+			return uncommitted, 0, fmt.Errorf("can't tell what deleting %s would lose: %w", branch, err)
+		}
 		if commits > 0 && p.mergedPR(ctx, branch) {
 			commits = 0
 		}
 	case dir != "":
-		commits = gitx.Unreachable(ctx, dir)
+		if commits, err = gitx.Unreachable(ctx, dir); err != nil {
+			return uncommitted, 0, fmt.Errorf("can't tell what removing %s would lose: %w", dir, err)
+		}
 	}
 	return uncommitted, commits, nil
 }

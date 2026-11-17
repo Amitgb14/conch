@@ -87,10 +87,23 @@ func (pm *projectManager) branchCIRerun(lp proto.BranchCILogParams) (proto.Branc
 	p.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	run, err := ghx.RerunFailed(ctx, p.root, lp.Branch, pr.Head)
+	runs, err := ghx.RerunFailed(ctx, p.root, lp.Branch, pr.Head)
 	switch {
+	case len(runs) > 0:
+		// Every workflow that failed at the head runs again, not only the
+		// newest; one that could not is said beside those that did.
+		out := proto.BranchCIRerun{Source: integration.SourceActions, Service: "GitHub Actions", Run: fmt.Sprint(runs[0].ID), URL: runs[0].URL}
+		if len(runs) > 1 {
+			for _, r := range runs {
+				out.Runs = append(out.Runs, fmt.Sprint(r.ID))
+			}
+		}
+		if err != nil {
+			out.Note = err.Error()
+		}
+		return out, nil
 	case err == nil:
-		return proto.BranchCIRerun{Source: integration.SourceActions, Service: "GitHub Actions", Run: fmt.Sprint(run.ID), URL: run.URL}, nil
+		return proto.BranchCIRerun{}, proto.Errorf(proto.ErrNotFound, "no failed GitHub Actions run on %s", lp.Branch)
 	case !errors.Is(err, ghx.ErrNoFailedRun):
 		return proto.BranchCIRerun{}, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}

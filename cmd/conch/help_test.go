@@ -68,6 +68,24 @@ func TestHelpForEveryCommand(t *testing.T) {
 	}
 }
 
+// Every subcommand `conch integration` names in its own usage is in the
+// full usage too, written out or after a "|": `integration key` was in
+// one and not the other.
+func TestIntegrationUsageInFullUsage(t *testing.T) {
+	full := usageOf("integration")
+	words := regexp.MustCompile(`(?m)^  conch integration ([a-z-]+)`).FindAllStringSubmatch(integrationUsage, -1)
+	if len(words) < 10 {
+		t.Fatalf("read %d subcommands from integration's usage", len(words))
+	}
+	for _, w := range words {
+		sub := w[1]
+		if !strings.Contains(full, "conch integration "+sub+" ") && !strings.Contains(full, "| "+sub) &&
+			!strings.HasSuffix(strings.TrimSpace(full), "conch integration "+sub) {
+			t.Errorf("conch integration %s is not in the full usage:\n%s", sub, full)
+		}
+	}
+}
+
 func TestUsageOf(t *testing.T) {
 	// conch -m MACHINE upload, and conch upload|download.
 	up := usageOf("upload")

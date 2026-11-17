@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -155,8 +156,22 @@ func (cv *changesView) rerunCI(m *Model) tea.Cmd {
 		if err := callCtx(c, proto.MethodBranchCIRerun, params, &out); err != nil {
 			return errMsg{err}
 		}
-		return flashMsg(fmt.Sprintf("re-running %s's failed jobs on %s (run %s)", firstNonEmpty(out.Service, out.Source), params.Branch, out.Run))
+		return flashMsg(rerunWords(out, params.Branch))
 	}
+}
+
+// rerunWords says what a re-run started: one run, or every run that
+// failed at the head, and any that could not be started.
+func rerunWords(out proto.BranchCIRerun, branch string) string {
+	runs := "run " + out.Run
+	if len(out.Runs) > 1 {
+		runs = "runs " + strings.Join(out.Runs, ", ")
+	}
+	s := fmt.Sprintf("re-running %s's failed jobs on %s (%s)", firstNonEmpty(out.Service, out.Source), branch, runs)
+	if out.Note != "" {
+		s += "; not re-run: " + out.Note
+	}
+	return s
 }
 
 // noRerunWords says why nothing that failed can be run again.

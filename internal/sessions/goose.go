@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -55,8 +54,7 @@ func goose(e Env, dirs []string) []Session {
 	}
 	var conds []string
 	for _, d := range dirs {
-		prefix := strings.TrimSuffix(d, "/") + "/"
-		conds = append(conds, "working_dir = "+sqlQuote(d), "substr(working_dir, 1, "+strconv.Itoa(len(prefix))+") = "+sqlQuote(prefix))
+		conds = append(conds, sqlUnder("working_dir", d)...)
 	}
 	// The first thing typed, for a session nobody named.
 	first := "(SELECT content_json FROM messages m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id LIMIT 1) AS first"

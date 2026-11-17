@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // ---- Claude Code ----
@@ -398,6 +399,16 @@ func opencode(e Env, dirs []string) []Session {
 
 func sqlQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
+// sqlUnder are the conditions for col being the folder dir or inside it.
+// SQLite's substr counts characters in text, not bytes, so the prefix's
+// length is counted in runes: in bytes, /Users/josé/ is one longer than
+// the substr it is compared with, and no session under it ever listed.
+func sqlUnder(col, dir string) []string {
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+	return []string{col + " = " + sqlQuote(dir),
+		"substr(" + col + ", 1, " + strconv.Itoa(utf8.RuneCountInString(prefix)) + ") = " + sqlQuote(prefix)}
+}
+
 // opencodeDB queries the sqlite store through the sqlite3 command; ok is
 // false when there is no database or no sqlite3 to read it.
 func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
@@ -410,8 +421,7 @@ func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
 	}
 	var conds []string
 	for _, d := range dirs {
-		prefix := strings.TrimSuffix(d, "/") + "/"
-		conds = append(conds, "directory = "+sqlQuote(d), "substr(directory, 1, "+strconv.Itoa(len(prefix))+") = "+sqlQuote(prefix))
+		conds = append(conds, sqlUnder("directory", d)...)
 	}
 	where := " FROM session WHERE parent_id IS NULL AND time_archived IS NULL AND (" +
 		strings.Join(conds, " OR ") + ") ORDER BY time_updated DESC LIMIT 200"

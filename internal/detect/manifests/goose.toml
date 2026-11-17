@@ -8,6 +8,9 @@
 # line under its spinner. Its window title is 🪿 and the folder.
 agent = "goose"
 process_names = ["goose"]
+# "Ctrl+C to interrupt", as the line under its spinner says: Esc is not
+# how a running Goose is stopped.
+interrupt = ["ctrl+c"]
 
 [[rules]]
 name = "approval"

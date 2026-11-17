@@ -5,8 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Amitgb14/conch/internal/sessions"
 )
 
 // importFixture is a small Conductor database: one conversation with
@@ -131,6 +134,80 @@ func TestImportErrors(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "no Conductor database") || !strings.Contains(err.Error(), "-db") {
 			t.Errorf("no database: %v", err)
 		}
+	}
+}
+
+// Two conversations of one title whose ids share their first eight
+// characters (Conductor's are time-ordered) went to one file, the second
+// overwriting the first. The oldest keeps the short name, so a file from
+// an import before the other existed is still the one replaced; the other
+// is named by its whole id, the same every time. One not written takes no
+// name, and the order they come in changes nothing.
+func TestImportedNamesDoNotCollide(t *testing.T) {
+	out := t.TempDir()
+	said := []sessions.Turn{{Role: "user", Text: "hi"}}
+	conv := func(id, title, repo string, turns []sessions.Turn) sessions.Imported {
+		return sessions.Imported{Session: sessions.Session{ID: id, Title: title, Agent: "claude"}, Repo: repo, Turns: turns}
+	}
+	all := []sessions.Imported{
+		conv("aaaaaaaa-2", "Fix it", "shop", said),
+		conv("aaaaaaaa-1", "Fix it", "shop", said),
+		conv("aaaaaaaa-0", "Fix it", "shop", nil),          // nothing said: never written
+		conv("aaaaaaaa-3", "Fix it", "other", said),        // another repository's folder
+		conv("aaaaaaaa-4", "Something else", "shop", said), // another title
+		conv("b", "", "", said),
+	}
+	files, err := writeImported(all, out, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, f := range files {
+		rel, _ := filepath.Rel(out, f.File)
+		got[f.ID] = rel
+	}
+	want := map[string]string{
+		"aaaaaaaa-1": "shop/fix-it-aaaaaaaa.md",
+		"aaaaaaaa-2": "shop/fix-it-aaaaaaaa-2.md",
+		"aaaaaaaa-3": "other/fix-it-aaaaaaaa.md",
+		"aaaaaaaa-4": "shop/something-else-aaaaaaaa.md",
+		"b":          "unknown-repository/conversation-b.md",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("files %v, want %v", got, want)
+	}
+	for id, name := range want {
+		if got[id] != name {
+			t.Errorf("%s: %q, want %q", id, got[id], name)
+		}
+	}
+	// Each its own file, none overwritten.
+	seen := map[string]bool{}
+	for _, f := range files {
+		if seen[f.File] {
+			t.Fatalf("two conversations in %s", f.File)
+		}
+		seen[f.File] = true
+		if _, err := os.Stat(f.File); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The other order names them the same.
+	rev := append([]sessions.Imported(nil), all...)
+	slices.Reverse(rev)
+	again, err := writeImported(rev, out, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range again {
+		if rel, _ := filepath.Rel(out, f.File); rel != want[f.ID] {
+			t.Errorf("reversed, %s: %q", f.ID, rel)
+		}
+	}
+	// One alone keeps the short name it always had.
+	alone, _ := writeImported(all[:1], out, true)
+	if rel, _ := filepath.Rel(out, alone[0].File); rel != "shop/fix-it-aaaaaaaa.md" {
+		t.Errorf("alone: %q", rel)
 	}
 }
 

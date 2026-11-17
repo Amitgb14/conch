@@ -150,7 +150,7 @@ func procProcs(ctx context.Context, proc string) ([]Proc, error) {
 			p.RSS = uint64(st.rssPages) * page
 		}
 		if !boot.IsZero() {
-			p.Started = boot.Add(time.Duration(st.start) * time.Second / clockTicks)
+			p.Started = boot.Add(ticksDuration(st.start, clockTicks))
 		}
 		if uid, ok := readFile(filepath.Join(proc, d.Name(), "status"), parseUid); ok {
 			p.User = userName(uid)

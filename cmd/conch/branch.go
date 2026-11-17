@@ -35,7 +35,8 @@ fix-ci reads the failure from GitHub Actions, or — when Actions has none —
 from the CI integration the project uses (conch integration ls), then from
 its deploy integration's newest failed build (Vercel, Netlify); with
 -source, that deploy integration's build (-deploy ID, else its newest
-failed one) is sent instead. rerun-ci re-runs what failed in the same run.
+failed one) is sent instead. rerun-ci re-runs what failed: on Actions,
+every workflow that failed at the branch's head.
 
 prune deletes local branches with no commit in the last N days (30), or the
 ones named among them; with -merged, every branch the base already has —
@@ -389,9 +390,16 @@ func branchRerunCI(args []string) error {
 	if err := callFor(c, proto.MethodBranchCIRerun, proto.BranchCILogParams{ProjectID: id, Branch: branch}, &rr, harvestWait); err != nil {
 		return err
 	}
-	fmt.Printf("re-running what failed in %s run %s on %s\n", firstSetStr(rr.Service, rr.Source), rr.Run, branch)
+	if len(rr.Runs) > 1 {
+		fmt.Printf("re-running what failed in %s runs %s on %s\n", firstSetStr(rr.Service, rr.Source), strings.Join(rr.Runs, ", "), branch)
+	} else {
+		fmt.Printf("re-running what failed in %s run %s on %s\n", firstSetStr(rr.Service, rr.Source), rr.Run, branch)
+	}
 	if rr.URL != "" {
 		fmt.Println(rr.URL)
+	}
+	if rr.Note != "" {
+		fmt.Fprintf(os.Stderr, "not re-run: %s\n", rr.Note)
 	}
 	return nil
 }
@@ -693,6 +701,11 @@ func branchPrune(args []string) error {
 			continue
 		case b.Worktree != "":
 			fmt.Printf("keeping %s (%s): checked out in %s; conch worktree clean removes it with its worktree\n", b.Name, age, b.Worktree)
+			continue
+		case b.Unknown != "":
+			// Not knowing what it would lose is not losing nothing, and
+			// -force is no answer to it.
+			fmt.Printf("keeping %s (%s): %s\n", b.Name, age, b.Unknown)
 			continue
 		case b.Unmerged > 0 && !*force:
 			fmt.Printf("keeping %s (%s): %d commit%s not merged or pushed (-force to delete it anyway)\n", b.Name, age, b.Unmerged, plural(b.Unmerged))
