@@ -79,6 +79,41 @@ private let scanJSON = """
     #expect(f.doneWords == "Nothing was imported." && f.folder == nil)
 }
 
+// As a conch that writes Claude conversations as Claude Code sessions
+// prints `conch import conductor -json`: a session has no "file", a Codex
+// one is a handoff and says why, and one carried on in conch since is left
+// alone. An older app required "file" and could read none of this.
+private let resumedJSON = """
+[{"id":"a1","title":"Fix the build","agent":"Claude Code","repo":"shop","branch":"fix/build","workspace":"/w/victoria","dir":"/w/victoria","messages":12,"status":"written","agentName":"claude","session":"5b0c","sessionFile":"/h/.claude/projects/-w-victoria/5b0c.jsonl","where":"workspace","imported":true},
+ {"id":"c3","title":"Docs","agent":"Codex","repo":"site","branch":"docs","dir":"/src/site","messages":4,"status":"markdown","why":"Codex conversations come over as Markdown for now","agentName":"codex","file":"/c/imports/conductor/site/docs-c3.md","where":"repository","imported":true},
+ {"id":"e5","title":"Kept going","agent":"Claude Code","repo":"shop","branch":"b","dir":"/w/b","messages":9,"status":"carried-on","why":"its session changed since","agentName":"claude","session":"77aa","where":"workspace","imported":true},
+ {"id":"d4","title":"Gone","agent":"Claude Code","messages":2,"status":"markdown","why":"Claude Code cannot resume it: no folder to resume it in","agentName":"claude","file":"/c/imports/conductor/unknown-repository/gone-d4.md","where":"gone","imported":true}]
+"""
+
+@Test func importResumable() throws {
+    var f = ImportFlow(name: "conductor", label: "Conductor", reader: "conductor")
+    f.scanned(Data(resumedJSON.utf8))
+    #expect(f.phase == .choosing && f.conversations.count == 4)
+    f.imported(Data(resumedJSON.utf8))
+    #expect(f.phase == .done)
+    let r = Dictionary(uniqueKeysWithValues: f.results.map { ($0.id, $0) })
+    #expect(r["a1"]!.resumes && r["a1"]!.how == "resumes in Claude Code" && r["a1"]!.file == nil)
+    #expect(r["a1"]!.resumeArguments == ["new", "-agent", "claude", "-cwd", "/w/victoria", "--", "--resume", "5b0c"])
+    #expect(ImportFlow.prompt(r["a1"]!) == nil)
+    #expect(!r["c3"]!.resumes && r["c3"]!.how == "as Markdown: Codex conversations come over as Markdown for now")
+    #expect(r["c3"]!.resumeArguments == nil && ImportFlow.prompt(r["c3"]!) != nil)
+    #expect(r["e5"]!.resumes && r["e5"]!.how.hasPrefix("left alone") && r["e5"]!.resumeArguments != nil)
+    #expect(r["d4"]!.resumeArguments == nil)
+    // The folder is the first handoff's, past the session that has none.
+    #expect(f.folder == "/c/imports/conductor")
+    #expect(f.doneWords == "Imported 4 conversations from Conductor. 2 resume in their agents; 2 as Markdown.")
+    f.imported(Data(#"[{"id":"a1","title":"t","agent":"Claude Code","dir":"/w","messages":1,"status":"written","agentName":"claude","session":"s"}]"#.utf8))
+    #expect(f.doneWords == "Imported 1 conversation from Conductor. Each resumes in its agent." && f.folder == nil)
+    // No session id, or nowhere to run it: nothing to resume.
+    #expect(ImportConversation(id: "x", title: "", agent: "Claude Code", messages: 1, status: "written", session: "s").resumeArguments == nil)
+    #expect(ImportConversation(id: "x", title: "", agent: "Claude Code", dir: "/w", messages: 1, status: "written").resumeArguments == nil)
+}
+
 // The registry's Conductor entry, as `conch integration search -json` and
 // `info -json` print it.
 @Test func importCardsAndPage() throws {

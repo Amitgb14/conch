@@ -258,6 +258,19 @@ final class IntegrationsModel: ObservableObject {
         }
     }
 
+    /// Resume, on an imported conversation: starts its agent on it in a
+    /// pane of the local server, which the window shows like any other.
+    func resumeImported(_ args: [String]) {
+        guard let bin = store.binary else { return }
+        Task { @MainActor in
+            do {
+                _ = try await runConch(bin, args)
+            } catch {
+                importing?.phase = .failed("\(error)")
+            }
+        }
+    }
+
     func startInstall(_ info: IntegrationInfo) {
         var f = IntegrationInstallFlow(info: info)
         f.checkIn = uses.first(where: { $0.value.contains { $0.name == info.name } }).flatMap { paths[$0.key] }

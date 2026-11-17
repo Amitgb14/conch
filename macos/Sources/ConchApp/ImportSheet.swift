@@ -14,7 +14,7 @@ struct ImportSheet: View {
         let f = model.importing ?? ImportFlow(name: "", label: "", reader: "")
         return VStack(alignment: .leading, spacing: 12) {
             Text(f.phase == .done ? "Imported from \(f.label)" : "Import from \(f.label)").font(.ui(size: 15, weight: .semibold))
-            Text("Each conversation becomes a handoff an agent can read and carry on from. Read from a copy on this Mac; nothing is sent anywhere.")
+            Text("A Claude conversation becomes a Claude Code session you resume; anything else, a handoff an agent reads and carries on from. Read from a copy on this Mac; nothing is sent anywhere.")
                 .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             Divider()
             switch f.phase {
@@ -82,6 +82,7 @@ struct ImportSheet: View {
                 Text(c.title.isEmpty ? "Untitled" : c.title).font(.ui(size: 12.5)).lineLimit(1)
                 Text("\(c.agent) · \(c.messages) message\(c.messages == 1 ? "" : "s") · \(c.state)" + (c.imported == true ? " · imported already" : ""))
                     .font(.ui(size: 11)).foregroundStyle(c.where == "gone" ? Theme.warn : Theme.muted).lineLimit(1)
+                Text(c.how).font(.ui(size: 11)).foregroundStyle(c.resumes ? Theme.ok : Theme.muted).lineLimit(1).help(c.how)
             }
         }
         .padding(.leading, 18)
@@ -97,22 +98,28 @@ struct ImportSheet: View {
                             Text(c.where == "gone" ? "!" : "✓").foregroundStyle(c.where == "gone" ? Theme.warn : Theme.ok).frame(width: 12)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(c.title.isEmpty ? "Untitled" : c.title).font(.ui(size: 12.5)).lineLimit(1)
-                                Text(c.where == "gone" ? "its worktree and repository are not on this Mac: carry it on anywhere" : (c.dir ?? ""))
+                                Text(c.where == "gone" ? "its worktree and repository are not on this Mac: carry it on anywhere" : c.how)
                                     .font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                             }
                             Spacer()
-                            Button("Copy Prompt") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(ImportFlow.prompt(c), forType: .string)
+                            if let args = c.resumeArguments {
+                                Button("Resume") { model.resumeImported(args) }
+                                    .help("Start \(c.agent) in \(c.dir ?? "its folder") on this conversation")
                             }
-                            .help("Copy what to tell an agent started there: read the handoff and carry on")
-                            Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: c.file)]) }
+                            if let prompt = ImportFlow.prompt(c), let file = c.file {
+                                Button("Copy Prompt") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(prompt, forType: .string)
+                                }
+                                .help("Copy what to tell an agent started there: read the handoff and carry on")
+                                Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file)]) }
+                            }
                         }
                     }
                 }
             }
             .frame(minHeight: 120, maxHeight: 320)
-            Text("To carry one on, start an agent on its branch and paste the prompt, or drag the file into its prompt. Importing again later replaces the same files.")
+            Text("Resume starts the agent on the conversation; it is in the branch's sessions too. For a handoff, start an agent on its branch and paste the prompt, or drag the file into its prompt. Importing again later adds only what is new.")
                 .font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
     }
