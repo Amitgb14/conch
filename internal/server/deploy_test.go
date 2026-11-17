@@ -366,3 +366,20 @@ func TestBranchPreviewsChosenForAProject(t *testing.T) {
 		t.Fatalf("detect: %+v", d.Integrations)
 	}
 }
+
+// A Vercel check on any of the project's pull requests says the project
+// deploys there — what integration.detect says, and what locks the
+// project sheet's switch on — so a branch with no pull request of its own
+// (main, where Vercel linked the repository from its side) still lists
+// its history rather than nothing.
+func TestBranchPreviewsAnotherPRsCheck(t *testing.T) {
+	r := newDeployRig(t, true)
+	t.Setenv("VERCEL_TOKEN", vercelKey)
+	var got proto.BranchPreviews
+	if err := r.call(proto.MethodBranchPreviews, proto.BranchCILogParams{ProjectID: r.proj.ID, Branch: "release"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Integrations) != 1 || got.Integrations[0].Source != "vercel" || got.Integrations[0].Head != "" || got.Integrations[0].Why != "" {
+		t.Fatalf("another PR's check: %+v", got)
+	}
+}
