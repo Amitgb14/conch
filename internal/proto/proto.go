@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapBranchPreviews,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -327,6 +327,11 @@ const CapIntegrationDetect = "integration.detect.v1"
 // person has said to use it, written when they tick "Save … for the team",
 // and the Tickets and Sandboxes rows of a project's integrations.
 const CapIntegrationTeam = "integration.team.v1"
+
+// CapBranchPreviews is a branch's deploy previews (Vercel, Netlify):
+// branch.previews, branch.deploy_log, branch.redeploy and branch.promote,
+// and branch.ci_log falling back to a failed build when no CI failed.
+const CapBranchPreviews = "branch.previews.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -719,6 +724,14 @@ const (
 	// MethodIntegrationTeam answers a repository's team file, or writes
 	// or removes it (CapIntegrationTeam).
 	MethodIntegrationTeam = "integration.team"
+	// A branch's deploy previews, through the deploy integrations its
+	// project uses (CapBranchPreviews): its deploys, what a failed build
+	// printed, building one again, and releasing one to production —
+	// which no agent may ask for.
+	MethodBranchPreviews  = "branch.previews"
+	MethodBranchDeployLog = "branch.deploy_log"
+	MethodBranchRedeploy  = "branch.redeploy"
+	MethodBranchPromote   = "branch.promote"
 	// Leftover worktrees: list what each would lose, and remove them.
 	MethodWorktreeStale   = "worktree.stale"
 	MethodWorktreeCleanup = "worktree.cleanup"
@@ -2200,6 +2213,74 @@ type IntegrationTeamParams struct {
 	ProjectID string   `json:"project_id"`
 	Action    string   `json:"action"`
 	Names     []string `json:"names,omitempty"`
+}
+
+// BranchDeployParams names a branch and, for one deploy, the deploy
+// integration (Source, its file's name) and the deploy's id. For
+// branch.deploy_log with no Deploy, the newest failed build at the pull
+// request's head is read.
+type BranchDeployParams struct {
+	ProjectID string `json:"project_id"`
+	Branch    string `json:"branch"`
+	Source    string `json:"source,omitempty"`
+	Deploy    string `json:"deploy,omitempty"`
+}
+
+// BranchPreviews is a branch's deploys, by the deploy integration that
+// knows them: every one its project uses, or whose check its pull
+// request has.
+type BranchPreviews struct {
+	Integrations []DeploySource `json:"integrations"`
+}
+
+// DeploySource is one deploy integration's word on a branch. Why says
+// what is wrong when it could not be asked (no key, no remote, the
+// service failed); Redeploy and Promote say whether its file can.
+type DeploySource struct {
+	Source   string         `json:"source"`
+	Service  string         `json:"service"`
+	Why      string         `json:"why,omitempty"`
+	Deploys  []DeployInfo   `json:"deploys,omitempty"`
+	Redeploy bool           `json:"redeploy,omitempty"`
+	Promote  bool           `json:"promote,omitempty"`
+	Release  *DeployRelease `json:"release,omitempty"`
+}
+
+// DeployRelease is how releasing to production is said for a service:
+// the verb on its button, what happens, and a line under it.
+type DeployRelease struct {
+	Verb string `json:"verb"`
+	What string `json:"what"`
+	Note string `json:"note,omitempty"`
+}
+
+// DeployInfo is one deploy, newest first in its list. State is ready,
+// building, failed or canceled; Subject is the commit's subject, read
+// from the checkout; AtHead, that it built the pull request's head.
+// Promotable: it may be released to production now; NotPromotable, why
+// a ready one may not (Netlify's deploy previews).
+type DeployInfo struct {
+	ID            string     `json:"id"`
+	Name          string     `json:"name,omitempty"`
+	State         string     `json:"state"`
+	URL           string     `json:"url,omitempty"`
+	Environment   string     `json:"environment,omitempty"`
+	Commit        string     `json:"commit,omitempty"`
+	Subject       string     `json:"subject,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	Inspect       string     `json:"inspect,omitempty"`
+	Started       *time.Time `json:"started,omitempty"`
+	Finished      *time.Time `json:"finished,omitempty"`
+	AtHead        bool       `json:"at_head,omitempty"`
+	Promotable    bool       `json:"promotable,omitempty"`
+	NotPromotable string     `json:"not_promotable,omitempty"`
+}
+
+// BranchDeployDone says what was asked of a deploy integration.
+type BranchDeployDone struct {
+	Source  string `json:"source"`
+	Service string `json:"service"`
+	Deploy  string `json:"deploy"`
 }
 
 // BranchCIRerun says what was re-run.

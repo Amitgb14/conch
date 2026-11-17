@@ -62,6 +62,9 @@ type projectManager struct {
 	// group task a second after a restart said its group had no repo).
 	// nil when nothing is being read.
 	loading chan struct{}
+
+	// previews keeps each branch's deploys for a moment (deploy.go).
+	previews previewCache
 }
 
 // projectsLoadWait is how long a call waits for the catalog at start.

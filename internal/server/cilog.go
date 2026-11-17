@@ -24,7 +24,8 @@ const maxCILog = 64 << 10
 // hand it to the branch's agent: GitHub Actions through gh on this
 // machine — the one with the checkout and the login — and, when Actions
 // has no failure, the CI integrations the project uses (CircleCI, GitLab
-// CI, …), with their keys from this server's environment or Keychain.
+// CI, …), then its deploy integrations' failed builds (deploy.go), with
+// their keys from this server's environment or Keychain.
 func (pm *projectManager) ciLog(lp proto.BranchCILogParams) (proto.BranchCILog, *proto.Error) {
 	p, perr := pm.gitProject(lp.ProjectID)
 	if perr != nil {
@@ -54,6 +55,14 @@ func (pm *projectManager) ciLog(lp proto.BranchCILogParams) (proto.BranchCILog, 
 		}
 		notes = append(notes, note)
 	}
+	// No CI failed: a failed build of a deploy integration (Vercel,
+	// Netlify) is the branch's failure as much, and its agent is sent it
+	// the same way — by the autopilot, fix-ci and the review queue alike.
+	lg, more := pm.deployFailure(ctx, p, lp.Branch, pr)
+	if more == nil {
+		return lg, nil
+	}
+	notes = append(notes, more...)
 	notes = append(notes, unreadable(pr.Runs)...)
 	if len(notes) == 1 {
 		// Nothing else to say: today's message, word for word.
