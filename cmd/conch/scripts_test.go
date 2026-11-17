@@ -55,6 +55,7 @@ func TestCaptureScriptsParse(t *testing.T) {
 	scripts := []string{
 		"web/scripts/tui-capture/capture.sh", "web/scripts/tui-capture/run.sh", "web/scripts/tui-capture/stage.sh",
 		"web/scripts/phone-capture/capture.sh",
+		"web/scripts/import-demo/capture.sh", "web/scripts/import-demo/stage.sh",
 	}
 	for _, s := range scripts {
 		out, err := exec.Command("bash", "-n", filepath.Join(root, s)).CombinedOutput()
@@ -75,12 +76,51 @@ func TestCaptureScriptsParse(t *testing.T) {
 			t.Errorf("web/scripts/phone-capture/capture.sh lost %q, which is what keeps it off your own conch", want)
 		}
 	}
+	// The import demo is published, so it must never read the developer's
+	// own Conductor or reach their own conch: it runs in a scratch HOME on
+	// a socket of its own, with an environment its recorder makes from
+	// nothing, and its Conductor database is the made-up one.
+	demo, err := os.ReadFile(filepath.Join(root, "web/scripts/import-demo/capture.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"unset CONCH_SOCKET CONCH_PANE_ID CONCH_HOME",
+		"IE=(env -i HOME=$H CONCH_HOME=$H/.config/conch CONCH_SOCKET=/tmp/conch-import-demo.sock",
+		`bash "$T/stage.sh" "$H"`,
+		"server stop", // the scratch server it starts is stopped again
+	} {
+		if !strings.Contains(string(demo), want) {
+			t.Errorf("web/scripts/import-demo/capture.sh lost %q, which is what keeps it off your own conch and Conductor", want)
+		}
+	}
+	stage, err := os.ReadFile(filepath.Join(root, "web/scripts/import-demo/stage.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stage), `fakeconductor.py" "$H"`) || strings.Contains(string(stage), "com.conductor.app") {
+		t.Error("web/scripts/import-demo/stage.sh must write the made-up Conductor database, never copy a real one")
+	}
+	rec, err := os.ReadFile(filepath.Join(root, "web/scripts/import-demo/record.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"CONCH_SOCKET": SOCKET`, `SOCKET = "/tmp/conch-import-demo.sock"`, "env=e,"} {
+		if !strings.Contains(string(rec), want) {
+			t.Errorf("web/scripts/import-demo/record.py lost %q: its commands must run in the environment it makes, not this one", want)
+		}
+	}
+	if strings.Contains(string(rec), "os.environ") {
+		t.Error("web/scripts/import-demo/record.py reads os.environ: an inherited CONCH_SOCKET would reach the developer's own conch")
+	}
+
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("no python3: the capture scripts' python is not checked here")
 	}
 	for _, s := range []string{"web/scripts/phone-capture/shots.py", "web/scripts/tui-capture/topng.py",
-		"web/scripts/tui-capture/drive.py", "web/scripts/tui-capture/tojson.py"} {
+		"web/scripts/tui-capture/drive.py", "web/scripts/tui-capture/tojson.py",
+		"web/scripts/import-demo/record.py", "web/scripts/import-demo/fakeconductor.py"} {
 		cmd := exec.Command(python, "-m", "py_compile", filepath.Join(root, s))
 		// Keep the compiled files out of the repository.
 		cmd.Env = append(os.Environ(), "PYTHONPYCACHEPREFIX="+t.TempDir())

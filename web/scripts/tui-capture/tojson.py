@@ -77,10 +77,13 @@ def convert(frame, styles):
     return out
 
 
-names = sys.argv[1:]
-styles = {json.dumps({}): 0}
-frames = {n: convert(json.load(open(f"{T}/frames/{n}.json")), styles) for n in names}
-table = [None] * len(styles)
-for k, v in styles.items():
-    table[v] = json.loads(k)
-json.dump({"cols": 140, "styles": table, "frames": frames}, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+# The import demo (web/scripts/import-demo/record.py) borrows convert, so
+# the conversion runs only when this is the script.
+if __name__ == "__main__":
+    names = sys.argv[1:]
+    styles = {json.dumps({}): 0}
+    frames = {n: convert(json.load(open(f"{T}/frames/{n}.json")), styles) for n in names}
+    table = [None] * len(styles)
+    for k, v in styles.items():
+        table[v] = json.loads(k)
+    json.dump({"cols": 140, "styles": table, "frames": frames}, sys.stdout, ensure_ascii=False, separators=(",", ":"))
