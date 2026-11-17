@@ -1,4 +1,4 @@
-# The software factory in conch
+# The AI software factory in conch
 
 Status: proposal, 2026-11-17. Research: [software-factory-research.md](software-factory-research.md).
 Mocks: https://claude.ai/artifact/TZ1b6Bas1wkXurw6CSbram (floor, run, inbox, line).
@@ -114,6 +114,29 @@ When a reviewer flags the same kind of thing in several runs, the run page
 offers to turn it into a line in the project's instructions or a check —
 conch already writes instructions and skills for every agent
 (`agentsetup/sync.go`).
+
+## A real example: #230 down the line
+
+Issue [#230](https://github.com/Amitgb14/conch/issues/230), *An agent in a
+checkout mid-rebase shows under no branch*, went from issue to merge
+through conch as it is today. The table shows what really happened, then
+what the line would have done and recorded. Times are PST.
+
+| Stage | What happened (real) | What the line adds |
+| --- | --- | --- |
+| Intake | Opened Sat 14 Nov 12:24, after seeing pane p569 in `~/ceph` listed with no branch | Labelled `conch`: intake starts run R-230 and stores it in `factory.json` |
+| Triage | None | A triage agent reads it in a clean checkout and says *ready, M*. The issue already names the cause (`worktreeFor` reads `git worktree list`; `gitx.RebasingBranch` exists but only `branchgit.go` uses it) |
+| Spec | The issue body **is** a spec: *What done means* (six points, plus five test cases) and *Out of scope* | At L4 the run waits for one click: *Approve and build*. The spec is copied into the run, so the reviewer and validator read the same text |
+| Build | An agent on `conch/rebasing-branch`, one commit (`11907ae1`), Sun 15 Nov 13:15: 16 files, +466 −26, six test files | Same. The run records the pane, the commit and the agent's cost. Today the cost is lost when the pane closes |
+| Check | Not recorded: whatever check ran before the push left nothing on the PR | `[verify] commands` on the exact commit, with up to 3 fixes, kept in the run |
+| Review | **None.** PR #245 merged with 0 reviews | A codex round is a gate. It is given the spec and the diff. Something real for it to judge: the commit also changed `worktree.stale` and `branch.prune`, which the spec never asked for. The run marks that *beyond the spec* so a person or reviewer looks at it on purpose |
+| Validate | Only the issue's own test list, which the builder read and then wrote the tests for | Holdout scenarios kept out of the builder's checkout, e.g.: a rebase whose `head-name` names a branch deleted since; a branch with a `/` in its name; an older Conch.app against this server (`worktree.operation.v1` missing) shows no error; the tree row `main · rebasing · 3 conflicts` at 40 columns; `git rebase --abort` returns the pane to `main` on the next refresh |
+| Merge | PR opened 13:15, CI green (Linux, macOS, swift, settings-ui, build), merged 13:49, 34 min later. Issue closed a second after the merge | The merge queue: rebase on master, check again, merge. Overlaps with other runs are shown while it builds |
+| Learn | Not done | The reviewer's *beyond the spec* finding, if it recurs, becomes a line in AGENTS.md: "a fix that changes another command's behaviour says so in the PR" |
+
+Numbers the run page would show: **25 h 25 m** issue to merge, of which
+**34 m** PR to merge; 0 review rounds (the gap this design closes); and a
+cost per stage that conch does not record today.
 
 ## Conch.app
 
