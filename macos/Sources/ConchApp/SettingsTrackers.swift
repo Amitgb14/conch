@@ -40,7 +40,7 @@ struct TrackerStatus: View {
                 }
                 .padding(.horizontal, 9).padding(.vertical, 3)
                 .background(Capsule().fill(color(badge.tone).opacity(0.12)))
-                Button("Test again") { model.checkTrackers() }.controlSize(.small).disabled(model.trackersChecking)
+                Button("Test Again") { model.checkTrackers() }.controlSize(.small).disabled(model.trackersChecking)
             }
             .padding(.horizontal, 16).padding(.vertical, 11)
             if let s = state {

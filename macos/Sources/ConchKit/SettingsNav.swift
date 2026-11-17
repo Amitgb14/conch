@@ -8,7 +8,7 @@ public enum SettingsNav {
     /// own folders, not to config.toml, so they are a section of the app's
     /// rather than of the schema.
     public static let skills = "skills"
-    public static let skillsTitle = "Skills & MCP servers"
+    public static let skillsTitle = "Skills & MCP Servers"
     public static let skillsIcon = "book-open"
 
     /// Sections drawn on another's page: Checks & autopilot ([verify]) is

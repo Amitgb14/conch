@@ -126,7 +126,7 @@ struct CloudCard: View {
                     .font(.ui(size: 12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 switch store.cloudLogin {
                 case .idle, .done:
-                    Button("Sign in…") { store.cloudSignIn() }.controlSize(.regular)
+                    Button("Sign In…") { store.cloudSignIn() }.controlSize(.regular)
                 case .starting:
                     HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Asking for a code…").font(.ui(size: 12)) }
                 case .code(let code, let link):
@@ -138,7 +138,7 @@ struct CloudCard: View {
                             Text("Waiting for you to approve it…").font(.ui(size: 12)).foregroundStyle(Theme.muted)
                             Spacer()
                             if let l = link, let u = URL(string: l) {
-                                Button("Open the page again") { NSWorkspace.shared.open(u) }.buttonStyle(.link)
+                                Button("Open the Page Again") { NSWorkspace.shared.open(u) }.buttonStyle(.link)
                             }
                             Button("Cancel") { store.cloudCancelSignIn() }
                         }
@@ -146,7 +146,7 @@ struct CloudCard: View {
                 case .failed(let why):
                     VStack(alignment: .leading, spacing: 8) {
                         Text(why).font(.ui(size: 12)).foregroundStyle(Theme.err).fixedSize(horizontal: false, vertical: true)
-                        Button("Try again") { store.cloudLogin = .idle; store.cloudSignIn() }
+                        Button("Try Again") { store.cloudLogin = .idle; store.cloudSignIn() }
                     }
                 }
             }
@@ -155,7 +155,7 @@ struct CloudCard: View {
     }
 
     private var account: some View {
-        SettingsCard(title: "Account", trailing: AnyView(Button("Sign out") { store.cloudSignOut() }.controlSize(.small))) {
+        SettingsCard(title: "Account", trailing: AnyView(Button("Sign Out") { store.cloudSignOut() }.controlSize(.small))) {
             VStack(alignment: .leading, spacing: 10) {
                 if let me = store.cloud?.me {
                     HStack(spacing: 8) {

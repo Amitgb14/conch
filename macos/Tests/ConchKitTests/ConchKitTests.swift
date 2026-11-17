@@ -695,7 +695,7 @@ final class FakeServer: @unchecked Sendable {
     #expect(withPR.menu(for: feat, machine: "box").contains { $0.action == .openURL("https://github.com/o/r/pull/7") })
     pp.branches = pp.branches?.map { b in var b = b; b.pr?.url = "file:///etc/passwd"; return b }
     withPR.upsert(pp)
-    #expect(!withPR.menu(for: feat, machine: "box").contains { $0.title == "Open pull request" })
+    #expect(!withPR.menu(for: feat, machine: "box").contains { $0.title == "Open Pull Request" })
 
     // A project, a machine, the Workspace row.
     let pm = s.menu(for: api, machine: "box")

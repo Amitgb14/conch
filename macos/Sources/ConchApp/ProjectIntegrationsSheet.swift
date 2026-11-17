@@ -143,7 +143,7 @@ struct ProjectIntegrationsView: View {
             }
             HStack {
                 if model.can("integration.team.v1") {
-                    Toggle("Save in .conch/integrations.toml for the team", isOn: Binding(
+                    Toggle("Save in .conch/integrations.toml for the Team", isOn: Binding(
                         get: { ProjectIntegrations.saved(model.detect) },
                         set: { on in model.team(on ? "save" : "remove", names: on ? ProjectIntegrations.teamNames(model.detect) : nil) }))
                         .toggleStyle(.checkbox).font(.ui(size: 12))
