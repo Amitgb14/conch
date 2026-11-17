@@ -80,11 +80,20 @@ come from the files and my reading of the docs, not from a live call.
   markers, so `integration.detect` names them with kind `deploy`.
 - **Protocol** (`branch.previews.v1`): `branch.previews` (each deploy
   integration the project uses or whose check its PR has, with the
-  branch's deploys newest first — state, link, inspect, error, commit and
-  its subject from the checkout, `at_head`, `promotable` /
-  `not_promotable`, and the service's release words), `branch.deploy_log`
+  deploys at the PR's head — or, with no PR, the branch's history —
+  newest first: state, link, inspect, error, commit and its subject from
+  the checkout's git, `promotable` / `not_promotable`; per integration
+  `head`, `build_log`, `missing` and the release words with `rebuilds`),
+  `branch.deploy_log`
   (a build's log as a `BranchCILog`), `branch.redeploy`, `branch.promote`.
   Kept 15 s per branch; an answer that could not ask (no key) is not kept.
+- **Nothing found** (`ErrUnlinked`, `integration.Unlinked`): a named
+  lookup step before the last that picks nothing (Vercel's project,
+  Netlify's site) is told apart from "no deploys yet" and said in the
+  service's terms; `conch integration key/install` says the key works
+  and is kept, `previews` fails with it.
+- **Build log** (`HasBuildLog`): Netlify's failed_log reads previews' own
+  error field, so it is not a build log; the app shows the error.
 - **Release rules** (`integration.ReleaseOf`, `CanRelease`): only a ready
   deploy; Netlify will not publish a deploy preview or branch deploy;
   Vercel rebuilds for production, Netlify publishes as built. The server
