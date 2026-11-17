@@ -39,6 +39,7 @@ struct ChangesView: View {
         .clipShape(RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).stroke(store.layout.focused == model.key ? Theme.accent : Theme.line))
         .sheet(item: $model.releasing) { c in DeployReleaseSheet(model: model, confirm: c) }
+        .task(id: model.key) { await model.keepPreviews() }
     }
 
     var header: some View {
@@ -350,6 +351,9 @@ struct GitOverview: View {
                 if let card = model.ciCard { CICardView(model: model, card: card) }
                 if let pr = info?.pr { pullRequest(pr) }
                 if let p = model.shownPreviews, Deploys.hasAny(p) { DeployPreviewsCard(model: model, previews: p) }
+                if let f = model.previewsFailure {
+                    Text(f).font(.ui(size: 11.5)).foregroundStyle(Theme.warn).textSelection(.enabled)
+                }
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
                         GitCard(title: "Recent commits", trailing: AnyView(Button("All in Graph →") { model.chosen = .graph }.controlSize(.small))) {
