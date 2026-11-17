@@ -55,7 +55,7 @@ func TestCaptureScriptsParse(t *testing.T) {
 	scripts := []string{
 		"web/scripts/tui-capture/capture.sh", "web/scripts/tui-capture/run.sh", "web/scripts/tui-capture/stage.sh",
 		"web/scripts/phone-capture/capture.sh",
-		"web/scripts/import-demo/capture.sh", "web/scripts/import-demo/stage.sh",
+		"web/scripts/import-demo/capture.sh", "web/scripts/import-demo/stage.sh", "web/scripts/import-demo/app.sh",
 	}
 	for _, s := range scripts {
 		out, err := exec.Command("bash", "-n", filepath.Join(root, s)).CombinedOutput()
@@ -92,6 +92,25 @@ func TestCaptureScriptsParse(t *testing.T) {
 	} {
 		if !strings.Contains(string(demo), want) {
 			t.Errorf("web/scripts/import-demo/capture.sh lost %q, which is what keeps it off your own conch and Conductor", want)
+		}
+	}
+	// Its Conch.app copy is a second app on somebody's desktop beside their
+	// own: settings of its own (a bundle id that is not dev.conch.mac),
+	// behind their windows and without the global scratch key, and a
+	// scratch server reached through CONCH_SOCKET and CONCH_BIN.
+	app, err := os.ReadFile(filepath.Join(root, "web/scripts/import-demo/app.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"unset CONCH_SOCKET CONCH_PANE_ID CONCH_HOME",
+		"IE=(env -i HOME=$H CONCH_HOME=$H/.config/conch CONCH_SOCKET=$SOCK CONCH_BIN=$WORK/bin/conch",
+		"ID=dev.conch.importdemo", `Set :CFBundleIdentifier $ID`,
+		`"${IE[@]}" "$APP/Contents/MacOS/Conch" -background YES`,
+		`bash "$T/stage.sh" "$H"`, "server stop",
+	} {
+		if !strings.Contains(string(app), want) {
+			t.Errorf("web/scripts/import-demo/app.sh lost %q, which is what keeps its Conch.app off your own", want)
 		}
 	}
 	stage, err := os.ReadFile(filepath.Join(root, "web/scripts/import-demo/stage.sh"))

@@ -78,6 +78,44 @@ test, in its own commit:
 - `conch integration info` printed an empty `What it can do:` line for an
   import, which has no operations.
 
+## Recording it in Conch.app
+
+To show the move in the desktop app instead of the terminal, record it yourself:
+
+```sh
+web/scripts/import-demo/app.sh               # or SLOW_SCAN=2 … to keep "Reading…" on screen long enough to film
+```
+
+The script does four things:
+
+1. It builds a demo copy of Conch.app from this checkout into
+   `$TMPDIR/conch-import-demo-app`, with its own bundle id
+   (`dev.conch.importdemo`). That copy keeps its own settings, separate
+   from your Conch.app's.
+2. It stages the same made-up Conductor data and repository in a scratch
+   HOME.
+3. It starts a scratch server on `/tmp/conch-import-demo-app.sock` and adds
+   *storefront* as a project.
+4. It opens the copy behind your windows with `-background YES`, so the
+   copy doesn't take your global scratch key.
+
+Then:
+
+1. Click the copy in the Dock.
+2. Start ⌘⇧5.
+3. Open **Window → Integrations**, choose **Import** in the sidebar, and
+   press **Import…** on the Conductor card.
+4. In the sheet, the conversations are listed by workspace, and the
+   marketing-site one says its worktree and repository are gone. Untick
+   some and press **Import**.
+5. On the done screen, use **Copy Prompt** and **Show**.
+
+Quit the copy with ⌘Q, or press ctrl-c in the terminal: the script stops
+the copy and its server.
+
+Checked on 2026-11-17: the copy launched, its only socket connected to the
+scratch server, and nothing connected to `~/.config/conch/conch.sock`.
+
 ## What could not be captured
 
 **Conch.app's Integrations → Import card and Import sheet were not
@@ -95,9 +133,8 @@ things blocked it:
 Granting either permission is for you to decide, so I did not ask for it
 mid-run. The other route was adding a snapshot mode to the shipping app,
 where it draws its own windows to PNGs. That is app code written only for
-screenshots, so I left it out. If you grant Accessibility and Screen
-Recording to the terminal that runs conch, the Mac app shots can be added to
-this script.
+screenshots, so I left it out. So `app.sh` above sets the app up for
+you to record by hand instead.
 
 Also not shown: a real agent reading the handoff. A real Claude Code would
 have called a model, so the demo stops at the agent being started in the
