@@ -293,7 +293,7 @@ func TestGuideExampleIsClean(t *testing.T) {
 		}
 		kinds[f.Kind] = true
 	}
-	for _, k := range []string{KindCI, KindTickets, KindNotify} {
+	for _, k := range []string{KindCI, KindTickets, KindNotify, KindDeploy} {
 		if !kinds[k] {
 			t.Errorf("no example of kind %s in the guide", k)
 		}

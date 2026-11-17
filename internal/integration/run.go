@@ -82,7 +82,7 @@ type Conn struct {
 // that host: a key pointing anywhere else is refused, not sent to.
 func (f *File) Connect(key, user, base string) (*Conn, error) {
 	switch f.Kind {
-	case KindCI, KindTickets, KindNotify:
+	case KindCI, KindTickets, KindNotify, KindDeploy:
 	default:
 		return nil, fmt.Errorf("%s: kind %q is not one this conch runs", f.Name, f.Kind)
 	}
@@ -129,26 +129,40 @@ func (c *Conn) Stats(ctx context.Context, t Target) ([]Run, error) {
 }
 
 func (c *Conn) runs(ctx context.Context, t Target, op RunsOp) ([]Run, error) {
-	vals := c.vars(t, "")
-	last, err := c.steps(ctx, "runs", op.Operation, vals)
-	if errors.Is(err, ErrNothing) {
-		return nil, nil
-	}
-	if err != nil {
+	runs := []Run{}
+	err := c.items(ctx, t, "runs", op, func(r Run, _ func(string) string) {
+		runs = append(runs, r)
+	})
+	if err != nil || len(runs) == 0 {
 		return nil, err
 	}
-	var items []any
-	switch x := Pick(last, op.Items, nil).(type) {
-	case nil:
-	case []any:
-		items = x
-	default:
-		items = []any{x}
+	return runs, nil
+}
+
+// items runs a list operation and hands each item with an id to read,
+// as a run (its state mapped through [states]) and a way to read the
+// item's other fields.
+func (c *Conn) items(ctx context.Context, t Target, what string, op RunsOp, read func(Run, func(string) string)) error {
+	vals := c.vars(t, "")
+	last, err := c.steps(ctx, what, op.Operation, vals)
+	if errors.Is(err, ErrNothing) {
+		return nil
 	}
-	runs := make([]Run, 0, len(items))
-	for _, it := range items {
+	if err != nil {
+		return err
+	}
+	// A state the file does not know is not a verdict.
+	unknown := "pending"
+	if c.f.Kind == KindDeploy {
+		unknown = "building"
+	}
+	defer delete(vals, "item")
+	for _, it := range listOf(Pick(last, op.Items, nil)) {
 		vals["item"] = it
 		field := func(spec string) string {
+			if spec == "" {
+				return ""
+			}
 			if strings.Contains(spec, "{") {
 				return fillText(spec, vals)
 			}
@@ -161,25 +175,33 @@ func (c *Conn) runs(ctx context.Context, t Target, op RunsOp) ([]Run, error) {
 		}
 		r.State = c.f.States[r.Raw]
 		if r.State == "" {
-			r.State = "pending" // a state the file does not know is not a verdict
+			r.State = unknown
 		}
-		runs = append(runs, r)
+		read(r, field)
 	}
-	delete(vals, "item")
-	return runs, nil
+	return nil
 }
 
-// FailedLog is what run printed where it failed.
+// FailedLog is what run printed where it failed: a CI run's, or for a
+// deploy file a deploy's build.
 func (c *Conn) FailedLog(ctx context.Context, t Target, run string) (Log, error) {
 	if !c.f.FailedLog.Has() {
 		return Log{}, fmt.Errorf("%s: its file cannot read a log", c.f.DisplayName())
+	}
+	if strings.TrimSpace(run) == "" {
+		return Log{}, fmt.Errorf("no %s given", c.idVar())
 	}
 	vals := c.vars(t, run)
 	last, err := c.steps(ctx, "failed_log", c.f.FailedLog.Operation, vals)
 	if err != nil {
 		return Log{}, err
 	}
-	return Log{Job: fillText(c.f.FailedLog.Job, vals), Text: Text(last)}, nil
+	text := Text(last)
+	if strings.TrimSpace(text) == "" {
+		// Netlify's error message, when a deploy has none: nothing to send.
+		return Log{}, fmt.Errorf("%w: %s %s left no log", ErrNothing, c.idVar(), run)
+	}
+	return Log{Job: fillText(c.f.FailedLog.Job, vals), Text: text}, nil
 }
 
 // Rerun re-runs what failed in run.
@@ -194,6 +216,15 @@ func (c *Conn) Rerun(ctx context.Context, t Target, run string) error {
 	return err
 }
 
+// idVar is the placeholder an operation on one of the file's things has:
+// {run} for a CI run, {deploy} for a deploy.
+func (c *Conn) idVar() string {
+	if c.f.Kind == KindDeploy {
+		return "deploy"
+	}
+	return "run"
+}
+
 // vars are the placeholders every call has.
 func (c *Conn) vars(t Target, run string) map[string]any {
 	path := t.Remote.Path
@@ -205,8 +236,8 @@ func (c *Conn) vars(t Target, run string) map[string]any {
 	for k, x := range parts {
 		v[k] = x
 	}
-	if run != "" {
-		v["run"] = run
+	if run = strings.TrimSpace(run); run != "" {
+		v[c.idVar()] = run
 	}
 	return v
 }
