@@ -220,3 +220,32 @@ func TestImportStateFiles(t *testing.T) {
 		t.Errorf("saving left %v", m)
 	}
 }
+
+// ImportPlan says what an import would do and writes nothing.
+func TestImportPlan(t *testing.T) {
+	env, cfg := importEnv(t)
+	dir := t.TempDir()
+	im := conductorConversation(dir)
+	st := ImportState{}
+	if p := ImportPlan(im, st); p.Status != ImportWritten || p.Path != "" {
+		t.Errorf("not imported: %+v", p)
+	}
+	if p := ImportPlan(Imported{}, st); p.Status != ImportSkipped {
+		t.Errorf("nothing said: %+v", p)
+	}
+	if m, _ := filepath.Glob(filepath.Join(cfg, "projects", "*", "*")); len(m) > 0 {
+		t.Errorf("planning wrote %v", m)
+	}
+	out := ImportResumable(context.Background(), im, ClaudeWriter{Env: env}, st, time.Now())
+	if p := ImportPlan(im, st); p.Status != ImportUnchanged || p.Path != out.Path {
+		t.Errorf("imported: %+v", p)
+	}
+	im.Messages = append(im.Messages, msg("m13", "user", "more", 30))
+	before, _ := os.ReadFile(out.Path)
+	if p := ImportPlan(im, st); p.Status != ImportAdded || p.Added != 1 {
+		t.Errorf("one new: %+v", p)
+	}
+	if after, _ := os.ReadFile(out.Path); !bytes.Equal(before, after) {
+		t.Error("planning wrote to the session")
+	}
+}

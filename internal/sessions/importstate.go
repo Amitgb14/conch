@@ -85,6 +85,47 @@ type ImportOutcome struct {
 	Err            error  // for ImportFailed
 }
 
+// ImportPlan says what ImportResumable would do with im, writing
+// nothing: ImportWritten for a conversation not imported before (which
+// may yet fail), ImportAdded with the messages it would add, or why it
+// would leave it alone. Cheap: no session is read, only stat'ed.
+func ImportPlan(im Imported, st ImportState) ImportOutcome {
+	if len(im.Messages) == 0 {
+		return ImportOutcome{Status: ImportSkipped, Why: "nothing was said in it"}
+	}
+	rec, seen := st[im.Session.ID]
+	if !seen {
+		return ImportOutcome{Status: ImportWritten}
+	}
+	out := ImportOutcome{AgentSessionID: rec.AgentSessionID, Path: rec.Path}
+	fi, err := os.Stat(rec.Path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		out.Status, out.Why = ImportCarriedOn, "its session was removed since it was imported; it is not written again"
+		return out
+	case err != nil:
+		out.Status, out.Err = ImportFailed, err
+		return out
+	}
+	cut := -1
+	for i, m := range im.Messages {
+		if m.ID == rec.LastMessageID {
+			cut = i + 1
+		}
+	}
+	switch {
+	case cut == len(im.Messages):
+		out.Status = ImportUnchanged
+	case fi.Size() != rec.Size:
+		out.Status, out.Why = ImportCarriedOn, "carried on in conch since it was imported, so what Conductor has since is left out"
+	case cut < 0:
+		out.Status, out.Err = ImportFailed, fmt.Errorf("the last message imported (%s) is no longer in the conversation", rec.LastMessageID)
+	default:
+		out.Status, out.Added = ImportAdded, len(im.Messages)-cut
+	}
+	return out
+}
+
 // ImportResumable makes im a session of its agent through w, or brings
 // the one an earlier import wrote up to date, and records it in st:
 //
@@ -97,12 +138,13 @@ type ImportOutcome struct {
 // A conversation that cannot be written comes back ImportFailed, and st
 // is left as it was for it.
 func ImportResumable(ctx context.Context, im Imported, w SessionWriter, st ImportState, now time.Time) ImportOutcome {
-	if len(im.Messages) == 0 {
-		return ImportOutcome{Status: ImportSkipped, Why: "nothing was said in it"}
+	out := ImportPlan(im, st)
+	last := ""
+	if n := len(im.Messages); n > 0 {
+		last = im.Messages[n-1].ID
 	}
-	last := im.Messages[len(im.Messages)-1].ID
-	rec, seen := st[im.Session.ID]
-	if !seen {
+	switch out.Status {
+	case ImportWritten:
 		id, path, err := w.Write(ctx, im, im.Session.Dir)
 		if err != nil {
 			return ImportOutcome{Status: ImportFailed, Err: err}
@@ -113,25 +155,11 @@ func ImportResumable(ctx context.Context, im Imported, w SessionWriter, st Impor
 		}
 		st[im.Session.ID] = ImportRecord{Agent: w.Agent(), AgentSessionID: id, Path: path, LastMessageID: last, ImportedAt: now, Size: fi.Size()}
 		return ImportOutcome{Status: ImportWritten, AgentSessionID: id, Path: path}
-	}
-	out := ImportOutcome{AgentSessionID: rec.AgentSessionID, Path: rec.Path}
-	fi, err := os.Stat(rec.Path)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		out.Status, out.Why = ImportCarriedOn, "its session was removed since it was imported; it is not written again"
-		return out
-	case err != nil:
-		out.Status, out.Err = ImportFailed, err
+	case ImportAdded:
+	default:
 		return out
 	}
-	if rec.LastMessageID == last {
-		out.Status = ImportUnchanged
-		return out
-	}
-	if fi.Size() != rec.Size {
-		out.Status, out.Why = ImportCarriedOn, "carried on in conch since it was imported, so what Conductor has since is left out"
-		return out
-	}
+	rec := st[im.Session.ID]
 	ap, ok := w.(SessionAppender)
 	if !ok {
 		out.Status, out.Err = ImportFailed, fmt.Errorf("conch cannot add to a %s session it wrote", AgentName(w.Agent()))
@@ -142,12 +170,13 @@ func ImportResumable(ctx context.Context, im Imported, w SessionWriter, st Impor
 		out.Status, out.Err = ImportFailed, err
 		return out
 	}
-	if fi, err = os.Stat(rec.Path); err != nil {
+	fi, err := os.Stat(rec.Path)
+	if err != nil {
 		out.Status, out.Err = ImportFailed, err
 		return out
 	}
 	rec.LastMessageID, rec.Size, rec.ImportedAt = last, fi.Size(), now
 	st[im.Session.ID] = rec
-	out.Status, out.Added = ImportAdded, added
+	out.Added = added
 	return out
 }
