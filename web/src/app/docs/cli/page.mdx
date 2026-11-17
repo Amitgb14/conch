@@ -67,6 +67,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch server` | run the server in the foreground |
 | `conch server stop` | stop the server and every pane it owns |
 | `conch server reload [-binary PATH]` | run a new conch build without stopping panes; `-binary` picks the program to reload into (default: the server's own executable path) |
+| `conch server heap [-json]` | the server's memory now, and its heap profile and goroutines written to `debug/` in conch's folder (yours alone; the newest ten kept) without stopping anything. Two taken apart, `go tool pprof -top -sample_index=inuse_space -base OLDER NEWER` shows what holds what was added |
 
 ### Panes
 
