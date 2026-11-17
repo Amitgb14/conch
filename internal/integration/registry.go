@@ -395,6 +395,40 @@ type Record struct {
 	// Capabilities are the registry's for the file as it came
 	// (CapabilitiesOf); nil for one installed before it said.
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	// Key is which of the person's variables the file read; nil for one
+	// installed before it was kept (KeyChange reads the file instead).
+	Key *KeyVars `json:"key,omitempty"`
+}
+
+// KeyVars are the variables a file sends: the key, and a user name for
+// one that signs in with both.
+type KeyVars struct {
+	KeyEnv  string `json:"key_env"`
+	UserEnv string `json:"user_env,omitempty"`
+}
+
+// KeyChange says whether e reads the key, or the user name, from another
+// variable than the version installed as rec did, and which it read. A
+// new version that keeps its hosts but reads $GITHUB_TOKEN sends that
+// token to them as surely as new hosts would send the key elsewhere, so
+// it is asked about as they are. A record from before Key was kept is
+// compared with the installed file, which an update only replaces when
+// it is as it came; a file that cannot be read is a change, said as
+// unknown (known false).
+func KeyChange(name string, rec Record, e Entry) (was KeyVars, known, changed bool) {
+	now := KeyVars{KeyEnv: e.KeyEnv, UserEnv: e.UserEnv}
+	if rec.Key != nil {
+		return *rec.Key, true, *rec.Key != now
+	}
+	if CheckName(name) != nil {
+		return KeyVars{}, false, true
+	}
+	f, _, err := Read(filepath.Join(Dir(), name+".toml"))
+	if err != nil {
+		return KeyVars{}, false, true
+	}
+	was = KeyVars{KeyEnv: f.KeyEnv, UserEnv: f.Auth.UserEnv}
+	return was, true, was != now
 }
 
 func recordsPath() string { return filepath.Join(Dir(), "registry.json") }
@@ -515,7 +549,7 @@ func Install(e Entry, data []byte) error {
 	}
 	sum := sha256.Sum256(data)
 	recs[e.Name] = Record{Registry: e.Registry, Version: e.Version, SHA256: hex.EncodeToString(sum[:]), Hosts: e.Hosts,
-		Installed: time.Now().UTC().Format("2006-01-02"), Capabilities: e.Capabilities}
+		Installed: time.Now().UTC().Format("2006-01-02"), Capabilities: e.Capabilities, Key: &KeyVars{KeyEnv: e.KeyEnv, UserEnv: e.UserEnv}}
 	Forget()
 	return writeRecords(recs)
 }

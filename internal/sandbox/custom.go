@@ -651,7 +651,8 @@ type Custom struct {
 // NewCustom returns the provider f describes, with its key from cfg or
 // the environment.
 func NewCustom(f *ProviderFile, cfg config.ProviderCfg) *Custom {
-	c := &Custom{f: f, hc: &http.Client{Timeout: time.Minute}}
+	c := &Custom{f: f, hc: keyClient()}
+	cfg = formerEnv(f, cfg)
 	keyEnv := firstSet(cfg.APIKeyEnv, f.KeyEnv)
 	c.key = strings.TrimSpace(cfg.APIKey)
 	if c.key == "" {
@@ -671,6 +672,23 @@ func NewCustom(f *ProviderFile, cfg config.ProviderCfg) *Custom {
 		c.size, c.image = c.image, ""
 	}
 	return c
+}
+
+// keyClient is the client for calls that carry the key. Go drops only
+// Authorization and cookies on a redirect to another host, and a file may
+// send the key in a header of its own (auth_header), so a redirect may not
+// leave the host and port, or the scheme, the call went to.
+func keyClient() *http.Client {
+	return &http.Client{Timeout: time.Minute, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		first := via[0].URL
+		if r.URL.Host != first.Host || r.URL.Scheme != first.Scheme {
+			return fmt.Errorf("redirected to %s://%s, away from %s://%s, which is not followed with the key", r.URL.Scheme, r.URL.Host, first.Scheme, first.Host)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}}
 }
 
 // File is the description it was made from.
