@@ -287,6 +287,9 @@ Usage:
                                 the end of a deploy's build log, or build it again
   conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY
                                 release a deploy to production; asks first, -y to skip asking
+  conch integration use [-off] [-cwd DIR] NAME
+                                say a project deploys there when its files don't (Vercel linking
+                                the repository from its own dashboard); kept in config.toml
   conch integration adapt [-kind ci] [-agent A] [-name N] [-json] [-cwd DIR] URL...
                                 an agent in a pane of its own reads a service's API docs and writes
                                 NAME.toml; conch checks it, then reads the service with your key once

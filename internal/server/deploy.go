@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -49,12 +50,16 @@ func (pm *projectManager) deployFor(ctx context.Context, p *project, branch stri
 	rem, _ := integration.ParseRemote(gitx.RemoteURL(ctx, p.root))
 	files := integration.Cached()
 	var bases map[string]string
+	var chosen []string
 	if cfg, err := config.Load(); err == nil {
 		bases = cfg.Integrations.Base
+		chosen = cfg.Integrations.Chosen(p.snapshot().Name, p.root)
 	}
 	use := map[string]*integration.File{}
 	for _, f := range files {
-		if f.Kind == integration.KindDeploy && f.Uses(p.root, rem) {
+		// Its files or remote show it, or the person said so: a service
+		// that links the repository from its own side leaves no file.
+		if f.Kind == integration.KindDeploy && (f.Uses(p.root, rem) || slices.Contains(chosen, f.Name)) {
 			use[f.Name] = f
 		}
 	}
@@ -152,11 +157,16 @@ func (c *previewCache) put(key string, out proto.BranchPreviews) {
 	c.kept[key] = previewsKept{at: time.Now(), out: out}
 }
 
-// forget drops a branch's answer, after something was asked of one of
-// its deploys: the next look should see the new build.
-func (c *previewCache) forget(key string) {
+// forgetBranch drops a branch's answers (keys starting with prefix),
+// after something was asked of one of its deploys: the next look should
+// see the new build.
+func (c *previewCache) forgetBranch(prefix string) {
 	c.mu.Lock()
-	delete(c.kept, key)
+	for k := range c.kept {
+		if strings.HasPrefix(k, prefix) {
+			delete(c.kept, k)
+		}
+	}
 	c.mu.Unlock()
 }
 
@@ -167,6 +177,10 @@ func (pm *projectManager) branchPreviews(lp proto.BranchCILogParams) (proto.Bran
 		return proto.BranchPreviews{}, perr
 	}
 	key := p.id + "|" + lp.Branch + "|" + pr.Head
+	if cfg, err := config.Load(); err == nil {
+		// Turning a project's switch is seen at once, not after the moment.
+		key += "|" + strings.Join(cfg.Integrations.Chosen(p.snapshot().Name, p.root), ",")
+	}
 	if out, ok := pm.previews.get(key); ok {
 		return out, nil
 	}
@@ -431,7 +445,7 @@ func (pm *projectManager) deployAct(dp proto.BranchDeployParams, what string) (p
 		}
 		err = d.conn.Promote(ctx, d.target, dp.Deploy)
 	}
-	pm.previews.forget(p.id + "|" + dp.Branch + "|" + pr.Head)
+	pm.previews.forgetBranch(p.id + "|" + dp.Branch + "|")
 	if err != nil {
 		return done, proto.Errorf(proto.ErrBadRequest, "%s: %v", d.label(), err)
 	}

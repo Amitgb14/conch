@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -289,6 +290,55 @@ func TestIntegrationPromoteRefusedToAnAgent(t *testing.T) {
 	for _, c := range calls() {
 		if strings.HasPrefix(c, "POST") {
 			t.Fatalf("released from an agent's pane: %q", c)
+		}
+	}
+}
+
+// use turns a deploy integration on for a project whose files do not show
+// it, kept in config.toml by the project's folder — from a worktree too —
+// and off again; it refuses what is not a deploy integration here, and a
+// folder that is no project.
+func TestIntegrationUse(t *testing.T) {
+	repo, _ := deployEnv(t)
+	os.Remove(filepath.Join(repo, "vercel.json"))
+	run := func(args ...string) (string, error) {
+		out, _, err := a4Out(t, func() error { return runIntegration(append([]string{"use"}, args...)) })
+		return out, err
+	}
+	out, err := run("-cwd", repo, "vercel")
+	root, _ := filepath.EvalSymlinks(repo)
+	if err != nil || !strings.Contains(out, "Vercel is used for "+filepath.Base(repo)) {
+		t.Fatalf("on: %q %v", out, err)
+	}
+	cfg, _ := config.Load()
+	if got := cfg.Integrations.Chosen("", root); strings.Join(got, ",") != "vercel" {
+		t.Fatalf("kept %v (%v)", got, cfg.Integrations.Projects)
+	}
+	// From a worktree of it: the same project.
+	wt := filepath.Join(t.TempDir(), "wt")
+	for _, a := range [][]string{{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x"}, {"worktree", "add", "-q", "-b", "feat", wt}} {
+		if b, err := exec.Command("git", append([]string{"-C", repo}, a...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", a, b)
+		}
+	}
+	if out, err := run("-off", "-cwd", wt, "vercel"); err != nil || !strings.Contains(out, "Vercel is no longer used for") {
+		t.Fatalf("off from a worktree: %q %v", out, err)
+	}
+	cfg, _ = config.Load()
+	if len(cfg.Integrations.Projects) != 0 {
+		t.Fatalf("left %v", cfg.Integrations.Projects)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-cwd", repo, "circleci"}, "circleci is not a deploy integration"},
+		{[]string{"-cwd", repo, "nowhere"}, "no integration nowhere here"},
+		{[]string{"-cwd", t.TempDir(), "vercel"}, "not in a git checkout"},
+		{[]string{"-cwd", repo}, "usage"},
+	} {
+		if _, err := run(tc.args...); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%v: %v, want %q", tc.args, err, tc.want)
 		}
 	}
 }

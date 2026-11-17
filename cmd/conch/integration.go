@@ -57,6 +57,8 @@ const integrationUsage = `Usage:
                                                  build a deploy again
   conch integration promote [-y] [-cwd DIR] [NAME] DEPLOY
                                                  release a deploy to production; asks first
+  conch integration use [-off] [-cwd DIR] NAME   say a project deploys there when its files don't
+                                                 (Vercel linking the repository from its dashboard)
   conch integration icons [-json]                the registries' kinds, and each integration's icon
                                                  downloaded here, checked against the index (Conch.app
                                                  draws the catalog with them)
@@ -109,6 +111,8 @@ func runIntegration(args []string) error {
 		return integrationRedeploy(args)
 	case "promote":
 		return integrationPromote(args)
+	case "use":
+		return integrationUse(args)
 	case "guide":
 		fmt.Print(integration.Guide)
 		return nil
