@@ -58,6 +58,21 @@ A **notify** integration is told what the desktop is: an agent started waiting, 
 
 A webhook's address **is** its secret, so it is kept like a key: read from the variable or the Keychain, never written to a file, never logged or shown. It must be an `https` address on the service's own host; any other is refused before anything is sent. `[notify]`'s `enabled`, `waiting` and `done` apply as they do to the desktop's alerts. `conch integration key slack` takes the address without echo and sends a test message.
 
+## Deploy previews
+
+A **deploy** integration is where a branch is built and shown: Vercel and Netlify, installed from the registry (`conch integration install vercel`). conch finds the project or site by the repository it builds from, and for now it is used by hand:
+
+```sh
+conch integration previews            # this branch's deploys: state, preview link, why one failed
+conch integration deploy-log dpl_123  # the end of what a deploy's build printed (-lines 0 for all)
+conch integration redeploy dpl_123    # build it again
+conch integration promote dpl_123     # release it to production: asks first, -y to skip
+```
+
+With no name, the deploy integration the project uses is taken (`vercel.json`, `netlify.toml`). `-head SHA` keeps the deploys of one commit, as at a pull request's head. Releasing changes what everybody is shown, so `promote` asks, and anything but yes releases nothing. On Vercel it builds the deploy again for production, as *Promote to Production* does; on Netlify it publishes the deploy as it was built, and a deploy preview cannot be published. Netlify's API has no build log: a failed deploy gives its error message.
+
+Preview links on the branch and a failed build sent to the branch's agent are not here yet.
+
 ## When a check can't be read
 
 If the failure came from a service conch recognises but has no integration for, such as Bitbucket Pipelines, `fix-ci` says *Bitbucket Pipelines: install its integration to read its log*. It doesn't stop at "no failed GitHub Actions run". If an integration is there but its key isn't, the message names the variable to set.
@@ -166,4 +181,4 @@ conch downloads the docs into a folder of their own, with the format and the kin
 
 ## Not yet
 
-These are planned but not here yet: code hosts besides GitHub, and intake from a tickets integration (intake reads GitHub issues only, as it does for Linear and Jira). `conch integration guide` has the tickets and notify formats.
+These are planned but not here yet: code hosts besides GitHub, and intake from a tickets integration (intake reads GitHub issues only, as it does for Linear and Jira). A deploy integration's previews on the branch and in the pull request view, and a failed build sent to the branch's agent as a failed CI run is. `conch integration guide` has the tickets, notify and deploy formats.
