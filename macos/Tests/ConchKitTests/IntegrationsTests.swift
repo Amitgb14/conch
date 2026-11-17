@@ -200,14 +200,15 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
 // before it is read, conch's own five; and a kind only a card has is
 // listed too. A kind conch has no code for is not "known".
 @Test func integrationKindsFromTheRegistry() throws {
-    let icons = try JSONDecoder().decode(IntegrationIcons.self, from: Data(#"{"kinds":[{"kind":"ci","label":"CI","about":"checks"},{"kind":"deploy","label":"Deploys"}],"icons":{"circleci":"/h/icons/circleci-0123456789ab.svg"}}"#.utf8))
+    let icons = try JSONDecoder().decode(IntegrationIcons.self, from: Data(#"{"kinds":[{"kind":"ci","label":"CI","about":"checks"},{"kind":"edge","label":"Edges"}],"icons":{"circleci":"/h/icons/circleci-0123456789ab.svg"}}"#.utf8))
     #expect(icons.icons?["circleci"]?.hasSuffix(".svg") == true)
     let card = IntegrationCard(name: "drone", label: "Drone", kind: "build", source: "registry", installed: false, builtIn: false, standing: .notChecked, auth: "token", summary: "", usedIn: [], wanted: false)
     let ks = IntegrationCatalog.kinds(icons.kinds, cards: [card])
-    #expect(ks.map(\.kind) == ["ci", "deploy", "build"] && ks[1].label == "Deploys" && ks[2].label == "Build")
+    #expect(ks.map(\.kind) == ["ci", "edge", "build"] && ks[1].label == "Edges" && ks[2].label == "Build")
     #expect(ks[0].known && !ks[1].known)
     let none = IntegrationCatalog.kinds(nil, cards: [])
-    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify"] && none[3].label == "Sandboxes")
+    #expect(none.map(\.kind) == ["host", "ci", "tickets", "sandbox", "notify", "deploy"] && none[3].label == "Sandboxes" && none[5].label == "Deploy previews")
+    #expect(IntegrationKindInfo(kind: "deploy", label: "Deploy previews").known)
 }
 
 // Sandboxes and notifications are where work runs and what it tells you,
@@ -278,4 +279,26 @@ private func decoded() throws -> (IntegrationList, [IntegrationListed], [String:
     let use = try JSONDecoder().decode([IntegrationUse].self, from: Data(#"[{"name":"daytona","label":"Daytona","kind":"sandbox","why":"for tasks run off this machine","installed":true},{"name":"boat","label":"boat.dev","kind":"sandbox","why":"for tasks run off this machine","installed":true}]"#.utf8))
     let cards = IntegrationCatalog.cards(here: here, listed: listed, uses: ["ceph": use, "conch": use])
     for c in cards { #expect(c.usedIn.isEmpty && !c.wanted, "\(c.name)") }
+}
+
+// Deploy previews are a kind of their own: Vercel and Netlify as cards with
+// a summary from their operations, and a project that builds there is in
+// the banner like one that builds on a CI.
+@Test func integrationDeployKind() throws {
+    #expect(IntegrationKind.deploy.title == "Deploy previews")
+    #expect(IntegrationKind.deploy.purpose.contains("preview"))
+    #expect(IntegrationCatalog.summary(kind: "deploy", operations: ["previews", "failed_log", "redeploy", "promote"])
+        == "A branch's preview link, its failed build's log to the agent, redeploy, release to production (asks first).")
+    #expect(IntegrationCatalog.summary(kind: "deploy", operations: ["previews"]) == "A branch's preview link.")
+    let listed = try JSONDecoder().decode([IntegrationListed].self, from: Data(#"""
+    [{"kind":"deploy","name":"vercel","label":"Vercel","version":1,"hosts":{"api":"api.vercel.com"},"key_env":"VERCEL_TOKEN","operations":["previews","failed_log","redeploy","promote"],"tier":"community"},
+     {"kind":"deploy","name":"netlify","label":"Netlify","version":1,"hosts":{"api":"api.netlify.com"},"key_env":"NETLIFY_AUTH_TOKEN","operations":["previews","failed_log","redeploy","promote"],"tier":"community"}]
+    """#.utf8))
+    let uses: [String: [IntegrationUse]] = ["web-app": [IntegrationUse(name: "vercel", label: "Vercel", kind: "deploy", why: "vercel.json", installed: false)]]
+    let cards = IntegrationCatalog.cards(here: nil, listed: listed, uses: uses)
+    #expect(cards.map(\.name) == ["vercel", "netlify"] && cards.allSatisfy { $0.kind == "deploy" && $0.community })
+    #expect(cards[0].usedIn == ["web-app"] && cards[0].wanted && !cards[1].wanted)
+    #expect(IntegrationCatalog.filter(cards, filter: .all, kind: "deploy", query: "").count == 2)
+    #expect(IntegrationCatalog.banner(uses) == ["web-app deploys to Vercel (vercel.json)"])
+    #expect(IntegrationCatalog.bannerNames(uses) == ["vercel"])
 }

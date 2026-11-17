@@ -179,7 +179,7 @@ public struct IntegrationTeam: Decodable, Equatable, Sendable {
 
 /// The kinds, in the sidebar's order, with how people write them.
 public enum IntegrationKind: String, CaseIterable, Sendable {
-    case host, ci, tickets, sandbox, notify
+    case host, ci, tickets, sandbox, notify, deploy
     public var title: String {
         switch self {
         case .host: return "Code hosts"
@@ -187,6 +187,7 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
         case .tickets: return "Ticket trackers"
         case .sandbox: return "Sandboxes"
         case .notify: return "Notifications"
+        case .deploy: return "Deploy previews"
         }
     }
     /// The one line under a section's heading: what the kind is for in conch.
@@ -197,6 +198,7 @@ public enum IntegrationKind: String, CaseIterable, Sendable {
         case .tickets: return "tickets to tasks, intake"
         case .sandbox: return "machines in the cloud for agents"
         case .notify: return "agent waiting, done, merged — elsewhere"
+        case .deploy: return "a branch's preview, failed builds to agents, release to production"
         }
     }
 }
@@ -283,6 +285,12 @@ public enum IntegrationCatalog {
             return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "notify":
             return operations.contains("send") ? "Agent waiting, done and merged, sent there by conch's server." : ""
+        case "deploy":
+            var parts = operations.contains("previews") ? ["A branch's preview link"] : []
+            if operations.contains("failed_log") { parts.append("its failed build's log to the agent") }
+            if operations.contains("redeploy") { parts.append("redeploy") }
+            if operations.contains("promote") { parts.append("release to production (asks first)") }
+            return parts.isEmpty ? "" : parts.joined(separator: ", ") + "."
         case "ci":
             break
         default:
@@ -411,17 +419,17 @@ public enum IntegrationCatalog {
         var out: [String] = []
         for project in uses.keys.sorted() {
             for u in uses[project] ?? [] where found(u) {
-                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : "builds on"
+                let verb = u.kind == "host" ? "is on" : u.kind == "tickets" ? "tracks its work in" : u.kind == "deploy" ? "deploys to" : "builds on"
                 out.append("\(project) \(verb) \(u.label) (\(u.why))")
             }
         }
         return out
     }
 
-    /// Whether a use is one the banner names: a CI, host or tracker with
-    /// no key or nothing here to read it.
+    /// Whether a use is one the banner names: a CI, host, tracker or
+    /// deploy service with no key or nothing here to read it.
     static func found(_ u: IntegrationUse) -> Bool {
-        ["ci", "host", "tickets"].contains(u.kind) && (u.installed != true || u.connected != true)
+        ["ci", "host", "tickets", "deploy"].contains(u.kind) && (u.installed != true || u.connected != true)
     }
 
     /// The names the banner's Show button filters to.

@@ -452,6 +452,7 @@ func kindWord(_ kind: String) -> String {
     case "tickets": return "Tickets"
     case "notify": return "Notify"
     case "sandbox": return "Sandbox"
+    case "deploy": return "Deploy"
     default: return kind
     }
 }

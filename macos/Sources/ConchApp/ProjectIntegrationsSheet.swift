@@ -196,6 +196,7 @@ struct ProjectIntegrationsView: View {
         case .tickets: return "⚑"
         case .sandbox: return "▣"
         case .notify: return "✉"
+        case .deploy: return "▲"
         }
     }
 
