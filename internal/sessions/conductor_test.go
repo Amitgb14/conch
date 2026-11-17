@@ -3,6 +3,8 @@ package sessions
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,6 +95,28 @@ func TestReadConductor(t *testing.T) {
 	if fix.Unread != 2 {
 		t.Errorf("unread = %d, want 2 (the row that is not JSON and the one with no type)", fix.Unread)
 	}
+	// Every row as it is stored, in order, for the writers: the handoff
+	// leaves most of them out, a resumable session needs them all.
+	if len(fix.Messages) != 7 {
+		t.Fatalf("messages = %d, want all 7 rows of the conversation: %+v", len(fix.Messages), fix.Messages)
+	}
+	for i, m := range fix.Messages {
+		if want := fmt.Sprintf("m%d", i+1); m.ID != want {
+			t.Errorf("message %d is %q, want %q", i, m.ID, want)
+		}
+		if m.Time.IsZero() {
+			t.Errorf("message %s lost its time", m.ID)
+		}
+	}
+	if m := fix.Messages[0]; m.Role != "user" || m.Content != "Why does the build fail?" {
+		t.Errorf("the prompt as typed: %+v", m)
+	}
+	if m := fix.Messages[2]; m.Role != "assistant" || !strings.Contains(m.Content, `"tool_use"`) || !json.Valid([]byte(m.Content)) {
+		t.Errorf("the stream message, whole: %+v", m)
+	}
+	if m := fix.Messages[5]; m.Content != "not json at all" {
+		t.Errorf("a row conch cannot read is still kept as it was: %+v", m)
+	}
 
 	codex := all[1]
 	if codex.Session.Agent != "codex" || codex.Session.Title != "Rename the checkout button" {
@@ -104,8 +128,11 @@ func TestReadConductor(t *testing.T) {
 	if len(codex.Turns) != 2 || codex.Turns[1].Text != "Renamed it to Pay." {
 		t.Errorf("codex turns = %+v", codex.Turns)
 	}
-	if len(all[2].Turns) != 0 {
-		t.Errorf("a conversation with nothing said has turns: %+v", all[2].Turns)
+	if len(all[2].Turns) != 0 || len(all[2].Messages) != 0 {
+		t.Errorf("a conversation with nothing said has turns: %+v %+v", all[2].Turns, all[2].Messages)
+	}
+	if len(codex.Messages) != 2 || codex.Messages[1].ID != "m9" {
+		t.Errorf("codex messages = %+v", codex.Messages)
 	}
 
 	after, _ := os.ReadFile(db)
@@ -129,6 +156,9 @@ func TestReadConductorOlderDatabase(t *testing.T) {
 	}
 	if len(all) != 1 || all[0].Session.Agent != "claude" || all[0].Session.Dir != root || len(all[0].Turns) != 2 {
 		t.Fatalf("older database: %+v", all)
+	}
+	if len(all[0].Messages) != 7 || all[0].Messages[0].ID != "m1" {
+		t.Errorf("older database's messages: %+v", all[0].Messages)
 	}
 	if all[0].Session.Title != "Why does the build fail?" {
 		t.Errorf("title = %q, want the first prompt", all[0].Session.Title)
@@ -208,5 +238,30 @@ func TestConductorMessage(t *testing.T) {
 func TestConductorDB(t *testing.T) {
 	if got, want := ConductorDB("/Users/me"), "/Users/me/Library/Application Support/com.conductor.app/conductor.db"; got != want {
 		t.Errorf("ConductorDB = %q, want %q", got, want)
+	}
+}
+
+func TestReadConductorMessagesWithoutIDs(t *testing.T) {
+	bin, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("no sqlite3")
+	}
+	dir := t.TempDir()
+	db := filepath.Join(dir, "conductor.db")
+	sql := `CREATE TABLE repos (id TEXT, name TEXT, root_path TEXT);
+CREATE TABLE workspaces (id TEXT, repository_id TEXT, directory_name TEXT, branch TEXT);
+CREATE TABLE sessions (id TEXT, created_at TEXT, updated_at TEXT, workspace_id TEXT);
+CREATE TABLE session_messages (session_id TEXT, role TEXT, content TEXT, created_at TEXT);
+INSERT INTO sessions VALUES ('s1', '2026-07-10 15:19:00', '2026-07-10 15:19:00', 'w1');
+INSERT INTO session_messages VALUES ('s1', 'user', 'first', '2026-07-10 15:19:01'), ('s1', 'user', 'second', '2026-07-10 15:19:02');`
+	if out, err := exec.Command(bin, db, sql).CombinedOutput(); err != nil {
+		t.Fatalf("sqlite3: %v: %s", err, out)
+	}
+	all, err := ReadConductor(context.Background(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 || len(all[0].Messages) != 2 || all[0].Messages[0].ID != "1" || all[0].Messages[1].ID != "2" {
+		t.Fatalf("rows without an id are numbered by sqlite's: %+v", all)
 	}
 }
