@@ -71,6 +71,7 @@ Usage:
   conch server                  run the server in the foreground
   conch server stop             stop the server and every pane it owns
   conch server reload           run a new conch build without stopping panes
+  conch server heap [-json]     write the server's heap and goroutines to files, and say its memory
   conch status [-wide] [-json] [-team NAME]
                                 show server and pane status, with the host a terminal is on with ssh;
                                 fitted to the terminal (-wide: every column, as piped); BACKGROUND
@@ -747,6 +748,8 @@ func runServer(args []string) error {
 			defer nc.Close()
 			fmt.Printf("server reloaded: build %s, pid %d (panes kept)\n", nc.Server.Build, nc.Server.PID)
 			return nil
+		case "heap":
+			return runServerHeap(args[1:])
 		default:
 			return unknownSubcommand("server", args[0])
 		}
