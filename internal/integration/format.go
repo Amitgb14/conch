@@ -20,6 +20,7 @@ const (
 	KindCI      = "ci"
 	KindTickets = "tickets"
 	KindNotify  = "notify"
+	KindDeploy  = "deploy"
 	KindHost    = "host"
 )
 
@@ -70,6 +71,12 @@ type File struct {
 
 	// The notify kind's operation.
 	Send Operation `toml:"send"`
+
+	// The deploy kind's operations; its failed_log is FailedLog, with
+	// {deploy} for {run}.
+	Previews DeployOp  `toml:"previews"`
+	Redeploy Operation `toml:"redeploy"`
+	Promote  Operation `toml:"promote"`
 
 	// shipped is set for a file conch carries rather than one installed.
 	shipped bool
@@ -127,6 +134,16 @@ type RunsOp struct {
 	URL      string `toml:"url"`
 	Started  string `toml:"started"`
 	Finished string `toml:"finished"`
+}
+
+// DeployOp lists a branch's deploys: a run's fields and three more —
+// where it went (production, preview…), why it failed, and the service's
+// own page for it.
+type DeployOp struct {
+	RunsOp
+	Environment string `toml:"environment"`
+	Error       string `toml:"error"`
+	Inspect     string `toml:"inspect"`
 }
 
 // LogOp is a failed run's output, {run} its id; Job names what failed,
@@ -208,7 +225,14 @@ var contracts = map[string]contract{
 			"comment": {"ticket", "body"}, "link": {"ticket", "url", "title"}, "move": {"ticket", "status"}}},
 	KindNotify: {required: []string{"send"},
 		vars: map[string][]string{"send": {"title", "body", "url"}}},
+	KindDeploy: {required: []string{"previews"}, optional: []string{"failed_log", "redeploy", "promote"},
+		states: []string{"ready", "building", "failed", "canceled"},
+		vars:   map[string][]string{"failed_log": {"deploy"}, "redeploy": {"deploy"}, "promote": {"deploy"}}},
 }
+
+// verdicts are the states a kind's file must map something to: without
+// them nothing it reads is ever finished.
+var verdicts = map[string][2]string{KindCI: {"pass", "fail"}, KindDeploy: {"ready", "failed"}}
 
 // namedOp is an operation and the name a file gives it.
 type namedOp struct {
@@ -220,7 +244,8 @@ type namedOp struct {
 func (f *File) ops() []namedOp {
 	return []namedOp{{"runs", f.Runs.Operation}, {"failed_log", f.FailedLog.Operation}, {"rerun", f.Rerun}, {"stats", f.Stats.Operation},
 		{"list", f.List.Operation}, {"mine", f.Mine.Operation}, {"get", f.Get.Operation},
-		{"comment", f.Comment}, {"link", f.Link}, {"move", f.Move}, {"send", f.Send}}
+		{"comment", f.Comment}, {"link", f.Link}, {"move", f.Move}, {"send", f.Send},
+		{"previews", f.Previews.Operation}, {"redeploy", f.Redeploy}, {"promote", f.Promote}}
 }
 
 // opPurpose says what each operation is for, as an agent adapting a file
@@ -237,6 +262,18 @@ var opPurpose = map[string]string{
 	"link":       "attach {url} (titled {title}) to ticket {ticket}: a branch or pull request",
 	"move":       "move ticket {ticket} to {status}, as the person typed it",
 	"send":       "send {title}, {body} and {url}: an agent waiting or done, a pull request merged",
+	"previews":   "a branch's deploys, newest first, at {head} when there is one: {branch}, {head} and the remote's parts are known; each one's url is its preview's address",
+	"redeploy":   "build deploy {deploy} again",
+	"promote":    "release deploy {deploy} to production; conch asks the person first",
+}
+
+// purpose is what op is for in a file of kind: failed_log is a run's in
+// ci and a deploy's here.
+func purpose(kind, op string) string {
+	if kind == KindDeploy && op == "failed_log" {
+		return "what failed deploy {deploy} printed while it was built: the text a branch's agent is sent"
+	}
+	return opPurpose[op]
 }
 
 // KindContract is what a kind's file fills, for whoever writes one.
@@ -258,10 +295,10 @@ func Contract(kind string) (KindContract, bool) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "A %s file fills these operations:\n", kind)
 	for _, op := range c.required {
-		fmt.Fprintf(&b, "- [%s] (required): %s\n", op, opPurpose[op])
+		fmt.Fprintf(&b, "- [%s] (required): %s\n", op, purpose(kind, op))
 	}
 	for _, op := range c.optional {
-		fmt.Fprintf(&b, "- [%s]: %s\n", op, opPurpose[op])
+		fmt.Fprintf(&b, "- [%s]: %s\n", op, purpose(kind, op))
 	}
 	fmt.Fprintf(&b, "Every state the service documents maps, in [states], to one of %s.\n", strings.Join(c.states, ", "))
 	return KindContract{Required: slices.Clone(c.required), Optional: slices.Clone(c.optional), States: slices.Clone(c.states), Text: b.String()}, true
@@ -306,7 +343,7 @@ func (f *File) Problems() []string {
 	case f.Kind == KindHost:
 		add("kind %q: this conch does not read it yet", f.Kind)
 	default:
-		add("kind %q: one of ci, tickets, notify, host, sandbox", f.Kind)
+		add("kind %q: one of ci, tickets, notify, deploy, host, sandbox", f.Kind)
 	}
 	if !nameRE.MatchString(f.Name) {
 		add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
@@ -335,7 +372,7 @@ func (f *File) Problems() []string {
 	// A CI service is found from the checkout; a tracker or a webhook may
 	// have nothing there to find it by, and is tied to a project by
 	// config.toml or used everywhere.
-	if f.Kind == KindCI && len(f.Detect.Files)+len(f.Detect.Remotes)+len(f.Detect.Checks) == 0 {
+	if (f.Kind == KindCI || f.Kind == KindDeploy) && len(f.Detect.Files)+len(f.Detect.Remotes)+len(f.Detect.Checks) == 0 {
 		add("[detect] files, remotes or checks: how conch knows a project uses it")
 	}
 	for _, name := range f.Detect.Files {
@@ -380,8 +417,8 @@ func (f *File) Problems() []string {
 			}
 			mapped[s] = true
 		}
-		if !mapped["pass"] || !mapped["fail"] {
-			add("[states] maps nothing to pass or to fail")
+		if v := verdicts[f.Kind]; !mapped[v[0]] || !mapped[v[1]] {
+			add("[states] maps nothing to %s or to %s", v[0], v[1])
 		}
 	}
 	has := f.Operations()
@@ -401,13 +438,7 @@ func (f *File) Problems() []string {
 		if f.Stats.Has() {
 			f.checkRuns("stats", f.Stats, add)
 		}
-		if f.FailedLog.Has() {
-			names := f.checkSteps("failed_log", f.FailedLog.Operation, add)
-			if steps := f.FailedLog.steps(); len(steps) > 0 && steps[len(steps)-1].Text == "" {
-				add("[failed_log] the last step is the log: give it text")
-			}
-			checkTemplate("failed_log", "job", f.FailedLog.Job, names, add)
-		}
+		f.checkLog(add)
 		if f.Rerun.Has() {
 			f.checkSteps("rerun", f.Rerun, add)
 		}
@@ -423,6 +454,22 @@ func (f *File) Problems() []string {
 	case KindNotify:
 		if f.Send.Has() {
 			f.checkSteps("send", f.Send, add)
+		}
+	case KindDeploy:
+		if f.Previews.Has() {
+			names := f.checkRuns("previews", f.Previews.RunsOp, add)
+			for _, field := range []struct{ key, v string }{{"environment", f.Previews.Environment},
+				{"error", f.Previews.Error}, {"inspect", f.Previews.Inspect}} {
+				if strings.Contains(field.v, "{") {
+					checkTemplate("previews", field.key, field.v, names, add)
+				}
+			}
+		}
+		f.checkLog(add)
+		for _, o := range []namedOp{{"redeploy", f.Redeploy}, {"promote", f.Promote}} {
+			if o.op.Has() {
+				f.checkSteps(o.name, o.op, add)
+			}
 		}
 	}
 	f.checkKey(add)
@@ -494,13 +541,30 @@ func (f *File) known(what string) map[string]bool {
 	return known
 }
 
-func (f *File) checkRuns(what string, op RunsOp, add func(string, ...any)) {
-	if !op.Has() {
+func (f *File) checkLog(add func(string, ...any)) {
+	if !f.FailedLog.Has() {
 		return
+	}
+	names := f.checkSteps("failed_log", f.FailedLog.Operation, add)
+	if steps := f.FailedLog.steps(); len(steps) > 0 && steps[len(steps)-1].Text == "" {
+		add("[failed_log] the last step is the log: give it text")
+	}
+	checkTemplate("failed_log", "job", f.FailedLog.Job, names, add)
+}
+
+// checkRuns checks a list of runs or deploys and returns the names its
+// fields may use.
+func (f *File) checkRuns(what string, op RunsOp, add func(string, ...any)) map[string]bool {
+	if !op.Has() {
+		return nil
 	}
 	names := f.checkSteps(what, op.Operation, add)
 	if op.Items == "" || op.ID == "" || op.State == "" {
-		add("[%s] items, id and state: where the runs are, and each one's id and state", what)
+		thing := "runs"
+		if f.Kind == KindDeploy {
+			thing = "deploys"
+		}
+		add("[%s] items, id and state: where the %s are, and each one's id and state", what, thing)
 	}
 	names["item"] = true
 	for _, field := range []struct{ key, v string }{{"id", op.ID}, {"name", op.Name}, {"state", op.State},
@@ -509,6 +573,7 @@ func (f *File) checkRuns(what string, op RunsOp, add func(string, ...any)) {
 			checkTemplate(what, field.key, field.v, names, add)
 		}
 	}
+	return names
 }
 
 func (f *File) checkTickets(what string, op TicketsOp, add func(string, ...any)) {
@@ -646,7 +711,8 @@ func (f *File) checkKey(add func(string, ...any)) {
 	for _, t := range []TicketsOp{f.List, f.Mine, f.Get} {
 		strs = append(strs, t.Key, t.Title, t.Description, t.URL, t.Status, t.Comments, t.StatusNames)
 	}
-	strs = append(strs, f.Project.ID, f.FailedLog.Job, f.Runs.URL, f.Runs.Name, f.API)
+	strs = append(strs, f.Project.ID, f.FailedLog.Job, f.Runs.URL, f.Runs.Name, f.API,
+		f.Previews.URL, f.Previews.Name, f.Previews.Inspect, f.Previews.Environment, f.Previews.Error)
 	for _, s := range strs {
 		if strings.Contains(s, "{key}") {
 			add("{key} in %q: the key goes only in the auth value", s)
@@ -666,12 +732,15 @@ func refOnly(s string) bool {
 func checkCall(c string, urlAuth bool) error {
 	method, path, ok := strings.Cut(strings.TrimSpace(c), " ")
 	path = strings.TrimSpace(path)
+	// A query may hold a URL (Vercel finds a project by its repository's);
+	// only the path must not be one.
+	bare, _, _ := strings.Cut(path, "?")
 	switch {
 	case c == "":
 		return fmt.Errorf(`missing: "METHOD /path"`)
 	case method != "GET" && method != "POST" && method != "PUT" && method != "PATCH":
 		return fmt.Errorf("%q: METHOD /path, the method one of GET, POST, PUT, PATCH", c)
-	case strings.Contains(path, "://"):
+	case strings.Contains(bare, "://"):
 		return fmt.Errorf("%q: a path under api, starting with /", c)
 	case urlAuth && path != "" && !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "?"):
 		return fmt.Errorf("%q: the method alone, or a /path or ?query added to the webhook's address", c)
