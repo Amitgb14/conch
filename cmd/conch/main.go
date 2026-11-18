@@ -407,7 +407,7 @@ Usage:
                                 on tab; without a shell, says how to turn it on
   conch doctor [-json]          check config, server, agents, git, gh, terminal and machines,
                                 each with the command that fixes it; exits 1 if any must be fixed
-  conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-resumable=false] [-markdown] [-n] [-json]
+  conch import conductor [-db PATH] [-out DIR] [-ids ID,… [-dir FOLDER]] [-project=false] [-resumable=false] [-markdown] [-n] [-json]
                                 Conductor's conversations, read from its own database (a copy of it,
                                 so an open Conductor is left alone): each Claude one written as a
                                 Claude Code session that claude --resume carries on, anything else
@@ -415,7 +415,9 @@ Usage:
                                 for another); -markdown writes the document for every one too,
                                 -resumable=false only the documents. Importing again adds only what
                                 is new; each repository is added to conch as a project (-project=false not);
-                                -n lists what it would do with ids, -ids only those conversations
+                                -n lists what it would do with ids, -ids only those conversations;
+                                -dir resumes those in a folder of your choosing, for ones whose
+                                workspace and repository are gone (Resume In… in Conch.app)
                                 (Integrations → Import in Conch.app does this)
   conch keys [-bound] [-toml] [-json]
                                 what every key after the prefix does, and which key it is on now

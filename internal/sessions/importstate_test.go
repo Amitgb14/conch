@@ -31,7 +31,7 @@ func TestImportAgain(t *testing.T) {
 	rec := st[im.Session.ID]
 	fi, _ := os.Stat(out.Path)
 	if rec.Agent != "claude" || rec.AgentSessionID != out.AgentSessionID || rec.Path != out.Path ||
-		rec.LastMessageID != "m12" || rec.Size != fi.Size() || !rec.ImportedAt.Equal(now) {
+		rec.LastMessageID != "m12" || rec.Size != fi.Size() || !rec.ImportedAt.Equal(now) || rec.Dir != dir {
 		t.Errorf("record: %+v", rec)
 	}
 	if err := st.Save(statePath); err != nil {
@@ -193,7 +193,7 @@ func TestImportStateFiles(t *testing.T) {
 	old := filepath.Join(dir, "old.json")
 	os.WriteFile(old, []byte(`{"s1":{"agent":"claude","agentSessionID":"x","path":"/p","lastMessageID":"m3","retired":true}}`), 0o600)
 	st, err := LoadImportState(old)
-	if err != nil || st["s1"].AgentSessionID != "x" || st["s1"].LastMessageID != "m3" || st["s1"].Size != 0 {
+	if err != nil || st["s1"].AgentSessionID != "x" || st["s1"].LastMessageID != "m3" || st["s1"].Size != 0 || st["s1"].Dir != "" {
 		t.Errorf("an older state: %+v %v", st, err)
 	}
 	if st, err := LoadImportState(filepath.Join(dir, "none.json")); err != nil || st == nil || len(st) != 0 {

@@ -26,7 +26,7 @@ import (
 // What was written is kept in imports/conductor/state.json, so importing
 // again adds only what is new.
 func runImport(args []string) error {
-	const usage = "usage: conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-project=false] [-resumable=false] [-markdown] [-n] [-json]\nconch import -h explains it"
+	const usage = "usage: conch import conductor [-db PATH] [-out DIR] [-ids ID,… [-dir FOLDER]] [-project=false] [-resumable=false] [-markdown] [-n] [-json]\nconch import -h explains it"
 	if len(args) == 0 || args[0] != "conductor" {
 		return errors.New(usage)
 	}
@@ -39,6 +39,7 @@ func runImport(args []string) error {
 	dry := fs.Bool("n", false, "say what would be written, and write nothing")
 	asJSON := fs.Bool("json", false, "what was written, as JSON")
 	ids := fs.String("ids", "", "only these conversations, by id, comma-separated (as -n -json gives them)")
+	dir := fs.String("dir", "", "with -ids: resume those conversations in this folder, for ones whose workspace and repository are gone")
 	project := fs.Bool("project", true, "add each repository they ran in to conch as a project, so they show under its branches")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
@@ -63,7 +64,13 @@ func runImport(args []string) error {
 	if all, err = chooseImported(all, *ids); err != nil {
 		return err
 	}
-	imp := importer{out: *out, dry: *dry, resumable: *resumable, markdown: *markdown, state: st,
+	place := ""
+	if *dir != "" {
+		if place, err = resumeFolder(*dir, *ids, *resumable, all, st); err != nil {
+			return err
+		}
+	}
+	imp := importer{out: *out, dry: *dry, resumable: *resumable, markdown: *markdown, state: st, dir: place,
 		claude: sessions.ClaudeWriter{Env: sessions.CurrentEnv()}}
 	written, err := imp.run(ctx, all)
 	if err != nil {
@@ -181,7 +188,8 @@ type importedFile struct {
 	root    string // the repository's folder, as Conductor knew it
 	File    string `json:"file,omitempty"` // the Markdown handoff
 	// Where it carries on: "workspace" while that folder is there,
-	// "repository" once only the repository is, "gone" when neither is.
+	// "repository" once only the repository is, "chosen" in a folder the
+	// person picked (-dir), "gone" when there is nowhere.
 	Where    string    `json:"where"`
 	LastUsed time.Time `json:"last_used,omitzero"`
 	// Imported: its file is there, from this import or an earlier one.
@@ -214,10 +222,54 @@ func chooseImported(all []sessions.Imported, ids string) ([]sessions.Imported, e
 	return out, nil
 }
 
+// resumeFolder checks -dir: given with -ids, a folder that is there
+// (named as Claude Code will see it, links resolved, since its sessions
+// are filed by that path), and none of the chosen imported already to
+// resume somewhere that is still there — that session is where it carries
+// on now, and a second would split it in two.
+func resumeFolder(dir, ids string, resumable bool, chosen []sessions.Imported, st sessions.ImportState) (string, error) {
+	if strings.TrimSpace(ids) == "" {
+		return "", errors.New("-dir places only the conversations -ids names")
+	}
+	if !resumable {
+		return "", errors.New("-dir is where a conversation resumes, and -resumable=false writes only Markdown")
+	}
+	abs, err := filepath.Abs(dir)
+	if err == nil {
+		abs, err = filepath.EvalSymlinks(abs)
+	}
+	if err != nil {
+		return "", fmt.Errorf("-dir %s: %w", dir, err)
+	}
+	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("-dir %s is not a folder", dir)
+	}
+	for _, im := range chosen {
+		rec, ok := st[im.Session.ID]
+		if !ok || rec.Dir == abs {
+			continue
+		}
+		// Where its session resumes now: the folder chosen for it, or,
+		// for one written where it ran, that folder while it is there.
+		where := rec.Dir
+		if where == "" {
+			where = im.Session.Dir
+		}
+		if where != "" && isFolder(where) {
+			return "", fmt.Errorf("%q was imported already and resumes in %s; -dir places only one with nowhere to resume", im.Session.Title, where)
+		}
+		// Its folder is gone, so its session cannot resume anywhere: it
+		// is written again in the new one, and the old file left alone.
+		delete(st, im.Session.ID)
+	}
+	return abs, nil
+}
+
 // importer imports conversations: resumable where an agent's writer can
 // take them, as Markdown otherwise or as well.
 type importer struct {
 	out                      string
+	dir                      string // -dir: where the chosen resume, if given
 	dry, resumable, markdown bool
 	state                    sessions.ImportState
 	claude                   sessions.ClaudeWriter
@@ -230,6 +282,13 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 	for i, im := range all {
 		if len(im.Turns) == 0 {
 			continue
+		}
+		// A folder chosen for it, now or by an earlier import, is where
+		// its session is: while that folder is there, it carries on there.
+		if imp.dir != "" {
+			im.Session.Dir = imp.dir
+		} else if rec, ok := imp.state[im.Session.ID]; ok && rec.Dir != "" && rec.Dir != im.Session.Dir && isFolder(rec.Dir) {
+			im.Session.Dir = rec.Dir
 		}
 		f := importedFile{ID: im.Session.ID, Where: importedWhere(im), LastUsed: im.Session.Updated,
 			Title: im.Session.Title, Agent: sessions.AgentName(im.Session.Agent), Repo: im.Repo,
@@ -307,16 +366,23 @@ func (imp *importer) writeMarkdown(im sessions.Imported, file string) error {
 }
 
 // importedWhere is where a conversation carries on: "workspace" while that
-// folder is there, "repository" once only the repository is, "gone" when
-// neither is.
+// folder is there, "repository" once only the repository is, "chosen" in
+// a folder the person picked (-dir), "gone" when there is nowhere.
 func importedWhere(im sessions.Imported) string {
 	switch {
-	case im.Session.Dir != "" && im.Session.Dir == im.Workspace:
+	case im.Session.Dir == "":
+		return "gone"
+	case im.Session.Dir == im.Workspace:
 		return "workspace"
-	case im.Session.Dir != "":
+	case im.Session.Dir == im.Root:
 		return "repository"
 	}
-	return "gone"
+	return "chosen"
+}
+
+func isFolder(dir string) bool {
+	fi, err := os.Stat(dir)
+	return err == nil && fi.IsDir()
 }
 
 // importedNames is the file each conversation is written to:
@@ -445,6 +511,8 @@ func whereWords(where string) string {
 		return ""
 	case "repository":
 		return "worktree removed"
+	case "chosen":
+		return "worktree and repository gone, resumes in a folder you chose"
 	}
 	return "worktree and repository gone"
 }

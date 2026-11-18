@@ -645,3 +645,127 @@ func TestImportedCarryOnSkipsGone(t *testing.T) {
 		t.Errorf("all gone:\n%s", stdout)
 	}
 }
+
+// Resume In…: a Claude conversation whose workspace and repository are
+// gone is written as a session in a folder the person chose (-dir), is
+// remembered there, so the next scan offers Resume from it, and resumes
+// with that folder. -dir is refused without -ids, with -resumable=false,
+// for a folder that is not there, and for a conversation imported to
+// resume somewhere else already.
+func TestImportConductorResumeIn(t *testing.T) {
+	db, ws := importFixture(t)
+	out := filepath.Join(t.TempDir(), "out")
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() { err = runImport(append([]string{"conductor", "-db", db, "-out", out}, args...)) })
+		return stdout, err
+	}
+	scan := func() map[string]importedFile {
+		t.Helper()
+		stdout, err := run("-n", "-json")
+		var got []importedFile
+		if err != nil || json.Unmarshal([]byte(stdout), &got) != nil {
+			t.Fatalf("scan: %v %q", err, stdout)
+		}
+		byID := map[string]importedFile{}
+		for _, f := range got {
+			byID[f.ID] = f
+		}
+		return byID
+	}
+	// A folder reached through a link is named as Claude Code will see
+	// it: links resolved.
+	real := filepath.Join(t.TempDir(), "clone")
+	os.MkdirAll(real, 0o755)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	real, _ = filepath.EvalSymlinks(real)
+
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-dir", link}, "-dir places only the conversations -ids names"},
+		{[]string{"-ids", "lost1", "-dir", link, "-resumable=false"}, "-resumable=false writes only Markdown"},
+		{[]string{"-ids", "lost1", "-dir", filepath.Join(real, "nope")}, "-dir"},
+		{[]string{"-ids", "lost1", "-dir", filepath.Join(ws, "..", "conductor.db")}, "is not a folder"},
+	} {
+		if _, err := run(c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v, want %q", c.args, err, c.want)
+		}
+	}
+	if len(importSessions(t)) != 0 {
+		t.Fatal("a refused -dir wrote a session")
+	}
+
+	if f := scan()["lost1"]; f.Where != "gone" || f.Status != "markdown" {
+		t.Fatalf("before: %+v", f)
+	}
+	stdout, err := run("-ids", "lost1", "-dir", link, "-json")
+	var wrote []importedFile
+	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 {
+		t.Fatalf("-dir: %v %q", err, stdout)
+	}
+	w := wrote[0]
+	if w.Status != string(sessions.ImportWritten) || w.Where != "chosen" || w.Dir != real || w.Session == "" || w.File != "" {
+		t.Fatalf("written: %+v", w)
+	}
+	if !strings.HasPrefix(w.SessionFile, filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", claudeFolder(real))) {
+		t.Errorf("session filed under %s, want the chosen folder's project", w.SessionFile)
+	}
+	body, _ := os.ReadFile(w.SessionFile)
+	if !strings.Contains(string(body), `"cwd":"`+real+`"`) {
+		t.Errorf("the session does not run in the chosen folder:\n%s", body)
+	}
+
+	// The next scan, as the app's page makes, still knows the folder.
+	f := scan()["lost1"]
+	if f.Where != "chosen" || f.Dir != real || f.Session != w.Session || f.Status != string(sessions.ImportUnchanged) || !f.Imported {
+		t.Fatalf("after: %+v", f)
+	}
+	if got := whereWords(f.Where); !strings.Contains(got, "a folder you chose") {
+		t.Errorf("whereWords(chosen) = %q", got)
+	}
+	// The same folder again is no change; another one is refused, since
+	// the session there is where it carries on now.
+	if _, err := run("-ids", "lost1", "-dir", real); err != nil {
+		t.Errorf("the same folder again: %v", err)
+	}
+	other := t.TempDir()
+	other, _ = filepath.EvalSymlinks(other)
+	if _, err := run("-ids", "lost1", "-dir", other); err == nil || !strings.Contains(err.Error(), "imported already and resumes in "+real) {
+		t.Errorf("another folder: %v", err)
+	}
+	if _, err := run("-ids", "0123456789abcdef"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("-ids", "0123456789abcdef", "-dir", other); err == nil || !strings.Contains(err.Error(), "resumes in "+ws) {
+		t.Errorf("a conversation imported where it ran: %v", err)
+	}
+	if n := len(importSessions(t)); n != 2 {
+		t.Errorf("sessions: %d, want 2", n)
+	}
+
+	// The chosen folder removed: nowhere to resume again, and said so;
+	// another folder may be chosen now, and it is written there anew.
+	os.RemoveAll(real)
+	if f := scan()["lost1"]; f.Where != "gone" || f.Dir != "" {
+		t.Errorf("chosen folder gone: %+v", f)
+	}
+	stdout, err = run("-ids", "lost1", "-dir", other, "-json")
+	wrote = nil
+	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 ||
+		wrote[0].Status != string(sessions.ImportWritten) || wrote[0].Dir != other || wrote[0].Session == w.Session {
+		t.Fatalf("a new folder once the chosen one is gone: %v %q", err, stdout)
+	}
+	if f := scan()["lost1"]; f.Where != "chosen" || f.Dir != other {
+		t.Errorf("after choosing again: %+v", f)
+	}
+	// Written where it ran, with that folder still there: refused.
+	if _, err := run("-ids", "0123456789abcdef", "-dir", other); err == nil || !strings.Contains(err.Error(), "resumes in "+ws) {
+		t.Errorf("a conversation whose workspace is there: %v", err)
+	}
+}

@@ -24,6 +24,10 @@ type ImportRecord struct {
 	LastMessageID string    `json:"lastMessageID"`
 	ImportedAt    time.Time `json:"importedAt"`
 	Size          int64     `json:"size"`
+	// Dir is the folder it was written to resume in: the one the person
+	// chose (-dir) for a conversation whose own folders are gone, which
+	// nothing in the other app's database says. Older states have none.
+	Dir string `json:"dir,omitempty"`
 }
 
 // ImportState maps the other app's conversation id to what was written
@@ -153,7 +157,7 @@ func ImportResumable(ctx context.Context, im Imported, w SessionWriter, st Impor
 		if err != nil {
 			return ImportOutcome{Status: ImportFailed, Err: err}
 		}
-		st[im.Session.ID] = ImportRecord{Agent: w.Agent(), AgentSessionID: id, Path: path, LastMessageID: last, ImportedAt: now, Size: fi.Size()}
+		st[im.Session.ID] = ImportRecord{Agent: w.Agent(), AgentSessionID: id, Path: path, LastMessageID: last, ImportedAt: now, Size: fi.Size(), Dir: im.Session.Dir}
 		return ImportOutcome{Status: ImportWritten, AgentSessionID: id, Path: path}
 	case ImportAdded:
 	default:

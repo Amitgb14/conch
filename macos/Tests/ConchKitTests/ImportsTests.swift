@@ -162,3 +162,95 @@ private let resumedJSON = """
     #expect(ImportFlow.importedAlready(Data("[]".utf8)).isEmpty)
     #expect(ImportFlow.importedAlready(Data("not json".utf8)).isEmpty)
 }
+
+// Each imported row as the mock draws it: where it ran over its name, how
+// it carries on beside it, one button. A Claude conversation whose
+// workspace and repository are gone offers Resume In…; a Codex one is a
+// handoff wherever it ran.
+@Test func importedRowWordsAndButton() {
+    let resumable = ImportConversation(id: "a", title: "Fix it", agent: "Claude Code", repo: "shop", branch: "fix/total",
+                                       workspace: "/w/berlin", dir: "/w/berlin", messages: 3, where: "workspace",
+                                       status: "written", agentName: "claude", session: "s1")
+    #expect(resumable.place == "shop · fix/total")
+    #expect(resumable.outcome == "Claude Code · resumable")
+    #expect(resumable.action == .resume(["new", "-agent", "claude", "-cwd", "/w/berlin", "--", "--resume", "s1"]))
+    #expect(!resumable.canResumeIn)
+
+    var inRepo = resumable
+    inRepo.where = "repository"
+    inRepo.dir = "/src/shop"
+    #expect(inRepo.place == "shop · fix/total · worktree removed" && inRepo.outcome == "Resumes in the repository")
+
+    // The three rows of the report: no workspace, no repository.
+    let gone = ImportConversation(id: "g", title: "Design Patching Agents", agent: "Claude Code", repo: "conductor-playground",
+                                  workspace: "/c/workspaces/conductor-playground/buffalo", messages: 4,
+                                  file: "/h/imports/conductor/x.md", where: "gone", status: "markdown",
+                                  why: "Claude Code cannot resume it: no folder to resume it in", agentName: "claude")
+    #expect(gone.place == "conductor-playground · buffalo · worktree and repository removed")
+    #expect(gone.canResumeIn && gone.action == .resumeIn)
+    #expect(gone.outcome == "Handoff · nowhere to resume")
+    // Not even a repository's name: still said, not left blank.
+    let bare = ImportConversation(id: "b", title: "review project", agent: "Claude Code", messages: 1, file: "/x.md",
+                                  where: "gone", status: "markdown", agentName: "claude")
+    #expect(bare.place == "unknown repository · worktree and repository removed" && bare.action == .resumeIn)
+
+    let codex = ImportConversation(id: "c", title: "Rename", agent: "Codex", repo: "shop", branch: "b", dir: "/w", messages: 2,
+                                   file: "/x.md", where: "workspace", status: "markdown", agentName: "codex")
+    #expect(!codex.canResumeIn && codex.action == .copyPrompt && codex.outcome == "Codex · handoff")
+    var codexGone = codex
+    codexGone.where = "gone"
+    #expect(!codexGone.canResumeIn && codexGone.action == .copyPrompt)
+
+    // Resumed in a chosen folder: Resume, and the row says where.
+    var chosen = gone
+    chosen.where = "chosen"
+    chosen.dir = "/src/clone"
+    chosen.status = "unchanged"
+    chosen.session = "s9"
+    chosen.file = nil
+    #expect(chosen.place == "conductor-playground · buffalo · in a folder you chose" && chosen.state == "resumes in a folder you chose")
+    #expect(chosen.action == .resume(["new", "-agent", "claude", "-cwd", "/src/clone", "--", "--resume", "s9"]) && !chosen.canResumeIn)
+    var left = chosen
+    left.status = "carried-on"
+    #expect(left.outcome == "Claude Code · carried on since")
+    // Resumed in a folder since removed: Resume In… again.
+    var lost = chosen
+    lost.where = "gone"
+    lost.dir = nil
+    #expect(lost.canResumeIn && lost.action == .resumeIn && lost.outcome == "Claude Code · its folder is gone")
+    // Nothing to do with it at all: no button.
+    let nothing = ImportConversation(id: "n", title: "", agent: "Codex", messages: 1, where: "gone", status: "markdown", agentName: "codex")
+    #expect(nothing.action == nil)
+}
+
+// Resume In… asks conch import for that one conversation in that folder,
+// and resumes only what came back resumable; anything else is said.
+@Test func resumeInArgumentsAndAnswer() {
+    #expect(ImportFlow.resumeInArguments(reader: "conductor", id: "lost1", dir: "/src/my shop")
+            == ["import", "conductor", "-json", "-ids", "lost1", "-dir", "/src/my shop"])
+    let ok = #"[{"id":"lost1","title":"t","agent":"Claude Code","dir":"/src/clone","messages":1,"where":"chosen","status":"written","agentName":"claude","session":"s"}]"#
+    if case .success(let c) = ImportFlow.resumedIn(Data(ok.utf8), id: "lost1") {
+        #expect(c.resumeArguments?.last == "s" && c.where == "chosen")
+    } else {
+        Issue.record("a written session was not taken")
+    }
+    let why = #"[{"id":"lost1","title":"t","agent":"Claude Code","messages":1,"where":"gone","status":"markdown","why":"no folder to resume it in"}]"#
+    #expect(ImportFlow.resumedIn(Data(why.utf8), id: "lost1") == .failure(ConchError(code: "import", message: "It cannot resume there: no folder to resume it in")))
+    for junk in ["", "null", "[]", "{", #"[{"id":"other","title":"t","agent":"a","messages":1}]"#] {
+        if case .success = ImportFlow.resumedIn(Data(junk.utf8), id: "lost1") { Issue.record("\(junk) was taken") }
+    }
+}
+
+// An import has no operations and needs nothing: its page shows no
+// "What it can do" box rather than "can" with nothing after it.
+@Test func capabilityFactsLeaveOutWhatIsEmpty() {
+    let none = IntegrationCapabilities(operations: [])
+    #expect(none.facts(sandbox: false).isEmpty)
+    // A sandbox always says how ssh gets in.
+    #expect(none.facts(sandbox: true).map(\.key) == ["ssh"])
+    var some = IntegrationCapabilities(operations: ["create", "delete"], create: ["cpu"])
+    some.needs = ["key", "region"]
+    #expect(some.facts(sandbox: false).map(\.key) == ["can", "you supply"])
+    #expect(some.facts(sandbox: false)[1].value == "API key, region")
+    #expect(some.facts(sandbox: true).map(\.key) == ["can", "ssh", "you supply", "asks for"])
+}

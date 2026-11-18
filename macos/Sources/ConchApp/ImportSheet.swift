@@ -93,47 +93,73 @@ struct ImportSheet: View {
             Text(f.doneWords).font(.ui(size: 12.5, weight: .semibold))
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(f.results) { c in ImportedRow(c: c, resume: model.resumeImported) }
+                    ForEach(f.results) { c in ImportedRow(c: c, resume: model.resumeImported, resumeIn: { model.resumeIn(c, reader: f.reader) }) }
                 }
             }
             .frame(minHeight: 120, maxHeight: 320)
-            Text("Resume starts the agent on the conversation; it is in the branch's sessions too. For a handoff, start an agent on its branch and paste the prompt, or drag the file into its prompt. Importing again later adds only what is new.")
+            Text("Resume starts the agent on the conversation; it is in the branch's sessions too. For a handoff, start an agent on its branch and paste the prompt, or drag the file into its prompt. Resume In… resumes one whose folders are gone in a folder you choose. Importing again later adds only what is new.")
                 .font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }
     }
 }
 
-/// One conversation that came over: where it carries on, and the two ways
-/// to hand it to an agent. The sheet's last screen and the import's page
-/// both list them.
+/// One conversation that came over, as the mock's screen 3 draws it: a
+/// mark, its name over where it ran, how it carries on, and one button —
+/// Resume, Resume In… for one with nowhere to resume, or Copy Prompt for a
+/// handoff — with the handoff file's other uses behind ⋯. The sheet's last
+/// screen and the import's page both list them.
 struct ImportedRow: View {
     let c: ImportConversation
     /// Starts the agent on a conversation that came over as its session.
     let resume: ([String]) -> Void
+    /// Asks for a folder and resumes it there.
+    let resumeIn: () -> Void
     @Environment(\.conchTheme) private var theme
 
     var body: some View {
         let _ = theme
-        return HStack(alignment: .top, spacing: 8) {
-            Text(c.where == "gone" ? "!" : "✓").foregroundStyle(c.where == "gone" ? Theme.warn : Theme.ok).frame(width: 12)
+        return HStack(alignment: .center, spacing: 10) {
+            Text(c.where == "gone" ? "!" : "✓").foregroundStyle(c.where == "gone" ? Theme.warn : Theme.ok).frame(width: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text(c.title.isEmpty ? "Untitled" : c.title).font(.ui(size: 12.5)).lineLimit(1)
-                Text(c.where == "gone" ? "its worktree and repository are not on this Mac: carry it on anywhere" : c.how)
-                    .font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                Text(c.place).font(.system(size: 11 * Theme.textScale, design: .monospaced)).foregroundStyle(Theme.muted)
+                    .lineLimit(1).truncationMode(.middle)
             }
-            Spacer()
-            if let args = c.resumeArguments {
-                Button("Resume") { resume(args) }
-                    .help("Start \(c.agent) in \(c.dir ?? "its folder") on this conversation")
-            }
-            if let prompt = ImportFlow.prompt(c), let file = c.file {
-                Button("Copy Prompt") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(prompt, forType: .string)
-                }
-                .help("Copy what to tell an agent started there: read the handoff and carry on")
-                Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file)]) }
+            .help(c.how)
+            Spacer(minLength: 8)
+            Text(c.outcome).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+                .frame(width: 190, alignment: .leading).help(c.how)
+            primary.frame(minWidth: 92, alignment: .trailing)
+            if let file = c.file {
+                Menu {
+                    if c.action != .copyPrompt { Button("Copy Prompt") { copyPrompt() } }
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file)]) }
+                } label: { Image(systemName: "ellipsis") }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                    .help("The handoff file")
             }
         }
+    }
+
+    @ViewBuilder var primary: some View {
+        switch c.action {
+        case .resume(let args):
+            Button("Resume") { resume(args) }
+                .help("Start \(c.agent) in \(c.dir ?? "its folder") on this conversation")
+        case .resumeIn:
+            Button("Resume In…") { resumeIn() }
+                .help("Its worktree and repository are gone: choose a folder, a fresh clone say, and it resumes there in \(c.agent)")
+        case .copyPrompt:
+            Button("Copy Prompt") { copyPrompt() }
+                .help("Copy what to tell an agent started on its branch: read the handoff and carry on")
+        case nil:
+            EmptyView()
+        }
+    }
+
+    func copyPrompt() {
+        guard let prompt = ImportFlow.prompt(c) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(prompt, forType: .string)
     }
 }
