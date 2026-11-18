@@ -35,9 +35,11 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
     public var agentName: String?
     public var session: String?
     public var sessionFile: String?
+    /// The conch project its repository was added to as, after the import.
+    public var project: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, agent, repo, branch, workspace, dir, messages, file, `where`, imported, status, why, agentName, session, sessionFile
+        case id, title, agent, repo, branch, workspace, dir, messages, file, `where`, imported, status, why, agentName, session, sessionFile, project
         case lastUsed = "last_used"
     }
 
@@ -213,6 +215,9 @@ public struct ImportFlow: Equatable, Sendable {
             s += " Each resumes in its agent."
         } else if resumable > 0 {
             s += resumable == 1 ? " 1 resumes in its agent; \(n - 1) as Markdown." : " \(resumable) resume in their agents; \(n - resumable) as Markdown."
+        }
+        if results.contains(where: { $0.project != nil }) {
+            s += " Their repositories are in conch now."
         }
         return s
     }

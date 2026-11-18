@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
 )
 
@@ -25,7 +26,7 @@ import (
 // What was written is kept in imports/conductor/state.json, so importing
 // again adds only what is new.
 func runImport(args []string) error {
-	const usage = "usage: conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-resumable=false] [-markdown] [-n] [-json]\nconch import -h explains it"
+	const usage = "usage: conch import conductor [-db PATH] [-out DIR] [-ids ID,…] [-project=false] [-resumable=false] [-markdown] [-n] [-json]\nconch import -h explains it"
 	if len(args) == 0 || args[0] != "conductor" {
 		return errors.New(usage)
 	}
@@ -38,6 +39,7 @@ func runImport(args []string) error {
 	dry := fs.Bool("n", false, "say what would be written, and write nothing")
 	asJSON := fs.Bool("json", false, "what was written, as JSON")
 	ids := fs.String("ids", "", "only these conversations, by id, comma-separated (as -n -json gives them)")
+	project := fs.Bool("project", true, "add each repository they ran in to conch as a project, so they show under its branches")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -72,13 +74,87 @@ func runImport(args []string) error {
 			return err
 		}
 	}
+	var added []proto.ProjectInfo
+	var addErr error
+	if !*dry && *project {
+		added, addErr = addImportedProjects(written)
+	}
 	if *asJSON {
+		if addErr != nil {
+			fmt.Fprintf(os.Stderr, "not added to conch: %v\n", addErr)
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(written)
 	}
 	printImported(written, all, *dry)
+	printAddedProjects(added, addErr, written)
 	return nil
+}
+
+// addImportedProjects puts each repository the conversations ran in into
+// conch as a project, so they are there afterwards — its Conductor
+// workspaces are its worktrees, so they show as its branches, each with
+// its conversations in its sessions. A project already in conch is
+// answered as it is. Only a running server is asked: an import is no
+// reason to start one, and adding the project later shows the same.
+func addImportedProjects(written []importedFile) ([]proto.ProjectInfo, error) {
+	var roots []string
+	seen := map[string]bool{}
+	for _, f := range written {
+		if f.root == "" || seen[f.root] {
+			continue
+		}
+		seen[f.root] = true
+		if st, err := os.Stat(f.root); err == nil && st.IsDir() {
+			roots = append(roots, f.root)
+		}
+	}
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	c, err := connect(false)
+	if err != nil {
+		return nil, fmt.Errorf("no conch server is running (%v)", err)
+	}
+	defer c.Close()
+	var added []proto.ProjectInfo
+	byRoot := map[string]string{}
+	for _, r := range roots {
+		var info proto.ProjectInfo
+		if err := call(c, proto.MethodProjectAdd, proto.ProjectAddParams{Path: r}, &info); err != nil {
+			return added, fmt.Errorf("%s: %w", r, err)
+		}
+		added = append(added, info)
+		byRoot[r] = info.ID
+	}
+	for i := range written {
+		written[i].Project = byRoot[written[i].root]
+	}
+	return added, nil
+}
+
+func printAddedProjects(added []proto.ProjectInfo, err error, written []importedFile) {
+	if len(added) > 0 {
+		fmt.Println("\nIn conch now, with their conversations under the branches' sessions:")
+		for _, p := range added {
+			fmt.Printf("  %s  %s\n", p.Name, p.Path)
+		}
+	}
+	if err != nil {
+		var roots []string
+		seen := map[string]bool{}
+		for _, f := range written {
+			if f.root != "" && f.Project == "" && !seen[f.root] {
+				seen[f.root] = true
+				roots = append(roots, shellWord(f.root))
+			}
+		}
+		fmt.Printf("\nNot added to conch: %v.\n", err)
+		for _, r := range roots {
+			fmt.Printf("  conch project add %s\n", r)
+		}
+	}
 }
 
 // importedFile is one conversation imported.
@@ -100,7 +176,10 @@ type importedFile struct {
 	Session     string `json:"session,omitempty"` // the agent's session id, to resume
 	SessionFile string `json:"sessionFile,omitempty"`
 	Added       int    `json:"added,omitempty"`
-	File        string `json:"file,omitempty"` // the Markdown handoff
+	// Project is the conch project its repository was added to as.
+	Project string `json:"project,omitempty"`
+	root    string // the repository's folder, as Conductor knew it
+	File    string `json:"file,omitempty"` // the Markdown handoff
 	// Where it carries on: "workspace" while that folder is there,
 	// "repository" once only the repository is, "gone" when neither is.
 	Where    string    `json:"where"`
@@ -155,7 +234,7 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 		f := importedFile{ID: im.Session.ID, Where: importedWhere(im), LastUsed: im.Session.Updated,
 			Title: im.Session.Title, Agent: sessions.AgentName(im.Session.Agent), Repo: im.Repo,
 			Branch: im.Session.Branch, Workspace: im.Workspace, Dir: im.Session.Dir, Messages: len(im.Turns),
-			Status: "markdown", AgentName: im.Session.Agent}
+			Status: "markdown", AgentName: im.Session.Agent, root: im.Root}
 		_, seen := imp.state[im.Session.ID]
 		wantMarkdown := !imp.resumable || imp.markdown
 		switch {

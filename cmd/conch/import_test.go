@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
 )
 
@@ -27,6 +28,10 @@ func importFixture(t *testing.T) (db, ws string) {
 	t.Setenv("CONCH_HOME", filepath.Join(dir, "conch"))
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude"))
 	t.Setenv("CODEX_HOME", filepath.Join(dir, "codex"))
+	// No server unless a test starts its own: adding projects must not
+	// reach the developer's.
+	t.Setenv("CONCH_SOCKET", filepath.Join(dir, "no.sock"))
+	t.Setenv("CONCH_PANE_ID", "")
 	db = filepath.Join(dir, "conductor.db")
 	ws = filepath.Join(dir, "it's here")
 	os.MkdirAll(ws, 0o755)
@@ -464,5 +469,105 @@ func TestImportConductorChoose(t *testing.T) {
 	os.RemoveAll(ws)
 	if f := scan()["0123456789abcdef"]; f.Where != "gone" || f.Dir != "" {
 		t.Fatalf("gone: %+v", f)
+	}
+}
+
+// After an import the repository is in conch: project.add for each
+// repository still on this machine, once each, never for one that is gone
+// and never with -n; the JSON names the project. Without a server, or
+// with -project=false, nothing is asked and the import still stands, and
+// the text says how to add it.
+func TestImportConductorAddsTheProject(t *testing.T) {
+	db, ws := importFixture(t)
+	repo := filepath.Join(filepath.Dir(ws), "shop repo")
+	os.MkdirAll(repo, 0o755)
+	if out, err := exec.Command("sqlite3", db, "UPDATE repos SET root_path = '"+repo+"'; INSERT INTO repos VALUES ('r2', 'Gone', '/gone/away'); "+
+		"INSERT INTO workspaces VALUES ('w3', 'r2', 'x', 'x', '/gone/away/x'); "+
+		"INSERT INTO sessions VALUES ('g1', '2026-07-14 15:19:00', '2026-07-14 15:21:00', 'w3', 'Away', 'claude'); "+
+		"INSERT INTO session_messages VALUES ('m9', 'g1', 'user', 'hello', '2026-07-14 15:19:01');").CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	out := filepath.Join(t.TempDir(), "out")
+
+	// No server: imported all the same, and told how to add it.
+	stdout, _ := a4Capture(t, "", func() {
+		if err := runImport([]string{"conductor", "-db", db, "-out", out, "-ids", "codex1"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(stdout, "Not added to conch: no conch server is running") || !strings.Contains(stdout, "conch project add '"+repo+"'") {
+		t.Fatalf("no server:\n%s", stdout)
+	}
+
+	sockDir, err := os.MkdirTemp("", "imp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockDir) })
+	sock := filepath.Join(sockDir, "s.sock")
+	t.Setenv("CONCH_SOCKET", sock)
+	srv := startA4Server(t, sock)
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodProjectAdd {
+			return proto.ProjectInfo{ID: "shop1", Name: "shop repo", Path: repo, Git: true}, nil
+		}
+		return nil, nil
+	})
+	adds := func() int {
+		n := 0
+		for _, m := range srv.methods() {
+			if m == proto.MethodProjectAdd {
+				n++
+			}
+		}
+		return n
+	}
+
+	a4Capture(t, "", func() { runImport([]string{"conductor", "-db", db, "-out", out, "-n"}) })
+	a4Capture(t, "", func() { runImport([]string{"conductor", "-db", db, "-out", out, "-project=false"}) })
+	if n := adds(); n != 0 {
+		t.Fatalf("-n or -project=false asked project.add %d times", n)
+	}
+
+	stdout, _ = a4Capture(t, "", func() {
+		if err := runImport([]string{"conductor", "-db", db, "-out", out, "-json"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var got []importedFile
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("%v %q", err, stdout)
+	}
+	// Three conversations in the shop repository, one in a repository
+	// that is gone: project.add once, for the shop.
+	var p proto.ProjectAddParams
+	if n := adds(); n != 1 || !srv.params(t, proto.MethodProjectAdd, &p) || p.Path != repo {
+		t.Fatalf("project.add %d times, %+v", n, p)
+	}
+	for _, f := range got {
+		if want := map[bool]string{true: "", false: "shop1"}[f.ID == "g1"]; f.Project != want {
+			t.Errorf("%s: project %q, want %q", f.ID, f.Project, want)
+		}
+	}
+
+	stdout, _ = a4Capture(t, "", func() { runImport([]string{"conductor", "-db", db, "-out", out}) })
+	if !strings.Contains(stdout, "In conch now") || !strings.Contains(stdout, repo) || strings.Contains(stdout, "Not added") {
+		t.Fatalf("text:\n%s", stdout)
+	}
+
+	// A server that refuses: the import stands and says so.
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodProjectAdd {
+			return nil, proto.Errorf(proto.ErrBadRequest, "no")
+		}
+		return nil, nil
+	})
+	stdout, _ = a4Capture(t, "", func() {
+		if err := runImport([]string{"conductor", "-db", db, "-out", out}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(stdout, "Not added to conch") || !strings.Contains(stdout, "conch project add") {
+		t.Fatalf("refused:\n%s", stdout)
 	}
 }

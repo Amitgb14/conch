@@ -109,6 +109,9 @@ private let resumedJSON = """
     #expect(f.doneWords == "Imported 4 conversations from Conductor. 2 resume in their agents; 2 as Markdown.")
     f.imported(Data(#"[{"id":"a1","title":"t","agent":"Claude Code","dir":"/w","messages":1,"status":"written","agentName":"claude","session":"s"}]"#.utf8))
     #expect(f.doneWords == "Imported 1 conversation from Conductor. Each resumes in its agent." && f.folder == nil)
+    f.imported(Data(#"[{"id":"a1","title":"t","agent":"Claude Code","dir":"/w","messages":1,"status":"written","agentName":"claude","session":"s","project":"shop1"}]"#.utf8))
+    #expect(f.results[0].project == "shop1")
+    #expect(f.doneWords == "Imported 1 conversation from Conductor. Each resumes in its agent. Their repositories are in conch now.")
     // No session id, or nowhere to run it: nothing to resume.
     #expect(ImportConversation(id: "x", title: "", agent: "Claude Code", messages: 1, status: "written", session: "s").resumeArguments == nil)
     #expect(ImportConversation(id: "x", title: "", agent: "Claude Code", dir: "/w", messages: 1, status: "written").resumeArguments == nil)
