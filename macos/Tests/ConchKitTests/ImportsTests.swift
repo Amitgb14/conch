@@ -145,3 +145,20 @@ private let resumedJSON = """
     """.utf8))
     #expect(info.isImport && !info.offersKey && info.reader == "conductor" && info.minReader == 1 && info.found == ["/x/conductor.db"])
 }
+
+@Test func importedAlreadyKeepsOnlyWhatCameOverNewestFirst() {
+    let data = Data("""
+    [{"id":"a","title":"Old","agent":"claude","repo":"shop","branch":"x","messages":2,"file":"/i/shop/a.md","imported":true,"last_used":"2026-11-01T10:00:00Z"},
+     {"id":"b","title":"Not yet","agent":"codex","repo":"shop","branch":"x","messages":1,"file":"/i/shop/b.md"},
+     {"id":"c","title":"New","agent":"claude","repo":"shop","branch":"x","messages":3,"file":"/i/shop/c.md","imported":true,"last_used":"2026-11-02T10:00:00Z"},
+     {"id":"d","title":"False","agent":"claude","messages":1,"file":"/i/d.md","imported":false}]
+    """.utf8)
+    #expect(ImportFlow.importedAlready(data).map(\.id) == ["c", "a"])
+}
+
+@Test func importedAlreadyOfNothingOrJunkIsEmpty() {
+    #expect(ImportFlow.importedAlready(Data()).isEmpty)
+    #expect(ImportFlow.importedAlready(Data("null".utf8)).isEmpty)
+    #expect(ImportFlow.importedAlready(Data("[]".utf8)).isEmpty)
+    #expect(ImportFlow.importedAlready(Data("not json".utf8)).isEmpty)
+}

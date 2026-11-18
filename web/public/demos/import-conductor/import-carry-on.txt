@@ -1,0 +1,10 @@
+$ conch project add ~/src/storefront
+r09c6456  storefront  ~/src/storefront
+
+$ conch new -agent claude -cwd ~/conductor/workspaces/storefront/kyoto -- 'Read ~/.config/conch/imports/conductor/storefront/cart-badge-keep
+s-the-old-count-0199f4a8.md and carry on from where it leaves off.'
+p1
+
+$ conch read p1
+stand-in for claude · not an agent; nothing is sent to any model
+>

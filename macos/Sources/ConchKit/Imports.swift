@@ -230,6 +230,17 @@ public struct ImportFlow: Equatable, Sendable {
         return ((first as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
     }
 
+    /// What a scan says came over already, for the import's page once the
+    /// sheet is closed: the conversations conch has, as a session or a handoff, newest
+    /// first. Nothing readable is nothing imported, not an error, since
+    /// the page shows it beside everything else.
+    public static func importedAlready(_ data: Data) -> [ImportConversation] {
+        guard let all = try? JSONDecoder().decode([ImportConversation]?.self, from: data) else { return [] }
+        var f = ImportFlow(name: "", label: "", reader: "")
+        f.conversations = (all ?? []).filter { $0.imported == true }
+        return f.groups.flatMap(\.conversations)
+    }
+
     /// What an agent is told to carry one on: as `conch import` says it;
     /// nil for one with no handoff.
     public static func prompt(_ c: ImportConversation) -> String? {

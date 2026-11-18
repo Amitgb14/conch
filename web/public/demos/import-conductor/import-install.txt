@@ -1,0 +1,4 @@
+$ conch integration install conductor
+Conductor reads ~/Library/Application Support/com.conductor.app/conductor.db on this machine; nothing is sent anywhere. (The registry's inde
+x is unsigned.) Go on? [y/N] y
+installed conductor 1 (import) · found on this machine

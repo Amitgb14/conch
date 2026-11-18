@@ -67,7 +67,7 @@ conch new -agent claude -cwd ~/src/app -- --resume ID
 
 A Codex conversation becomes a Markdown file under `imports/conductor/` in conch's folder for now — your prompts and the agent's answers — with the command that starts an agent where it ran and tells it to read the file. `-markdown` writes that file for the Claude ones too.
 
-Run it before you delete Conductor: the database goes with the app. A cloud workspace's conversation is kept on Conductor's servers, so transfer the workspace to your Mac first (step 1). Running it again later brings in only what is new. `-n` shows what it would do; [more](/docs/cli#import).
+Run it before you delete Conductor: the database goes with the app. A cloud workspace's conversation is kept on Conductor's servers, so transfer the workspace to your Mac first (step 1). Running it again later brings in only what is new. `-n` lists what it would write, with each conversation's id for `-ids`; see it [step by step](#your-conversations-step-by-step), or [more](/docs/cli#import).
 
 </Step>
 
@@ -106,6 +106,58 @@ A branch, a worktree, the setup command, and an agent working in it. Press `q` t
 </Step>
 
 </Steps>
+
+## Your conversations, step by step
+
+What step 4 looks like from the terminal, recorded against a made-up Conductor: a small shop called *storefront* with conversations in two workspaces, and a marketing site whose repository has since been deleted. The whole run is a [recording](https://github.com/Amitgb14/conch/blob/master/web/public/demos/import-conductor.cast) you can play with `asciinema play`, and `web/scripts/import-demo/capture.sh` makes it again.
+
+The importer is an integration, like a CI provider or a sandbox: find it in the registry and see what it reads.
+
+<Shot
+  name="import-find"
+  alt="conch integration search conductor finds the Conductor import; conch integration info conductor says it reads Conductor's database on this machine, sends nothing, and found it"
+  caption="It reads Conductor's database on this Mac. Nothing is sent anywhere."
+/>
+
+Install it. It has no key and talks to nothing, so it only asks once.
+
+<Shot
+  name="import-install"
+  alt="conch integration install conductor names the database it reads, asks Go on, and installs the import, found on this machine"
+  caption="Installed, and Conductor's database found."
+/>
+
+`-n` lists every conversation with something said in it, each with its id, its agent, its repository and branch, and the file it would become. Nothing is written yet. A conversation whose worktree or repository is gone says so: it still imports, and carries on anywhere.
+
+<Shot
+  name="import-list"
+  alt="conch import conductor -n lists five conversations with ids, agents, branches and the files they would be written to; one is marked worktree and repository gone"
+  caption="Choose from the list. The empty conversation Conductor kept is left out."
+/>
+
+Name the ones you want with `-ids` (or leave it off for all of them). The command it ends with starts an agent where the newest one that still has its folder ran.
+
+<Shot
+  name="import-choose"
+  alt="conch import conductor -ids with three ids writes three files and prints the conch new command that carries one on"
+  caption="Three of five, each a Markdown file under imports/conductor."
+/>
+
+Each file is the conversation as a handoff: where it ran, on which branch and when, then your prompts and the agent's answers. Tool calls, command output and thinking are left out, and the file says so, so the agent reads the code for the current state.
+
+<Shot
+  name="import-handoff"
+  alt="The handoff file: a heading, the workspace and branch it ran on, and the user's prompts and Claude Code's answers with their times"
+  caption="What the agent is given to read."
+/>
+
+Add the repository as a project and run the command the import printed. The agent starts in the Conductor workspace, which conch shows as a branch, and is told to read the file. In the recording a stand-in plays the agent, so no model was called.
+
+<Shot
+  name="import-carry-on"
+  alt="conch project add, then conch new -agent claude in the workspace with the prompt to read the handoff, then conch read showing the stand-in agent's pane"
+  caption="Carried on in conch, on the same branch."
+/>
 
 ## Prefer a window? Conch.app
 
@@ -167,7 +219,7 @@ The project appears in the sidebar under **local**. Open its **Branches**: each 
 
 Conductor kept its conversations in its own database. Open **Window → Integrations**, choose **Import** in the sidebar, and on the Conductor card (it says *Found on this Mac*) press **Import…**. The sheet lists the conversations by workspace; untick any you don't want and press **Import**.
 
-Each Claude conversation becomes a Claude Code session in its project: it is in the branch's sessions, and resumes from there like any other. The import also adds each repository the conversations ran in to conch as a project, if it is not one already, so the step above is done for you. A Codex conversation becomes a Markdown file under `~/.config/conch/imports/conductor/`; to carry one on, start an agent on its branch (right-click the branch → **Start an Agent on This Branch**) and use **Copy Prompt** from the list, or drag the file into its prompt. Do this before you delete Conductor: the database goes with the app.
+Each Claude conversation becomes a Claude Code session in its project: it is in the branch's sessions, and resumes from there like any other. The import also adds each repository the conversations ran in to conch as a project, if it is not one already, so the step above is done for you. A Codex conversation becomes a Markdown file under `~/.config/conch/imports/conductor/`; to carry one on, start an agent on its branch (right-click the branch → **Start an Agent on This Branch**) and use **Copy Prompt** from the list, or drag the file into its prompt. After **Done**, the Conductor page under Integrations → Import keeps that list, under **Imported**. Do this before you delete Conductor: the database goes with the app.
 
 </Step>
 

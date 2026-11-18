@@ -514,7 +514,7 @@ It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by 
 conch import conductor                   # Conductor's conversations: Claude's resume in Claude Code
 conch import conductor -markdown         # and a document of each as well
 conch import conductor -resumable=false  # documents only, as conch did before
-conch import conductor -n                # say what it would do, and write nothing
+conch import conductor -n                # say what it would do, with each conversation's id, and write nothing
 conch import conductor -json             # what was written, for a script
 conch import conductor -ids ID,ID        # only these conversations (-n -json lists them with their ids)
 conch import conductor -project=false    # leave the repositories out of conch

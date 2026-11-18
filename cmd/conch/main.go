@@ -415,7 +415,7 @@ Usage:
                                 for another); -markdown writes the document for every one too,
                                 -resumable=false only the documents. Importing again adds only what
                                 is new; each repository is added to conch as a project (-project=false not);
-                                -n says what it would do, -ids only those conversations
+                                -n lists what it would do with ids, -ids only those conversations
                                 (Integrations → Import in Conch.app does this)
   conch keys [-bound] [-toml] [-json]
                                 what every key after the prefix does, and which key it is on now

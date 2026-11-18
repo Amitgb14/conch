@@ -1,0 +1,21 @@
+$ conch integration search conductor
+Conductor   import   not checked (unsigned index)   this machine only   
+
+$ conch integration info conductor
+Conductor · import · registry conch-integrations
+registry conch-integrations, version 1 · not checked (unsigned index)
+
+What it does in conch
+  ✓ Its conversations, brought into conch
+      Integrations → Import…, conch import NAME: each one written as a handoff an agent can read and carry on from
+  ✓ Its workspaces' repositories
+      Named beside each conversation, with the folder to carry it on in
+  ✗ Resume a conversation in its own agent
+      Not yet: an agent carries one on from its handoff
+
+Conductor reads its own files on this machine; nothing is sent anywhere.
+Found on this machine: conch import conductor brings its conversations in.
+
+Note: Conductor's conversations and workspaces, from its own database on this Mac. Conductor Cloud workspaces must be moved to the Mac in Co
+nductor first.
+Docs: https://www.conductor.build/docs

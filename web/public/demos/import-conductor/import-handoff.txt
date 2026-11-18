@@ -1,0 +1,35 @@
+$ cat ~/.config/conch/imports/conductor/storefront/add-coupon-codes-to-checkout-0199f1c2.md
+_Imported from Conductor by `conch import conductor`._
+
+# Handoff: Add coupon codes to checkout
+
+Conversation from a Claude Code session (`0199f1c2-3a10-7b4e-9c21-4f8a2d6e1b01`) in `~/conductor/workspaces/storefront/lisbon` on branch `ad
+a/coupon-codes`, 2026-11-02 10:14 – 2026-11-02 11:02.
+
+Only the messages are included: tool calls, command output and file edits are left out, so check the files themselves for the current state.
+
+## User · 2026-11-02 10:14:00
+
+Add coupon codes to checkout. A code takes a percentage or a fixed amount off the cart; codes have an expiry date and a usage limit. Store t
+hem in Postgres next to orders.
+
+## Claude Code · 2026-11-02 10:16:00
+
+I'll look at how checkout totals are computed first.
+
+Plan:
+
+1. A `coupons` table (code, kind, amount, expires_at, max_uses, uses).
+2. `applyCoupon(cart, code)` in `app/checkout/coupon.ts`, returning the discount or why it was refused.
+3. A field on the checkout page, and the discount as a line in the summary.
+
+I've written the migration and `applyCoupon`; the page is next.
+
+## User · 2026-11-02 10:22:00
+
+Fixed-amount coupons must never take the total below zero. And show the reason when a code is refused.
+
+## Claude Code · 2026-11-02 10:24:00
+
+Done: the discount is capped at the cart's subtotal, and a refused code says why under the field (*expired*, *used up*, *not a code*). Still
+ to do: an admin page to create codes — for now they're inserted with `pnpm coupons:add`.

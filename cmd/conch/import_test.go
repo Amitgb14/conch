@@ -571,3 +571,77 @@ func TestImportConductorAddsTheProject(t *testing.T) {
 		t.Fatalf("refused:\n%s", stdout)
 	}
 }
+
+// The list -n prints is what somebody chooses from, so it names each
+// conversation's id — what -ids takes — and says which can no longer be
+// carried on where they ran, or were imported already.
+func TestImportConductorDryRunNamesIDs(t *testing.T) {
+	db, ws := importFixture(t)
+	out := filepath.Join(t.TempDir(), "out")
+	dry := func() string {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out, "-n"}) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stdout
+	}
+	got := dry()
+	for _, want := range []string{"    id 0123456789abcdef\n", "-ids ID,… only those"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("-n lacks %q:\n%s", want, got)
+		}
+	}
+	// The fixture's lost1 really is gone; the one in its workspace is not.
+	if fix := got[strings.Index(got, "Fix the build"):]; strings.Contains(fix[:strings.Index(fix, "\n")], "imported already") ||
+		strings.Contains(fix[:strings.Index(fix, "\n")], "gone") || strings.Contains(got, "removed") {
+		t.Errorf("-n says more than is so:\n%s", got)
+	}
+	var err error
+	a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dry(); !strings.Contains(got, "fix/build, imported already)") {
+		t.Errorf("-n after an import:\n%s", got)
+	}
+	os.RemoveAll(ws)
+	if got := dry(); !strings.Contains(got, "worktree and repository gone, imported already)") {
+		t.Errorf("-n once the worktree and repository are gone:\n%s", got)
+	}
+	// Only a dry run names ids: what was written is named by its file.
+	stdout, _ := a4Capture(t, "", func() { err = runImport([]string{"conductor", "-db", db, "-out", out}) })
+	if err != nil || strings.Contains(stdout, "id 0123456789abcdef") {
+		t.Errorf("an import names ids: %v\n%s", err, stdout)
+	}
+}
+
+func TestImportedWhereWords(t *testing.T) {
+	for where, want := range map[string]string{"workspace": "", "repository": "worktree removed", "gone": "worktree and repository gone", "": "worktree and repository gone"} {
+		if got := whereWords(where); got != want {
+			t.Errorf("whereWords(%q) = %q, want %q", where, got, want)
+		}
+	}
+}
+
+// The command an import ends with carries on a conversation that can be:
+// the newest written whose worktree or repository is still here, not one
+// whose folders are gone, which only had a placeholder to offer.
+func TestImportedCarryOnSkipsGone(t *testing.T) {
+	here := t.TempDir()
+	written := []importedFile{
+		{Title: "older", Dir: here, Where: "workspace", File: "/x/older.md", Status: "markdown", AgentName: "claude"},
+		{Title: "newer", Dir: here, Where: "repository", File: "/x/newer.md", Status: "markdown", AgentName: "claude"},
+		{Title: "gone", Where: "gone", File: "/x/gone.md", Status: "markdown", AgentName: "claude"},
+	}
+	stdout, _ := a4Capture(t, "", func() { printImported(written, nil, false) })
+	if !strings.Contains(stdout, "conch new -agent claude -cwd "+here+" -- 'Read /x/newer.md") {
+		t.Errorf("did not carry on the newest that can be:\n%s", stdout)
+	}
+	// Every one gone: the placeholder, since there is nothing better.
+	stdout, _ = a4Capture(t, "", func() { printImported(written[2:], nil, false) })
+	if !strings.Contains(stdout, "-cwd ~/src/REPO -- 'Read /x/gone.md") {
+		t.Errorf("all gone:\n%s", stdout)
+	}
+}

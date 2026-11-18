@@ -87,6 +87,9 @@ final class IntegrationsModel: ObservableObject {
     @Published var flow: IntegrationInstallFlow?
     /// Integrations → Import's sheet: another app's conversations.
     @Published var importing: ImportFlow?
+    /// What each import brought over already, by its name: the import's
+    /// page lists them, so closing the sheet does not lose them.
+    @Published var imported: [String: [ImportConversation]] = [:]
     @Published var loading = false
     @Published var failure = ""
     @Published var registryNote = ""
@@ -243,6 +246,17 @@ final class IntegrationsModel: ObservableObject {
         }
     }
 
+    /// Reads what an import brought over already (`-n` writes nothing),
+    /// for its page: on opening it, and once the sheet closes.
+    func loadImported(_ info: IntegrationInfo) {
+        guard info.isImport, info.installed, let reader = info.reader, let bin = store.binary else { return }
+        let args = ImportFlow(name: info.name, label: info.label, reader: reader).scanArguments
+        Task { @MainActor in
+            guard let data = try? await runConch(bin, args) else { return }
+            imported[info.name] = ImportFlow.importedAlready(data)
+        }
+    }
+
     /// Import N: brings in the ticked conversations.
     func runImport() {
         guard var f = importing, f.canImport, let bin = store.binary else { return }
@@ -333,7 +347,8 @@ struct IntegrationsView: View {
         .sheet(isPresented: Binding(get: { model.flow != nil }, set: { if !$0 { model.flow = nil } }), onDismiss: { model.load(); model.refreshPage() }) {
             IntegrationInstallSheet(model: model)
         }
-        .sheet(isPresented: Binding(get: { model.importing != nil }, set: { if !$0 { model.importing = nil } })) {
+        .sheet(isPresented: Binding(get: { model.importing != nil }, set: { if !$0 { model.importing = nil } }),
+               onDismiss: { if let p = model.page { model.loadImported(p) } }) {
             ImportSheet(model: model)
         }
         .sheet(isPresented: $adapting) {
@@ -632,6 +647,13 @@ struct IntegrationPage: View {
                 }
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 14) {
+                        if info.isImport, let done = model.imported[info.name], !done.isEmpty {
+                            box("Imported · \(done.count)") {
+                                ForEach(done) { c in ImportedRow(c: c, resume: model.resumeImported).padding(.vertical, 2) }
+                                Text("To carry one on, start an agent on its branch and paste the prompt, or drag the file into its prompt.")
+                                    .font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                         box("What it does in conch") {
                             ForEach(Array(info.does.enumerated()), id: \.offset) { _, d in
                                 HStack(alignment: .top, spacing: 9) {
@@ -711,6 +733,7 @@ struct IntegrationPage: View {
             }
             .padding(18)
         }
+        .task(id: info.name + "\u{1}" + String(info.installed)) { model.loadImported(info) }
     }
 
     /// An import's side of the page: what it reads, on this Mac only, and
