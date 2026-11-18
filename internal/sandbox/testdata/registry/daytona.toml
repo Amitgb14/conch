@@ -10,9 +10,13 @@ note = "SSH goes through Daytona's gateway (ssh.app.daytona.io) with a per-conne
 
 [create]
 call = "POST /sandbox"
-# memory and disk are in GiB. autoStopInterval is in minutes and sent as 0
-# (off) even when nothing is asked: Daytona's default is 15.
-body = { name = "{label}", snapshot = "{image}", target = "{region}", cpu = "{cpu}", memory = "{memory_gib}", disk = "{disk_gib}", env = "{env}", labels = { conch = "1" }, autoStopInterval = 0 }
+# No cpu, memory or disk: Daytona refuses them with a snapshot ("Cannot
+# specify Sandbox resources when using a snapshot", 400), and every sandbox
+# starts from one, its default when none is named. The snapshot is the
+# size: daytona-small, daytona-medium, daytona-large. autoStopInterval is
+# in minutes and sent as 0 (off) even when nothing is asked: Daytona's
+# default is 15.
+body = { name = "{label}", snapshot = "{image}", target = "{region}", env = "{env}", labels = { conch = "1" }, autoStopInterval = 0 }
 id = "id"
 
 [get]
@@ -81,16 +85,11 @@ choices = ["us", "eu"]
 [[setting]]
 key = "image"
 label = "Default image"
-help = "A snapshot to start from: one of yours, or Daytona's default when empty."
+help = "A snapshot to start from, which also sets its size (daytona-small, daytona-medium, daytona-large): one of yours, or Daytona's default when empty."
 choices_call = "GET /snapshots?limit=100"
 items = "items"
 value = "name"
 free = true
-
-[size]
-cpu = [1, 4]
-memory_gib = [1, 8]
-disk_gib = [1, 10]
 
 [snapshot.save]
 call = "POST /sandbox/{id}/snapshot"
@@ -100,7 +99,7 @@ call = "GET /snapshots?limit=100"
 items = "items"
 name = "name"
 state = "state"
-size = "{item.cpu} vCPU, {item.memory} GiB, {item.disk} GiB disk"
+size = "{item.cpu} vCPU, {item.mem} GiB, {item.disk} GiB disk"
 created = "createdAt"
 [snapshot.forget]
 call = "DELETE /snapshots/{snapshot_name}"

@@ -367,7 +367,8 @@ func (f *fakeDaytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, firstSet(f.usage, "[]"))
 	case key == "GET /snapshots":
 		reply(map[string]any{"items": []map[string]any{
-			{"name": "older", "state": "active", "cpu": 1, "memory": 1, "disk": 3, "createdAt": "2026-09-20T10:00:00Z"},
+			// Daytona names a snapshot's memory mem, unlike a sandbox's.
+			{"name": "older", "state": "active", "cpu": 1, "mem": 2, "disk": 3, "createdAt": "2026-09-20T10:00:00Z"},
 			{"name": "newest", "state": "building", "createdAt": "2026-09-25T10:00:00Z"},
 		}})
 	case len(parts) == 2 && parts[0] == "snapshots" && r.Method == http.MethodDelete:

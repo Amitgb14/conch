@@ -1095,6 +1095,18 @@ func (c *Custom) withDefaults(spec Spec) Spec {
 		if len(c.f.Size.Names) == 0 {
 			spec.Size = ""
 		}
+		// A size saved for this provider that its file no longer sends —
+		// Daytona's, kept from the built-in — is passed over rather than
+		// refused at every create.
+		takes := c.Takes()
+		for _, p := range []struct {
+			part string
+			n    *int
+		}{{"cpu", &spec.CPU}, {"memory", &spec.Memory}, {"disk", &spec.Disk}} {
+			if !slices.Contains(takes, p.part) {
+				*p.n = 0
+			}
+		}
 	}
 	if spec.AutoStop == 0 {
 		spec.AutoStop = c.autoStop

@@ -137,8 +137,9 @@ api_url = ""           # "" is the provider's own (or $DAYTONA_API_URL, $BOAT_AP
 region = ""            # where new sandboxes run, one its file offers; "" the account's default
 image = ""             # what new sandboxes start from; "" is the provider's default
 size = ""              # a named size, for a provider whose machines come in them (boat.dev)
-cpu = 0                # or vCPUs, memory and disk in GiB, within its file's limits;
-memory = 0             # 0 is the provider's default
+cpu = 0                # or vCPUs, memory and disk in GiB, within its file's limits,
+memory = 0             # for a provider that takes them (not Daytona, where the image
+                       # sets the size); 0 is the provider's default
 disk = 0
 restore_running = true # write down what a sandbox was running and offer it back on start
 idle_stop = 30         # minutes with no agent working and nothing printing before conch

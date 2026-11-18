@@ -183,20 +183,37 @@ func TestBoatFile(t *testing.T) {
 // limits, the signed preview link, and snapshots.
 func TestDaytonaFile(t *testing.T) {
 	f, base := newFakeDaytona(t)
-	c := publishedFile(t, "daytona", base, config.ProviderCfg{Target: "eu", Snapshot: "conch-dev"})
+	// A size saved for the built-in, which sent it: the file does not, so
+	// it is passed over rather than refused at every create.
+	c := publishedFile(t, "daytona", base, config.ProviderCfg{Target: "eu", Snapshot: "conch-dev", CPU: 2, Memory: 4})
 	ctx := context.Background()
 
-	s, err := c.Create(ctx, Spec{Name: "api", CPU: 2, Memory: 4})
+	s, err := c.Create(ctx, Spec{Name: "api"})
 	if err != nil || s.State != StateStarted {
 		t.Fatalf("create: %+v %v", s, err)
 	}
 	made := f.created[0]
-	if made["target"] != "eu" || made["snapshot"] != "conch-dev" || made["name"] != "api" || made["cpu"] != float64(2) ||
-		made["memory"] != float64(4) || made["disk"] != nil || made["autoStopInterval"] != float64(0) {
+	// No cpu, memory or disk: Daytona answers 400 "Cannot specify Sandbox
+	// resources when using a snapshot", and every sandbox starts from one.
+	if made["target"] != "eu" || made["snapshot"] != "conch-dev" || made["name"] != "api" || made["cpu"] != nil ||
+		made["memory"] != nil || made["disk"] != nil || made["autoStopInterval"] != float64(0) {
 		t.Fatalf("create body: %v", made)
 	}
-	if _, err := c.Create(ctx, Spec{CPU: 16}); err == nil || !strings.Contains(err.Error(), "1 to 4") {
-		t.Fatalf("too many vCPUs: %v", err)
+	if got := c.Takes(); len(got) != 0 {
+		t.Fatalf("takes %v: a snapshot sets a Daytona sandbox's size", got)
+	}
+	// Asked for, a size is refused before anything is made, not dropped.
+	for _, spec := range []Spec{{CPU: 2}, {Memory: 4}, {Disk: 10}} {
+		if _, err := c.Create(ctx, spec); err == nil || !strings.Contains(err.Error(), "Daytona takes no") {
+			t.Fatalf("%+v: %v", spec, err)
+		}
+	}
+	if len(f.created) != 1 {
+		t.Fatalf("a refused size made a sandbox: %d", len(f.created))
+	}
+	sn, _ := As[Snapshotter](Provider(c))
+	if list, err := sn.Snapshots(ctx); err != nil || len(list) != 2 || list[1].Size != "1 vCPU, 2 GiB, 3 GiB disk" {
+		t.Fatalf("snapshots, their memory read from mem: %+v %v", list, err)
 	}
 	if _, err := c.Create(ctx, Spec{Region: "mars"}); err == nil || !strings.Contains(err.Error(), "us, eu") {
 		t.Fatalf("a region it has not: %v", err)
@@ -234,6 +251,12 @@ func TestDaytonaFile(t *testing.T) {
 	}
 }
 
+// Daytona deletes a snapshot by its id ("Validation failed (uuid is
+// expected)" for a name), and a file's [snapshot.forget] can only name it.
+func TestDaytonaForgetsASnapshotByID(t *testing.T) {
+	t.Skip("bug: Daytona's DELETE /snapshots/{id} wants the snapshot's id; [snapshot.forget] has only {snapshot_name} (internal/sandbox/format4.go), so forgetting one fails against the real API")
+}
+
 // What a format-4 file can get wrong, each said.
 func TestProviderFileFormat4Problems(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "registry", "daytona.toml"))
@@ -247,8 +270,8 @@ func TestProviderFileFormat4Problems(t *testing.T) {
 		{"choices = [\"us\", \"eu\"]=>choices = []", "choices, choices_call, or free"},
 		{"items = \"items\"\nvalue = \"name\"\nfree = true=>value = \"name\"\nfree = true", "choices_call needs items and value"},
 		{"choices_call = \"GET /snapshots?limit=100\"=>choices_call = \"POST /snapshots\"", "a GET"},
-		{"cpu = [1, 4]=>cpu = [4, 1]", "[size] cpu: [min, max]"},
-		{"cpu = [1, 4]=>names = [\"s\"]\ncpu = [1, 4]", "names, or cpu"},
+		{"[snapshot.save]=>[size]\ncpu = [4, 1]\n\n[snapshot.save]", "[size] cpu: [min, max]"},
+		{"[snapshot.save]=>[size]\nnames = [\"s\"]\ncpu = [1, 4]\n\n[snapshot.save]", "names, or cpu"},
 		{"url = \"url\"\nmax_secs=>max_secs", "[preview] url"},
 		{"name = \"{snapshot_name}\", includeMemory=>includeMemory", "never sends {snapshot_name}"},
 	}
