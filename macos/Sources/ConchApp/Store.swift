@@ -48,7 +48,19 @@ final class Store: ObservableObject {
     /// Every machine in machines.json, disabled ones too, as last read:
     /// what conch's commands look a name up in, for paneRef.
     @Published var catalog: [MachineEntry] = []
-    @Published var snapshots: [String: Snapshot] = [:]
+    /// Each machine's panes and projects. Not @Published: a working agent
+    /// sends pane.updated as its title and tokens move, and each publish
+    /// redrew the whole window — every tree row holds the store — so a
+    /// click waited behind the redraws. The value is current at once; the
+    /// views hear of it at most once a frame (snapshotsChanged).
+    var snapshots: [String: Snapshot] = [:] {
+        didSet {
+            rosterMemo = nil
+            reviewMemo = nil
+            snapshotsChanged.mark()
+        }
+    }
+    private lazy var snapshotsChanged = Coalescer(delay: 1.0 / 60) { [weak self] in self?.objectWillChange.send() }
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
     /// Every agent each machine reports, installed or not, for Settings →
@@ -1888,7 +1900,9 @@ final class Store: ObservableObject {
         default:
             return
         }
-        snapshots[machine] = snap
+        // The server sends only what changed, but a reconnect or a second
+        // client can say the same again: nothing to redraw.
+        if snapshots[machine] != snap { snapshots[machine] = snap }
     }
 
     /// How many saved conversations each of a machine's projects has, for
