@@ -49,33 +49,65 @@ func TestReleaseScriptsParse(t *testing.T) {
 }
 
 // CI runs the suite in pieces (scripts/test.sh's PART), one job each, and
-// only all of them together are the whole suite. A part left out of the
-// matrix — SHARDS raised without a server-K added, or one deleted — would
-// skip a fifth of internal/server's tests with every check still green.
+// only all of a system's jobs together are the whole suite. A part left out
+// of the matrix — shards raised without a server-K added, or one deleted —
+// would skip a share of internal/server's tests with every check green.
 func TestCIRunsEveryPart(t *testing.T) {
-	ci, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	shards := regexp.MustCompile(`(?m)^\s+SHARDS: (\d+)\s*$`).FindAllStringSubmatch(string(ci), -1)
-	parts := regexp.MustCompile(`(?m)^\s+part: \[([^\]]*)\]\s*$`).FindAllStringSubmatch(string(ci), -1)
-	if len(shards) != 1 || len(parts) != 1 {
-		t.Fatalf("ci.yml: want one SHARDS and one part list, found %d and %d", len(shards), len(parts))
+	ci := string(b)
+	entries := regexp.MustCompile(`(?m)^\s+- \{ os: ([\w.-]+), shards: (\d+), part: "([^"]+)" \}\s*$`).FindAllStringSubmatch(ci, -1)
+	if len(entries) == 0 {
+		t.Fatal("ci.yml: no test matrix entries found — the regexp or the file moved")
 	}
-	n, _ := strconv.Atoi(shards[0][1])
-	want := []string{"rest"}
-	for k := 1; k <= n; k++ {
-		want = append(want, fmt.Sprintf("server-%d", k))
+	shards := map[string]int{}
+	ran := map[string]map[string]int{}
+	jobs := map[string]int{}
+	for _, e := range entries {
+		os, part := e[1], e[3]
+		n, _ := strconv.Atoi(e[2])
+		if s, ok := shards[os]; ok && s != n {
+			t.Errorf("ci.yml: %s's jobs disagree on shards (%d and %d), so their parts are not one suite", os, s, n)
+		}
+		shards[os] = n
+		jobs[os]++
+		if ran[os] == nil {
+			ran[os] = map[string]int{}
+		}
+		for _, p := range strings.Split(part, ",") {
+			ran[os][p]++
+		}
 	}
-	var got []string
-	for _, p := range strings.Split(parts[0][1], ",") {
-		got = append(got, strings.TrimSpace(p))
+	for _, os := range []string{"ubuntu-latest", "macos-latest"} {
+		if shards[os] == 0 {
+			t.Errorf("ci.yml runs no tests on %s", os)
+			continue
+		}
+		want := []string{"rest"}
+		for k := 1; k <= shards[os]; k++ {
+			want = append(want, fmt.Sprintf("server-%d", k))
+		}
+		for _, w := range want {
+			if ran[os][w] != 1 {
+				t.Errorf("ci.yml runs %s %d times on %s, want once", w, ran[os][w], os)
+			}
+		}
+		if len(ran[os]) != len(want) {
+			t.Errorf("ci.yml runs parts %v on %s; with %d shards the suite is %v", ran[os], os, shards[os], want)
+		}
 	}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("ci.yml runs parts %v with SHARDS=%d; the whole suite is %v", got, n, want)
+	// Five macOS jobs at once is the account's limit, shared with swift's
+	// job and with any other run in flight; past it, jobs queue.
+	if jobs["macos-latest"] > 3 {
+		t.Errorf("ci.yml has %d macOS test jobs; with swift's that is past what runs at once", jobs["macos-latest"])
 	}
-	if !strings.Contains(string(ci), "PART: ${{ matrix.part }}") || !strings.Contains(string(ci), "run: scripts/test.sh") {
-		t.Error("ci.yml's test job no longer hands its part to scripts/test.sh")
+	for _, want := range []string{"SHARDS: ${{ matrix.shards }}", "PART: ${{ matrix.part }}", "run: scripts/test.sh",
+		"- if: matrix.part == 'rest'\n        run: make lint"} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml lost %q", want)
+		}
 	}
 }
 
@@ -91,7 +123,10 @@ func TestTestScriptRefusesBadParts(t *testing.T) {
 		t.Fatalf("scripts/test.sh does not parse: %v\n%s", err, out)
 	}
 	for _, c := range []struct{ shards, part, want string }{
-		{"5", "bogus", "all, rest or server-K"},
+		{"5", "bogus", "all, or a list of rest and server-K"},
+		{"5", "rest,all", "all, or a list of rest and server-K"},
+		{"5", "server-1,server-1", "server-1 named twice"},
+		{"5", "rest,server-9", "server-K with K from 1 to SHARDS=5"},
 		{"5", "server-6", "server-K with K from 1 to SHARDS=5"},
 		{"5", "server-0", "server-K with K from 1 to SHARDS=5"},
 		{"5", "server-", "server-K with K from 1 to SHARDS=5"},

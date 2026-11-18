@@ -6,39 +6,41 @@ on:
   pull_request:
 
 jobs:
-  # gofmt, go vet and staticcheck. On both systems: each builds files the
-  # other doesn't (FSEvents and peer_darwin here, fsnotify and peer_linux
-  # there).
-  lint:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - run: make lint
-
   # The suite, as `go test -race -count=1 -timeout 20m ./...` runs it, in
-  # pieces on machines of their own (scripts/test.sh). internal/server's
+  # pieces on machines of their own (scripts/test.sh's PART). internal/server's
   # ~580 tests run one at a time and took ~16 of the job's 21 minutes on
   # the macOS runner, while everything else was done in four, so it is
-  # dealt into shards beside one job for the rest. Every part, with the
-  # same SHARDS, is the whole suite once; TestCIRunsEveryPart keeps this
-  # list and SHARDS in step.
+  # dealt into shards beside a job for the rest.
+  #
+  # macOS gets fewer jobs than Linux: an account runs at most five macOS
+  # jobs at once (twenty on Linux), shared by every run in flight, and a
+  # job past that waits in the queue. So there it is three test jobs —
+  # two shards side by side in each, on a runner with three cores — and
+  # swift's, four in all.
+  #
+  # For each system, every part with that system's shards is the whole
+  # suite once; TestCIRunsEveryPart keeps this list honest. make lint
+  # (gofmt, go vet, staticcheck) runs in each system's rest job: each
+  # builds files the other doesn't (FSEvents and peer_darwin on macOS,
+  # fsnotify and peer_linux on Linux).
   test:
     name: test (${{ matrix.os }}, ${{ matrix.part }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        part: [rest, server-1, server-2, server-3, server-4, server-5]
+        include:
+          - { os: ubuntu-latest, shards: 5, part: "rest" }
+          - { os: ubuntu-latest, shards: 5, part: "server-1" }
+          - { os: ubuntu-latest, shards: 5, part: "server-2" }
+          - { os: ubuntu-latest, shards: 5, part: "server-3" }
+          - { os: ubuntu-latest, shards: 5, part: "server-4" }
+          - { os: ubuntu-latest, shards: 5, part: "server-5" }
+          - { os: macos-latest, shards: 4, part: "rest" }
+          - { os: macos-latest, shards: 4, part: "server-1,server-2" }
+          - { os: macos-latest, shards: 4, part: "server-3,server-4" }
     runs-on: ${{ matrix.os }}
     env:
-      SHARDS: 5
+      SHARDS: ${{ matrix.shards }}
       PART: ${{ matrix.part }}
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +54,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - if: matrix.part == 'rest'
+        run: make lint
       - run: scripts/test.sh
 
   # Conch.app (macos/) is Swift, which go test never builds. swift test

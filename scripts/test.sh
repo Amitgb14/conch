@@ -15,16 +15,18 @@
 # a test sets can reach a test in another shard. Every test go test -list
 # finds is placed in exactly one shard, or nothing runs.
 #
-# PART runs one piece of that alone, which is how CI spreads it over
-# machines: "rest" is every package but internal/server, "server-K" is
-# shard K of SHARDS. Run every part, with the same SHARDS, and you have run
-# the whole suite once — .github/workflows/ci.yml lists them, and
+# PART runs some of that alone, which is how CI spreads it over
+# machines: a comma-separated list of "rest" (every package but
+# internal/server) and "server-K" (shard K of SHARDS). Run every part, with
+# the same SHARDS, and you have run the whole suite once —
+# .github/workflows/ci.yml lists them for each system, and
 # TestCIRunsEveryPart says it lists all of them.
 #
 #   scripts/test.sh                 # 4 shards, -race -count=1 -timeout 20m
 #   SHARDS=6 scripts/test.sh
 #   PART=rest scripts/test.sh       # everything but internal/server
-#   SHARDS=5 PART=server-2 scripts/test.sh   # the second of five shards
+#   SHARDS=5 PART=server-2 scripts/test.sh            # the second of five shards
+#   SHARDS=4 PART=server-1,server-2 scripts/test.sh   # two of four, side by side
 #   scripts/test.sh -run TestFoo    # anything else goes to go test as it is, for every process
 set -euo pipefail
 
@@ -43,25 +45,43 @@ fi
 # package (0-based).
 run_rest=0
 run_shards=()
-case "$PART" in
-all)
+if [ "$PART" = all ]; then
   run_rest=1
   for ((s = 0; s < SHARDS; s++)); do run_shards+=("$s"); done
-  ;;
-rest) run_rest=1 ;;
-server-*)
-  k=${PART#server-}
-  if ! [[ "$k" =~ ^[1-9][0-9]*$ ]] || [ "$k" -gt "$SHARDS" ]; then
-    echo "PART=$PART: server-K with K from 1 to SHARDS=$SHARDS" >&2
+else
+  # A list, so one machine can run several shards side by side: CI's macOS
+  # runners are few, and each has cores to spare.
+  IFS=, read -r -a items <<<"$PART"
+  if [ ${#items[@]} -eq 0 ]; then
+    echo "PART=$PART: all, or a list of rest and server-K" >&2
     exit 2
   fi
-  run_shards+=($((k - 1)))
-  ;;
-*)
-  echo "PART=$PART: all, rest or server-K" >&2
-  exit 2
-  ;;
-esac
+  seen=","
+  for item in "${items[@]}"; do
+    case "$item" in
+    rest) run_rest=1 ;;
+    server-*)
+      k=${item#server-}
+      if ! [[ "$k" =~ ^[1-9][0-9]*$ ]] || [ "$k" -gt "$SHARDS" ]; then
+        echo "PART=$PART: server-K with K from 1 to SHARDS=$SHARDS" >&2
+        exit 2
+      fi
+      run_shards+=($((k - 1)))
+      ;;
+    *)
+      echo "PART=$PART: all, or a list of rest and server-K" >&2
+      exit 2
+      ;;
+    esac
+    # Named twice would run its tests twice, side by side in one process
+    # environment each — harmless, but a sign the list is not what was meant.
+    if [[ "$seen" == *",$item,"* ]]; then
+      echo "PART=$PART: $item named twice" >&2
+      exit 2
+    fi
+    seen+="$item,"
+  done
+fi
 
 logs=$(mktemp -d "${TMPDIR:-/tmp}/conch-test.XXXXXX")
 trap 'rm -rf "$logs"' EXIT

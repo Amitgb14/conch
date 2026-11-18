@@ -80,8 +80,10 @@ make app-release VERSION=0.2.0 NOTARY=conch-notary # Conch.app's zip for a relea
 
 CI (`.github/workflows/ci.yml`) runs `make lint` and the race-enabled suite on
 **Linux and macOS** — the suite split across jobs by `scripts/test.sh`'s
-`PART` (everything but `internal/server`, and that package in five shards,
-since its tests run one at a time and alone took ~16 minutes), with node installed, `swift test` for Conch.app on
+`PART`, since `internal/server`'s tests run one at a time and alone took
+~16 minutes: on Linux the rest and five shards, a job each; on macOS,
+which runs at most five jobs at once for the account, the rest and four
+shards two to a job — with node installed, `swift test` for Conch.app on
 macOS, and rebuilds the settings page to check the committed `dist/`
 against `app/`. Code and tests must work on both.
 Under CI (`CI=true`) the JavaScript tests fail rather than skip without node
