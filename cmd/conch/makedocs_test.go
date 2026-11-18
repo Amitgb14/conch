@@ -65,29 +65,34 @@ func TestDocsRunRealMakeTargets(t *testing.T) {
 	}
 }
 
-// TestLintIsWhatCIChecksFirst: the README says `make lint` is what CI
-// checks first, which is a claim about another file.
-func TestLintIsWhatCIChecksFirst(t *testing.T) {
+// TestLintIsWhatCIRuns: the README names `make lint` as CI's lint job
+// and `make gate` as what CI runs, which are claims about another file.
+func TestLintIsWhatCIRuns(t *testing.T) {
 	readme, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(readme), "what CI checks first") {
+	if !strings.Contains(string(readme), "CI's lint job") || !strings.Contains(string(readme), "what CI runs, on one machine") {
 		t.Skip("the README no longer claims it")
 	}
 	ci, err := os.ReadFile("../../.github/workflows/ci.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	lint := strings.Index(string(ci), "run: make lint")
-	test := strings.Index(string(ci), "run: go test")
-	switch {
-	case lint < 0:
+	if !strings.Contains(string(ci), "run: make lint") {
 		t.Error("ci.yml does not run make lint")
-	case test < 0:
-		t.Error("ci.yml does not run the tests")
-	case lint > test:
-		t.Error("ci.yml runs the tests before make lint, so the README's \"checks first\" is wrong")
+	}
+	// make gate is lint and scripts/test.sh; CI runs the same script, a part
+	// to a job (TestCIRunsEveryPart says every part).
+	if !strings.Contains(string(ci), "run: scripts/test.sh") {
+		t.Error("ci.yml does not run the tests through scripts/test.sh, so make gate is not what CI runs")
+	}
+	mk, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mk), "gate: lint test-fast") || !strings.Contains(string(mk), "test-fast:\n\tscripts/test.sh") {
+		t.Error("make gate is no longer lint and scripts/test.sh")
 	}
 }
 

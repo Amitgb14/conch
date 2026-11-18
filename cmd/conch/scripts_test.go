@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -40,6 +44,105 @@ func TestReleaseScriptsParse(t *testing.T) {
 		"--options runtime", `"$here/notarize.sh" "$stage/notarize.zip" "$profile"`, "stapler staple", "Notarized Developer ID"} {
 		if !strings.Contains(string(release), want) {
 			t.Errorf("macos/release.sh lost its check %q", want)
+		}
+	}
+}
+
+// CI runs the suite in pieces (scripts/test.sh's PART), one job each, and
+// only all of a system's jobs together are the whole suite. A part left out
+// of the matrix — shards raised without a server-K added, or one deleted —
+// would skip a share of internal/server's tests with every check green.
+func TestCIRunsEveryPart(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ci := string(b)
+	entries := regexp.MustCompile(`(?m)^\s+- \{ os: ([\w.-]+), shards: (\d+), part: "([^"]+)" \}\s*$`).FindAllStringSubmatch(ci, -1)
+	if len(entries) == 0 {
+		t.Fatal("ci.yml: no test matrix entries found — the regexp or the file moved")
+	}
+	shards := map[string]int{}
+	ran := map[string]map[string]int{}
+	jobs := map[string]int{}
+	for _, e := range entries {
+		os, part := e[1], e[3]
+		n, _ := strconv.Atoi(e[2])
+		if s, ok := shards[os]; ok && s != n {
+			t.Errorf("ci.yml: %s's jobs disagree on shards (%d and %d), so their parts are not one suite", os, s, n)
+		}
+		shards[os] = n
+		jobs[os]++
+		if ran[os] == nil {
+			ran[os] = map[string]int{}
+		}
+		for _, p := range strings.Split(part, ",") {
+			ran[os][p]++
+		}
+	}
+	for _, os := range []string{"ubuntu-latest", "macos-latest"} {
+		if shards[os] == 0 {
+			t.Errorf("ci.yml runs no tests on %s", os)
+			continue
+		}
+		want := []string{"rest"}
+		for k := 1; k <= shards[os]; k++ {
+			want = append(want, fmt.Sprintf("server-%d", k))
+		}
+		for _, w := range want {
+			if ran[os][w] != 1 {
+				t.Errorf("ci.yml runs %s %d times on %s, want once", w, ran[os][w], os)
+			}
+		}
+		if len(ran[os]) != len(want) {
+			t.Errorf("ci.yml runs parts %v on %s; with %d shards the suite is %v", ran[os], os, shards[os], want)
+		}
+	}
+	// Five macOS jobs at once is the account's limit, shared with swift's
+	// job and with any other run in flight; past it, jobs queue.
+	if jobs["macos-latest"] > 3 {
+		t.Errorf("ci.yml has %d macOS test jobs; with swift's that is past what runs at once", jobs["macos-latest"])
+	}
+	for _, want := range []string{"SHARDS: ${{ matrix.shards }}", "PART: ${{ matrix.part }}", "run: scripts/test.sh",
+		"- if: matrix.part == 'rest'\n        run: make lint"} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml lost %q", want)
+		}
+	}
+}
+
+// What scripts/test.sh refuses before it runs anything: a part it does
+// not know, a shard past SHARDS, a SHARDS that is not a count. Each would
+// otherwise run nothing, or everything, and pass.
+func TestTestScriptRefusesBadParts(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("..", "..", "scripts", "test.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("bash", "-n", script).CombinedOutput(); err != nil {
+		t.Fatalf("scripts/test.sh does not parse: %v\n%s", err, out)
+	}
+	for _, c := range []struct{ shards, part, want string }{
+		{"5", "bogus", "all, or a list of rest and server-K"},
+		{"5", "rest,all", "all, or a list of rest and server-K"},
+		{"5", "server-1,server-1", "server-1 named twice"},
+		{"5", "rest,server-9", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-6", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-0", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-x", "server-K with K from 1 to SHARDS=5"},
+		{"0", "rest", "a whole number above 0"},
+		{"two", "all", "a whole number above 0"},
+	} {
+		cmd := exec.Command("bash", script)
+		cmd.Env = append(os.Environ(), "SHARDS="+c.shards, "PART="+c.part)
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+			t.Errorf("SHARDS=%s PART=%s: %v, want exit 2\n%s", c.shards, c.part, err, out)
+		}
+		if !strings.Contains(string(out), c.want) {
+			t.Errorf("SHARDS=%s PART=%s said %q, want %q", c.shards, c.part, out, c.want)
 		}
 	}
 }
