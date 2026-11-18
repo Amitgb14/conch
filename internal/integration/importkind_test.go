@@ -213,6 +213,13 @@ func TestImportCapabilitiesAndDoes(t *testing.T) {
 	if d := Does(KindImport, nil); len(d) == 0 || d[0].Level != "yes" {
 		t.Fatalf("does: %+v", d)
 	}
+	// Conversations resume since the importer writes sessions: the page
+	// must not still say "Not yet".
+	for _, d := range Does(KindImport, nil) {
+		if strings.Contains(d.Where, "Not yet") || (strings.HasPrefix(d.What, "Resume") && d.Level == "no") {
+			t.Errorf("an import's page says resuming is not there: %+v", d)
+		}
+	}
 }
 
 func TestFoundEntryFromTheIndex(t *testing.T) {

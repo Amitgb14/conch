@@ -90,6 +90,8 @@ final class IntegrationsModel: ObservableObject {
     /// What each import brought over already, by its name: the import's
     /// page lists them, so closing the sheet does not lose them.
     @Published var imported: [String: [ImportConversation]] = [:]
+    /// Why the last Resume or Resume In… on an import's page failed.
+    @Published var importFailure: String?
     @Published var loading = false
     @Published var failure = ""
     @Published var registryNote = ""
@@ -276,13 +278,51 @@ final class IntegrationsModel: ObservableObject {
     /// pane of the local server, which the window shows like any other.
     func resumeImported(_ args: [String]) {
         guard let bin = store.binary else { return }
+        importFailure = nil
         Task { @MainActor in
             do {
                 _ = try await runConch(bin, args)
             } catch {
-                importing?.phase = .failed("\(error)")
+                say("Could not resume it: \(error)")
             }
         }
+    }
+
+    /// Resume In…, on a Claude conversation whose workspace and repository
+    /// are gone: asks for a folder, writes the conversation there as a
+    /// session (conch remembers the folder), resumes it, and reads the
+    /// list again so its row says where it is now.
+    func resumeIn(_ c: ImportConversation, reader: String?) {
+        guard let bin = store.binary, let reader else { return }
+        let p = NSOpenPanel()
+        p.canChooseDirectories = true
+        p.canChooseFiles = false
+        p.canCreateDirectories = true
+        p.prompt = "Resume Here"
+        p.message = "Choose a folder for “\(c.title.isEmpty ? "Untitled" : c.title)” to resume in: a fresh clone of \(c.repo ?? "its repository"), say."
+        guard p.runModal() == .OK, let dir = p.url?.path else { return }
+        importFailure = nil
+        Task { @MainActor in
+            do {
+                let data = try await runConch(bin, ImportFlow.resumeInArguments(reader: reader, id: c.id, dir: dir))
+                switch ImportFlow.resumedIn(data, id: c.id) {
+                case .success(let now):
+                    if let i = importing?.results.firstIndex(where: { $0.id == c.id }) { importing?.results[i] = now }
+                    if let args = now.resumeArguments { resumeImported(args) }
+                case .failure(let e):
+                    say(e.message)
+                }
+            } catch {
+                say("Could not resume it there: \(error)")
+            }
+            if let info = page { loadImported(info) }
+        }
+    }
+
+    /// Says why Resume or Resume In… failed: in the sheet while it is
+    /// open, on the page otherwise.
+    private func say(_ why: String) {
+        if importing != nil { importing?.phase = .failed(why) } else { importFailure = why }
     }
 
     func startInstall(_ info: IntegrationInfo) {
@@ -649,8 +689,11 @@ struct IntegrationPage: View {
                     VStack(alignment: .leading, spacing: 14) {
                         if info.isImport, let done = model.imported[info.name], !done.isEmpty {
                             box("Imported · \(done.count)") {
-                                ForEach(done) { c in ImportedRow(c: c, resume: model.resumeImported).padding(.vertical, 2) }
-                                Text("To carry one on, start an agent on its branch and paste the prompt, or drag the file into its prompt.")
+                                ForEach(done) { c in ImportedRow(c: c, resume: model.resumeImported, resumeIn: { model.resumeIn(c, reader: info.reader) }).padding(.vertical, 2) }
+                                if let e = model.importFailure {
+                                    Text(e).font(.ui(size: 11.5)).foregroundStyle(Theme.warn).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                }
+                                Text("Resume starts its agent on it. A handoff is carried on by an agent started on its branch: paste the prompt, or drag the file into its prompt. Resume In… is for a Claude conversation whose folders are gone: choose a folder, a fresh clone of the repository say, and it resumes there.")
                                     .font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -666,16 +709,13 @@ struct IntegrationPage: View {
                                 .padding(.vertical, 3)
                             }
                         }
-                        if let c = info.capabilities {
+                        if let c = info.capabilities, info.off == true || !c.facts(sandbox: info.isSandbox).isEmpty {
                             box("What it can do") {
                                 if info.off == true {
                                     Text("Not installable yet: its file has no ssh, so conch could make its sandboxes and never reach them.")
                                         .font(.ui(size: 12)).foregroundStyle(Theme.warn)
                                 }
-                                row("can", c.operations.joined(separator: ", "))
-                                if info.isSandbox { row("ssh", c.sshWords) }
-                                if let n = c.needs, !n.isEmpty { row("you supply", n.map { ["key": "API key", "base_url": "server address", "user": "user name"][$0] ?? $0 }.joined(separator: ", ")) }
-                                if info.isSandbox, let cr = c.create, !cr.isEmpty { row("asks for", cr.joined(separator: ", ")) }
+                                ForEach(c.facts(sandbox: info.isSandbox), id: \.key) { f in row(f.key, f.value) }
                             }
                         }
                         if info.kind == IntegrationKind.deploy.rawValue {

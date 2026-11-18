@@ -20,7 +20,8 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
     /// The handoff it is, or would be, written to: none for a conversation
     /// that comes over as a session of its agent's own.
     public var file: String?
-    /// "workspace", "repository" or "gone".
+    /// "workspace", "repository", "chosen" (a folder the person picked,
+    /// Resume In…) or "gone".
     public var `where`: String?
     public var lastUsed: String?
     /// Its file is there: imported now, or by an earlier import.
@@ -92,8 +93,58 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
         switch self.where {
         case "workspace": return "worktree on disk"
         case "repository": return "worktree removed · carries on in the repository"
+        case "chosen": return "resumes in a folder you chose"
         default: return "neither worktree nor repository on this Mac"
         }
+    }
+
+    /// Its row's second line, as the mock's: the repository, the branch
+    /// (or the workspace's name), and what became of its folders —
+    /// "shop · berlin · worktree removed".
+    public var place: String {
+        var parts = [repo.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown repository"]
+        if let b = branch, !b.isEmpty {
+            parts.append(b)
+        } else if let w = workspace, !w.isEmpty {
+            parts.append((w as NSString).lastPathComponent)
+        }
+        switch self.where {
+        case "repository": parts.append("worktree removed")
+        case "chosen": parts.append("in a folder you chose")
+        case "gone": parts.append("worktree and repository removed")
+        default: break
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Whether a folder can be chosen for it to resume in: a Claude
+    /// conversation that came over as a handoff only because its workspace
+    /// and repository are gone. Codex ones are handoffs whatever the folder.
+    /// A session written before whose folder has since gone is the same:
+    /// a new folder can be chosen for it.
+    public var canResumeIn: Bool {
+        (agentName ?? "") == "claude" && self.where == "gone" && resumeArguments == nil
+    }
+
+    /// The row's column beside its name: how it carries on, short.
+    public var outcome: String {
+        if canResumeIn { return resumes ? "\(agent) · its folder is gone" : "Handoff · nowhere to resume" }
+        if resumes {
+            switch status {
+            case "carried-on": return "\(agent) · carried on since"
+            default: return self.where == "repository" ? "Resumes in the repository" : "\(agent) · resumable"
+            }
+        }
+        return "\(agent) · handoff"
+    }
+
+    /// The row's button: Resume, Resume In… for one with nowhere to
+    /// resume, or Copy Prompt for a handoff; nil for none.
+    public enum Action: Equatable, Sendable { case resume([String]), resumeIn, copyPrompt }
+    public var action: Action? {
+        if let a = resumeArguments { return .resume(a) }
+        if canResumeIn { return .resumeIn }
+        return file == nil ? nil : .copyPrompt
     }
 }
 
@@ -239,6 +290,25 @@ public struct ImportFlow: Equatable, Sendable {
         var f = ImportFlow(name: "", label: "", reader: "")
         f.conversations = (all ?? []).filter { $0.imported == true }
         return f.groups.flatMap(\.conversations)
+    }
+
+    /// Resume In…: writes the conversation as a session in dir, which
+    /// `conch import` remembers, and answers what it wrote as -json does.
+    public static func resumeInArguments(reader: String, id: String, dir: String) -> [String] {
+        ["import", reader, "-json", "-ids", id, "-dir", dir]
+    }
+
+    /// What Resume In… brought back: the conversation, now resumable, or
+    /// why it is not.
+    public static func resumedIn(_ data: Data, id: String) -> Result<ImportConversation, ConchError> {
+        guard let all = try? JSONDecoder().decode([ImportConversation]?.self, from: data),
+              let c = (all ?? []).first(where: { $0.id == id }) else {
+            return .failure(ConchError(code: "import", message: "conch import said nothing this app can read about it"))
+        }
+        guard c.resumeArguments != nil else {
+            return .failure(ConchError(code: "import", message: c.why.map { "It cannot resume there: \($0)" } ?? "It cannot resume there."))
+        }
+        return .success(c)
     }
 
     /// What an agent is told to carry one on: as `conch import` says it;

@@ -35,6 +35,21 @@ public struct IntegrationCapabilities: Decodable, Equatable, Sendable {
 
     public func can(_ op: String) -> Bool { operations.contains(op) }
 
+    /// The page's "What it can do" rows that have something to say: an
+    /// import has no operations and needs nothing, and a row reading "can"
+    /// and nothing after it is a bug, not a fact. A sandbox always says
+    /// how ssh gets in.
+    public func facts(sandbox: Bool) -> [(key: String, value: String)] {
+        var out: [(String, String)] = []
+        if !operations.isEmpty { out.append(("can", operations.joined(separator: ", "))) }
+        if sandbox { out.append(("ssh", sshWords)) }
+        if let n = needs, !n.isEmpty {
+            out.append(("you supply", n.map { ["key": "API key", "base_url": "server address", "user": "user name"][$0] ?? $0 }.joined(separator: ", ")))
+        }
+        if sandbox, let cr = create, !cr.isEmpty { out.append(("asks for", cr.joined(separator: ", "))) }
+        return out
+    }
+
     /// Whether create fills a placeholder. A provider's capabilities with
     /// no create list take nothing.
     public func takes(_ placeholder: String) -> Bool { (create ?? []).contains(placeholder) }
