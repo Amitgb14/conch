@@ -282,3 +282,24 @@ private let resumedJSON = """
     claude.resumeArgs = []
     #expect(claude.resumeArguments?.suffix(2) == ["--resume", "s"])
 }
+
+// Resume imports that one conversation again before resuming it: the
+// page's list is a dry run, and only a real import moves a session filed
+// for a worktree since removed to where it resumes now.
+@Test func resumeRefreshesTheOneConversationFirst() {
+    #expect(ImportFlow.refreshArguments(reader: "conductor", id: "0123") == ["import", "conductor", "-json", "-ids", "0123"])
+    // Its answer: moved to the repository, resumed from there.
+    let moved = #"[{"id":"0123","title":"t","agent":"Claude Code","dir":"/src/shop","messages":2,"where":"repository","status":"unchanged","agentName":"claude","session":"s1","resumeArgs":["--resume","s1"],"why":"its worktree is gone: its session was moved to where it resumes now"}]"#
+    if case .success(let c) = ImportFlow.resumedIn(Data(moved.utf8), id: "0123") {
+        #expect(c.resumeArguments == ["new", "-agent", "claude", "-cwd", "/src/shop", "--", "--resume", "s1"])
+    } else {
+        Issue.record("a moved session was not taken")
+    }
+    // It could not be moved: said, not resumed.
+    let stuck = #"[{"id":"0123","title":"t","agent":"Claude Code","messages":2,"where":"repository","status":"markdown","why":"its session is filed for a folder that is gone, and could not be moved: x is there already","agentName":"claude"}]"#
+    if case .failure(let e) = ImportFlow.resumedIn(Data(stuck.utf8), id: "0123") {
+        #expect(e.message.contains("could not be moved"))
+    } else {
+        Issue.record("a session that could not move was resumed")
+    }
+}

@@ -542,3 +542,45 @@ func TestClaudeOriginal(t *testing.T) {
 		t.Errorf("no folder: %q", p)
 	}
 }
+
+// Filed and Move: a session is filed for a folder by Claude's project
+// folder name; Move takes it to another folder's, unchanged, and never
+// over a file already there.
+func TestClaudeMove(t *testing.T) {
+	env, cfg := importEnv(t)
+	w := ClaudeWriter{Env: env}
+	from, _ := w.place("/w/victoria", "s1")
+	os.WriteFile(from, []byte("line\n"), 0o600)
+	if !w.Filed(from, "/w/victoria") || w.Filed(from, "/src/shop") {
+		t.Fatal("Filed")
+	}
+	if w.Folder("/src/shop") != filepath.Join(cfg, "projects", "-src-shop") {
+		t.Errorf("Folder = %q", w.Folder("/src/shop"))
+	}
+	to, err := w.Move(from, "/src/shop")
+	if err != nil || to != filepath.Join(cfg, "projects", "-src-shop", "s1.jsonl") || !w.Filed(to, "/src/shop") {
+		t.Fatalf("Move = %q %v", to, err)
+	}
+	if b, _ := os.ReadFile(to); string(b) != "line\n" {
+		t.Errorf("moved: %q", b)
+	}
+	if _, err := os.Stat(from); !os.IsNotExist(err) {
+		t.Errorf("the old one stayed: %v", err)
+	}
+	// One there already by that name: refused, both left as they were.
+	again, _ := w.place("/w/victoria", "s1")
+	os.WriteFile(again, []byte("other\n"), 0o600)
+	if _, err := w.Move(again, "/src/shop"); err == nil {
+		t.Error("moved over a file already there")
+	}
+	if b, _ := os.ReadFile(to); string(b) != "line\n" {
+		t.Errorf("written over: %q", b)
+	}
+	if _, err := os.Stat(again); err != nil {
+		t.Errorf("the refused one went: %v", err)
+	}
+	// Nothing at path: an error, nothing made.
+	if _, err := w.Move(filepath.Join(cfg, "nope.jsonl"), "/src/x"); err == nil {
+		t.Error("moved nothing without saying so")
+	}
+}

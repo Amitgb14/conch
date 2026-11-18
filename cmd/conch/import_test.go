@@ -995,3 +995,76 @@ func TestImportConductorKeepsACarriedOnCopy(t *testing.T) {
 		t.Errorf("the carried-on copy was removed: %v", err)
 	}
 }
+
+// A session an earlier import wrote for a worktree that has since been
+// removed is moved to the repository's Claude project, whole — the lines
+// somebody added by carrying it on too — so `claude --resume` run in the
+// repository, as the import offers, finds it. -n moves nothing and says
+// it would; importing again moves nothing more.
+func TestImportConductorMovesTheSessionOfARemovedWorktree(t *testing.T) {
+	db, ws := importFixture(t)
+	root := filepath.Join(t.TempDir(), "shop")
+	os.MkdirAll(root, 0o755)
+	sqlite(t, db, `UPDATE repos SET root_path = '`+strings.ReplaceAll(root, "'", "''")+`'`)
+	out := filepath.Join(t.TempDir(), "out")
+	run := func(args ...string) importedFile {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() {
+			err = runImport(append([]string{"conductor", "-db", db, "-out", out, "-json", "-ids", "0123456789abcdef"}, args...))
+		})
+		var got []importedFile
+		if err != nil || json.Unmarshal([]byte(stdout), &got) != nil || len(got) != 1 {
+			t.Fatalf("import %v: %v %q", args, err, stdout)
+		}
+		return got[0]
+	}
+	first := run()
+	if first.Status != string(sessions.ImportWritten) || first.Dir != ws {
+		t.Fatalf("first: %+v", first)
+	}
+	// Carried on in conch, then the worktree removed.
+	fh, _ := os.OpenFile(first.SessionFile, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(`{"type":"user","cwd":"x","message":{"role":"user","content":"carried on"}}` + "\n")
+	fh.Close()
+	body, _ := os.ReadFile(first.SessionFile)
+	os.RemoveAll(ws)
+
+	want := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", claudeFolder(root), filepath.Base(first.SessionFile))
+	dry := run("-n")
+	if dry.Where != "repository" || dry.Dir != root || dry.SessionFile != want || !strings.Contains(dry.Why, "importing it moves") {
+		t.Fatalf("-n: %+v", dry)
+	}
+	if _, err := os.Stat(first.SessionFile); err != nil {
+		t.Fatalf("-n moved it: %v", err)
+	}
+
+	moved := run()
+	if moved.SessionFile != want || moved.Session != first.Session || moved.Dir != root ||
+		!slices.Equal(moved.ResumeArgs, []string{"--resume", first.Session}) || !strings.Contains(moved.Why, "was moved") {
+		t.Fatalf("moved: %+v", moved)
+	}
+	if got, _ := os.ReadFile(want); string(got) != string(body) {
+		t.Errorf("the moved session changed:\n%s\nwant\n%s", got, body)
+	}
+	if _, err := os.Stat(first.SessionFile); !os.IsNotExist(err) {
+		t.Errorf("the old file is still there: %v", err)
+	}
+	st, _ := sessions.LoadImportState(filepath.Join(os.Getenv("CONCH_HOME"), "imports", "conductor", "state.json"))
+	if r := st["0123456789abcdef"]; r.Path != want || r.Dir != root {
+		t.Errorf("record: %+v", r)
+	}
+	// The text says so too.
+	sessionsBefore := importSessions(t)
+	var err error
+	stdout, _ := a4Capture(t, "", func() {
+		err = runImport([]string{"conductor", "-db", db, "-out", out, "-n", "-ids", "0123456789abcdef"})
+	})
+	if err != nil || strings.Contains(stdout, "importing it moves") || !slices.Equal(importSessions(t), sessionsBefore) {
+		t.Errorf("-n once filed where it resumes: %v\n%s", err, stdout)
+	}
+	// Again: filed where it resumes, so nothing moves.
+	if again := run(); again.SessionFile != want || len(importSessions(t)) != 1 {
+		t.Errorf("again: %+v %v", again, importSessions(t))
+	}
+}

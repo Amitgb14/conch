@@ -232,6 +232,41 @@ func (w ClaudeWriter) prepare(ctx context.Context, im Imported, dir, sid string)
 // for it is used when there is one, and otherwise one ending in a hash of
 // conch's, which the lister finds by the same cut.
 func (w ClaudeWriter) place(cwd, sid string) (string, error) {
+	folder := w.folder(cwd)
+	if err := os.MkdirAll(folder, 0o700); err != nil {
+		return "", err
+	}
+	return filepath.Join(folder, sid+".jsonl"), nil
+}
+
+// Filed says whether the session at path is in the project folder Claude
+// Code reads for cwd: the only one `claude --resume` run there looks in.
+func (w ClaudeWriter) Filed(path, cwd string) bool {
+	return filepath.Dir(path) == w.folder(cwd)
+}
+
+// Move puts the session at path into cwd's project folder, unchanged —
+// one carried on keeps everything — so that `claude --resume` run in cwd
+// finds it: a session written for a worktree since removed is otherwise
+// found nowhere. A file already there by that name is never written over.
+func (w ClaudeWriter) Move(path, cwd string) (string, error) {
+	to, err := w.place(cwd, strings.TrimSuffix(filepath.Base(path), ".jsonl"))
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Lstat(to); err == nil {
+		return "", fmt.Errorf("%s is there already", to)
+	}
+	if err := os.Rename(path, to); err != nil {
+		return "", err
+	}
+	return to, nil
+}
+
+// Folder is cwd's project folder, made or not.
+func (w ClaudeWriter) Folder(cwd string) string { return w.folder(cwd) }
+
+func (w ClaudeWriter) folder(cwd string) string {
 	projects := filepath.Join(w.root(), "projects")
 	name := claudeDirName(cwd)
 	if len(name) > claudeDirMax {
@@ -250,11 +285,7 @@ func (w ClaudeWriter) place(cwd, sid string) (string, error) {
 			name = cut + hex.EncodeToString(sum[:4])
 		}
 	}
-	folder := filepath.Join(projects, name)
-	if err := os.MkdirAll(folder, 0o700); err != nil {
-		return "", err
-	}
-	return filepath.Join(folder, sid+".jsonl"), nil
+	return filepath.Join(projects, name)
 }
 
 // writeWhole writes body to path through a file beside it, so path is
