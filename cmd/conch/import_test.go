@@ -755,6 +755,15 @@ func TestImportConductorResumeIn(t *testing.T) {
 	if f := scan()["lost1"]; f.Where != "gone" || f.Dir != "" {
 		t.Errorf("chosen folder gone: %+v", f)
 	}
+	// In words too: no resume command with nowhere to run it, but how to
+	// choose another folder.
+	for _, args := range [][]string{{"-n", "-ids", "lost1"}, {"-ids", "lost1"}} {
+		text, err := run(args...)
+		if err != nil || strings.Contains(text, "-cwd ''") || strings.Contains(text, "conch new") ||
+			!strings.Contains(text, "its folder is gone") || !strings.Contains(text, "-ids lost1 -dir FOLDER") {
+			t.Errorf("%v with the chosen folder gone: %v\n%s", args, err, text)
+		}
+	}
 	stdout, err = run("-ids", "lost1", "-dir", other, "-json")
 	wrote = nil
 	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 ||
