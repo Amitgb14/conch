@@ -189,10 +189,36 @@ def main(work, cast, textdir, pngdir):
         clock[0] += pause
         events.append([round(clock[0], 3), "o", tilde(text)])
 
+    # A command's output arrives in pieces, and a path can be cut between
+    # two: the end of each piece is held back until the next shows whether
+    # it was the start of HOME, so no piece of it reaches the recording.
+    held = [""]
+
+    def out_held(text, when):
+        text = tilde(held[0] + text)
+        # Hold back the longest tail that could still be the start of HOME.
+        cut = len(text)
+        for h in homes:
+            for n in range(min(len(h), len(text)), 0, -1):
+                if text.endswith(h[:n]):
+                    cut = min(cut, len(text) - n)
+                    break
+        held[0] = text[cut:]
+        if cut:
+            events.append([when, "o", text[:cut]])
+
+    def flush(when):
+        if held[0]:
+            events.append([when, "o", tilde(held[0])])
+            held[0] = ""
+
     os.makedirs(textdir, exist_ok=True)
     os.makedirs(pngdir, exist_ok=True)
     for name, title, cmds in STEPS:
         screen = []
+        # Each step on a screen of its own, under its title, as its picture is.
+        out("\x1b[2J\x1b[H", 0.8 if events else 0)
+        out("\x1b[2m# " + title + "\x1b[0m\r\n", 0.2)
         for cmd, answer in cmds:
             if callable(cmd):
                 cmd = cmd(home)
@@ -212,11 +238,11 @@ def main(work, cast, textdir, pngdir):
 
             def emit(text):
                 got.append(text)
-                out(text, 0)
-                events[-1][0] = round(clock[0] + (time.time() - start), 3)
+                out_held(text, round(clock[0] + (time.time() - start), 3))
 
             run(cmd.replace("~/", home + "/"), e, answer, emit)
             clock[0] += time.time() - start
+            flush(round(clock[0], 3))
             body = tilde("".join(got)).replace("\r\n", "\n").replace("\r", "")
             shown += body.rstrip("\n").split("\n") if body.strip() else []
             screen += shown + [""]
