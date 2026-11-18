@@ -40,7 +40,11 @@ type Imported struct {
 	// Workspace is the folder the conversation ran in, which may be gone:
 	// Session.Dir is the nearest of it and Root that is still there.
 	Workspace string
-	Turns     []Turn
+	// AgentSession is the agent's own id for the conversation, as
+	// Conductor kept it (its claude_session_id column, for every agent):
+	// a Codex thread id, whose rollout Codex itself wrote.
+	AgentSession string
+	Turns        []Turn
 	// Messages are the conversation's rows as they were stored, in order:
 	// what a writer needs to make a session the agent resumes, which the
 	// handoff (Turns) leaves out — tool calls, their results, ids.
@@ -108,14 +112,18 @@ func ReadConductor(ctx context.Context, db string) ([]Imported, error) {
 		Branch    string `json:"branch"`
 		Repo      string `json:"name"`
 		Root      string `json:"root_path"`
+		Agentic   string `json:"claude_session_id"`
 	}
 	var rows []row
 	// Older databases have no title, agent or workspace path: ask with
 	// them, and again without rather than read nothing.
 	const join = " FROM sessions s LEFT JOIN workspaces w ON w.id = s.workspace_id LEFT JOIN repos r ON r.id = w.repository_id ORDER BY s.created_at, s.id"
-	if err := query("SELECT s.id, s.title, s.agent_type, s.created_at, s.updated_at, w.workspace_path, w.directory_name, w.branch, r.name, r.root_path"+join, &rows); err != nil {
-		if err2 := query("SELECT s.id, s.created_at, s.updated_at, w.directory_name, w.branch, r.name, r.root_path"+join, &rows); err2 != nil {
-			return nil, err
+	const full = "SELECT s.id, s.title, s.agent_type, s.created_at, s.updated_at, w.workspace_path, w.directory_name, w.branch, r.name, r.root_path"
+	if err := query(full+", s.claude_session_id"+join, &rows); err != nil {
+		if err2 := query(full+join, &rows); err2 != nil {
+			if err3 := query("SELECT s.id, s.created_at, s.updated_at, w.directory_name, w.branch, r.name, r.root_path"+join, &rows); err3 != nil {
+				return nil, err
+			}
 		}
 	}
 	var msgs []struct {
@@ -153,7 +161,7 @@ func ReadConductor(ctx context.Context, db string) ([]Imported, error) {
 		out = append(out, Imported{
 			Session: Session{Agent: agent, ID: r.ID, Dir: dir, Branch: r.Branch, Title: r.Title, Path: db,
 				Started: gooseTime(r.Created), Updated: gooseTime(r.Updated)},
-			Repo: r.Repo, Root: r.Root, Workspace: ws,
+			Repo: r.Repo, Root: r.Root, Workspace: ws, AgentSession: r.Agentic,
 		})
 	}
 	for _, m := range msgs {

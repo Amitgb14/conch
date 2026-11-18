@@ -349,6 +349,7 @@ func TestDocsWhatsNew(t *testing.T) {
 		"/docs/tasks#the-backlog-by-itself",
 		"/docs/mac-app#system-monitor",
 		"/docs/mac-app#tickets",
+		"/docs/from-conductor",
 	} {
 		if !strings.Contains(news, `href="`+href+`"`) {
 			t.Errorf("What's new does not link to %s", href)

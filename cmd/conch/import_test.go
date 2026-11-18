@@ -97,7 +97,7 @@ func TestImportConductor(t *testing.T) {
 		"imported 3 of Conductor's conversations",
 		"Fix the build: now!  (Claude Code, 2 messages, My Shop · fix/build)",
 		"resumes in Claude Code: conch new -agent claude -cwd " + shellWord(ws) + " -- --resume " + id,
-		"Rename it  (Codex", "as Markdown: Codex conversations come over as Markdown for now",
+		"Rename it  (Codex", "as Markdown: Codex has no session of it on this Mac",
 		"Nowhere to go", "as Markdown: Claude Code cannot resume it: no folder to resume it in",
 		"conch new -agent codex -cwd " + shellWord(ws) + " -- 'Read ",
 	} {
@@ -767,5 +767,231 @@ func TestImportConductorResumeIn(t *testing.T) {
 	// Written where it ran, with that folder still there: refused.
 	if _, err := run("-ids", "0123456789abcdef", "-dir", other); err == nil || !strings.Contains(err.Error(), "resumes in "+ws) {
 		t.Errorf("a conversation whose workspace is there: %v", err)
+	}
+}
+
+// codexRollout writes the rollout Codex keeps for thread id, as Codex did
+// when Conductor ran it.
+func codexRollout(t *testing.T, id, cwd string) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("CODEX_HOME"), "sessions", "2026", "07", "12")
+	os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, "rollout-2026-07-12T15-19-00-"+id+".jsonl")
+	meta := `{"type":"session_meta","payload":{"id":"` + id + `","cwd":` + strconvQuote(cwd) + `,"originator":"codex_sdk_ts"}}` + "\n"
+	if err := os.WriteFile(p, []byte(meta), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// A Codex conversation resumes in Codex: Conductor ran Codex, which kept
+// its own rollout under the thread id Conductor stored (its
+// claude_session_id column), so nothing is written — it is found, and
+// `codex resume ID` carries it on. Without that rollout it is a handoff
+// as before; with its folders gone, Resume In… places it.
+func TestImportConductorCodexResumes(t *testing.T) {
+	db, ws := importFixture(t)
+	sqlite(t, db, `ALTER TABLE sessions ADD COLUMN claude_session_id TEXT; UPDATE sessions SET claude_session_id='thread-1' WHERE id='codex1';`)
+	out := filepath.Join(t.TempDir(), "out")
+	run := func(args ...string) (string, error) {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() { err = runImport(append([]string{"conductor", "-db", db, "-out", out}, args...)) })
+		return stdout, err
+	}
+	scan := func() importedFile {
+		t.Helper()
+		stdout, err := run("-n", "-json")
+		var got []importedFile
+		if err != nil || json.Unmarshal([]byte(stdout), &got) != nil {
+			t.Fatalf("scan: %v %q", err, stdout)
+		}
+		for _, f := range got {
+			if f.ID == "codex1" {
+				return f
+			}
+		}
+		t.Fatalf("no codex1 in %q", stdout)
+		return importedFile{}
+	}
+
+	// No rollout: a handoff, as before, and said why.
+	if f := scan(); f.Status != "markdown" || f.Why != "Codex has no session of it on this Mac" || f.Session != "" || f.ResumeArgs != nil {
+		t.Fatalf("without a rollout: %+v", f)
+	}
+
+	rollout := codexRollout(t, "thread-1", ws)
+	f := scan()
+	if f.Status != string(sessions.ImportFound) || f.Session != "thread-1" || f.SessionFile != rollout || f.Dir != ws ||
+		!slices.Equal(f.ResumeArgs, []string{"resume", "thread-1"}) || !f.Imported || f.File != "" {
+		t.Fatalf("with its rollout: %+v", f)
+	}
+	stdout, err := run()
+	if err != nil || !strings.Contains(stdout, "resumes in Codex, which kept it itself: conch new -agent codex -cwd "+shellWord(ws)+" -- resume thread-1") {
+		t.Fatalf("import: %v\n%s", err, stdout)
+	}
+	if m, _ := filepath.Glob(filepath.Join(out, "my-shop", "rename-it-*.md")); len(m) != 0 {
+		t.Errorf("a Codex conversation Codex keeps got a handoff too: %v", m)
+	}
+	if b, _ := os.ReadFile(rollout); !strings.HasPrefix(string(b), `{"type":"session_meta"`) || strings.Count(string(b), "\n") != 1 {
+		t.Errorf("Codex's own rollout was written to:\n%s", b)
+	}
+	// Claude's resume says its own words: --resume.
+	var all []importedFile
+	stdout, _ = run("-n", "-json")
+	json.Unmarshal([]byte(stdout), &all)
+	for _, g := range all {
+		if g.ID == "0123456789abcdef" && (len(g.ResumeArgs) != 2 || g.ResumeArgs[0] != "--resume") {
+			t.Errorf("Claude's resume words: %+v", g)
+		}
+	}
+
+	// Its workspace and repository gone: a handoff, with the thread named
+	// so Resume In… can place it; placed, it resumes there from then on.
+	os.RemoveAll(ws)
+	if f := scan(); f.Status != "markdown" || f.Where != "gone" || f.Session != "thread-1" || f.ResumeArgs != nil ||
+		!strings.Contains(f.Why, "Codex keeps it") {
+		t.Fatalf("folders gone: %+v", f)
+	}
+	clone := t.TempDir()
+	clone, _ = filepath.EvalSymlinks(clone)
+	stdout, err = run("-ids", "codex1", "-dir", clone, "-json")
+	var wrote []importedFile
+	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 ||
+		wrote[0].Status != string(sessions.ImportFound) || wrote[0].Dir != clone || wrote[0].Where != "chosen" {
+		t.Fatalf("-dir: %v %q", err, stdout)
+	}
+	if f := scan(); f.Where != "chosen" || f.Dir != clone || !slices.Equal(f.ResumeArgs, []string{"resume", "thread-1"}) {
+		t.Errorf("after -dir: %+v", f)
+	}
+}
+
+// claudeOriginal writes the session Claude Code kept itself for id, as it
+// does when Conductor runs it, in the project folder of cwd.
+func claudeOriginal(t *testing.T, id, cwd string) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", claudeFolder(cwd))
+	os.MkdirAll(dir, 0o700)
+	p := filepath.Join(dir, id+".jsonl")
+	body := `{"type":"queue-operation"}` + "\n" + `{"type":"user","cwd":` + strconvQuote(cwd) + `,"sessionId":"` + id + `","message":{"role":"user","content":"Why does the build fail?"}}` + "\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// A Claude conversation Claude Code kept itself (Conductor runs it with
+// the usual config folder) resumes from that session: nothing is written,
+// and a copy an earlier import wrote is removed unless somebody carried it
+// on — the same conversation twice in Sessions otherwise. -n removes
+// nothing; an original whose folder is gone is not used.
+func TestImportConductorUsesClaudeOriginals(t *testing.T) {
+	db, ws := importFixture(t)
+	sqlite(t, db, `ALTER TABLE sessions ADD COLUMN claude_session_id TEXT; UPDATE sessions SET claude_session_id='orig-1' WHERE id='0123456789abcdef';`)
+	out := filepath.Join(t.TempDir(), "out")
+	statePath := filepath.Join(os.Getenv("CONCH_HOME"), "imports", "conductor", "state.json")
+	run := func(args ...string) []importedFile {
+		t.Helper()
+		var err error
+		stdout, _ := a4Capture(t, "", func() {
+			err = runImport(append([]string{"conductor", "-db", db, "-out", out, "-json"}, args...))
+		})
+		var got []importedFile
+		if err != nil || json.Unmarshal([]byte(stdout), &got) != nil {
+			t.Fatalf("import %v: %v %q", args, err, stdout)
+		}
+		return got
+	}
+	fix := func(all []importedFile) importedFile {
+		for _, f := range all {
+			if f.ID == "0123456789abcdef" {
+				return f
+			}
+		}
+		t.Fatal("no 0123456789abcdef")
+		return importedFile{}
+	}
+
+	// An earlier import, before the original was looked for: conch's copy.
+	copied := fix(run("-ids", "0123456789abcdef"))
+	if copied.Status != string(sessions.ImportWritten) || copied.SessionFile == "" {
+		t.Fatalf("the copy: %+v", copied)
+	}
+	orig := claudeOriginal(t, "orig-1", ws)
+
+	// -n says it would use the original, and removes nothing.
+	f := fix(run("-n"))
+	if f.Status != string(sessions.ImportFound) || f.Session != "orig-1" || f.SessionFile != orig || f.Dir != ws ||
+		f.Where != "workspace" || !slices.Equal(f.ResumeArgs, []string{"--resume", "orig-1"}) || !f.Imported {
+		t.Fatalf("-n with an original: %+v", f)
+	}
+	if _, err := os.Stat(copied.SessionFile); err != nil {
+		t.Fatalf("-n removed the copy: %v", err)
+	}
+
+	// Imported: the copy goes, the original is untouched, the record too.
+	before, _ := os.ReadFile(orig)
+	if f := fix(run()); f.Status != string(sessions.ImportFound) || f.SessionFile != orig {
+		t.Fatalf("import with an original: %+v", f)
+	}
+	if _, err := os.Stat(copied.SessionFile); !os.IsNotExist(err) {
+		t.Errorf("conch's untouched copy is still there: %v", err)
+	}
+	if after, _ := os.ReadFile(orig); string(after) != string(before) {
+		t.Error("the original was written to")
+	}
+	if st, _ := sessions.LoadImportState(statePath); len(st) != 0 {
+		t.Errorf("state keeps the dropped copy: %+v", st)
+	}
+	if m := importSessions(t); len(m) != 1 || m[0] != orig {
+		t.Errorf("sessions: %v", m)
+	}
+	// Again: the same, and nothing written.
+	if f := fix(run()); f.Status != string(sessions.ImportFound) || len(importSessions(t)) != 1 {
+		t.Errorf("again: %+v %v", f, importSessions(t))
+	}
+
+	// An original whose folder is gone is not used: Claude Code resumes it
+	// only from there.
+	os.Remove(orig)
+	claudeOriginal(t, "orig-1", filepath.Join(t.TempDir(), "removed"))
+	if f := fix(run("-n")); f.Status == string(sessions.ImportFound) {
+		t.Errorf("an original whose folder is gone was used: %+v", f)
+	}
+}
+
+// A copy somebody carried on in conch is the conversation now: it is kept
+// and used, the original left alone.
+func TestImportConductorKeepsACarriedOnCopy(t *testing.T) {
+	db, ws := importFixture(t)
+	sqlite(t, db, `ALTER TABLE sessions ADD COLUMN claude_session_id TEXT; UPDATE sessions SET claude_session_id='orig-1' WHERE id='0123456789abcdef';`)
+	out := filepath.Join(t.TempDir(), "out")
+	var err error
+	stdout, _ := a4Capture(t, "", func() {
+		err = runImport([]string{"conductor", "-db", db, "-out", out, "-json", "-ids", "0123456789abcdef"})
+	})
+	var wrote []importedFile
+	if err != nil || json.Unmarshal([]byte(stdout), &wrote) != nil || len(wrote) != 1 {
+		t.Fatalf("%v %q", err, stdout)
+	}
+	fh, _ := os.OpenFile(wrote[0].SessionFile, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString("{}\n")
+	fh.Close()
+	claudeOriginal(t, "orig-1", ws)
+	stdout, _ = a4Capture(t, "", func() {
+		err = runImport([]string{"conductor", "-db", db, "-out", out, "-json", "-ids", "0123456789abcdef"})
+	})
+	var got []importedFile
+	if err != nil || json.Unmarshal([]byte(stdout), &got) != nil || len(got) != 1 ||
+		got[0].SessionFile != wrote[0].SessionFile || got[0].Status == string(sessions.ImportFound) {
+		t.Fatalf("a carried-on copy: %v %q", err, stdout)
+	}
+	if _, err := os.Stat(wrote[0].SessionFile); err != nil {
+		t.Errorf("the carried-on copy was removed: %v", err)
 	}
 }

@@ -77,6 +77,10 @@ const (
 	ImportCarriedOn ImportStatus = "carried-on" // the session changed since: left alone
 	ImportSkipped   ImportStatus = "skipped"    // nothing said in it
 	ImportFailed    ImportStatus = "failed"     // not resumable; Err says why
+	// ImportFound: the agent kept the conversation itself (Codex's own
+	// rollout, written as Conductor ran it), so it resumes with nothing
+	// written.
+	ImportFound ImportStatus = "found"
 )
 
 // ImportOutcome is what ImportResumable did with one conversation.

@@ -60,6 +60,46 @@ func (w ClaudeWriter) root() string {
 	return filepath.Join(w.Env.Home, ".claude")
 }
 
+// Original is Claude Code's own session id, as Claude Code wrote it while
+// another app ran it (Conductor runs Claude Code with the usual config
+// folder): its file under any project folder, and the folder it ran in,
+// read from its lines. Nothing for an id it has no file of, one that is
+// not a plain name, or a file that names no folder.
+func (w ClaudeWriter) Original(id string) (path, cwd string) {
+	if id == "" || strings.ContainsAny(id, `/\*?[`) || id == "." || id == ".." {
+		return "", ""
+	}
+	m, _ := filepath.Glob(filepath.Join(w.root(), "projects", "*", id+".jsonl"))
+	for _, p := range m {
+		if d := sessionCwd(p); d != "" {
+			return p, d
+		}
+	}
+	return "", ""
+}
+
+// sessionCwd is the folder a Claude Code session ran in: the first cwd
+// its lines name, among the first few hundred.
+func sessionCwd(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	cwd := ""
+	lines(f, 300, func(b []byte) bool {
+		var l struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(b, &l) == nil && l.Cwd != "" {
+			cwd = l.Cwd
+			return false
+		}
+		return true
+	})
+	return cwd
+}
+
 // Write writes im as a new session and returns its id and file. Nothing is
 // left behind when it fails: the file is made whole beside its place and
 // only then moved there.
