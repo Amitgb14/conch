@@ -74,6 +74,7 @@ final class ChangesModel: ObservableObject {
     /// read or from a server without them.
     @Published var previews: BranchPreviews?
     var previewsAt: Date?
+    var previewReads = Latest()
     /// Why the last read of the previews failed, if it did.
     @Published var previewsFailure: String?
     /// A failed build's log, by "source|deploy", once Build log is pressed.

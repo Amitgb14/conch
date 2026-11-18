@@ -160,6 +160,11 @@ public enum Deploys {
     /// keeps an answer as long itself.
     public static let askEvery: TimeInterval = 15
 
+    /// How often a tab left open asks by itself. The server keeps an
+    /// answer only 15 seconds (previewsFor), so each of these asks reaches
+    /// the deploy service's API: half as often as a git move may ask.
+    public static let pollEvery: TimeInterval = 30
+
     /// Whether to ask again: never asked, asked askEvery ago, or a clock
     /// that moved back.
     public static func askAgain(lastAt: Date?, now: Date = Date()) -> Bool {

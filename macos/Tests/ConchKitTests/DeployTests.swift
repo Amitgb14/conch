@@ -177,3 +177,10 @@ private func previews() throws -> BranchPreviews {
     #expect(Deploys.readFailure("timed out") == "Could not read the deploy previews: timed out")
     #expect(Deploys.readFailure("") == "Could not read the deploy previews.")
 }
+
+// An open tab asking by itself reaches the deploy service's API each time
+// (the server keeps an answer 15 seconds), so it asks less often than a
+// git move may.
+@Test func deployPreviewsPollIsSlowerThanAsking() {
+    #expect(Deploys.pollEvery > Deploys.askEvery)
+}

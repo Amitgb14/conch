@@ -20,12 +20,17 @@ extension ChangesModel {
         guard let c = connection, can(branchPreviewsCapability) else { return }
         if !force, !Deploys.askAgain(lastAt: previewsAt) { return }
         previewsAt = Date()
+        // A forced read after Redeploy and the tab's own can overlap; the
+        // older answer must not land over the newer one.
+        let n = previewReads.next()
         struct P: Encodable { var project_id: String; var branch: String }
         do {
-            previews = try await c.call("branch.previews", P(project_id: project, branch: branch), as: BranchPreviews.self)
+            let p = try await c.call("branch.previews", P(project_id: project, branch: branch), as: BranchPreviews.self)
+            guard previewReads.isLatest(n) else { return }
+            previews = p
             previewsFailure = nil
         } catch {
-            previewsFailure = Deploys.readFailure("\(error)")
+            if previewReads.isLatest(n) { previewsFailure = Deploys.readFailure("\(error)") }
         }
     }
 
@@ -35,7 +40,7 @@ extension ChangesModel {
     func keepPreviews() async {
         while !Task.isCancelled {
             await loadPreviews()
-            try? await Task.sleep(nanoseconds: UInt64(Deploys.askEvery * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(Deploys.pollEvery * 1_000_000_000))
         }
     }
 
