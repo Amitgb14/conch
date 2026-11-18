@@ -21,16 +21,27 @@ import (
 // ---- Claude Code ----
 
 // claudeDirName is how Claude names a directory's project folder: every
-// character other than a letter or digit becomes "-".
+// character other than a letter or digit becomes "-" — one for each UTF-16
+// unit, as JavaScript's replace counts them, so "é" is one dash and an
+// emoji two. Claude cuts a name longer than claudeDirMax there and adds a
+// hash of its own (see claudeIn).
 func claudeDirName(dir string) string {
-	b := []byte(dir)
-	for i, c := range b {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
-			b[i] = '-'
+	var b strings.Builder
+	for _, c := range dir {
+		switch {
+		case c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9':
+			b.WriteRune(c)
+		case c > 0xffff:
+			b.WriteString("--")
+		default:
+			b.WriteByte('-')
 		}
 	}
-	return string(b)
+	return b.String()
 }
+
+// claudeDirMax is the longest project folder name Claude Code writes whole.
+const claudeDirMax = 200
 
 func claude(e Env, dirs []string) []Session {
 	root := filepath.Join(e.Home, ".claude")
@@ -57,7 +68,8 @@ func claudeIn(root, account string, dirs []string) []Session {
 		match := false
 		for _, d := range dirs {
 			// Subdirectories share the prefix; the session's cwd decides.
-			if enc := claudeDirName(d); name == enc || strings.HasPrefix(name, enc+"-") {
+			if enc := claudeDirName(d); name == enc || strings.HasPrefix(name, enc+"-") ||
+				len(enc) > claudeDirMax && strings.HasPrefix(name, enc[:claudeDirMax]+"-") {
 				match = true
 			}
 		}

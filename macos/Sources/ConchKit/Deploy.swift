@@ -156,6 +156,28 @@ public enum Deploys {
     /// deploys or with why it has none.
     public static func hasAny(_ p: BranchPreviews?) -> Bool { !(p?.integrations.isEmpty ?? true) }
 
+    /// How often an open git tab asks for its previews again; the server
+    /// keeps an answer as long itself.
+    public static let askEvery: TimeInterval = 15
+
+    /// How often a tab left open asks by itself. The server keeps an
+    /// answer only 15 seconds (previewsFor), so each of these asks reaches
+    /// the deploy service's API: half as often as a git move may ask.
+    public static let pollEvery: TimeInterval = 30
+
+    /// Whether to ask again: never asked, asked askEvery ago, or a clock
+    /// that moved back.
+    public static func askAgain(lastAt: Date?, now: Date = Date()) -> Bool {
+        guard let at = lastAt else { return true }
+        let gone = now.timeIntervalSince(at)
+        return gone >= askEvery || gone < 0
+    }
+
+    /// What the tab says when the previews could not be read.
+    public static func readFailure(_ error: String) -> String {
+        error.isEmpty ? "Could not read the deploy previews." : "Could not read the deploy previews: \(error)"
+    }
+
     /// What a row's actions are, from what the server says of it and its
     /// integration.
     public static func actions(_ d: DeployInfo, in s: DeploySource) -> DeployActions {

@@ -7,6 +7,13 @@ import desktopGit from "@/images/desktop-git.png"
 import desktopLimits from "@/images/desktop-limits.png"
 import desktopSettings from "@/images/desktop-settings.png"
 import desktopSkills from "@/images/desktop-skills.png"
+import importCarryOn from "@/images/import-carry-on.png"
+import importChoose from "@/images/import-choose.png"
+import importFind from "@/images/import-find.png"
+import importHandoff from "@/images/import-handoff.png"
+import importInConch from "@/images/import-in-conch.png"
+import importInstall from "@/images/import-install.png"
+import importList from "@/images/import-list.png"
 import phoneAgent from "@/images/phone-agent.png"
 import phoneAgents from "@/images/phone-agents.png"
 import phoneWatch from "@/images/phone-watch.png"
@@ -15,7 +22,8 @@ import { cn } from "@/lib/utils"
 // The pictures a docs page may show, by name: MDX cannot import them, and
 // next/image wants the import rather than a path, so they are named here.
 // The desktop ones are taken in Conch.app; the phone ones are photographed
-// in the app itself by web/scripts/phone-capture.
+// in the app itself by web/scripts/phone-capture, and the import ones are
+// recorded against a made-up Conductor by web/scripts/import-demo.
 const images: Record<string, StaticImageData> = {
   "desktop-agents": desktopAgents,
   "desktop-browser": desktopBrowser,
@@ -24,6 +32,13 @@ const images: Record<string, StaticImageData> = {
   "desktop-limits": desktopLimits,
   "desktop-settings": desktopSettings,
   "desktop-skills": desktopSkills,
+  "import-carry-on": importCarryOn,
+  "import-choose": importChoose,
+  "import-find": importFind,
+  "import-handoff": importHandoff,
+  "import-in-conch": importInConch,
+  "import-install": importInstall,
+  "import-list": importList,
   "phone-agent": phoneAgent,
   "phone-agents": phoneAgents,
   "phone-watch": phoneWatch,

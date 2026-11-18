@@ -511,15 +511,26 @@ It exits 1 when anything is marked ✗, and 0 otherwise. The checks run side by 
 ### import
 
 ```sh
-conch import conductor        # Conductor's conversations, each as a document an agent can carry on from
-conch import conductor -n     # say what it would write, and write nothing
-conch import conductor -json  # what was written, for a script
-conch import conductor -ids ID,ID  # only these conversations (-n -json lists them with their ids)
+conch import conductor                   # Conductor's conversations: Claude's resume in Claude Code
+conch import conductor -markdown         # and a document of each as well
+conch import conductor -resumable=false  # documents only, as conch did before
+conch import conductor -n                # say what it would do, with each conversation's id, and write nothing
+conch import conductor -json             # what was written, for a script
+conch import conductor -ids ID,ID        # only these conversations (-n -json lists them with their ids)
+conch import conductor -project=false    # leave the repositories out of conch
 ```
 
-Conductor kept its conversations in a database of its own (`~/Library/Application Support/com.conductor.app/conductor.db`), not where Claude Code and Codex keep theirs, so [Sessions](/docs/sessions) cannot list them. This reads them from there — from a copy, so a Conductor that is still open is neither locked nor written to — and writes each one that has anything said in it as a handoff document: the prompts and the agent's answers, without tool calls, command output or thinking, under `imports/conductor/REPO/` in conch's folder (`-out DIR` for another; `-db PATH` for a database somewhere else). Importing again replaces the same files. `-n -json` says, for each conversation, its id, where it carries on (its workspace, or the repository once the workspace is gone), when it was last used and whether it was imported already; Conch.app's **Integrations → Import** sheet is drawn from it. It needs the `sqlite3` command, which macOS has.
+Conductor kept its conversations in a database of its own (`~/Library/Application Support/com.conductor.app/conductor.db`), not where Claude Code and Codex keep theirs, so [Sessions](/docs/sessions) cannot list them. This reads them from there — from a copy, so a Conductor that is still open is neither locked nor written to (`-db PATH` for a database somewhere else). It needs the `sqlite3` command, which macOS has.
 
-It ends with the command that carries the latest one on: an agent started where the conversation ran — its workspace, or the repository when the workspace is gone — and told to read the file. See [Moving from Conductor](/docs/from-conductor).
+**A Claude conversation becomes a Claude Code session**, whole — prompts, answers, tool calls and their results — in the project folder Claude keeps for the workspace it ran in, or for the repository when the workspace is gone (`$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`). It is an ordinary session from then on: it is in the [Sessions](/docs/sessions) view and resumes with `conch new -agent claude -cwd DIR -- --resume ID`, which the command prints for each one. A tool call that never returned in Conductor is answered as Claude Code answers one it was stopped in.
+
+**Anything else becomes a handoff document**: the prompts and the agent's answers, without tool calls, command output or thinking, under `imports/conductor/REPO/` in conch's folder (`-out DIR` for another). That is every Codex conversation for now, and a Claude one conch cannot write as a session — its workspace and repository both gone, say — and the output says why. The last thing printed is the command that carries one on: an agent started where the conversation ran and told to read the file.
+
+**The repository comes into conch too.** Each repository a conversation ran in that is still on this computer is added as a project, if it is not one already — Conductor's workspaces are its worktrees, so they are its branches, each with its conversations in its sessions. Only a server that is running is asked; without one the import still stands and the output gives the `conch project add` that does it. `-project=false` leaves them out.
+
+**Importing again brings in only what is new.** What was written is kept in `imports/conductor/state.json`. A conversation imported before gets Conductor's newer messages added to its session only if that session is as conch left it; one you have carried on with in conch is left alone, and the output says so. Nothing is ever deleted, and a session you removed is not written again. Documents are replaced in place. `-n -json` says, for each conversation, its id, where it carries on (its workspace, or the repository once the workspace is gone), when it was last used and whether it was imported already; Conch.app's **Integrations → Import** sheet is drawn from it, and imports what you tick with `-ids`.
+
+See [Moving from Conductor](/docs/from-conductor).
 
 ### keys
 

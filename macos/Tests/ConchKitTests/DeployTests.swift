@@ -158,3 +158,29 @@ private func previews() throws -> BranchPreviews {
     #expect(Deploys.releasedWords(nc) == "Netlify now serves e18b03f: it published the deploy as it was built.")
     #expect(Deploys.releasedWords(c) == "Vercel is building 3f2a91c for production: the production domains move to it once that build is ready.")
 }
+
+// A git tab left open asks again: an answer read before the project was
+// marked as deploying (or before a server reload) must not stay empty
+// until git happens to move.
+@Test func deployPreviewsAskAgain() {
+    let now = Date()
+    #expect(Deploys.askAgain(lastAt: nil, now: now))
+    #expect(!Deploys.askAgain(lastAt: now.addingTimeInterval(-5), now: now))
+    #expect(Deploys.askAgain(lastAt: now.addingTimeInterval(-Deploys.askEvery), now: now))
+    #expect(Deploys.askAgain(lastAt: now.addingTimeInterval(-60), now: now))
+    // A clock moved back is not a reason to stop asking for ever.
+    #expect(Deploys.askAgain(lastAt: now.addingTimeInterval(3600), now: now))
+}
+
+// A read that failed is said, not drawn as nothing.
+@Test func deployPreviewsFailureWords() {
+    #expect(Deploys.readFailure("timed out") == "Could not read the deploy previews: timed out")
+    #expect(Deploys.readFailure("") == "Could not read the deploy previews.")
+}
+
+// An open tab asking by itself reaches the deploy service's API each time
+// (the server keeps an answer 15 seconds), so it asks less often than a
+// git move may.
+@Test func deployPreviewsPollIsSlowerThanAsking() {
+    #expect(Deploys.pollEvery > Deploys.askEvery)
+}
