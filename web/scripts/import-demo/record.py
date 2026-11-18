@@ -38,19 +38,31 @@ import tojson  # noqa: E402  (ANSI to the styled runs topng draws)
 COLS, ROWS = 140, 36
 SOCKET = "/tmp/conch-import-demo.sock"  # short: macOS caps socket paths
 
-# The conversations the demo chooses: one whose worktree is there, one in
-# another workspace, and the marketing site's, whose repository is gone.
+# The conversations the demo chooses: two Claude ones in their worktrees, a
+# Codex one (which comes over as Markdown), and the marketing site's,
+# whose repository is gone.
 COUPONS = "0199f1c2-3a10-7b4e-9c21-4f8a2d6e1b01"
+CODEX_TESTS = "0199f1c2-9e44-7f02-8a6b-1c3d5e7f9a02"
 BADGE = "0199f4a8-0b17-7c3d-b5e9-2a4c6e8f0d03"
 PRICING = "0199f7b0-5a2c-7e81-a3d7-0c2e4a6c8e06"
-COUPONS_FILE = "~/.config/conch/imports/conductor/storefront/add-coupon-codes-to-checkout-0199f1c2.md"
-# The one the import's closing command names: the newest it can carry on.
-BADGE_FILE = "~/.config/conch/imports/conductor/storefront/cart-badge-keeps-the-old-count-0199f4a8.md"
-KYOTO = "~/conductor/workspaces/storefront/kyoto"
+CODEX_FILE = "~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md"
+LISBON = "~/conductor/workspaces/storefront/lisbon"
+
+
+def resume_coupons(home):
+    """The command the import printed for the coupons conversation: its
+    Claude Code session's id is new each run, so it is read back from what
+    the import kept."""
+    with open(os.path.join(home, ".config", "conch", "imports", "conductor", "state.json")) as f:
+        sid = json.load(f)[COUPONS]["agentSessionID"]
+    return "conch new -agent claude -cwd %s -- --resume %s" % (LISBON, sid)
+
 
 # name, title, commands; a command is (text, None), (text, an answer to its
 # [y/N] question), or (text, "until:MARKER"): run unrecorded until its
-# output holds MARKER, then recorded.
+# output holds MARKER, then recorded; (text, "quiet:MARKER") is only run,
+# never recorded. Text may be a function of HOME, for
+# what is only known once the steps before it ran.
 STEPS = [
     ("import-find", "Find the Conductor import", [
         ("conch integration search conductor", None),
@@ -63,19 +75,25 @@ STEPS = [
         ("conch import conductor -n", None),
     ]),
     ("import-choose", "Import the ones you want", [
-        ("conch import conductor -ids %s,%s,%s" % (COUPONS, BADGE, PRICING), None),
+        # conch is running, as it is for anybody importing into it: the
+        # import adds the repository to that server.
+        ("conch project ls", "quiet:no projects"),
+        ("conch import conductor -ids %s,%s,%s,%s" % (COUPONS, CODEX_TESTS, BADGE, PRICING), None),
     ]),
-    ("import-handoff", "What an agent is given", [
-        ("cat " + COUPONS_FILE, None),
+    ("import-in-conch", "The repository is in conch", [
+        # Once the server has read the repository's worktrees: Conductor's
+        # workspaces, now its branches.
+        ("conch project ls", "until:ada/coupon-codes"),
     ]),
-    ("import-carry-on", "Carry it on in conch", [
-        ("conch project add ~/src/storefront", None),
-        ("conch new -agent claude -cwd %s -- 'Read %s and carry on from where it leaves off.'" % (KYOTO, BADGE_FILE), None),
+    ("import-carry-on", "Resume a conversation", [
+        (resume_coupons, None),
         # Read once the stand-in has drawn its line, not before.
-        ("conch read p1", "until:stand-in for claude"),
+        ("conch read p1", "until:started with:"),
+    ]),
+    ("import-handoff", "A Codex conversation, as Markdown", [
+        ("cat " + CODEX_FILE, None),
     ]),
 ]
-
 
 def env(work):
     home = os.path.join(work, "home")
@@ -176,6 +194,11 @@ def main(work, cast, textdir, pngdir):
     for name, title, cmds in STEPS:
         screen = []
         for cmd, answer in cmds:
+            if callable(cmd):
+                cmd = cmd(home)
+            if answer and answer.startswith("quiet:"):
+                settle(cmd, e, answer[len("quiet:"):])
+                continue
             if answer and answer.startswith("until:"):
                 settle(cmd, e, answer[len("until:"):])
                 answer = None

@@ -2,8 +2,9 @@
 
 A recorded run of the `import` integration (PR #272, issue #271): someone who
 used Conductor installs the Conductor import, lists their Conductor
-conversations, picks some, and imports them as Markdown handoffs that an
-agent in conch carries on from.
+conversations, picks some, and imports them: the Claude ones as Claude Code
+sessions that resume in conch, the rest as Markdown handoffs, and the
+repository they ran in added to conch as a project.
 
 ## What was recorded
 
@@ -20,12 +21,13 @@ conversation where nothing was said (which the import leaves out), and a
 | Find the import | `conch integration search conductor`, `conch integration info conductor` | `import-find` |
 | Install it | `conch integration install conductor` (answering `y`) | `import-install` |
 | See what Conductor has | `conch import conductor -n` | `import-list` |
-| Import a chosen few | `conch import conductor -ids …` (3 of 5) | `import-choose` |
-| The handoff written | `cat ~/.config/conch/imports/conductor/storefront/add-coupon-codes-to-checkout-0199f1c2.md` | `import-handoff` |
-| Carry it on | `conch project add ~/src/storefront`, the `conch new -agent claude …` the import printed, `conch read p1` | `import-carry-on` |
+| Import a chosen few | `conch import conductor -ids …` (4 of 5: two Claude, one Codex, one whose repository is gone) | `import-choose` |
+| The repository in conch | `conch project ls`, once the server has read its worktrees | `import-in-conch` |
+| Resume one | the `conch new -agent claude … -- --resume ID` the import printed, `conch read p1` | `import-carry-on` |
+| A Codex handoff | `cat ~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md` | `import-handoff` |
 
 The agent in the last step is `internal/tools/standin` built as `claude`, so
-no real agent ran and no model was called. Its pane says so.
+no real agent ran and no model was called. Its pane says so, and prints what it was started with — the `--resume` the import gave it.
 `conch integration install` read the real registry (GitHub Pages); nothing
 was sent.
 
@@ -33,7 +35,7 @@ was sent.
 
 - `web/public/demos/import-conductor.cast` is the whole run as an asciicast v2
   recording (`asciinema play web/public/demos/import-conductor.cast`), about
-  70 s. asciinema is not installed here, so `record.py` writes the cast
+  30 s. asciinema is not installed here, so `record.py` writes the cast
   itself: each command typed at a prompt, run in a pty of 140×36, its output
   timed as it arrived.
 - `web/public/demos/import-conductor/*.txt` holds each step's final screen as
@@ -94,8 +96,8 @@ The script does four things:
    from your Conch.app's.
 2. It stages the same made-up Conductor data and repository in a scratch
    HOME.
-3. It starts a scratch server on `/tmp/conch-import-demo-app.sock` and adds
-   *storefront* as a project.
+3. It starts a scratch server on `/tmp/conch-import-demo-app.sock`, with no
+   project: the import adds *storefront*.
 4. It opens the copy behind your windows with `-background YES`, so the
    copy doesn't take your global scratch key.
 
@@ -108,8 +110,11 @@ Then:
 4. In the sheet, the conversations are listed by workspace, and the
    marketing-site one says its worktree and repository are gone. Untick
    some and press **Import**.
-5. On the done screen, use **Copy Prompt** and **Show**. After **Done**, the
-   Conductor page lists them under **Imported**.
+5. On the done screen, press **Resume** on a Claude conversation: a pane
+   opens with the stand-in `claude`, started with `--resume`. On the Codex
+   one, use **Copy Prompt** and **Show**. After **Done**, the Conductor page
+   lists them under **Imported**, and *storefront* is in the sidebar, added
+   by the import, with Conductor's workspaces as its branches.
 
 Quit the copy with ⌘Q, or press ctrl-c in the terminal: the script stops
 the copy and its server.

@@ -11,6 +11,7 @@ import importCarryOn from "@/images/import-carry-on.png"
 import importChoose from "@/images/import-choose.png"
 import importFind from "@/images/import-find.png"
 import importHandoff from "@/images/import-handoff.png"
+import importInConch from "@/images/import-in-conch.png"
 import importInstall from "@/images/import-install.png"
 import importList from "@/images/import-list.png"
 import phoneAgent from "@/images/phone-agent.png"
@@ -35,6 +36,7 @@ const images: Record<string, StaticImageData> = {
   "import-choose": importChoose,
   "import-find": importFind,
   "import-handoff": importHandoff,
+  "import-in-conch": importInConch,
   "import-install": importInstall,
   "import-list": importList,
   "phone-agent": phoneAgent,

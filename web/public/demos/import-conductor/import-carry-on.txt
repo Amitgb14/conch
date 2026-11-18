@@ -1,10 +1,8 @@
-$ conch project add ~/src/storefront
-r09c6456  storefront  ~/src/storefront
-
-$ conch new -agent claude -cwd ~/conductor/workspaces/storefront/kyoto -- 'Read ~/.config/conch/imports/conductor/storefront/cart-badge-keep
-s-the-old-count-0199f4a8.md and carry on from where it leaves off.'
+$ conch new -agent claude -cwd ~/conductor/workspaces/storefront/lisbon -- --resume d59a3e4d-318c-4d6a-b553-de2c2dd56ce4
 p1
 
 $ conch read p1
 stand-in for claude · not an agent; nothing is sent to any model
+started with: --settings ~/.config/conch/claude-se
+ttings.json --resume d59a3e4d-318c-4d6a-b553-de2c2dd56ce4
 >

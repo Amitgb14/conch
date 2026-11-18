@@ -60,7 +60,9 @@ trap cleanup EXIT
 "${IE[@]}" "$WORK/bin/conch" server stop >/dev/null 2>&1 || true
 
 bash "$T/stage.sh" "$H" >/dev/null
-"${IE[@]}" "$WORK/bin/conch" project add "$H/src/storefront" >/dev/null
+# The server running, with no project yet: the import adds storefront, which
+# is what the recording shows.
+"${IE[@]}" "$WORK/bin/conch" project ls >/dev/null
 
 echo "Opening the demo copy of Conch.app (behind your windows: click it in the Dock)."
 echo "Window → Integrations → Import → Import… on the Conductor card. ⌘Q when done."

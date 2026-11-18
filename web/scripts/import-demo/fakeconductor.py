@@ -20,20 +20,30 @@ import sqlite3
 import sys
 
 
+# Each tool call's id, so the result after it can name the call it answers:
+# the import writes a Claude conversation as a Claude Code session, which
+# keeps tool calls and their results and refuses a result that answers
+# nothing.
+calls = []
+
+
 def claude(*parts):
     """One assistant message of Claude's stream: text, and tool calls as
-    ("tool", name, input), which the import leaves out."""
+    ("tool", name, input)."""
     content = []
     for p in parts:
         if isinstance(p, tuple):
-            content.append({"type": "tool_use", "id": "toolu_demo", "name": p[1], "input": p[2]})
+            calls.append("toolu_demo_%02d" % (len(calls) + 1))
+            content.append({"type": "tool_use", "id": calls[-1], "name": p[1], "input": p[2]})
         else:
             content.append({"type": "text", "text": p})
     return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": content}})
 
 
 def tool_result(text):
-    return json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": text}]}})
+    """The result of the tool call made last."""
+    return json.dumps({"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": calls[-1], "content": text}]}})
 
 
 def codex(text):

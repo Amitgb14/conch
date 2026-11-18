@@ -127,36 +127,44 @@ Install it. It has no key and talks to nothing, so it only asks once.
   caption="Installed, and Conductor's database found."
 />
 
-`-n` lists every conversation with something said in it, each with its id, its agent, its repository and branch, and the file it would become. Nothing is written yet. A conversation whose worktree or repository is gone says so: it still imports, and carries on anywhere.
+`-n` lists every conversation with something said in it, each with its id, its agent, its repository and branch, and how it would come over: a Claude conversation resumes in Claude Code; a Codex one, or one whose worktree and repository are both gone, comes over as a Markdown file. Nothing is written yet.
 
 <Shot
   name="import-list"
-  alt="conch import conductor -n lists five conversations with ids, agents, branches and the files they would be written to; one is marked worktree and repository gone"
+  alt="conch import conductor -n lists five conversations with ids, agents and branches; the Claude ones would resume in Claude Code, the Codex one and the one whose repository is gone would be Markdown"
   caption="Choose from the list. The empty conversation Conductor kept is left out."
 />
 
-Name the ones you want with `-ids` (or leave it off for all of them). The command it ends with starts an agent where the newest one that still has its folder ran.
+Name the ones you want with `-ids` (or leave it off for all of them). Each Claude conversation is written as a Claude Code session where it ran, with the command that resumes it; the rest become Markdown files. The repository they ran in is added to conch as a project.
 
 <Shot
   name="import-choose"
-  alt="conch import conductor -ids with three ids writes three files and prints the conch new command that carries one on"
-  caption="Three of five, each a Markdown file under imports/conductor."
+  alt="conch import conductor -ids with four ids: two Claude conversations resume in Claude Code, a Codex one and one whose repository is gone are written as Markdown, and storefront is added to conch"
+  caption="Four of five: two to resume, two as Markdown, and the repository in conch."
 />
 
-Each file is the conversation as a handoff: where it ran, on which branch and when, then your prompts and the agent's answers. Tool calls, command output and thinking are left out, and the file says so, so the agent reads the code for the current state.
+The repository is a conch project now, and Conductor's workspaces are its branches, since they are git worktrees. Each branch's conversations are in its sessions.
 
 <Shot
-  name="import-handoff"
-  alt="The handoff file: a heading, the workspace and branch it ran on, and the user's prompts and Claude Code's answers with their times"
-  caption="What the agent is given to read."
+  name="import-in-conch"
+  alt="conch project ls lists storefront with branches main, ada/cart-badge and ada/coupon-codes"
+  caption="Conductor's workspaces, as the project's branches."
 />
 
-Add the repository as a project and run the command the import printed. The agent starts in the Conductor workspace, which conch shows as a branch, and is told to read the file. In the recording a stand-in plays the agent, so no model was called.
+Run the command the import printed: Claude Code starts in the Conductor workspace and resumes the conversation, with its history. In the recording a stand-in plays Claude Code and only shows what it was started with, so no model was called.
 
 <Shot
   name="import-carry-on"
-  alt="conch project add, then conch new -agent claude in the workspace with the prompt to read the handoff, then conch read showing the stand-in agent's pane"
-  caption="Carried on in conch, on the same branch."
+  alt="conch new -agent claude in the lisbon workspace with --resume and the session id, then conch read showing the stand-in started with --resume"
+  caption="Resumed in conch, on the same branch."
+/>
+
+A Codex conversation is a handoff for now: where it ran, on which branch and when, then your prompts and the agent's answers. Tool calls, command output and thinking are left out, and the file says so, so the agent reads the code for the current state. Start an agent where it ran and tell it to read the file, as the import says.
+
+<Shot
+  name="import-handoff"
+  alt="The handoff file of a Codex conversation: a heading, the workspace and branch it ran on, and the user's prompts and Codex's answers with their times"
+  caption="What an agent is given to read."
 />
 
 ## Prefer a window? Conch.app

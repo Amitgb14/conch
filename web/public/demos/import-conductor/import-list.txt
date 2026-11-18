@@ -1,21 +1,23 @@
 $ conch import conductor -n
-would write 5 of Conductor's conversations:
+would import 5 of Conductor's conversations:
 
   Add coupon codes to checkout  (Claude Code, 4 messages, storefront · ada/coupon-codes)
     id 0199f1c2-3a10-7b4e-9c21-4f8a2d6e1b01
-    ~/.config/conch/imports/conductor/storefront/add-coupon-codes-to-checkout-0199f1c2.md
+    would resume in Claude Code
   Tests for the coupon validator  (Codex, 4 messages, storefront · ada/coupon-codes)
     id 0199f1c2-9e44-7f02-8a6b-1c3d5e7f9a02
-    ~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md
+    as Markdown: Codex conversations come over as Markdown for now
+      ~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md
   Cart badge keeps the old count  (Claude Code, 4 messages, storefront · ada/cart-badge)
     id 0199f4a8-0b17-7c3d-b5e9-2a4c6e8f0d03
-    ~/.config/conch/imports/conductor/storefront/cart-badge-keeps-the-old-count-0199f4a8.md
+    would resume in Claude Code
   The product grid squeezes to one narrow column on small phones. Two columns below 400px, please.  (Claude Code, 2 messages, storefront · a
 da/cart-badge)
     id 0199f4a8-7d52-7a19-8e0c-6b8d0f2a4c04
-    ~/.config/conch/imports/conductor/storefront/the-product-grid-squeezes-to-one-narrow-column-on-small-phon-0199f4a8.md
+    would resume in Claude Code
   Rewrite the pricing page copy  (Claude Code, 4 messages, marketing-site · ada/pricing-copy, worktree and repository gone)
     id 0199f7b0-5a2c-7e81-a3d7-0c2e4a6c8e06
-    ~/.config/conch/imports/conductor/marketing-site/rewrite-the-pricing-page-copy-0199f7b0.md
+    as Markdown: Claude Code cannot resume it: no folder to resume it in: its workspace and repository are both gone
+      ~/.config/conch/imports/conductor/marketing-site/rewrite-the-pricing-page-copy-0199f7b0.md
 
-conch import conductor without -n writes them; -ids ID,… writes only those.
+conch import conductor without -n imports them; -ids ID,… only those.

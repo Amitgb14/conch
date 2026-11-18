@@ -1,35 +1,26 @@
-$ cat ~/.config/conch/imports/conductor/storefront/add-coupon-codes-to-checkout-0199f1c2.md
+$ cat ~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md
 _Imported from Conductor by `conch import conductor`._
 
-# Handoff: Add coupon codes to checkout
+# Handoff: Tests for the coupon validator
 
-Conversation from a Claude Code session (`0199f1c2-3a10-7b4e-9c21-4f8a2d6e1b01`) in `~/conductor/workspaces/storefront/lisbon` on branch `ad
-a/coupon-codes`, 2026-11-02 10:14 – 2026-11-02 11:02.
+Conversation from a Codex session (`0199f1c2-9e44-7f02-8a6b-1c3d5e7f9a02`) in `~/conductor/workspaces/storefront/lisbon` on branch `ada/coup
+on-codes`, 2026-11-02 11:20 – 2026-11-02 11:41.
 
 Only the messages are included: tool calls, command output and file edits are left out, so check the files themselves for the current state.
 
-## User · 2026-11-02 10:14:00
+## User · 2026-11-02 11:20:00
 
-Add coupon codes to checkout. A code takes a percentage or a fixed amount off the cart; codes have an expiry date and a usage limit. Store t
-hem in Postgres next to orders.
+Write tests for applyCoupon in app/checkout/coupon.ts: expired, used up, unknown code, percentage, fixed amount bigger than the cart.
 
-## Claude Code · 2026-11-02 10:16:00
+## Codex · 2026-11-02 11:22:00
 
-I'll look at how checkout totals are computed first.
+Added app/checkout/coupon.test.ts with 9 cases. All pass except one: a code is matched case-sensitively, so `SPRING10` and `spring10` differ
+. Should codes be case-insensitive?
 
-Plan:
+## User · 2026-11-02 11:24:00
 
-1. A `coupons` table (code, kind, amount, expires_at, max_uses, uses).
-2. `applyCoupon(cart, code)` in `app/checkout/coupon.ts`, returning the discount or why it was refused.
-3. A field on the checkout page, and the discount as a line in the summary.
+Yes, case-insensitive. Normalise to upper case when storing.
 
-I've written the migration and `applyCoupon`; the page is next.
+## Codex · 2026-11-02 11:26:00
 
-## User · 2026-11-02 10:22:00
-
-Fixed-amount coupons must never take the total below zero. And show the reason when a code is refused.
-
-## Claude Code · 2026-11-02 10:24:00
-
-Done: the discount is capped at the cart's subtotal, and a refused code says why under the field (*expired*, *used up*, *not a code*). Still
- to do: an admin page to create codes — for now they're inserted with `pnpm coupons:add`.
+Codes are upper-cased on insert and on lookup; the migration upper-cases existing rows. 10 tests, all passing.
