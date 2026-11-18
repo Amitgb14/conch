@@ -163,6 +163,10 @@ func (p *Pane) replayLocked(modes []ansi.Mode, cursorVisible bool) string {
 	b.WriteString(ansi.ResetStyle)
 	b.WriteString(strings.Join(lines, "\r\n"+ansi.ResetStyle))
 	b.WriteString(ansi.ResetStyle)
+	if top, bottom, ok := scrollRegion(p.emu); ok {
+		// Before the cursor: setting the region sends it home.
+		b.WriteString(ansi.SetTopBottomMargins(top, bottom))
+	}
 	cur := p.emu.CursorPosition()
 	b.WriteString(ansi.CursorPosition(cur.X+1, cur.Y+1))
 
