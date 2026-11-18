@@ -1895,7 +1895,9 @@ struct TabButton: View {
             store.layout.select(index)
             store.focusTerminal()
         }
-        .onTapGesture(count: 2) { store.renameTab(index) }
+        // Beside the click, not ahead of it: a double-click gesture placed
+        // first held every single click back for the double-click interval.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { store.renameTab(index) })
         // Pressed as a click is, its close button still its own.
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
