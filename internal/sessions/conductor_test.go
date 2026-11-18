@@ -80,6 +80,10 @@ func TestReadConductor(t *testing.T) {
 	if fix.Session.Title != "Fix the build" || fix.Session.Agent != "claude" || fix.Session.Branch != "victoria" || fix.Repo != "shop" {
 		t.Errorf("first conversation: %+v", fix.Session)
 	}
+	// The agent's own id, as Conductor kept it: none for one it never had.
+	if fix.AgentSession != "c1" || all[1].AgentSession != "" {
+		t.Errorf("agent sessions: %q %q", fix.AgentSession, all[1].AgentSession)
+	}
 	if fix.Session.Dir != ws || fix.Workspace != ws {
 		t.Errorf("dir = %q, workspace = %q; want the workspace, which is there", fix.Session.Dir, fix.Workspace)
 	}
@@ -263,5 +267,45 @@ INSERT INTO session_messages VALUES ('s1', 'user', 'first', '2026-07-10 15:19:01
 	}
 	if len(all) != 1 || len(all[0].Messages) != 2 || all[0].Messages[0].ID != "1" || all[0].Messages[1].ID != "2" {
 		t.Fatalf("rows without an id are numbered by sqlite's: %+v", all)
+	}
+}
+
+// CodexRollout finds the file Codex keeps a thread in, by the id at the
+// end of its name, in CODEX_HOME or else ~/.codex; nothing for an id it
+// does not have, an empty one, or one that would reach out of the folder.
+func TestCodexRollout(t *testing.T) {
+	home := t.TempDir()
+	day := filepath.Join(home, ".codex", "sessions", "2026", "11", "17")
+	os.MkdirAll(day, 0o755)
+	want := filepath.Join(day, "rollout-2026-11-17T23-28-24-01a1ed8e-8b9b.jsonl")
+	os.WriteFile(want, []byte("{}\n"), 0o600)
+	os.WriteFile(filepath.Join(day, "notes-01a1ed8e-other.jsonl"), nil, 0o600)
+	e := Env{Home: home, Getenv: func(string) string { return "" }}
+	if got := CodexRollout(e, "01a1ed8e-8b9b"); got != want {
+		t.Errorf("found %q, want %q", got, want)
+	}
+	for _, id := range []string{"", "8b9b-x", "other", "../sessions", "a/b"} {
+		if got := CodexRollout(e, id); got != "" {
+			t.Errorf("CodexRollout(%q) = %q", id, got)
+		}
+	}
+	// A suffix of another id is not that id.
+	if got := CodexRollout(e, "8b9b"); got != "" {
+		t.Errorf("a suffix matched: %q", got)
+	}
+	// CODEX_HOME moves it; ~/.codex is then not looked in.
+	other := t.TempDir()
+	e.Getenv = func(k string) string {
+		if k == "CODEX_HOME" {
+			return other
+		}
+		return ""
+	}
+	if got := CodexRollout(e, "01a1ed8e-8b9b"); got != "" {
+		t.Errorf("looked outside CODEX_HOME: %q", got)
+	}
+	// No sessions folder at all.
+	if got := CodexRollout(Env{Home: t.TempDir()}, "x"); got != "" {
+		t.Errorf("no folder: %q", got)
 	}
 }

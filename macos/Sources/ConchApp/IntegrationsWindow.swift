@@ -693,7 +693,7 @@ struct IntegrationPage: View {
                                 if let e = model.importFailure {
                                     Text(e).font(.ui(size: 11.5)).foregroundStyle(Theme.warn).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                 }
-                                Text("Resume starts its agent on it. A handoff is carried on by an agent started on its branch: paste the prompt, or drag the file into its prompt. Resume In… is for a Claude conversation whose folders are gone: choose a folder, a fresh clone of the repository say, and it resumes there.")
+                                Text("Resume starts its agent on it. A handoff is carried on by an agent started on its branch: paste the prompt, or drag the file into its prompt. Resume In… is for a conversation whose folders are gone: choose a folder, a fresh clone of the repository say, and it resumes there.")
                                     .font(.ui(size: 11)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                             }
                         }

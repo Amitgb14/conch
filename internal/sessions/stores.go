@@ -199,6 +199,40 @@ func codex(e Env, dirs []string) []Session {
 	return out
 }
 
+// CodexRollout is the file Codex keeps thread id in, in this
+// environment's Codex home (CODEX_HOME, else ~/.codex), or "" when it has
+// none: rollout-TIME-ID.jsonl under its sessions folder. Only that home,
+// since `codex resume` started by conch reads only it.
+func CodexRollout(e Env, id string) string {
+	if id == "" || strings.ContainsAny(id, `/\`) {
+		return ""
+	}
+	home := filepath.Join(e.Home, ".codex")
+	if d := e.get("CODEX_HOME"); d != "" {
+		home = d
+	}
+	found := ""
+	_ = filepath.WalkDir(filepath.Join(home, "sessions"), func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && codexRolloutID(d.Name()) == id {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+// codexRolloutID is the thread id in a rollout's file name,
+// rollout-2026-11-17T23-28-24-ID.jsonl: what follows the time, which is
+// always as long, so an id is never matched by the end of a longer one.
+func codexRolloutID(name string) string {
+	const head = len("rollout-2026-11-17T23-28-24-")
+	if !strings.HasPrefix(name, "rollout-") || !strings.HasSuffix(name, ".jsonl") || len(name) <= head+len(".jsonl") {
+		return ""
+	}
+	return strings.TrimSuffix(name[head:], ".jsonl")
+}
+
 // codexIn lists the sessions in one Codex home.
 func codexIn(home, account string, dirs []string) []Session {
 	var files []string

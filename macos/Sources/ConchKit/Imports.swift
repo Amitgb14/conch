@@ -36,11 +36,15 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
     public var agentName: String?
     public var session: String?
     public var sessionFile: String?
+    /// The agent's own words that resume it, after `conch new -agent A
+    /// -cwd DIR --`: ["resume", ID] for Codex. Older conches said none,
+    /// and wrote only Claude Code's, whose are ["--resume", ID].
+    public var resumeArgs: [String]?
     /// The conch project its repository was added to as, after the import.
     public var project: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, agent, repo, branch, workspace, dir, messages, file, `where`, imported, status, why, agentName, session, sessionFile, project
+        case id, title, agent, repo, branch, workspace, dir, messages, file, `where`, imported, status, why, agentName, session, sessionFile, project, resumeArgs
         case lastUsed = "last_used"
     }
 
@@ -74,6 +78,7 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
     public var how: String {
         switch status {
         case "written", "added", "unchanged": return "resumes in \(agent)"
+        case "found": return "resumes in \(agent), which kept it itself"
         case "carried-on": return "left alone: carried on in conch since"
         default:
             guard let why, !why.isEmpty else { return "as Markdown" }
@@ -85,7 +90,8 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
     /// handoff, or one with nowhere to resume.
     public var resumeArguments: [String]? {
         guard resumes, let session, !session.isEmpty, let dir, !dir.isEmpty else { return nil }
-        return ["new", "-agent", agentName ?? "claude", "-cwd", dir, "--", "--resume", session]
+        let words = resumeArgs.flatMap { $0.isEmpty ? nil : $0 } ?? ["--resume", session]
+        return ["new", "-agent", agentName ?? "claude", "-cwd", dir, "--"] + words
     }
 
     /// Its state in the sheet, in words.
@@ -119,11 +125,16 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
 
     /// Whether a folder can be chosen for it to resume in: a Claude
     /// conversation that came over as a handoff only because its workspace
-    /// and repository are gone. Codex ones are handoffs whatever the folder.
-    /// A session written before whose folder has since gone is the same:
-    /// a new folder can be chosen for it.
+    /// and repository are gone, or a Codex one Codex kept (it names the
+    /// thread) in the same state. A session written before whose folder
+    /// has since gone is the same: a new folder can be chosen for it.
     public var canResumeIn: Bool {
-        (agentName ?? "") == "claude" && self.where == "gone" && resumeArguments == nil
+        guard self.where == "gone", resumeArguments == nil else { return false }
+        switch agentName ?? "" {
+        case "claude": return true
+        case "codex": return !(session ?? "").isEmpty
+        default: return false
+        }
     }
 
     /// The row's column beside its name: how it carries on, short.

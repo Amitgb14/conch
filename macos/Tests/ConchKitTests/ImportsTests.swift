@@ -254,3 +254,31 @@ private let resumedJSON = """
     #expect(some.facts(sandbox: false)[1].value == "API key, region")
     #expect(some.facts(sandbox: true).map(\.key) == ["can", "ssh", "you supply", "asks for"])
 }
+
+// A Codex conversation Codex kept itself resumes with Codex's own words
+// (`codex resume ID`), not Claude's; one whose folders are gone offers
+// Resume In… once its thread is named. Without resumeArgs (an older
+// conch) the words are Claude's, as before.
+@Test func codexConversationsResumeInCodex() throws {
+    let json = #"[{"id":"x1","title":"Changes review","agent":"Codex","repo":"test01","branch":"santiago","dir":"/w/santiago","messages":12,"where":"workspace","status":"found","agentName":"codex","session":"01a1ed8e","sessionFile":"/h/.codex/sessions/r.jsonl","resumeArgs":["resume","01a1ed8e"],"imported":true}]"#
+    let c = try JSONDecoder().decode([ImportConversation].self, from: Data(json.utf8))[0]
+    #expect(c.resumes && c.how == "resumes in Codex, which kept it itself" && c.outcome == "Codex · resumable")
+    #expect(c.resumeArguments == ["new", "-agent", "codex", "-cwd", "/w/santiago", "--", "resume", "01a1ed8e"])
+    #expect(c.action == .resume(["new", "-agent", "codex", "-cwd", "/w/santiago", "--", "resume", "01a1ed8e"]))
+    #expect(ImportFlow.importedAlready(Data(json.utf8)).map(\.id) == ["x1"])
+
+    let gone = ImportConversation(id: "x2", title: "t", agent: "Codex", messages: 2, file: "/x.md", where: "gone",
+                                  status: "markdown", why: "Codex keeps it, but its workspace and repository are both gone",
+                                  agentName: "codex", session: "01a1ed8e")
+    #expect(gone.canResumeIn && gone.action == .resumeIn && gone.resumeArguments == nil)
+    // No thread named: Codex has none of it here, so a handoff only.
+    var none = gone
+    none.session = nil
+    #expect(!none.canResumeIn && none.action == .copyPrompt)
+    // Without resumeArgs, or with an empty list, the words are Claude's,
+    // as an older conch wrote only Claude's sessions.
+    var claude = ImportConversation(id: "c", title: "t", agent: "Claude Code", dir: "/w", messages: 1, status: "written", agentName: "claude", session: "s")
+    #expect(claude.resumeArguments?.suffix(2) == ["--resume", "s"])
+    claude.resumeArgs = []
+    #expect(claude.resumeArguments?.suffix(2) == ["--resume", "s"])
+}

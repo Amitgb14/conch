@@ -55,10 +55,9 @@ func Does(kind string, ops []string) []Feature {
 	case KindImport:
 		// Nothing is sent anywhere: it is read on this machine, once asked.
 		return []Feature{
-			{"Its conversations, brought into conch", "Integrations → Import…, conch import NAME: a Claude one as a Claude Code session, anything else as a handoff an agent reads and carries on from", "yes"},
+			{"Its conversations, brought into conch", "Integrations → Import…, conch import NAME: a Claude one as a Claude Code session, a Codex one from Codex's own, anything else as a handoff an agent reads and carries on from", "yes"},
 			{"Its workspaces' repositories", "Added to conch as projects, so each conversation is in its branch's sessions", "yes"},
-			// Partly: Codex conversations are still handoffs.
-			{"Resume a conversation in its own agent", "Resume, where it ran or in a folder you choose (Resume In…, conch import NAME -dir); Codex ones are handoffs for now", "partly"},
+			{"Resume a conversation in its own agent", "Resume, where it ran or in a folder you choose (Resume In…, conch import NAME -dir): from the session the agent kept itself while the other app ran it, or written as one when it kept none", "yes"},
 		}
 	case KindCI:
 	default:

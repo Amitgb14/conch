@@ -20,9 +20,11 @@ import (
 // runImport brings conversations in from another app. Only Conductor so
 // far: it kept its chats in a database of its own, which goes when its
 // cloud shuts down or the app is removed. A Claude conversation is written
-// as a Claude Code session, which `claude --resume` carries on; anything
-// that cannot be — a Codex conversation, one with nowhere to resume — is
-// written out as a handoff document an agent can read and carry on from.
+// as a Claude Code session, which `claude --resume` carries on; a Codex
+// one is Codex's own rollout, which Codex wrote as Conductor ran it and
+// `codex resume` carries on; anything that cannot be — no rollout, nowhere
+// to resume — is written out as a handoff document an agent can read and
+// carry on from.
 // What was written is kept in imports/conductor/state.json, so importing
 // again adds only what is new.
 func runImport(args []string) error {
@@ -182,7 +184,11 @@ type importedFile struct {
 	AgentName   string `json:"agentName"`         // the agent as conch names it: "claude", "codex"
 	Session     string `json:"session,omitempty"` // the agent's session id, to resume
 	SessionFile string `json:"sessionFile,omitempty"`
-	Added       int    `json:"added,omitempty"`
+	// ResumeArgs are the agent's own words that resume it, after `conch
+	// new -agent AGENT -cwd DIR --`: ["--resume", ID] for Claude Code,
+	// ["resume", ID] for Codex. Older conches said none; Claude's then.
+	ResumeArgs []string `json:"resumeArgs,omitempty"`
+	Added      int      `json:"added,omitempty"`
 	// Project is the conch project its repository was added to as.
 	Project string `json:"project,omitempty"`
 	root    string // the repository's folder, as Conductor knew it
@@ -298,9 +304,31 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 		wantMarkdown := !imp.resumable || imp.markdown
 		switch {
 		case !imp.resumable:
+		case im.Session.Agent == "codex":
+			// Conductor runs Codex itself, which keeps its own rollout:
+			// nothing to write, only to find.
+			rollout := sessions.CodexRollout(imp.claude.Env, im.AgentSession)
+			switch {
+			case rollout == "":
+				f.Why = "Codex has no session of it on this Mac"
+				wantMarkdown = true
+			case im.Session.Dir == "":
+				f.Why = "Codex keeps it, but its workspace and repository are both gone"
+				f.Session = im.AgentSession // what Resume In… resumes
+				wantMarkdown = true
+			default:
+				f.Status, f.Session, f.SessionFile = string(sessions.ImportFound), im.AgentSession, rollout
+				if imp.dir != "" && !imp.dry {
+					imp.state[im.Session.ID] = sessions.ImportRecord{Agent: "codex", AgentSessionID: im.AgentSession,
+						Path: rollout, ImportedAt: time.Now(), Dir: imp.dir}
+					imp.changed = true
+				}
+			}
 		case im.Session.Agent != imp.claude.Agent():
 			f.Why = sessions.AgentName(im.Session.Agent) + " conversations come over as Markdown for now"
 			wantMarkdown = true
+		case imp.original(&f, im, seen):
+			// Claude Code kept it itself, where it ran: resumed from there.
 		default:
 			o := imp.resume(ctx, im)
 			if o.Status == sessions.ImportFailed {
@@ -315,8 +343,11 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 			f.Session, f.SessionFile = o.AgentSessionID, o.Path
 		}
 		// Imported: there is something of it already, from an earlier
-		// import, or this one wrote it.
-		f.Imported = seen || (!imp.dry && f.Session != "")
+		// import, or this one wrote it — or its agent kept it itself.
+		f.Imported = seen || (!imp.dry && f.Session != "") || f.Status == string(sessions.ImportFound)
+		if f.Session != "" && f.Status != "markdown" {
+			f.ResumeArgs = resumeWords(f.AgentName, f.Session)
+		}
 		if wantMarkdown {
 			if _, err := os.Stat(names[i]); err == nil {
 				f.Imported = true
@@ -329,6 +360,51 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 		written = append(written, f)
 	}
 	return written, nil
+}
+
+// original uses the session Claude Code kept itself, as it ran under
+// Conductor, rather than writing a second: it has everything, and is the
+// one Claude Code lists. Only while the folder it ran in is there, since
+// Claude Code resumes it from there and nowhere else; not for one placed
+// with -dir. A copy an earlier import wrote is dropped if nobody has
+// carried it on since — it is the same conversation twice in Sessions —
+// and kept, and used as before, if somebody has.
+func (imp *importer) original(f *importedFile, im sessions.Imported, seen bool) bool {
+	if imp.dir != "" {
+		return false
+	}
+	path, cwd := imp.claude.Original(im.AgentSession)
+	if path == "" || !isFolder(cwd) {
+		return false
+	}
+	if seen {
+		rec := imp.state[im.Session.ID]
+		if rec.Path == path {
+			// The record is of the original itself: nothing to drop.
+		} else if fi, err := os.Stat(rec.Path); err == nil && fi.Size() != rec.Size {
+			return false // carried on in conch's copy: that one goes on
+		} else if !imp.dry {
+			if err == nil {
+				if os.Remove(rec.Path) != nil {
+					return false
+				}
+			}
+			delete(imp.state, im.Session.ID)
+			imp.changed = true
+		}
+	}
+	im.Session.Dir = cwd
+	f.Dir, f.Where = cwd, importedWhere(im)
+	f.Status, f.Session, f.SessionFile = string(sessions.ImportFound), im.AgentSession, path
+	return true
+}
+
+// resumeWords are an agent's own words that resume session id.
+func resumeWords(agent, id string) []string {
+	if agent == "codex" {
+		return []string{"resume", id}
+	}
+	return []string{"--resume", id}
 }
 
 // resume writes im as a Claude Code session, or with -n says whether it
@@ -455,8 +531,14 @@ func printImported(written []importedFile, all []sessions.Imported, dry bool) {
 			// What -ids takes: the list is what somebody chooses from.
 			fmt.Printf("    id %s\n", f.ID)
 		}
-		resume := "conch new -agent " + f.AgentName + " -cwd " + shellWord(f.Dir) + " -- --resume " + f.Session
+		words := make([]string, len(f.ResumeArgs))
+		for i, w := range f.ResumeArgs {
+			words[i] = shellWord(w)
+		}
+		resume := "conch new -agent " + f.AgentName + " -cwd " + shellWord(f.Dir) + " -- " + strings.Join(words, " ")
 		switch sessions.ImportStatus(f.Status) {
+		case sessions.ImportFound:
+			fmt.Printf("    resumes in %s, which kept it itself: %s\n", f.Agent, resume)
 		case sessions.ImportWritten:
 			if dry {
 				fmt.Println("    would resume in Claude Code")

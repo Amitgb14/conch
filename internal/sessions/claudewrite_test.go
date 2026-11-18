@@ -516,3 +516,29 @@ func TestClaudeWriterResultStoredBeforeItsCall(t *testing.T) {
 		t.Errorf("tool lines in the session: %v", order)
 	}
 }
+
+// Original finds the session Claude Code kept itself in any project
+// folder, and the folder it ran in from its lines; nothing for an id it
+// has no file of, a name that is a pattern or a path, or a file that
+// names no folder.
+func TestClaudeOriginal(t *testing.T) {
+	env, cfg := importEnv(t)
+	w := ClaudeWriter{Env: env}
+	proj := filepath.Join(cfg, "projects", "-w-dakar")
+	os.MkdirAll(proj, 0o700)
+	want := filepath.Join(proj, "dbb0ec46.jsonl")
+	os.WriteFile(want, []byte("{\"type\":\"queue-operation\"}\nnot json\n{\"type\":\"user\",\"cwd\":\"/w/dakar\"}\n"), 0o600)
+	os.WriteFile(filepath.Join(proj, "nocwd.jsonl"), []byte("{\"type\":\"ai-title\"}\n"), 0o600)
+	if p, cwd := w.Original("dbb0ec46"); p != want || cwd != "/w/dakar" {
+		t.Errorf("Original = %q %q", p, cwd)
+	}
+	for _, id := range []string{"", "nope", "nocwd", "*", "dbb0ec4?", "../projects/-w-dakar/dbb0ec46", "..", "."} {
+		if p, cwd := w.Original(id); p != "" || cwd != "" {
+			t.Errorf("Original(%q) = %q %q", id, p, cwd)
+		}
+	}
+	// No config folder at all.
+	if p, _ := (ClaudeWriter{Env: Env{Home: t.TempDir(), Getenv: func(string) string { return "" }}}).Original("x"); p != "" {
+		t.Errorf("no folder: %q", p)
+	}
+}
