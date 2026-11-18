@@ -167,7 +167,8 @@ only inside conch. See [Agents working together](https://amitgb14.github.io/conc
 ```sh
 make build        # bin/conch
 make test         # go test -race -timeout 20m ./...
-make lint         # gofmt, go vet, staticcheck — what CI checks first
+make lint         # gofmt, go vet, staticcheck — CI's lint job
+make gate         # lint, then the suite with internal/server in shards — what CI runs, on one machine
 ```
 
 The tests of the phone app and the settings page run with node and skip

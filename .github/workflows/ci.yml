@@ -6,11 +6,40 @@ on:
   pull_request:
 
 jobs:
-  test:
+  # gofmt, go vet and staticcheck. On both systems: each builds files the
+  # other doesn't (FSEvents and peer_darwin here, fsnotify and peer_linux
+  # there).
+  lint:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make lint
+
+  # The suite, as `go test -race -count=1 -timeout 20m ./...` runs it, in
+  # pieces on machines of their own (scripts/test.sh). internal/server's
+  # ~580 tests run one at a time and took ~16 of the job's 21 minutes on
+  # the macOS runner, while everything else was done in four, so it is
+  # dealt into shards beside one job for the rest. Every part, with the
+  # same SHARDS, is the whole suite once; TestCIRunsEveryPart keeps this
+  # list and SHARDS in step.
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.part }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        part: [rest, server-1, server-2, server-3, server-4, server-5]
+    runs-on: ${{ matrix.os }}
+    env:
+      SHARDS: 5
+      PART: ${{ matrix.part }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -23,14 +52,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # gofmt, go vet and staticcheck. On both systems: each builds files
-      # the other doesn't (FSEvents and peer_darwin here, fsnotify and
-      # peer_linux there).
-      - run: make lint
-      # internal/server alone takes 500-550s on the macOS runner, which
-      # left go test's default 10m timeout one slow runner from failing a
-      # pull request that never touched it.
-      - run: go test -race -timeout 20m ./...
+      - run: scripts/test.sh
 
   # Conch.app (macos/) is Swift, which go test never builds. swift test
   # builds every target — ConchApp too, not only what ConchKitTests

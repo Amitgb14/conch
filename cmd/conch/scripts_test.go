@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -40,6 +44,70 @@ func TestReleaseScriptsParse(t *testing.T) {
 		"--options runtime", `"$here/notarize.sh" "$stage/notarize.zip" "$profile"`, "stapler staple", "Notarized Developer ID"} {
 		if !strings.Contains(string(release), want) {
 			t.Errorf("macos/release.sh lost its check %q", want)
+		}
+	}
+}
+
+// CI runs the suite in pieces (scripts/test.sh's PART), one job each, and
+// only all of them together are the whole suite. A part left out of the
+// matrix — SHARDS raised without a server-K added, or one deleted — would
+// skip a fifth of internal/server's tests with every check still green.
+func TestCIRunsEveryPart(t *testing.T) {
+	ci, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards := regexp.MustCompile(`(?m)^\s+SHARDS: (\d+)\s*$`).FindAllStringSubmatch(string(ci), -1)
+	parts := regexp.MustCompile(`(?m)^\s+part: \[([^\]]*)\]\s*$`).FindAllStringSubmatch(string(ci), -1)
+	if len(shards) != 1 || len(parts) != 1 {
+		t.Fatalf("ci.yml: want one SHARDS and one part list, found %d and %d", len(shards), len(parts))
+	}
+	n, _ := strconv.Atoi(shards[0][1])
+	want := []string{"rest"}
+	for k := 1; k <= n; k++ {
+		want = append(want, fmt.Sprintf("server-%d", k))
+	}
+	var got []string
+	for _, p := range strings.Split(parts[0][1], ",") {
+		got = append(got, strings.TrimSpace(p))
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("ci.yml runs parts %v with SHARDS=%d; the whole suite is %v", got, n, want)
+	}
+	if !strings.Contains(string(ci), "PART: ${{ matrix.part }}") || !strings.Contains(string(ci), "run: scripts/test.sh") {
+		t.Error("ci.yml's test job no longer hands its part to scripts/test.sh")
+	}
+}
+
+// What scripts/test.sh refuses before it runs anything: a part it does
+// not know, a shard past SHARDS, a SHARDS that is not a count. Each would
+// otherwise run nothing, or everything, and pass.
+func TestTestScriptRefusesBadParts(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("..", "..", "scripts", "test.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("bash", "-n", script).CombinedOutput(); err != nil {
+		t.Fatalf("scripts/test.sh does not parse: %v\n%s", err, out)
+	}
+	for _, c := range []struct{ shards, part, want string }{
+		{"5", "bogus", "all, rest or server-K"},
+		{"5", "server-6", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-0", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-", "server-K with K from 1 to SHARDS=5"},
+		{"5", "server-x", "server-K with K from 1 to SHARDS=5"},
+		{"0", "rest", "a whole number above 0"},
+		{"two", "all", "a whole number above 0"},
+	} {
+		cmd := exec.Command("bash", script)
+		cmd.Env = append(os.Environ(), "SHARDS="+c.shards, "PART="+c.part)
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+			t.Errorf("SHARDS=%s PART=%s: %v, want exit 2\n%s", c.shards, c.part, err, out)
+		}
+		if !strings.Contains(string(out), c.want) {
+			t.Errorf("SHARDS=%s PART=%s said %q, want %q", c.shards, c.part, out, c.want)
 		}
 	}
 }

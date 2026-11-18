@@ -72,14 +72,16 @@ make vet                       # go vet ./...
 make lint                      # gofmt -l, go vet and staticcheck (pinned; staticcheck.conf says what it leaves out)
 gofmt -l cmd internal          # must print nothing
 go test -race -count=1 -timeout 20m ./...   # what to run before every commit
-make gate                      # lint, then the same suite in ~3 minutes: internal/server split across processes (scripts/test.sh)
+make gate                      # lint, then the same suite in ~4 minutes: internal/server split across processes (scripts/test.sh, as CI does across jobs)
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 make settings-ui-check         # rebuild internal/configweb/dist and fail if it moved (needs pnpm)
 make app-release VERSION=0.2.0 NOTARY=conch-notary # Conch.app's zip for a release, Developer ID-signed and notarized (Apple Silicon, Ghostty built): dist/
 ```
 
-CI (`.github/workflows/ci.yml`) runs `make lint` and `go test -race` on
-**Linux and macOS**, with node installed, `swift test` for Conch.app on
+CI (`.github/workflows/ci.yml`) runs `make lint` and the race-enabled suite on
+**Linux and macOS** — the suite split across jobs by `scripts/test.sh`'s
+`PART` (everything but `internal/server`, and that package in five shards,
+since its tests run one at a time and alone took ~16 minutes), with node installed, `swift test` for Conch.app on
 macOS, and rebuilds the settings page to check the committed `dist/`
 against `app/`. Code and tests must work on both.
 Under CI (`CI=true`) the JavaScript tests fail rather than skip without node
