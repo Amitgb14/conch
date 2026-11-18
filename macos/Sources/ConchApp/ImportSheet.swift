@@ -93,7 +93,7 @@ struct ImportSheet: View {
             Text(f.doneWords).font(.ui(size: 12.5, weight: .semibold))
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(f.results) { c in ImportedRow(c: c, resume: model.resumeImported, resumeIn: { model.resumeIn(c, reader: f.reader) }) }
+                    ForEach(f.results) { c in ImportedRow(c: c, resume: { model.resume(c, reader: f.reader) }, resumeIn: { model.resumeIn(c, reader: f.reader) }) }
                 }
             }
             .frame(minHeight: 120, maxHeight: 320)
@@ -111,7 +111,7 @@ struct ImportSheet: View {
 struct ImportedRow: View {
     let c: ImportConversation
     /// Starts the agent on a conversation that came over as its session.
-    let resume: ([String]) -> Void
+    let resume: () -> Void
     /// Asks for a folder and resumes it there.
     let resumeIn: () -> Void
     @Environment(\.conchTheme) private var theme
@@ -143,8 +143,8 @@ struct ImportedRow: View {
 
     @ViewBuilder var primary: some View {
         switch c.action {
-        case .resume(let args):
-            Button("Resume") { resume(args) }
+        case .resume:
+            Button("Resume") { resume() }
                 .help("Start \(c.agent) in \(c.dir ?? "its folder") on this conversation")
         case .resumeIn:
             Button("Resume In…") { resumeIn() }

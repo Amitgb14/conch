@@ -288,6 +288,33 @@ final class IntegrationsModel: ObservableObject {
         }
     }
 
+    /// Resume, on an imported conversation: imports that one again first,
+    /// which moves its session to where it resumes now if its worktree has
+    /// gone, then resumes what that answers. Without a reader (an older
+    /// page), it resumes as listed.
+    func resume(_ c: ImportConversation, reader: String?) {
+        guard let bin = store.binary, let reader else {
+            if let args = c.resumeArguments { resumeImported(args) }
+            return
+        }
+        importFailure = nil
+        Task { @MainActor in
+            do {
+                let data = try await runConch(bin, ImportFlow.refreshArguments(reader: reader, id: c.id))
+                switch ImportFlow.resumedIn(data, id: c.id) {
+                case .success(let now):
+                    if let i = importing?.results.firstIndex(where: { $0.id == c.id }) { importing?.results[i] = now }
+                    if let args = now.resumeArguments { resumeImported(args) }
+                case .failure(let e):
+                    say(e.message)
+                }
+            } catch {
+                say("Could not resume it: \(error)")
+            }
+            if let info = page { loadImported(info) }
+        }
+    }
+
     /// Resume In…, on a Claude conversation whose workspace and repository
     /// are gone: asks for a folder, writes the conversation there as a
     /// session (conch remembers the folder), resumes it, and reads the
@@ -689,7 +716,7 @@ struct IntegrationPage: View {
                     VStack(alignment: .leading, spacing: 14) {
                         if info.isImport, let done = model.imported[info.name], !done.isEmpty {
                             box("Imported · \(done.count)") {
-                                ForEach(done) { c in ImportedRow(c: c, resume: model.resumeImported, resumeIn: { model.resumeIn(c, reader: info.reader) }).padding(.vertical, 2) }
+                                ForEach(done) { c in ImportedRow(c: c, resume: { model.resume(c, reader: info.reader) }, resumeIn: { model.resumeIn(c, reader: info.reader) }).padding(.vertical, 2) }
                                 if let e = model.importFailure {
                                     Text(e).font(.ui(size: 11.5)).foregroundStyle(Theme.warn).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                 }

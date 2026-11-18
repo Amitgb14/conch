@@ -330,6 +330,12 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 		case imp.original(&f, im, seen):
 			// Claude Code kept it itself, where it ran: resumed from there.
 		default:
+			moving, err := imp.refile(im)
+			if err != nil {
+				f.Why = "its session is filed for a folder that is gone, and could not be moved: " + err.Error()
+				wantMarkdown = true
+				break
+			}
 			o := imp.resume(ctx, im)
 			if o.Status == sessions.ImportFailed {
 				f.Why = "Claude Code cannot resume it: " + o.Err.Error()
@@ -341,6 +347,14 @@ func (imp *importer) run(ctx context.Context, all []sessions.Imported) ([]import
 			}
 			f.Status, f.Why, f.Added = string(o.Status), o.Why, o.Added
 			f.Session, f.SessionFile = o.AgentSessionID, o.Path
+			if moving != "" {
+				f.SessionFile = moving
+				if f.Why == "" && imp.dry {
+					f.Why = "its worktree is gone: importing it moves its session to where it resumes now"
+				} else if f.Why == "" {
+					f.Why = "its worktree is gone: its session was moved to where it resumes now"
+				}
+			}
 		}
 		// Imported: there is something of it already, from an earlier
 		// import, or this one wrote it — or its agent kept it itself.
@@ -397,6 +411,34 @@ func (imp *importer) original(f *importedFile, im sessions.Imported, seen bool) 
 	f.Dir, f.Where = cwd, importedWhere(im)
 	f.Status, f.Session, f.SessionFile = string(sessions.ImportFound), im.AgentSession, path
 	return true
+}
+
+// refile moves a session an earlier import wrote into the project folder
+// for where the conversation carries on now. Claude Code finds a session
+// only in the folder of the directory it is resumed in, so one written for
+// a worktree since removed resumed nowhere, though the import offered it
+// in the repository. Moved whole, never rewritten: somebody may have
+// carried it on. With -n nothing moves, and the path it would go to is
+// returned for the output; "" when nothing needs to move.
+func (imp *importer) refile(im sessions.Imported) (string, error) {
+	rec, ok := imp.state[im.Session.ID]
+	if !ok || rec.Agent != imp.claude.Agent() || im.Session.Dir == "" || imp.claude.Filed(rec.Path, im.Session.Dir) {
+		return "", nil
+	}
+	if _, err := os.Stat(rec.Path); err != nil {
+		return "", nil // removed since: ImportPlan says so
+	}
+	if imp.dry {
+		return filepath.Join(imp.claude.Folder(im.Session.Dir), filepath.Base(rec.Path)), nil
+	}
+	to, err := imp.claude.Move(rec.Path, im.Session.Dir)
+	if err != nil {
+		return "", err
+	}
+	rec.Path, rec.Dir = to, im.Session.Dir
+	imp.state[im.Session.ID] = rec
+	imp.changed = true
+	return to, nil
 }
 
 // resumeWords are an agent's own words that resume session id.
@@ -560,6 +602,12 @@ func printImported(written []importedFile, all []sessions.Imported, dry bool) {
 				fmt.Printf("    as Markdown: %s\n      %s\n", f.Why, f.File)
 			} else {
 				fmt.Printf("    as Markdown: %s\n", f.File)
+			}
+		}
+		switch sessions.ImportStatus(f.Status) {
+		case sessions.ImportWritten, sessions.ImportAdded, sessions.ImportUnchanged, sessions.ImportFound:
+			if f.Why != "" {
+				fmt.Printf("    (%s)\n", f.Why)
 			}
 		}
 		if f.File != "" && f.Status != "markdown" {

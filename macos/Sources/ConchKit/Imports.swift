@@ -309,7 +309,15 @@ public struct ImportFlow: Equatable, Sendable {
         ["import", reader, "-json", "-ids", id, "-dir", dir]
     }
 
-    /// What Resume In… brought back: the conversation, now resumable, or
+    /// Resume: brings that one conversation up to date first — the page's
+    /// list is a dry run, which moves and writes nothing, so a session
+    /// filed for a worktree since removed is moved to where it resumes
+    /// only by this — then resumes what it answers.
+    public static func refreshArguments(reader: String, id: String) -> [String] {
+        ["import", reader, "-json", "-ids", id]
+    }
+
+    /// What Resume or Resume In… brought back: the conversation, now resumable, or
     /// why it is not.
     public static func resumedIn(_ data: Data, id: String) -> Result<ImportConversation, ConchError> {
         guard let all = try? JSONDecoder().decode([ImportConversation]?.self, from: data),
