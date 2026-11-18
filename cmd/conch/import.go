@@ -578,7 +578,18 @@ func printImported(written []importedFile, all []sessions.Imported, dry bool) {
 			words[i] = shellWord(w)
 		}
 		resume := "conch new -agent " + f.AgentName + " -cwd " + shellWord(f.Dir) + " -- " + strings.Join(words, " ")
-		switch sessions.ImportStatus(f.Status) {
+		status := sessions.ImportStatus(f.Status)
+		switch status {
+		case sessions.ImportFound, sessions.ImportWritten, sessions.ImportAdded, sessions.ImportUnchanged:
+			if f.Dir == "" {
+				// A folder chosen for it, since removed: a command with
+				// nowhere to run cannot resume it, but another folder can.
+				status = ""
+				fmt.Printf("    its folder is gone: conch import conductor -ids %s -dir FOLDER resumes it in another\n", f.ID)
+			}
+		}
+		switch status {
+		case "":
 		case sessions.ImportFound:
 			fmt.Printf("    resumes in %s, which kept it itself: %s\n", f.Agent, resume)
 		case sessions.ImportWritten:

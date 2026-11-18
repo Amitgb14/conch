@@ -117,7 +117,7 @@ func (d *a4Daytona) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reply := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/snapshots":
-		fmt.Fprint(w, `{"items":[{"name":"live-2026-09-20-1000","state":"active","cpu":1,"memory":1,"disk":3,"createdAt":"2026-09-20T10:00:00Z"},`+
+		fmt.Fprint(w, `{"items":[{"name":"live-2026-09-20-1000","state":"active","cpu":1,"mem":1,"disk":3,"createdAt":"2026-09-20T10:00:00Z"},`+
 			`{"name":"older","state":"active","createdAt":"2026-09-18T10:00:00Z"}]}`)
 	case len(strings.Split(strings.Trim(r.URL.Path, "/"), "/")) == 2 && strings.HasPrefix(r.URL.Path, "/snapshots/") && r.Method == http.MethodDelete:
 		w.WriteHeader(http.StatusNoContent)
@@ -196,7 +196,7 @@ func TestA4SandboxCreate(t *testing.T) {
 
 	var err error
 	out, errOut := a4Capture(t, "", func() {
-		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "fix-login", "-cpu", "2"})
+		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "fix-login"})
 	})
 	if err != nil {
 		t.Fatalf("create: %v\n%s", err, errOut)
@@ -213,11 +213,20 @@ func TestA4SandboxCreate(t *testing.T) {
 		t.Fatalf("the ssh token was printed:\n%s%s", out, errOut)
 	}
 	body := d.created[0]
-	if body["snapshot"] != "daytona-medium" || body["cpu"] != 2.0 || body["autoStopInterval"] != 0.0 {
+	// The snapshot is the size: Daytona refuses a size with one.
+	if body["snapshot"] != "daytona-medium" || body["cpu"] != nil || body["autoStopInterval"] != 0.0 {
 		t.Fatalf("create body %v", body)
 	}
 	if env, _ := body["env"].(map[string]any); env["MY_TOKEN"] != "oauth-value" {
 		t.Fatalf("env %v", body["env"])
+	}
+	// -cpu is refused before anything is made: dropped, it would make a
+	// sandbox of another size than asked.
+	n := len(d.created)
+	if _, errOut := a4Capture(t, "", func() {
+		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "big", "-cpu", "2"})
+	}); err == nil || !strings.Contains(err.Error(), "Daytona takes no vCPUs") || len(d.created) != n {
+		t.Fatalf("-cpu: %v\n%s", err, errOut)
 	}
 	ms, _ := remote.Machines()
 	if len(ms) != 1 || ms[0].ID != "fix-login" || ms[0].Target != "daytona:sbx1-0123456789" {
@@ -1507,7 +1516,8 @@ func TestSandboxSettings(t *testing.T) {
 	if got.Settings[1].Error == "" && len(got.Settings[1].Choices) == 0 {
 		t.Fatalf("image choices: %+v", got.Settings[1])
 	}
-	if got.Size.CPU[1] != 4 || len(got.Size.Names) != 0 {
+	// No sizes: a snapshot sets a Daytona sandbox's, so none is offered.
+	if len(got.Size.CPU) != 0 || len(got.Size.Names) != 0 {
 		t.Fatalf("size: %+v", got.Size)
 	}
 	if got.Chosen.Region != "eu" || got.Chosen.Image != "conch-dev" || got.Chosen.CPU != 2 {
@@ -1533,12 +1543,12 @@ func TestA4SandboxCreateChoosesRegionImageSize(t *testing.T) {
 	os.WriteFile(filepath.Join(os.Getenv("CONCH_HOME"), "config.toml"), []byte("[sandbox.daytona]\nregion = \"us\"\nimage = \"base\"\n"), 0o600)
 	var err error
 	_, errOut := a4Capture(t, "", func() {
-		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "eu-box", "-region", "eu", "-image", "conch-dev", "-cpu", "2", "-yes"})
+		err = runSandbox([]string{"-provider", "daytona", "create", "-label", "eu-box", "-region", "eu", "-image", "conch-dev", "-yes"})
 	})
 	if err != nil {
 		t.Fatalf("create: %v\n%s", err, errOut)
 	}
-	if body := d.created[0]; body["target"] != "eu" || body["snapshot"] != "conch-dev" || body["cpu"] != 2.0 {
+	if body := d.created[0]; body["target"] != "eu" || body["snapshot"] != "conch-dev" || body["cpu"] != nil {
 		t.Fatalf("create body %v", body)
 	}
 	before := len(d.created)

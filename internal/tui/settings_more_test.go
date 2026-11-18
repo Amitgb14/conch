@@ -516,11 +516,15 @@ func TestSettingsSandboxTab(t *testing.T) {
 	// With no key, the header says so rather than pretending it is ready.
 	out := plain()
 	for _, want := range []string{"Daytona|no key · $DAYTONA_API_KEY is not set", "API key variable|DAYTONA_API_KEY",
-		"Default image|Daytona's default", "Region|the account's default", "Default size|the provider's default · 1–4 vCPU, 1–8 GiB, 1–10 GiB disk",
+		"Default image|Daytona's default", "Region|the account's default",
 		"Stop when idle|after 30m with no agent working and nothing printing", "Pass in|nothing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in\n%s", want, out)
 		}
+	}
+	// A Daytona sandbox's size is its snapshot's: nothing to choose here.
+	if strings.Contains(out, "Default size") {
+		t.Fatalf("a size row for Daytona:\n%s", out)
 	}
 	// The key can be kept here as well as in the environment; until it is,
 	// the row says which variable is used instead.
@@ -1160,17 +1164,8 @@ func TestSettingsSandboxFromTheFile(t *testing.T) {
 	if c := m.cfg.Sandbox.Of("daytona"); c.Region != "eu" || c.Target != "" {
 		t.Fatalf("region saved as %+v", c)
 	}
-	item("Default size").run(m)
-	d = m.overlay.(*dialog)
-	if got := a2ErrText(a2Run(d.submit(m, []string{"16", "", ""}))); !strings.Contains(got, "1 to 4") {
-		t.Fatalf("too many vCPUs: %q", got)
-	}
-	a2Run(d.submit(m, []string{"2", "4", ""}))
-	if c := m.cfg.Sandbox.Of("daytona"); c.CPU != 2 || c.Memory != 4 || c.Disk != 0 {
-		t.Fatalf("size saved as %+v", c)
-	}
-	if got := ansi.Strip(item("Default size").detail); got != "2 vCPU · 4 GiB" {
-		t.Fatalf("size row %q", got)
+	if has("Default size") {
+		t.Fatal("Daytona's size is its snapshot's: no size row")
 	}
 
 	s.open("boat")
@@ -1213,5 +1208,17 @@ func TestSettingsSandboxFromTheFile(t *testing.T) {
 	s.open("tensorlake")
 	if has("Region") || !has("Default image") || !strings.Contains(ansi.Strip(item("Default size").detail), "10–100 GiB disk") {
 		t.Fatalf("tensorlake's page")
+	}
+	item("Default size").run(m)
+	d = m.overlay.(*dialog)
+	if got := a2ErrText(a2Run(d.submit(m, []string{"", "", "500"}))); !strings.Contains(got, "10 to 100") {
+		t.Fatalf("too much disk: %q", got)
+	}
+	a2Run(d.submit(m, []string{"2", "4", ""}))
+	if c := m.cfg.Sandbox.Of("tensorlake"); c.CPU != 2 || c.Memory != 4 || c.Disk != 0 {
+		t.Fatalf("size saved as %+v", c)
+	}
+	if got := ansi.Strip(item("Default size").detail); got != "2 vCPU · 4 GiB" {
+		t.Fatalf("size row %q", got)
 	}
 }

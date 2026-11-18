@@ -413,11 +413,17 @@ func (c *Custom) CheckSize(name string, cpu, mem, disk int) error {
 	if name != "" {
 		return fmt.Errorf("%s has no named sizes: give vCPUs, memory and disk instead of %q", c.label(), name)
 	}
+	takes := c.Takes()
 	for _, l := range []struct {
-		what string
-		n    int
-		lim  []int
-	}{{"vCPUs", cpu, z.CPU}, {"GiB of memory", mem, z.MemoryGiB}, {"GiB of disk", disk, z.DiskGiB}} {
+		part, what string
+		n          int
+		lim        []int
+	}{{"cpu", "vCPUs", cpu, z.CPU}, {"memory", "GiB of memory", mem, z.MemoryGiB}, {"disk", "GiB of disk", disk, z.DiskGiB}} {
+		// A number the create call never sends would be dropped, and the
+		// sandbox made at whatever size the provider picks.
+		if l.n > 0 && !slices.Contains(takes, l.part) {
+			return fmt.Errorf("%s takes no %s: its file's create call never sends them, so leave them out", c.label(), strings.TrimPrefix(l.what, "GiB of "))
+		}
 		if l.n > 0 && len(l.lim) == 2 && (l.n < l.lim[0] || l.n > l.lim[1]) {
 			return fmt.Errorf("%d %s: %s takes %d to %d", l.n, l.what, c.label(), l.lim[0], l.lim[1])
 		}
