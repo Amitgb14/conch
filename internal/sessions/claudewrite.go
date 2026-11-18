@@ -340,7 +340,7 @@ func (r *claudeRender) close(body []byte) []byte {
 // Append needs to close once the new messages are in.
 func (r *claudeRender) renderMore(msgs []ImportedMessage) ([]byte, error) {
 	var body []byte
-	for _, m := range msgs {
+	for _, m := range callsFirst(msgs) {
 		if !m.Time.IsZero() {
 			r.last = m.Time
 		}
@@ -441,6 +441,67 @@ func (r *claudeRender) add(body []byte, m ImportedMessage) ([]byte, error) {
 	// The stream's other messages — the system's, the result, progress —
 	// are not the conversation.
 	return body, nil
+}
+
+// callsFirst puts each tool result after the call it answers. Conductor
+// stores the stream as it arrives, and a result can be stored a few
+// milliseconds before its call (seen in a real database: the result's
+// row, then the call's 4ms later). A row of results whose call comes later
+// moves to just after the last of those calls; everything else keeps its
+// place. A result whose call never comes stays where it is, and is
+// refused there as before.
+func callsFirst(msgs []ImportedMessage) []ImportedMessage {
+	calledAt := map[string]int{} // a tool_use id → the row that made it
+	answers := make([][]string, len(msgs))
+	for i, m := range msgs {
+		var s sdkMessage
+		if json.Unmarshal([]byte(strings.TrimSpace(m.Content)), &s) != nil {
+			continue
+		}
+		var msg struct {
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(s.Message, &msg) != nil {
+			continue
+		}
+		for _, b := range blocks(msg.Content) {
+			switch {
+			case s.Type == "assistant" && b.Type == "tool_use" && b.ID != "":
+				if _, ok := calledAt[b.ID]; !ok {
+					calledAt[b.ID] = i
+				}
+			case s.Type == "user" && b.Type == "tool_result":
+				answers[i] = append(answers[i], b.ToolUseID)
+			}
+		}
+	}
+	after := map[int][]int{} // a call's row → the early results to put after it
+	moved := map[int]bool{}
+	for i, ids := range answers {
+		last := -1
+		for _, id := range ids {
+			if at, ok := calledAt[id]; ok && at > i && at > last {
+				last = at
+			}
+		}
+		if last >= 0 {
+			after[last] = append(after[last], i)
+			moved[i] = true
+		}
+	}
+	if len(moved) == 0 {
+		return msgs
+	}
+	out := make([]ImportedMessage, 0, len(msgs))
+	for i, m := range msgs {
+		if !moved[i] {
+			out = append(out, m)
+		}
+		for _, j := range after[i] {
+			out = append(out, msgs[j])
+		}
+	}
+	return out
 }
 
 func blocks(content json.RawMessage) []contentBlock {

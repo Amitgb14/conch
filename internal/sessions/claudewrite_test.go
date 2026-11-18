@@ -472,3 +472,47 @@ func TestClaudeWriterLongPath(t *testing.T) {
 		t.Errorf("wrote %s (%v), want into %s", path, err, own)
 	}
 }
+
+// Conductor stores the stream as it arrives, and a tool's result can be
+// stored a few milliseconds before the call it answers — seen in a real
+// database: the result row, then the call 4ms later. That is one
+// conversation, not a broken one, so the result is written after its
+// call and the conversation resumes. A result whose call never comes is
+// still refused (TestClaudeWriterRefuses).
+func TestClaudeWriterResultStoredBeforeItsCall(t *testing.T) {
+	env, _ := importEnv(t)
+	dir := t.TempDir()
+	call := `{"type":"assistant","uuid":"u3","message":{"id":"msg_1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Write","input":{"file_path":"a.go"}}]}}`
+	result := `{"type":"user","uuid":"u4","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"File has not been read yet."}]}}`
+	im := Imported{
+		Session: Session{Agent: "claude", ID: "s-order", Dir: dir, Title: "Out of order"},
+		Messages: []ImportedMessage{
+			msg("m1", "user", "Write a.go", 1),
+			msg("m2", "assistant", result, 2), // stored first
+			msg("m3", "assistant", call, 2),
+			msg("m4", "assistant", `{"type":"assistant","uuid":"u5","message":{"id":"msg_2","role":"assistant","content":[{"type":"text","text":"Read it first, then wrote it."}]}}`, 3),
+			msg("m5", "user", "Thanks", 4),
+		},
+	}
+	w := ClaudeWriter{Env: env}
+	if err := w.Check(context.Background(), im, dir); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	_, path, err := w.Write(context.Background(), im, dir)
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	var order []string
+	for _, l := range readWritten(t, path) {
+		uses, results := toolIDs(t, l.Message.Content)
+		for _, u := range uses {
+			order = append(order, "call "+u)
+		}
+		for _, r := range results {
+			order = append(order, "result "+r)
+		}
+	}
+	if strings.Join(order, ", ") != "call toolu_1, result toolu_1" {
+		t.Errorf("tool lines in the session: %v", order)
+	}
+}
