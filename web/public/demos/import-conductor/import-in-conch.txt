@@ -1,0 +1,3 @@
+$ conch project ls
+ID        NAME        BASE  BRANCHES  WORKTREES                             PATH
+r09c6456  storefront  main  3         main,ada/cart-badge,ada/coupon-codes  ~/src/storefront

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ---- Conductor ----
@@ -40,9 +41,23 @@ type Imported struct {
 	// Session.Dir is the nearest of it and Root that is still there.
 	Workspace string
 	Turns     []Turn
+	// Messages are the conversation's rows as they were stored, in order:
+	// what a writer needs to make a session the agent resumes, which the
+	// handoff (Turns) leaves out — tool calls, their results, ids.
+	Messages []ImportedMessage
 	// Unread counts the agent's messages that were neither text nor a
 	// tool call conch knows to leave out.
 	Unread int
+}
+
+// ImportedMessage is one row of a conversation as the other app kept it.
+type ImportedMessage struct {
+	ID   string
+	Role string // "user" or "assistant", as the row said
+	// Content is the row as stored: a user's prompt as typed, or one
+	// message of the agent's stream as JSON.
+	Content string
+	Time    time.Time
 }
 
 // ReadConductor reads every conversation in a Conductor database, oldest
@@ -104,13 +119,19 @@ func ReadConductor(ctx context.Context, db string) ([]Imported, error) {
 		}
 	}
 	var msgs []struct {
+		ID      string `json:"id"`
 		Session string `json:"session_id"`
 		Role    string `json:"role"`
 		Content string `json:"content"`
 		Created string `json:"created_at"`
 	}
-	if err := query("SELECT session_id, role, content, created_at FROM session_messages ORDER BY created_at, rowid", &msgs); err != nil {
-		return nil, err
+	// A row's id says, on the next import, where the last one left off;
+	// a table without one is numbered by sqlite's own row id.
+	const cols = " session_id, role, content, created_at FROM session_messages ORDER BY created_at, rowid"
+	if err := query("SELECT CAST(id AS TEXT) AS id,"+cols, &msgs); err != nil {
+		if err2 := query("SELECT CAST(rowid AS TEXT) AS id,"+cols, &msgs); err2 != nil {
+			return nil, err
+		}
 	}
 
 	out := make([]Imported, 0, len(rows))
@@ -141,6 +162,7 @@ func ReadConductor(ctx context.Context, db string) ([]Imported, error) {
 			continue
 		}
 		im := &out[i]
+		im.Messages = append(im.Messages, ImportedMessage{ID: m.ID, Role: m.Role, Content: m.Content, Time: gooseTime(m.Created)})
 		role, text, known := conductorMessage(m.Role, m.Content)
 		if !known {
 			im.Unread++

@@ -435,7 +435,10 @@ func integrationInfo(args []string) error {
 		fmt.Println("Not installable yet: " + offWords + ", so conch could make its sandboxes and never reach them.")
 	}
 	if caps != nil {
-		fmt.Println("\nWhat it can do: " + caps.OperationWords(kind))
+		// An import has no operations: no line saying so.
+		if w := caps.OperationWords(kind); w != "" {
+			fmt.Println("\nWhat it can do: " + w)
+		}
 		if w := caps.SSHWords(kind); w != "" {
 			fmt.Println("ssh: " + w)
 		}

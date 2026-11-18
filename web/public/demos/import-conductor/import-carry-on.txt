@@ -1,0 +1,8 @@
+$ conch new -agent claude -cwd ~/conductor/workspaces/storefront/lisbon -- --resume 35e9264f-f051-44bd-be27-ee53e7966321
+p1
+
+$ conch read p1
+stand-in for claude · not an agent; nothing is sent to any model
+started with: --settings ~/.config/conch/claude-se
+ttings.json --resume 35e9264f-f051-44bd-be27-ee53e7966321
+>

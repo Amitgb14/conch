@@ -30,10 +30,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 func main() {
-	fmt.Printf("stand-in for %s · not an agent; nothing is sent to any model\n", name())
+	fmt.Print(banner(name(), os.Args[1:]))
 	in := bufio.NewScanner(os.Stdin)
 	fmt.Print("> ")
 	for in.Scan() {
@@ -44,6 +45,17 @@ func main() {
 		}
 		fmt.Print("> ")
 	}
+}
+
+// banner is the first thing it prints: what it is, and what it was started
+// with — what conch passed, a resume or a first message, being the one
+// thing a stand-in can show of what an agent would have done with it.
+func banner(name string, args []string) string {
+	b := fmt.Sprintf("stand-in for %s · not an agent; nothing is sent to any model\n", name)
+	if len(args) > 0 {
+		b += fmt.Sprintf("started with: %s\n", strings.Join(args, " "))
+	}
+	return b
 }
 
 // name is what this was built as, which is what conch detects it by.

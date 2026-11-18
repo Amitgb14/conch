@@ -1,0 +1,26 @@
+$ cat ~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md
+_Imported from Conductor by `conch import conductor`._
+
+# Handoff: Tests for the coupon validator
+
+Conversation from a Codex session (`0199f1c2-9e44-7f02-8a6b-1c3d5e7f9a02`) in `~/conductor/workspaces/storefront/lisbon` on branch `ada/coup
+on-codes`, 2026-11-02 11:20 – 2026-11-02 11:41.
+
+Only the messages are included: tool calls, command output and file edits are left out, so check the files themselves for the current state.
+
+## User · 2026-11-02 11:20:00
+
+Write tests for applyCoupon in app/checkout/coupon.ts: expired, used up, unknown code, percentage, fixed amount bigger than the cart.
+
+## Codex · 2026-11-02 11:22:00
+
+Added app/checkout/coupon.test.ts with 9 cases. All pass except one: a code is matched case-sensitively, so `SPRING10` and `spring10` differ
+. Should codes be case-insensitive?
+
+## User · 2026-11-02 11:24:00
+
+Yes, case-insensitive. Normalise to upper case when storing.
+
+## Codex · 2026-11-02 11:26:00
+
+Codes are upper-cased on insert and on lookup; the migration upper-cases existing rows. 10 tests, all passing.

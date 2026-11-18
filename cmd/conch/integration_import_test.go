@@ -117,6 +117,10 @@ func TestIntegrationImportInstall(t *testing.T) {
 	if err != nil || strings.Contains(out, "Your key") || !strings.Contains(out, "nothing is sent anywhere") || !strings.Contains(out, "conch import conductor") {
 		t.Fatalf("info: %q %v", out, err)
 	}
+	// An import has no operations, so it has no line listing none.
+	if strings.Contains(out, "What it can do") {
+		t.Errorf("info lists what an import can do, which is nothing:\n%s", out)
+	}
 
 	// conch integration check reads an import file (the registry's CI
 	// checks import/*/integration.toml with it).

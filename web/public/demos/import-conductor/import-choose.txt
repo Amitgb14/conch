@@ -1,0 +1,26 @@
+$ conch import conductor -ids 0199f1c2-3a10-7b4e-9c21-4f8a2d6e1b01,0199f1c2-9e44-7f02-8a6b-1c3d5e7f9a02,0199f4a8-0b17-7c3d-b5e9-2a4c6e8f0d03
+,0199f7b0-5a2c-7e81-a3d7-0c2e4a6c8e06
+imported 4 of Conductor's conversations:
+
+  Add coupon codes to checkout  (Claude Code, 4 messages, storefront · ada/coupon-codes)
+    resumes in Claude Code: conch new -agent claude -cwd ~/conductor/workspaces/storefront/lisbon -- --resume 35e9264f-f051-44bd-be27-ee53e7
+966321
+  Tests for the coupon validator  (Codex, 4 messages, storefront · ada/coupon-codes)
+    as Markdown: Codex conversations come over as Markdown for now
+      ~/.config/conch/imports/conductor/storefront/tests-for-the-coupon-validator-0199f1c2.md
+  Cart badge keeps the old count  (Claude Code, 4 messages, storefront · ada/cart-badge)
+    resumes in Claude Code: conch new -agent claude -cwd ~/conductor/workspaces/storefront/kyoto -- --resume a4ca55ab-36ea-414e-9906-f86dac5
+f9ce0
+  Rewrite the pricing page copy  (Claude Code, 4 messages, marketing-site · ada/pricing-copy, worktree and repository gone)
+    as Markdown: Claude Code cannot resume it: no folder to resume it in: its workspace and repository are both gone
+      ~/.config/conch/imports/conductor/marketing-site/rewrite-the-pricing-page-copy-0199f7b0.md
+
+To carry on from a Markdown copy, start an agent where it ran and point it at the file:
+
+  conch new -agent codex -cwd ~/conductor/workspaces/storefront/lisbon -- 'Read ~/.config/conch/imports/conductor/storefront/tests-for-the-c
+oupon-validator-0199f1c2.md and carry on from where it leaves off.'
+
+Or drag the file into the agent's prompt, in conch or Conch.app.
+
+In conch now, with their conversations under the branches' sessions:
+  storefront  ~/src/storefront

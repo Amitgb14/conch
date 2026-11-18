@@ -17,21 +17,35 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
     /// Where to carry it on: the workspace, or the repository.
     public var dir: String?
     public var messages: Int
-    /// The handoff it is, or would be, written to.
-    public var file: String
+    /// The handoff it is, or would be, written to: none for a conversation
+    /// that comes over as a session of its agent's own.
+    public var file: String?
     /// "workspace", "repository" or "gone".
     public var `where`: String?
     public var lastUsed: String?
     /// Its file is there: imported now, or by an earlier import.
     public var imported: Bool?
+    /// How it comes over: "written", "added", "unchanged" or "carried-on"
+    /// for a session of its agent's own; "markdown" for a handoff. Older
+    /// conches said nothing: a handoff.
+    public var status: String?
+    /// Why it comes over as it does, when that needs saying.
+    public var why: String?
+    /// The agent as conch names it ("claude"), and its session to resume.
+    public var agentName: String?
+    public var session: String?
+    public var sessionFile: String?
+    /// The conch project its repository was added to as, after the import.
+    public var project: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title, agent, repo, branch, workspace, dir, messages, file, `where`, imported
+        case id, title, agent, repo, branch, workspace, dir, messages, file, `where`, imported, status, why, agentName, session, sessionFile, project
         case lastUsed = "last_used"
     }
 
     public init(id: String, title: String, agent: String, repo: String? = nil, branch: String? = nil, workspace: String? = nil,
-                dir: String? = nil, messages: Int, file: String, where w: String? = nil, lastUsed: String? = nil, imported: Bool? = nil) {
+                dir: String? = nil, messages: Int, file: String? = nil, where w: String? = nil, lastUsed: String? = nil, imported: Bool? = nil,
+                status: String? = nil, why: String? = nil, agentName: String? = nil, session: String? = nil, sessionFile: String? = nil) {
         self.id = id
         self.title = title
         self.agent = agent
@@ -44,6 +58,33 @@ public struct ImportConversation: Decodable, Equatable, Identifiable, Sendable {
         self.where = w
         self.lastUsed = lastUsed
         self.imported = imported
+        self.status = status
+        self.why = why
+        self.agentName = agentName
+        self.session = session
+        self.sessionFile = sessionFile
+    }
+
+    /// It comes over as a session its agent resumes, not a handoff.
+    public var resumes: Bool { status != nil && status != "markdown" }
+
+    /// How it comes over, in the sheet's words: "resumes in Claude Code",
+    /// "as Markdown: Codex conversations come over as Markdown for now".
+    public var how: String {
+        switch status {
+        case "written", "added", "unchanged": return "resumes in \(agent)"
+        case "carried-on": return "left alone: carried on in conch since"
+        default:
+            guard let why, !why.isEmpty else { return "as Markdown" }
+            return "as Markdown: " + why
+        }
+    }
+
+    /// The command that resumes it, as `conch import` prints it; nil for a
+    /// handoff, or one with nowhere to resume.
+    public var resumeArguments: [String]? {
+        guard resumes, let session, !session.isEmpty, let dir, !dir.isEmpty else { return nil }
+        return ["new", "-agent", agentName ?? "claude", "-cwd", dir, "--", "--resume", session]
     }
 
     /// Its state in the sheet, in words.
@@ -167,18 +208,42 @@ public struct ImportFlow: Equatable, Sendable {
     /// The results' heading.
     public var doneWords: String {
         let n = results.count
-        return n == 0 ? "Nothing was imported." : "Imported \(n) conversation\(n == 1 ? "" : "s") from \(label)."
+        guard n > 0 else { return "Nothing was imported." }
+        let resumable = results.filter(\.resumes).count
+        var s = "Imported \(n) conversation\(n == 1 ? "" : "s") from \(label)."
+        if resumable == n {
+            s += " Each resumes in its agent."
+        } else if resumable > 0 {
+            s += resumable == 1 ? " 1 resumes in its agent; \(n - 1) as Markdown." : " \(resumable) resume in their agents; \(n - resumable) as Markdown."
+        }
+        if results.contains(where: { $0.project != nil }) {
+            s += " Their repositories are in conch now."
+        }
+        return s
     }
 
-    /// The folder every handoff went into, for Show in Finder.
+    /// The folder every handoff went into, for Show in Finder; nil when
+    /// none was written.
     public var folder: String? {
-        guard let first = results.first?.file else { return nil }
+        guard let first = results.lazy.compactMap(\.file).first else { return nil }
         // …/imports/READER/REPO/FILE.md: the import's folder is two up.
         return ((first as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
     }
 
-    /// What an agent is told to carry one on: as `conch import` says it.
-    public static func prompt(_ c: ImportConversation) -> String {
-        "Read \(c.file) and carry on from where it leaves off."
+    /// What a scan says came over already, for the import's page once the
+    /// sheet is closed: the conversations conch has, as a session or a handoff, newest
+    /// first. Nothing readable is nothing imported, not an error, since
+    /// the page shows it beside everything else.
+    public static func importedAlready(_ data: Data) -> [ImportConversation] {
+        guard let all = try? JSONDecoder().decode([ImportConversation]?.self, from: data) else { return [] }
+        var f = ImportFlow(name: "", label: "", reader: "")
+        f.conversations = (all ?? []).filter { $0.imported == true }
+        return f.groups.flatMap(\.conversations)
+    }
+
+    /// What an agent is told to carry one on: as `conch import` says it;
+    /// nil for one with no handoff.
+    public static func prompt(_ c: ImportConversation) -> String? {
+        c.file.map { "Read \($0) and carry on from where it leaves off." }
     }
 }
