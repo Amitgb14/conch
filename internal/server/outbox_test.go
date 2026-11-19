@@ -162,6 +162,27 @@ func TestOutboxFlushGivesUp(t *testing.T) {
 	}
 }
 
+// The time running out wakes flush however early the timer fires: one
+// that went off before flush was waiting — as it can on a loaded runner —
+// left flush waiting for the writer's 10-second deadline.
+func TestOutboxFlushTimerFiresFirst(t *testing.T) {
+	c, _ := pipeClient(t)
+	c.send(proto.Message{Event: "never read"})
+	old := flushAfter
+	t.Cleanup(func() { flushAfter = old })
+	flushAfter = func(_ time.Duration, f func()) *time.Timer {
+		f() // fired at once, before flush waits
+		return time.NewTimer(time.Hour)
+	}
+	done := make(chan struct{})
+	go func() { c.flush(100 * time.Millisecond); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("flush kept waiting after its time was up")
+	}
+}
+
 // A client made without an outbox — as many tests make one — writes in
 // place, as before.
 func TestClientWithoutOutboxWritesInPlace(t *testing.T) {
