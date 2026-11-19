@@ -19,7 +19,10 @@ const maxKey = 64 << 10
 // starts a tool from the Dock and has no shell variables. The key is read
 // from stdin, never from the command line, which other processes can see.
 func (a *app) key(args []string) error {
-	c := a.command("key", "conch-sandbox key set PROVIDER   (the key on stdin)")
+	c := a.command("key", "conch-sandbox key set PROVIDER   (the key on stdin)\n\n"+
+		"Sets [sandbox.PROVIDER] api_key in config.toml, that line alone. A conch\n"+
+		"already running holds its settings in memory and writes them all back\n"+
+		"when one is changed on its settings screen: restart it after this.")
 	rest, err := c.parse(args)
 	if err != nil {
 		return err
@@ -57,20 +60,13 @@ func (a *app) key(args []string) error {
 	case strings.ContainsAny(key, " \t\r\n"):
 		return fmt.Errorf("that is not an API key: it has spaces in it")
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		// Saving over a file conch cannot read would lose it.
-		return fmt.Errorf("read %s: %w; put it right first", config.File(), err)
-	}
-	if cfg.Sandbox == nil {
-		cfg.Sandbox = config.SandboxCfg{}
-	}
-	pc := cfg.Sandbox[name]
-	pc.APIKey = key
-	cfg.Sandbox[name] = pc
-	if err := config.Save(cfg); err != nil {
+	// That one line, not the whole file: the person's comments stay.
+	if err := config.SetSandboxKey(name, key); err != nil {
 		return err
 	}
 	fmt.Fprintf(a.stderr, "Saved the %s key in %s.\n", sandbox.ProviderLabel(name), config.File())
+	// A running conch holds its settings in memory and writes them all
+	// back when one is changed on its settings screen.
+	fmt.Fprintln(a.stderr, "A conch already running keeps its own copy of the settings: restart it, or set the key on its settings screen too, before changing any setting there.")
 	return nil
 }

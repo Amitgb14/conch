@@ -60,6 +60,10 @@ func TestCheckID(t *testing.T) {
 func TestLinksNoServer(t *testing.T) {
 	gobin, err := exec.LookPath("go")
 	if err != nil {
+		// Under CI a skip would pass a guard nobody ran.
+		if os.Getenv("CI") != "" {
+			t.Fatal("no go on PATH under CI")
+		}
 		t.Skip("no go on PATH")
 	}
 	out, err := exec.Command(gobin, "list", "-deps", ".").Output()
@@ -163,6 +167,19 @@ func TestKeySet(t *testing.T) {
 	}
 	if fi, err := os.Stat(config.File()); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("config.toml: %v %v", fi, err)
+	}
+	// A running conch would write its own copy back: said, and how.
+	if !strings.Contains(errs, "restart it") {
+		t.Fatalf("no word about a running conch: %q", errs)
+	}
+	// The person's comments are theirs: one line changes.
+	b, _ := os.ReadFile(config.File())
+	os.WriteFile(config.File(), append([]byte("# my own note\n"), b...), 0o600)
+	if code, _, errs := run(t, "k-secret-1\n", "key", "set", "fakebox"); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	if b2, _ := os.ReadFile(config.File()); string(b2) != "# my own note\n"+string(b) {
+		t.Fatalf("rewrote the file:\n%s", b2)
 	}
 	// conch's own reading of it now has the key.
 	p, err := sandbox.Open("fakebox", cfg.Sandbox)
