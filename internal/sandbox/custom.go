@@ -192,6 +192,11 @@ type SSHWay struct {
 	Command string `toml:"command"`
 	// Expires (format 4) is when Access's credential stops working.
 	Expires string `toml:"expires"`
+	// MaxSecs (format 4) is the longest life Access's credential may be
+	// asked for, sent as {expires_secs} or {expires_mins} in its call or
+	// body: conch-sandbox writes a token into an ssh alias, which has to
+	// last.
+	MaxSecs int `toml:"max_secs"`
 }
 
 // SSHPort is ssh's port: a number, or (format 3) "{reply.PATH}", read
@@ -1286,6 +1291,9 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 		return Access{}, err
 	}
 	v := vars{"{id}": id, "{name}": s.Name}
+	if n := c.f.SSH.MaxSecs; n > 0 {
+		v["{expires_secs}"], v["{expires_mins}"] = n, n/60
+	}
 	reply := any(nil)
 	fill := func(s string) string {
 		s = v.str(s)
