@@ -74,7 +74,7 @@ func TestMachineWithDashes(t *testing.T) {
 		t.Fatal(err)
 	}
 	own, err := aliasOwner("conch-fake-box-a-b-c")
-	if err != nil || own != (owner{Provider: "fake-box", ID: "a-b-c", Root: "/home/me/my dir/x=y&z"}) {
+	if err != nil || own != (owner{Provider: "fake-box", ID: "a-b-c", Root: "/home/me/my dir/x=y&z", Tool: "cli"}) {
 		t.Fatalf("%+v %v", own, err)
 	}
 	// Rewritten with a fresh token, it keeps its root.
@@ -102,9 +102,16 @@ func TestParseMeta(t *testing.T) {
 		"  " + metaMark + "provider=p id=i":      false,
 		metaMark + "provider=p id=i extra=thing": true,
 	} {
-		if _, _, _, got := parseMeta(line); got != ok {
+		if _, got := parseMeta(line); got != ok {
 			t.Errorf("%q: %v", line, got)
 		}
+	}
+	// The tool it was made for; none said is the person's.
+	if o, _ := parseMeta(metaMark + "provider=p id=i tool=herdr-app"); o.Tool != "herdr-app" {
+		t.Errorf("%+v", o)
+	}
+	if o, _ := parseMeta(metaMark + "provider=p id=i"); o.Tool != "cli" {
+		t.Errorf("%+v", o)
 	}
 }
 
@@ -243,7 +250,10 @@ func TestFromHerdr(t *testing.T) {
 		"":                    "HERDR_PLUGIN_CONTEXT_JSON is not set",
 		"{bad":                "not JSON",
 		`{"machine":"local"}`: "not on one of conch-sandbox's sandboxes",
-		`{"a":"conch-fakebox-box1","b":"conch-x-y"}`: "", // only one is ours
+		`{"target":"conch-fakebox-box1","machine":"conch-x-y"}`: "", // only one is ours
+		// A name anywhere else is not the workspace's machine.
+		`{"a":"conch-fakebox-box1"}`:                              "not on one of",
+		`{"workspace":{"label":"conch-fakebox-box1","cwd":"/x"}}`: "not on one of",
 	} {
 		t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", ctx)
 		code, _, errs := run(t, "", "get", "--from-herdr")
@@ -258,8 +268,62 @@ func TestFromHerdr(t *testing.T) {
 		}
 	}
 	setAlias(alias{Provider: "fakebox", ID: "box5", Host: "h", User: "u"})
-	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `["conch-fakebox-box1","conch-fakebox-box5"]`)
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `[{"target":"conch-fakebox-box1"},{"machine":{"host":"conch-fakebox-box5"}}]`)
 	if code, _, errs := run(t, "", "get", "--from-herdr"); code != 1 || !strings.Contains(errs, "more than one sandbox: conch-fakebox-box1, conch-fakebox-box5") {
 		t.Fatalf("two: %d %q", code, errs)
+	}
+}
+
+// Orca's repository address is the workspace's origin, usually git@…:
+// cloned from its https address. One that has none is refused.
+func TestFromOrcaSSHRemote(t *testing.T) {
+	isolate(t)
+	api := fakeProvider(t, "fakebox", tokenKind)
+	f := fakeSSH(t)
+	t.Setenv("ORCA_WORKSPACE_NAME", "w")
+	t.Setenv("ORCA_REPO_URL", "git@github.com:o/r.git")
+	t.Setenv("ORCA_REPO_BRANCH", "feat")
+	t.Setenv("ORCA_REPO_REF", "abcdef1")
+	if code, _, errs := run(t, "", "create", "--provider", "fakebox", "--from-orca", "--format", "orca"); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	if git := f.gitCalls(); !strings.Contains(git, "clone --quiet -- https://github.com/o/r.git ") {
+		t.Fatalf("git:\n%s", git)
+	}
+	t.Setenv("ORCA_REPO_URL", "/srv/git/r.git")
+	if code, _, errs := run(t, "", "create", "--provider", "fakebox", "--from-orca", "--format", "orca"); code != 2 || !strings.Contains(errs, `"/srv/git/r.git": give the repository's https:// address`) {
+		t.Fatalf("%d %q", code, errs)
+	}
+	if n := strings.Count(api.called(), "POST /boxes\n"); n != 1 {
+		t.Fatalf("%d made:\n%s", n, api.called())
+	}
+}
+
+// A workspace here labelled as a sandbox's herdr machine is ("feat-login",
+// as pick labels them) is not on that sandbox: labels never pick one, so
+// rm --from-herdr deletes nothing of somebody else's.
+func TestFromHerdrIgnoresLabels(t *testing.T) {
+	isolate(t)
+	api := fakeProvider(t, "fakebox", tokenKind)
+	h := fakeHerdr(t)
+	run(t, "", "create", "--provider", "fakebox", "--yes")
+	h.set(t, `[{"id":"m1","label":"feat-login","target":"conch-fakebox-box1"}]`)
+	for _, ctx := range []string{
+		`{"workspace":{"id":"w1","label":"feat-login"}}`,
+		`{"workspace":{"id":"w1","label":"feat-login","machine_id":"local"}}`,
+		`{"machine_id":"feat-login"}`,
+	} {
+		t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", ctx)
+		if code, _, errs := run(t, "", "rm", "--from-herdr"); code != 1 || !strings.Contains(errs, "not on one of conch-sandbox's sandboxes") {
+			t.Fatalf("%s: %d %q", ctx, code, errs)
+		}
+	}
+	if !api.has("box1") || strings.Contains(h.calls(), "machine remove") {
+		t.Fatalf("deleted:\n%s", h.calls())
+	}
+	// Its id, in the workspace's machine, is.
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"workspace":{"id":"w1","label":"feat-login","machine":{"id":"m1"}}}`)
+	if code, out, errs := run(t, "", "get", "--from-herdr", "--json"); code != 0 || decode[result](t, out).ID != "box1" {
+		t.Fatalf("%d %q", code, errs)
 	}
 }

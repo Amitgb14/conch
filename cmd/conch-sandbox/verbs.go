@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -309,6 +310,8 @@ type createReq struct {
 	// root asks for the sandbox's home as the root when there is no
 	// checkout: Orca and herdr open a workspace there.
 	root bool
+	// tool is who it is made for (tools), kept in its alias.
+	tool string
 }
 
 // makeSandbox makes the sandbox, lets this computer's key in or asks for
@@ -358,6 +361,7 @@ func (a *app) makeSandbox(ctx context.Context, req createReq) (result, alias, er
 	r := describe(req.provider, sb, req.region)
 	var al alias
 	if r.SSH, al, err = access(ctx, p, sb.ID); err == nil {
+		al.Tool = firstOf(req.tool, "cli")
 		err = setAlias(al)
 	}
 	if err == nil {
@@ -383,7 +387,8 @@ func (a *app) makeSandbox(ctx context.Context, req createReq) (result, alias, er
 
 func (a *app) create(ctx context.Context, args []string) error {
 	o := a.sandboxFlags("create",
-		"conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]] [--region R] [--size S] [--image I] [--yes] [--json | --format orca] [--from-orca]", true)
+		"conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]] [--region R] [--size S] [--image I] [--tool T] [--yes] [--json | --format orca] [--from-orca]", true)
+	tool := o.String("tool", "", "who it is for: herdr, herdr-app, orca or cli (default cli; orca with --from-orca or --format orca). A tool's sandbox gets its home as project_root, and is only ever that tool's orphan")
 	name := o.String("name", "", "what it is for; the sandbox is named conch-NAME-…, the checkout ~/NAME")
 	region := o.String("region", "", "where it runs: one the provider's file offers (default: config.toml's)")
 	size := o.String("size", "", "a named size, for a provider whose machines come in them")
@@ -404,10 +409,24 @@ func (a *app) create(ctx context.Context, args []string) error {
 	if len(rest) > 0 {
 		return o.wrong("create takes no arguments: " + strings.Join(rest, " "))
 	}
+	if *tool != "" && !slices.Contains(tools, *tool) {
+		return o.wrong(fmt.Sprintf("--tool %q: one of %s", *tool, strings.Join(tools, ", ")))
+	}
+	if *o.fromOrca || out == orcaOut {
+		if *tool != "" && *tool != "orca" {
+			return o.wrong("--tool " + *tool + " with Orca's --from-orca or --format orca")
+		}
+		*tool = "orca"
+	}
+	*tool = firstOf(*tool, "cli")
 	if *o.fromOrca {
 		// Orca's workspace says what is wanted; a flag given as well wins.
+		// Its repository's address is usually git@…, cloned over https.
 		*name = firstOf(*name, os.Getenv("ORCA_WORKSPACE_NAME"))
-		rp.URL = firstOf(rp.URL, os.Getenv("ORCA_REPO_URL"))
+		if rp.URL == "" {
+			u := os.Getenv("ORCA_REPO_URL")
+			rp.URL = firstOf(httpsOf(u), u)
+		}
 		rp.Branch = firstOf(rp.Branch, os.Getenv("ORCA_REPO_BRANCH"))
 		rp.Ref = firstOf(rp.Ref, os.Getenv("ORCA_REPO_REF"))
 	}
@@ -415,7 +434,7 @@ func (a *app) create(ctx context.Context, args []string) error {
 		return o.wrong("give --provider NAME (" + installedWords() + ")")
 	}
 	r, al, err := a.makeSandbox(ctx, createReq{provider: *o.provider, name: *name, region: *region, size: *size, image: *image,
-		repo: rp, yes: *yes, orca: out == orcaOut})
+		repo: rp, yes: *yes, orca: out == orcaOut, tool: *tool, root: *tool != "cli"})
 	if err != nil {
 		return err
 	}
@@ -491,6 +510,9 @@ func (a *app) start(ctx context.Context, args []string) error {
 	// to ssh-alias, which asks about ~/.ssh/config — but Orca, which
 	// connects by the address, is given one, and its checkout's root.
 	if hasAlias(al.name()) || t.out == orcaOut {
+		if !hasAlias(al.name()) {
+			al.Tool = "orca"
+		}
 		if err := setAlias(al); err != nil {
 			return err
 		}

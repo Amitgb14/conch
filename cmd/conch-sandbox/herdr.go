@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -26,8 +27,14 @@ func herdrBin() string {
 	return "herdr"
 }
 
-// hcBin is the herdr app's command line.
-func hcBin() string { return "hc" }
+// hcBin is the herdr app's command line: $HC_BIN_PATH, else PATH's — which
+// for something started from the Dock may not have it.
+func hcBin() string {
+	if b := os.Getenv("HC_BIN_PATH"); b != "" {
+		return b
+	}
+	return "hc"
+}
 
 // machine is one of a tool's saved machines.
 type machine struct {
@@ -135,9 +142,14 @@ func strings1(v any) []string {
 }
 
 // herdrAlias is the alias of the sandbox the herdr workspace a plugin
-// action was run from is on. The context names the workspace's machine,
-// by its target or by herdr's id or label for it; herdr's own list turns
-// the second into the first.
+// action was run from is on. Only the context's fields that name a
+// machine are read — its ssh target (target, host, machine) or herdr's id
+// for it (machine_id, profile_id, or id inside a machine object) — and an
+// id is matched against herdr's machine ids alone, never a label: a
+// workspace on this computer is often named as a sandbox's machine is
+// labelled ("feat-login"), and rm acting on that sandbox would delete
+// somebody else's work. The field names are herdr's as far as conch can
+// tell; docs/testing/end-to-end.md checks them against herdr itself.
 func herdrAlias(ctx context.Context) (string, error) {
 	raw := os.Getenv("HERDR_PLUGIN_CONTEXT_JSON")
 	if raw == "" {
@@ -147,28 +159,24 @@ func herdrAlias(ctx context.Context) (string, error) {
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
 		return "", fmt.Errorf("--from-herdr: HERDR_PLUGIN_CONTEXT_JSON is not JSON: %w", err)
 	}
-	said := map[string]bool{}
-	for _, s := range strings1(v) {
-		said[s] = true
-	}
+	targets, ids := machineFields(v)
 	found := map[string]bool{}
-	for s := range said {
+	ours := func(s string) {
 		if name := hostOf(s); aliasLike(name) {
 			if _, err := aliasOwner(name); err == nil {
 				found[name] = true
 			}
 		}
 	}
-	if len(found) == 0 {
+	for _, s := range targets {
+		ours(s)
+	}
+	if len(found) == 0 && len(ids) > 0 {
 		if ms, err := toolMachines(ctx, "herdr"); err == nil {
 			for _, m := range ms {
-				if (m.ID != "" && said[m.ID]) || (m.Label != "" && said[m.Label]) {
+				if m.ID != "" && slices.Contains(ids, m.ID) {
 					for _, s := range m.strs {
-						if name := hostOf(s); aliasLike(name) {
-							if _, err := aliasOwner(name); err == nil {
-								found[name] = true
-							}
-						}
+						ours(s)
 					}
 				}
 			}
@@ -188,6 +196,38 @@ func herdrAlias(ctx context.Context) (string, error) {
 	}
 	sort.Strings(names)
 	return "", fmt.Errorf("the herdr context names more than one sandbox: %s", strings.Join(names, ", "))
+}
+
+// machineFields is what a plugin context says of a machine: ssh targets,
+// and herdr's ids for machines.
+func machineFields(v any) (targets, ids []string) {
+	var walk func(v any, parent string)
+	walk = func(v any, parent string) {
+		switch x := v.(type) {
+		case map[string]any:
+			for k, y := range x {
+				k = strings.ToLower(k)
+				if s, ok := y.(string); ok {
+					switch {
+					case k == "target" || k == "ssh_target" || k == "machine_target" || k == "machine" ||
+						(parent == "machine" && k == "host"):
+						targets = append(targets, s)
+					case k == "machine_id" || k == "machine_profile_id" ||
+						(parent == "machine" && (k == "id" || k == "profile_id")):
+						ids = append(ids, s)
+					}
+					continue
+				}
+				walk(y, k)
+			}
+		case []any:
+			for _, y := range x {
+				walk(y, parent)
+			}
+		}
+	}
+	walk(v, "")
+	return targets, ids
 }
 
 // forgetInHerdr removes herdr's machine for alias, if it has one: herdr

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ func TestRepoCheck(t *testing.T) {
 		{repo{URL: "https://github.com/o/r", Branch: "x/"}, "not a branch"},
 		{repo{URL: "https://github.com/o/r", Ref: "main"}, "commit's hash"},
 		{repo{URL: "https://github.com/o/r", Ref: "abc"}, "commit's hash"},
+		{repo{URL: "https://github.com/o/r", Ref: "abcdef"}, "7 characters"},
 		{repo{URL: "https://github.com/o/r", Ref: strings.Repeat("a", 65)}, "commit's hash"},
 	} {
 		err := c.r.check()
@@ -77,7 +79,7 @@ func TestCreateClonesTheBranch(t *testing.T) {
 		t.Fatalf("project_root %q, want %q", r.ProjectRoot, want)
 	}
 	git := f.gitCalls()
-	if !strings.Contains(git, "clone --quiet --branch feat -- https://github.com/o/r.git "+f.home+"/feat-login\n") ||
+	if !strings.Contains(git, "clone --quiet -- https://github.com/o/r.git "+f.home+"/feat-login\n") ||
 		!strings.Contains(git, "checkout --quiet -B feat abc1234\n") || strings.Contains(git, "credential") {
 		t.Fatalf("git:\n%s", git)
 	}
@@ -123,7 +125,8 @@ func TestCloneVariants(t *testing.T) {
 	if code, _, errs := run(t, "", "create", "--provider", "fakebox", "--name", "c", "--repo", "https://github.com/o/private"); code != 0 {
 		t.Fatalf("%q", errs)
 	}
-	if git := f.gitCalls(); !strings.Contains(git, "-c credential.helper=!f() { echo username=x-access-token;") || strings.Contains(git, "ghp_x") {
+	// The sandbox's own helpers are cleared first, so none keeps it.
+	if git := f.gitCalls(); !strings.Contains(git, "-c credential.helper= -c credential.helper=!f() { echo username=x-access-token;") || strings.Contains(git, "ghp_x") {
 		t.Fatalf("token:\n%s", git)
 	}
 }
@@ -213,9 +216,122 @@ func TestCloneRefusedBeforeSpending(t *testing.T) {
 // The script itself, run by sh: a sandbox's home with a space in it.
 func TestCloneScriptQuotes(t *testing.T) {
 	s := repo{URL: "https://github.com/o/r", Branch: "it's", Ref: "abcd"}.cloneScript("a b")
-	for _, want := range []string{`dir="$HOME"/'a b'`, `--branch 'it'\''s'`, `-B 'it'\''s' 'abcd'`} {
+	for _, want := range []string{`dir="$HOME"/'a b'`, `-B 'it'\''s' 'abcd'`} {
 		if !strings.Contains(s, want) {
 			t.Errorf("lacks %s:\n%s", want, s)
 		}
+	}
+	if s := (repo{URL: "https://github.com/o/r", Branch: "it's"}).cloneScript("d"); !strings.Contains(s, `--branch 'it'\''s'`) || !strings.Contains(s, `'refs/heads/it'\''s'`) {
+		t.Errorf("branch alone:\n%s", s)
+	}
+}
+
+// The script, run by sh with real git against a repository on disk: the
+// cases a git that only writes down its arguments cannot tell apart.
+func TestCloneScriptWithRealGit(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("no git under CI")
+		}
+		t.Skip("no git")
+	}
+	dir := t.TempDir()
+	env := append(os.Environ(), "HOME="+filepath.Join(dir, "home"), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com", "GH_TOKEN=")
+	os.MkdirAll(filepath.Join(dir, "home"), 0o755)
+	git := func(in string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir, cmd.Env = in, env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	work, bare := filepath.Join(dir, "work"), filepath.Join(dir, "r.git")
+	os.MkdirAll(work, 0o755)
+	git(dir, "init", "-q", "--bare", "-b", "main", bare)
+	git(dir, "init", "-q", "-b", "main", work)
+	os.WriteFile(filepath.Join(work, "f"), []byte("one\n"), 0o644)
+	git(work, "add", "f")
+	git(work, "commit", "-q", "-m", "one")
+	git(work, "push", "-q", bare, "main")
+	pushed := git(work, "rev-parse", "HEAD")
+	// A branch made here and never pushed, as a new workspace's is.
+	git(work, "checkout", "-q", "-b", "feat")
+	os.WriteFile(filepath.Join(work, "f"), []byte("two\n"), 0o644)
+	git(work, "commit", "-q", "-am", "two")
+	local := git(work, "rev-parse", "HEAD")
+
+	url := "file://" + bare
+	runScript := func(r repo, d string) (string, error) {
+		cmd := exec.Command("/bin/sh", "-s")
+		cmd.Stdin, cmd.Env = strings.NewReader(r.cloneScript(d)), env
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	// The unpushed branch, at the commit it starts from: made there.
+	out, err := runScript(repo{URL: url, Branch: "feat", Ref: pushed}, "a")
+	if err != nil || !strings.Contains(out, rootMark) {
+		t.Fatalf("%v %s", err, out)
+	}
+	co := filepath.Join(dir, "home", "a")
+	if b, h := git(co, "rev-parse", "--abbrev-ref", "HEAD"), git(co, "rev-parse", "HEAD"); b != "feat" || h != pushed {
+		t.Fatalf("on %s at %s", b, h)
+	}
+	// A commit alone: detached there.
+	if out, err := runScript(repo{URL: url, Ref: pushed[:7]}, "b"); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if h := git(filepath.Join(dir, "home", "b"), "rev-parse", "HEAD"); h != pushed {
+		t.Fatalf("at %s", h)
+	}
+	// A pushed branch alone; none at all.
+	for _, r := range []repo{{URL: url, Branch: "main"}, {URL: url}} {
+		d := "c" + r.Branch
+		if out, err := runScript(r, d); err != nil {
+			t.Fatalf("%+v: %v %s", r, err, out)
+		}
+		if b := git(filepath.Join(dir, "home", d), "rev-parse", "--abbrev-ref", "HEAD"); b != "main" {
+			t.Fatalf("%+v: on %s", r, b)
+		}
+	}
+	// What cannot be is said in words of its own.
+	for _, c := range []struct {
+		r    repo
+		want string
+	}{
+		{repo{URL: url, Branch: "feat"}, "branch feat is not on " + url + ": push it first"},
+		{repo{URL: url, Branch: "feat", Ref: local}, "commit " + local + " is not in " + url + ": push it first"},
+	} {
+		out, err := runScript(c.r, "x")
+		if err == nil || !strings.Contains(out, c.want) {
+			t.Errorf("%+v: %v %q", c.r, err, out)
+		}
+		os.RemoveAll(filepath.Join(dir, "home", "x"))
+	}
+}
+
+// ssh refusing for good — a key it was not given — is the answer after a
+// grace, not after the whole deadline; the box goes, as for any failure.
+func TestCloneStopsWhenRefused(t *testing.T) {
+	isolate(t)
+	api := fakeProvider(t, "fakebox", tokenKind)
+	f := fakeSSH(t)
+	t.Setenv("FAKE_SSH_DENIED", "1")
+	t.Setenv("FAKE_SSH_SAYS", "tok-secret-box1-1@gw.test")
+	var out, errb strings.Builder
+	a := &app{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, wait: time.Minute, retry: 10 * time.Millisecond, grace: 200 * time.Millisecond}
+	start := time.Now()
+	code := a.run(t.Context(), []string{"create", "--provider", "fakebox", "--repo", "https://github.com/o/r"})
+	if code != 1 || !strings.Contains(errb.String(), "ssh to the sandbox was refused: …@gw.test: Permission denied") || time.Since(start) > 20*time.Second {
+		t.Fatalf("%d after %v: %q", code, time.Since(start), errb.String())
+	}
+	noToken(t, errb.String())
+	// Tried more than once: a key just handed over may take a moment.
+	if n := strings.Count(f.sshCalls(), "\n"); n < 2 || api.has("box1") {
+		t.Fatalf("%d tries, box1 kept: %v", n, api.has("box1"))
 	}
 }

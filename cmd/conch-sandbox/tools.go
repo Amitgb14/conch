@@ -32,10 +32,11 @@ type orphansJSON struct {
 	Problems []string `json:"problems,omitempty"`
 }
 
-// findOrphans is conch-sandbox's sandboxes — ones with an alias of its
-// own — that are still there, running or keeping a disk, and that tool no
-// longer has a machine for: made for it, then forgotten by it, and still
-// billed.
+// findOrphans is conch-sandbox's sandboxes made for tool — ones whose
+// alias says so — that are still there, running or keeping a disk, and
+// that tool no longer has a machine for: made for it, then forgotten by
+// it, and still billed. One made for another tool, or by hand, is in use
+// somewhere this tool cannot see, so it is never this tool's orphan.
 func findOrphans(ctx context.Context, tool string) ([]orphanJSON, []string, error) {
 	machines, err := toolMachines(ctx, tool)
 	if err != nil {
@@ -66,8 +67,8 @@ func findOrphans(ctx context.Context, tool string) ([]orphanJSON, []string, erro
 			if sb.State.Going() || known(alias) {
 				continue
 			}
-			if own, err := aliasOwner(alias); err != nil || own.ID != sb.ID {
-				continue // not made by conch-sandbox: somebody else's to keep
+			if own, err := aliasOwner(alias); err != nil || own.ID != sb.ID || own.Tool != tool {
+				continue // not made by conch-sandbox for tool: somebody else's to keep
 			}
 			out = append(out, orphanJSON{Provider: name, ID: sb.ID, Name: sb.Name, State: string(sb.State), Alias: alias})
 		}
@@ -312,7 +313,7 @@ func (a *app) pick(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	req := createReq{provider: pick.name, name: name, root: true}
+	req := createReq{provider: pick.name, name: name, root: true, tool: "herdr"}
 	for _, s := range pick.p.Settings() {
 		if s.Key != "region" || len(s.Choices) == 0 {
 			continue

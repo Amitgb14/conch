@@ -40,14 +40,17 @@ func TestParseMachines(t *testing.T) {
 	}
 }
 
-// orphans are conch-sandbox's sandboxes, still there, that the tool no
-// longer has a machine for.
+// orphans are conch-sandbox's sandboxes made for the tool, still there,
+// that the tool no longer has a machine for.
 func TestOrphans(t *testing.T) {
 	isolate(t)
 	api := fakeProvider(t, "fakebox", tokenKind)
+	fakeSSH(t)
 	h := fakeHerdr(t)
 	for range 4 {
-		run(t, "", "create", "--provider", "fakebox")
+		if code, _, errs := run(t, "", "create", "--provider", "fakebox", "--tool", "herdr"); code != 0 {
+			t.Fatalf("%q", errs)
+		}
 	}
 	removeAlias("conch-fakebox-box3")                   // made elsewhere (conch's own): not this tool's
 	run(t, "", "stop", "--provider", "fakebox", "box4") // stopped, still keeping a disk
@@ -89,11 +92,98 @@ func TestOrphans(t *testing.T) {
 		t.Fatalf("none: %q %q", out, errs)
 	}
 
-	// The herdr app, through hc.
-	fakeHC(t, `{"machines":[{"id":"a1","host":"conch-fakebox-box2"}]}`)
+	// The herdr app, through hc: herdr's sandboxes are not its orphans,
+	// only those made for it.
+	fakeHC(t, `{"machines":[{"id":"a1","host":"conch-fakebox-box10"}]}`)
 	code, out, _ = run(t, "", "orphans", "--tool", "herdr-app", "--json")
-	if got := decode[orphansJSON](t, out); code != 0 || len(got.Orphans) != 2 || got.Orphans[0].Alias != "conch-fakebox-box1" {
+	if got := decode[orphansJSON](t, out); code != 0 || len(got.Orphans) != 0 {
+		t.Fatalf("herdr-app sees herdr's: %s", out)
+	}
+	api.mu.Lock()
+	api.n = 9 // the next are box10 and box11
+	api.mu.Unlock()
+	for range 2 {
+		if code, _, errs := run(t, "", "create", "--provider", "fakebox", "--tool", "herdr-app", "--json", "--yes"); code != 0 {
+			t.Fatalf("%q", errs)
+		}
+	}
+	code, out, _ = run(t, "", "orphans", "--tool", "herdr-app", "--json")
+	if got := decode[orphansJSON](t, out); code != 0 || len(got.Orphans) != 1 || got.Orphans[0].Alias != "conch-fakebox-box11" {
 		t.Fatalf("herdr-app: %s", out)
+	}
+	// …and the herdr app's are not herdr's.
+	code, out, _ = run(t, "", "orphans", "--tool", "herdr", "--json")
+	if got := decode[orphansJSON](t, out); code != 0 || len(got.Orphans) != 0 {
+		t.Fatalf("herdr sees the herdr app's: %s", out)
+	}
+}
+
+// A sandbox in use by Orca, or made by hand, is in use where herdr cannot
+// see: never offered to herdr as forgotten, nor to the herdr app.
+func TestOrphansAreTheToolsOwn(t *testing.T) {
+	isolate(t)
+	fakeProvider(t, "fakebox", tokenKind)
+	fakeSSH(t)
+	fakeHerdr(t)
+	fakeHC(t, `[]`)
+	t.Setenv("ORCA_WORKSPACE_NAME", "w")
+	for _, args := range [][]string{
+		{"--from-orca", "--format", "orca"},        // box1, Orca's
+		{"--format", "orca"},                       // box2, Orca's too
+		{"--yes"},                                  // box3, the person's
+		{"--tool", "herdr-app", "--json", "--yes"}, // box4, the herdr app's
+	} {
+		if code, _, errs := run(t, "", append([]string{"create", "--provider", "fakebox"}, args...)...); code != 0 {
+			t.Fatalf("%v: %q", args, errs)
+		}
+	}
+	for alias, tool := range map[string]string{"conch-fakebox-box1": "orca", "conch-fakebox-box2": "orca", "conch-fakebox-box3": "cli", "conch-fakebox-box4": "herdr-app"} {
+		if own, err := aliasOwner(alias); err != nil || own.Tool != tool {
+			t.Errorf("%s: %+v %v", alias, own, err)
+		}
+	}
+	code, out, _ := run(t, "", "orphans", "--tool", "herdr", "--json")
+	if got := decode[orphansJSON](t, out); code != 0 || len(got.Orphans) != 0 {
+		t.Fatalf("herdr: %s", out)
+	}
+	code, out, _ = run(t, "", "orphans", "--tool", "herdr-app", "--json")
+	if got := decode[orphansJSON](t, out); code != 0 || len(got.Orphans) != 1 || got.Orphans[0].Alias != "conch-fakebox-box4" {
+		t.Fatalf("herdr-app: %s", out)
+	}
+	// A start under Orca keeps the alias Orca's; ssh-alias keeps it too.
+	if code, _, errs := run(t, "", "start", "--provider", "fakebox", "box1", "--format", "orca"); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	if code, _, errs := run(t, "", "ssh-alias", "--provider", "fakebox", "box1", "--yes"); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	if own, _ := aliasOwner("conch-fakebox-box1"); own.Tool != "orca" {
+		t.Fatalf("%+v", own)
+	}
+	// --tool is one of the four, and Orca's flags are Orca's.
+	for _, args := range [][]string{{"--tool", "tmux"}, {"--tool", "herdr", "--format", "orca"}, {"--tool", "cli", "--from-orca"}} {
+		if code, _, _ := run(t, "", append([]string{"create", "--provider", "fakebox"}, args...)...); code != 2 {
+			t.Errorf("%v: %d", args, code)
+		}
+	}
+}
+
+// The herdr app's mod opens a workspace in project_root: there is one
+// without a repository too, the sandbox's home.
+func TestHerdrAppGetsARoot(t *testing.T) {
+	isolate(t)
+	fakeProvider(t, "fakebox", tokenKind)
+	f := fakeSSH(t)
+	code, out, errs := run(t, "", "create", "--provider", "fakebox", "--name", "n", "--tool", "herdr-app", "--json", "--yes")
+	if code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	if r := decode[result](t, out); r.ProjectRoot != f.home || r.SSH == nil || r.SSH.Alias != "conch-fakebox-box1" {
+		t.Fatalf("%s", out)
+	}
+	// The person's create asks nothing of the sandbox.
+	if code, out, _ := run(t, "", "create", "--provider", "fakebox", "--json", "--yes"); code != 0 || decode[result](t, out).ProjectRoot != "" {
+		t.Fatalf("cli: %s", out)
 	}
 }
 
@@ -133,7 +223,7 @@ func TestPick(t *testing.T) {
 	f := fakeSSH(t)
 	h := fakeHerdr(t)
 	// One left over, which herdr forgot: offered for deletion first.
-	run(t, "", "create", "--provider", "fakebox")
+	run(t, "", "create", "--provider", "fakebox", "--tool", "herdr")
 	// Answers: delete the orphan; provider 1 (Enter); name; region 3 (eu);
 	// size 2 (large); a repository and its branch.
 	in := "y\n\nmy box\n3\n2\nhttps://github.com/o/r\nmain\n"
@@ -257,5 +347,28 @@ func TestGitDefaults(t *testing.T) {
 		if got := httpsOf(in); got != want {
 			t.Errorf("%q: %q", in, got)
 		}
+	}
+}
+
+// hc is $HC_BIN_PATH where that is set — the Dock's PATH may not have
+// it — else PATH's.
+func TestHCBin(t *testing.T) {
+	isolate(t)
+	fakeProvider(t, "fakebox", tokenKind)
+	fakeHC(t, `[]`)
+	hc := os.Getenv("HC_BIN_PATH")
+	if code, _, errs := run(t, "", "orphans", "--tool", "herdr-app"); code != 0 {
+		t.Fatalf("by HC_BIN_PATH: %q", errs)
+	}
+	t.Setenv("HC_BIN_PATH", "")
+	if hcBin() != "hc" {
+		t.Fatal(hcBin())
+	}
+	if code, _, errs := run(t, "", "orphans", "--tool", "herdr-app"); code != 1 || !strings.Contains(errs, "hc machine ls --json") {
+		t.Fatalf("none on PATH: %d %q", code, errs)
+	}
+	t.Setenv("PATH", filepath.Dir(hc)+":/usr/bin:/bin")
+	if code, _, errs := run(t, "", "orphans", "--tool", "herdr-app"); code != 0 {
+		t.Fatalf("by PATH: %q", errs)
 	}
 }

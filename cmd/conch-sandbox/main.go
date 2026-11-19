@@ -37,7 +37,8 @@ Usage:
   conch-sandbox providers [--json]
   conch-sandbox key set PROVIDER            the API key, read from stdin
   conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]]
-                       [--region R] [--size S] [--image I] [--yes] [--json | --format orca] [--from-orca]
+                       [--region R] [--size S] [--image I] [--tool T] [--yes]
+                       [--json | --format orca] [--from-orca]
   conch-sandbox get    SANDBOX [--json]
   conch-sandbox start  SANDBOX [--json | --format orca]
   conch-sandbox stop   SANDBOX [--json]
@@ -61,6 +62,13 @@ create writes an ssh alias, conch-PROVIDER-ID, to $CONCH_HOME/ssh/sandboxes,
 which ssh and the tools read once ~/.ssh/config includes it: conch-sandbox
 asks before adding that line, or adds it with --yes. start writes a fresh
 token into an alias that has one; rm takes the alias out.
+
+--tool says who a sandbox is for: herdr, herdr-app, orca (Orca's flags
+say so themselves) or cli, the default. A tool's sandbox has its home as
+project_root when nothing is cloned, and is only ever that tool's orphan.
+With --ref the branch need not be pushed, only the commit; a branch alone
+must be. hc is $HC_BIN_PATH, else PATH's; herdr is $HERDR_BIN_PATH, else
+PATH's.
 `
 
 // app is one run: its streams, so a test can give it its own.
@@ -82,6 +90,10 @@ type app struct {
 	// retry is how long to wait between tries of a sandbox's ssh that is
 	// not answering yet.
 	retry time.Duration
+	// grace is how long ssh may keep refusing for good — a key it was
+	// not given, a name it cannot find — before that is the answer: a
+	// key just handed over may take a moment to arrive. 0 is a minute.
+	grace time.Duration
 	// dir is where pick looks for the repository to check out; "" is the
 	// working directory.
 	dir string

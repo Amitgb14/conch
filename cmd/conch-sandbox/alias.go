@@ -63,7 +63,14 @@ type alias struct {
 	// Root is the checkout in the sandbox, or its home; kept so start can
 	// say it again (Orca's projectRoot).
 	Root string
+	// Tool is who it was made for (tools): orphans compares a tool's
+	// machines with its own sandboxes alone.
+	Tool string
 }
+
+// tools are who a sandbox can be made for: herdr's pick, the herdr app's
+// mod (create --tool herdr-app), Orca's recipes, and a person (cli).
+var tools = []string{"herdr", "herdr-app", "orca", "cli"}
 
 // metaMark starts the line in each block that says whose it is, so a
 // caller that knows only the alias — the herdr app, a herdr workspace —
@@ -76,31 +83,41 @@ func (al alias) meta() string {
 	if al.Root != "" {
 		m += " root=" + url.QueryEscape(al.Root)
 	}
+	if al.Tool != "" {
+		m += " tool=" + url.QueryEscape(al.Tool)
+	}
 	return m
 }
 
-// parseMeta reads a meta line; ok is false for any other line.
-func parseMeta(line string) (provider, id, root string, ok bool) {
+// parseMeta reads a meta line; ok is false for any other line. A block
+// written before tool= was is nobody's but the person's: cli.
+func parseMeta(line string) (o owner, ok bool) {
 	rest, found := strings.CutPrefix(line, metaMark)
 	if !found {
-		return "", "", "", false
+		return owner{}, false
 	}
 	for _, f := range strings.Fields(rest) {
 		k, v, _ := strings.Cut(f, "=")
 		switch k {
 		case "provider":
-			provider = v
+			o.Provider = v
 		case "id":
-			id = v
+			o.ID = v
 		case "root":
-			root, _ = url.QueryUnescape(v)
+			o.Root, _ = url.QueryUnescape(v)
+		case "tool":
+			o.Tool, _ = url.QueryUnescape(v)
 		}
 	}
-	return provider, id, root, provider != "" && id != ""
+	if o.Tool == "" {
+		o.Tool = "cli"
+	}
+	return o, o.Provider != "" && o.ID != ""
 }
 
-// owner is the sandbox behind one of conch-sandbox's aliases.
-type owner struct{ Provider, ID, Root string }
+// owner is the sandbox behind one of conch-sandbox's aliases, and the
+// tool it was made for.
+type owner struct{ Provider, ID, Root, Tool string }
 
 // aliasOwner is the sandbox name is the alias of, read from its block's
 // meta line. A name with no block of conch-sandbox's — or one whose meta
@@ -129,8 +146,8 @@ func blockOwner(name string) (owner, bool) {
 			if m == endMark+name || strings.HasPrefix(m, beginMark) {
 				break
 			}
-			if p, id, root, ok := parseMeta(m); ok {
-				return owner{Provider: p, ID: id, Root: root}, true
+			if o, ok := parseMeta(m); ok {
+				return o, true
 			}
 		}
 	}
@@ -289,10 +306,12 @@ func setAlias(al alias) error {
 	if err != nil {
 		return err
 	}
-	if al.Root == "" {
-		// A rewrite with a fresh token keeps the checkout it was made with.
+	if al.Root == "" || al.Tool == "" {
+		// A rewrite with a fresh token keeps the checkout it was made
+		// with, and the tool it was made for.
 		if o, err := aliasOwner(al.name()); err == nil {
-			al.Root = o.Root
+			al.Root = firstOf(al.Root, o.Root)
+			al.Tool = firstOf(al.Tool, o.Tool)
 			if block, err = al.block(); err != nil {
 				return err
 			}

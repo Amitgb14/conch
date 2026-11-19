@@ -61,6 +61,7 @@ func bare(t *testing.T) string {
 	// tool's context: a test that wants one installs a stand-in.
 	t.Setenv("CONCH_SSH", "/nonexistent/ssh")
 	t.Setenv("HERDR_BIN_PATH", "/nonexistent/herdr")
+	t.Setenv("HC_BIN_PATH", "/nonexistent/hc")
 	t.Setenv("PATH", "/usr/bin:/bin")
 	for _, k := range []string{"HERDR_PLUGIN_CONTEXT_JSON", "ORCA_WORKSPACE_NAME", "ORCA_REPO_URL", "ORCA_REPO_BRANCH",
 		"ORCA_REPO_REF", "ORCA_VM_INSTANCE_ID", "GH_TOKEN"} {
@@ -344,7 +345,8 @@ exit 0
 printf '%s\n' "$*" >> "`+f.sshLog+`"
 n=$(cat "`+dir+`/fails" 2>/dev/null || echo 0)
 if [ "$n" -gt 0 ]; then echo $((n-1)) > "`+dir+`/fails"; echo "ssh: connect to host gw.test port 22: Connection refused $FAKE_SSH_SAYS" >&2; exit 255; fi
-[ -n "$FAKE_SSH_DOWN" ] && { echo "ssh: Could not resolve hostname $FAKE_SSH_SAYS" >&2; exit 255; }
+[ -n "$FAKE_SSH_DOWN" ] && { echo "ssh: connect to host $FAKE_SSH_SAYS port 22: Operation timed out" >&2; exit 255; }
+[ -n "$FAKE_SSH_DENIED" ] && { echo "$FAKE_SSH_SAYS: Permission denied (publickey)." >&2; exit 255; }
 HOME="`+f.home+`" PATH="`+bin+`:/usr/bin:/bin" exec sh -s
 `), 0o755)
 	t.Setenv("CONCH_SSH", filepath.Join(dir, "ssh"))
@@ -398,5 +400,5 @@ func fakeHC(t *testing.T, json string) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "machines.json"), []byte(json), 0o600)
 	os.WriteFile(filepath.Join(dir, "hc"), []byte("#!/bin/sh\n[ \"$*\" = \"machine ls --json\" ] || exit 2\ncat '"+dir+"/machines.json'\n"), 0o755)
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("HC_BIN_PATH", filepath.Join(dir, "hc"))
 }

@@ -28,7 +28,7 @@ func TestAliasTokenKind(t *testing.T) {
 	}
 	text := readFile(t, aliasFile())
 	for _, want := range []string{
-		"# >>> conch-sandbox conch-fakebox-box1\n# conch-sandbox provider=fakebox id=box1\nHost conch-fakebox-box1\n",
+		"# >>> conch-sandbox conch-fakebox-box1\n# conch-sandbox provider=fakebox id=box1 tool=cli\nHost conch-fakebox-box1\n",
 		"  HostName gw.test\n", "  Port 22\n", "  User tok-secret-box1-1\n",
 		"  StrictHostKeyChecking accept-new\n", "  HostKeyAlias conch-fakebox-box1\n",
 		"  UserKnownHostsFile " + knownHostsFile() + "\n",
