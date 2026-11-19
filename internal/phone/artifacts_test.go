@@ -148,8 +148,11 @@ not json at all
 	if status := p.get("/api/artifacts?pane="+sh, &none); status != 200 || none.Pane != "local:"+sh || len(none.Artifacts) != 0 {
 		t.Errorf("a shell's pane: %d %+v", status, none)
 	}
-	if status, b := p.do("GET", "/api/artifacts?pane=nope", nil); status < 400 {
+	if status, b := p.do("GET", "/api/artifacts?pane=local:p999", nil); status != 404 || decodeResult(t, status, b, nil).Code != CodeNotFound {
 		t.Errorf("an unknown pane: %d %s", status, b)
+	}
+	if status, b := p.do("GET", "/api/artifacts?pane=Bad!:p1", nil); status != 400 || decodeResult(t, status, b, nil).Code != CodeBadRequest {
+		t.Errorf("a malformed pane: %d %s", status, b)
 	}
 }
 
