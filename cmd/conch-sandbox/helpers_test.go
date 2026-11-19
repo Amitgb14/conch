@@ -37,8 +37,20 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// isolate gives a test a fresh home and conch home.
+// isolate gives a test a fresh home and conch home, whose ~/.ssh/config
+// already includes the aliases — somebody who said yes once.
 func isolate(t *testing.T) string {
+	t.Helper()
+	home := bare(t)
+	os.MkdirAll(filepath.Join(home, ".ssh"), 0o700)
+	if err := os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte(includeLine()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// bare is isolate with no ~/.ssh at all.
+func bare(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -70,6 +82,8 @@ type fakeAPI struct {
 	keys    []string // public keys handed over
 	failOn  map[string]int
 	created string // the state a new box reports
+	tokens  int    // tokens handed out, so each is new
+	token   string // what the next token is, when set
 }
 
 func (f *fakeAPI) called() string {
@@ -140,7 +154,12 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case parts[len(parts)-1] == "stop":
 		box["state"] = "stopped"
 	case parts[len(parts)-1] == "ssh":
-		reply(map[string]any{"token": "tok-secret-" + parts[1], "expires": "2026-11-20T12:00:00Z"})
+		f.tokens++
+		tok := fmt.Sprintf("tok-secret-%s-%d", parts[1], f.tokens)
+		if f.token != "" {
+			tok = f.token
+		}
+		reply(map[string]any{"token": tok, "expires": "2026-11-20T12:00:00Z"})
 	case parts[len(parts)-1] == "keys":
 		f.keys = append(f.keys, fmt.Sprint(body["key"]))
 	}

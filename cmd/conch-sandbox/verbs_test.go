@@ -39,7 +39,7 @@ func TestCreateTokenKind(t *testing.T) {
 		t.Fatalf("size %+v", r.Size)
 	}
 	s := r.SSH
-	if s == nil || s.Kind != "token" || s.Host != "gw.test" || s.Port != 22 || s.User != "…" || s.IdentityFile != "" {
+	if s == nil || s.Kind != "token" || s.Host != "gw.test" || s.Port != 22 || s.User != "…" || s.IdentityFile != "" || s.Alias != "conch-fakebox-box1" {
 		t.Fatalf("ssh %+v", s)
 	}
 	if s.Expires == nil || !s.Expires.Equal(time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)) {
@@ -64,7 +64,7 @@ func TestCreateTokenKind(t *testing.T) {
 
 	// Without --json: words, still no token.
 	code, out, errs = run(t, "", "create", "--provider", "fakebox")
-	if code != 0 || !strings.Contains(out, "Fake Box sandbox box2") || !strings.Contains(out, "…@gw.test -p 22") {
+	if code != 0 || !strings.Contains(out, "Fake Box sandbox box2") || !strings.Contains(out, "ssh     conch-fakebox-box2") {
 		t.Fatalf("text: %d %q %q", code, out, errs)
 	}
 	noToken(t, out, errs)
@@ -98,7 +98,8 @@ func TestCreateKeyKind(t *testing.T) {
 		t.Fatalf("%d %q", code, errs)
 	}
 	s := decode[result](t, out).SSH
-	if s == nil || s.Kind != "key" || s.Host != "10.0.0.9" || s.Port != 2222 || s.User != "root" || s.IdentityFile != identity || s.Expires != nil {
+	if s == nil || s.Kind != "key" || s.Host != "10.0.0.9" || s.Port != 2222 || s.User != "root" || s.IdentityFile != identity || s.Expires != nil ||
+		s.Alias != "conch-keybox-box1" {
 		t.Fatalf("ssh %+v", s)
 	}
 	if len(f.keys) != 1 || f.keys[0] != "ssh-ed25519 AAAAmine me@here" {

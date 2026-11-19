@@ -28,7 +28,7 @@ func TestUsage(t *testing.T) {
 		t.Fatalf("version: %d %q", code, out)
 	}
 	// Every verb has --help of its own, on stdout, and exits 0.
-	for _, verb := range []string{"providers", "key", "create", "get", "start", "stop", "rm"} {
+	for _, verb := range []string{"providers", "key", "create", "get", "start", "stop", "rm", "ssh-alias"} {
 		code, out, errs := run(t, "", verb, "--help")
 		if code != 0 || !strings.Contains(out, "Usage: conch-sandbox "+verb) || errs != "" {
 			t.Errorf("%s --help: %d %q %q", verb, code, out, errs)
@@ -46,7 +46,7 @@ func TestUsage(t *testing.T) {
 func TestCheckID(t *testing.T) {
 	for id, ok := range map[string]bool{
 		"box1": true, "8f3c2a1e-0000-4000": true, "a.b_c": true,
-		"": false, "-rf": false, "a b": false, "a/b": false, "u@h": false, "a:b": false, "a\nb": false, `a"b`: false,
+		"": false, "-rf": false, "a*": false, "a,b": false, "!a": false, "a?": false, "a b": false, "a/b": false, "u@h": false, "a:b": false, "a\nb": false, `a"b`: false,
 	} {
 		if err := checkID(id); (err == nil) != ok {
 			t.Errorf("%q: %v", id, err)
