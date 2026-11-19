@@ -937,6 +937,8 @@ type PaneInfo struct {
 	SSH string `json:"ssh,omitempty"`
 	// Listening is the TCP ports the pane's program and its children
 	// listen on, lowest first (pane.listening.v1): a dev server's address.
+	// An agent's own ports are left out (Claude Code keeps one for
+	// itself), though not those of what it starts.
 	Listening []int `json:"listening,omitempty"`
 }
 

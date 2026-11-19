@@ -250,7 +250,7 @@ func agentJobs(root, hint int, m *detect.Manifest, procs map[int]psRow, ports ma
 			case isHelper(m, p, r.args), r.since.IsZero(), now.Sub(r.since) < jobMinAge, seen[c]:
 			default:
 				jobs = append(jobs, proto.BackgroundJob{PID: c, Command: jobCommand(r.args), Since: r.since,
-					Ports: portsUnder(c, children, ports)})
+					Ports: portsUnder(c, 0, children, ports)})
 			}
 		}
 	}

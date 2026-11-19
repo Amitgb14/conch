@@ -208,20 +208,29 @@ func (c *client) flush(d time.Duration) {
 	if o == nil {
 		return
 	}
-	timer := time.AfterFunc(d, func() {
+	// The timer itself says the time is up. Comparing the clock with a
+	// deadline worked out after the timer was armed lost to it now and
+	// then: woken a moment before that deadline, flush waited again, and
+	// nothing woke it until the writer's own deadline (writeWait, 10 s) —
+	// a stop or reload held up for ten seconds by a client not reading.
+	expired := false
+	timer := flushAfter(d, func() {
 		o.mu.Lock()
+		expired = true
 		o.cond.Broadcast()
 		o.mu.Unlock()
 	})
 	defer timer.Stop()
-	deadline := time.Now().Add(d)
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	target := o.queued
-	for o.written < target && !o.closed && time.Now().Before(deadline) {
+	for o.written < target && !o.closed && !expired {
 		o.cond.Wait()
 	}
 }
+
+// flushAfter is time.AfterFunc, a variable so a test can fire it early.
+var flushAfter = time.AfterFunc
 
 // close stops c's writer; what is still queued is not written.
 func (c *client) close() {

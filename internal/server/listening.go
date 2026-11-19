@@ -174,8 +174,12 @@ func parseProcNetTCP(b []byte) map[string]int {
 }
 
 // portsUnder gathers the ports listened on by root and every process
-// under it, lowest first.
-func portsUnder(root int, children map[int][]int, ports map[int][]int) []int {
+// under it, lowest first. The ports of skip, the agent's own process, are
+// left out but what it starts is not: Claude Code listens on a port of
+// its own on 127.0.0.1, which the pane's header showed as if it were a
+// dev server the agent had started, while a server the agent runs is a
+// child of it and still counts. 0 skips nothing.
+func portsUnder(root, skip int, children map[int][]int, ports map[int][]int) []int {
 	var out []int
 	seen := map[int]bool{}
 	stack := []int{root}
@@ -186,6 +190,10 @@ func portsUnder(root int, children map[int][]int, ports map[int][]int) []int {
 			continue
 		}
 		seen[pid] = true
+		if pid == skip {
+			stack = append(stack, children[pid]...)
+			continue
+		}
 		for _, p := range ports[pid] {
 			if !slices.Contains(out, p) {
 				out = append(out, p)
@@ -233,7 +241,11 @@ func (s *Server) lookListening(ctx context.Context) {
 		info := e.info()
 		var now []int
 		if info.PID > 0 {
-			now = portsUnder(info.PID, children, byPid)
+			skip := 0
+			if info.Agent != nil {
+				skip = e.explain().Process.PID
+			}
+			now = portsUnder(info.PID, skip, children, byPid)
 		}
 		// What an agent that is not working left running: looked for
 		// only when there is such an agent, since it reads every
