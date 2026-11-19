@@ -52,7 +52,8 @@ final class Store: ObservableObject {
     /// sends pane.updated as its title and tokens move, and each publish
     /// redrew the whole window — every tree row holds the store — so a
     /// click waited behind the redraws. The value is current at once; the
-    /// views hear of it at most once a frame (snapshotsChanged).
+    /// views hear of it at most ten times a second (snapshotsChanged,
+    /// Coalescer.paneRedraw).
     var snapshots: [String: Snapshot] = [:] {
         didSet {
             rosterMemo = nil
@@ -60,7 +61,7 @@ final class Store: ObservableObject {
             snapshotsChanged.mark()
         }
     }
-    private lazy var snapshotsChanged = Coalescer(delay: 1.0 / 60) { [weak self] in self?.objectWillChange.send() }
+    private lazy var snapshotsChanged = Coalescer(delay: Coalescer.paneRedraw) { [weak self] in self?.objectWillChange.send() }
     /// The agents each machine has installed, for starting one.
     @Published var agents: [String: [AgentAvailability]] = [:]
     /// Every agent each machine reports, installed or not, for Settings →
@@ -1821,7 +1822,10 @@ final class Store: ObservableObject {
             if p.agent?.state == .blocked {
                 if was != .blocked || questions[k] == nil { ask(k) }
             } else {
-                questions.removeValue(forKey: k)
+                // Not removeValue: on every update of every agent not
+                // waiting, that published a change of nothing and redrew
+                // the window past snapshotsChanged's coalescing.
+                dropValue(k, from: \Store.questions, of: self)
             }
         case "pane.closed":
             // The server says only which pane ({"id": …}); read as a whole

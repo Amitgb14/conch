@@ -7,6 +7,14 @@ import Foundation
 /// window for each one left a click waiting behind the redraws.
 @MainActor
 public final class Coalescer {
+    /// How often the window redraws for the servers' panes: ten times a
+    /// second. Once a frame (1/60) was too often: every tree row is drawn
+    /// again for each, and with forty busy panes that kept a third of a
+    /// core busy with nothing touched, which a click — a workspace
+    /// switched — waited behind. What the person does is published at
+    /// once; only the panes' own churn waits for this.
+    public static let paneRedraw = 0.1
+
     public private(set) var pending = false
     let delay: Double
     let schedule: (Double, @escaping () -> Void) -> Void
@@ -32,4 +40,17 @@ public final class Coalescer {
             self.fire()
         }
     }
+}
+
+/// Takes key out of a store's published dictionary only when it is
+/// there. Changing a @Published value tells every view at once, whether or
+/// not anything changed — `removeValue` of a key that is not there
+/// included — so the window's pane events, which cleared an agent's
+/// question on every update, redrew the whole window for each one past
+/// the coalescer: 95% of a core with forty busy panes, and a workspace
+/// switch waiting behind it.
+@MainActor
+public func dropValue<Root: AnyObject, Key: Hashable, Value>(_ key: Key, from path: ReferenceWritableKeyPath<Root, [Key: Value]>, of root: Root) {
+    guard root[keyPath: path][key] != nil else { return }
+    root[keyPath: path].removeValue(forKey: key)
 }
