@@ -52,7 +52,7 @@ func TestOrphans(t *testing.T) {
 			t.Fatalf("%q", errs)
 		}
 	}
-	removeAlias("conch-fakebox-box3")                   // made elsewhere (conch's own): not this tool's
+	removeAlias("fakebox", "box3")                      // made elsewhere (conch's own): not this tool's
 	run(t, "", "stop", "--provider", "fakebox", "box4") // stopped, still keeping a disk
 	api.mu.Lock()
 	api.boxes["box9"] = map[string]any{"id": "box9", "name": "conch-other", "state": "running"} // no alias at all

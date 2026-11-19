@@ -456,7 +456,7 @@ func (a *app) emit(r result, al alias, out output, label string) error {
 // while it runs, and nobody has it to delete. It is given time of its own,
 // since the failure may have been the deadline or an interrupt.
 func (a *app) abandon(p sandbox.Provider, id string) {
-	_, _ = removeAlias(aliasName(p.Name(), id))
+	_, _ = removeAlias(p.Name(), id)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := p.Delete(ctx, id); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
@@ -575,7 +575,7 @@ func (a *app) remove(ctx context.Context, p sandbox.Provider, id string, asJSON,
 	if herdr {
 		a.forgetInHerdr(ctx, name)
 	}
-	if removed, err := removeAlias(name); err != nil {
+	if removed, err := removeAlias(p.Name(), id); err != nil {
 		return err
 	} else if removed {
 		fmt.Fprintf(a.stderr, "  removed ssh alias %s\n", name)
@@ -599,7 +599,7 @@ func (a *app) sshAlias(ctx context.Context, args []string) error {
 			return err
 		}
 		name := aliasName(provider, id)
-		removed, err := removeAlias(name)
+		removed, err := removeAlias(provider, id)
 		if err != nil {
 			return err
 		}

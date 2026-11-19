@@ -67,7 +67,7 @@ func TestAliasTokenKind(t *testing.T) {
 	if code, _, errs := run(t, "", "create", "--provider", "fakebox"); code != 0 {
 		t.Fatalf("%q", errs)
 	}
-	removeAlias("conch-fakebox-box2")
+	removeAlias("fakebox", "box2")
 	code, out, _ = run(t, "", "start", "--provider", "fakebox", "box2", "--json")
 	if code != 0 || decode[result](t, out).SSH.Alias != "" || hasAlias("conch-fakebox-box2") {
 		t.Fatalf("start without an alias: %s", out)
@@ -190,7 +190,7 @@ func TestSSHAliasVerb(t *testing.T) {
 	isolate(t)
 	fakeProvider(t, "fakebox", tokenKind)
 	run(t, "", "create", "--provider", "fakebox")
-	removeAlias("conch-fakebox-box1")
+	removeAlias("fakebox", "box1")
 	code, out, errs := run(t, "", "ssh-alias", "--provider", "fakebox", "box1")
 	if code != 0 || out != "conch-fakebox-box1\n" || !hasAlias("conch-fakebox-box1") {
 		t.Fatalf("%d %q %q", code, out, errs)
@@ -314,7 +314,7 @@ func TestHashedHostKeysAreForgotten(t *testing.T) {
 	other := "|1|" + salt + "|" + hashedHost(salt, "conch-p-j") + " ssh-ed25519 BBBB\n"
 	os.MkdirAll(filepath.Dir(knownHostsFile()), 0o700)
 	os.WriteFile(knownHostsFile(), []byte(mine+other), 0o600)
-	if _, err := removeAlias("conch-p-i"); err != nil {
+	if _, err := removeAlias("p", "i"); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, knownHostsFile()); got != other {
@@ -355,5 +355,56 @@ func TestAliasFileIsAbsolute(t *testing.T) {
 	}
 	if line := includeLine(); line != "Include "+filepath.Join(home, "rel", "ssh", "sandboxes") {
 		t.Errorf("%s", line)
+	}
+}
+
+// conch-fake-box-box1 is provider fake's sandbox box-box1 and provider
+// fake-box's box1 alike. The first to have it keeps it: a create for the
+// other is refused and its box deleted, and neither that nor an rm of the
+// other takes fake's block or its host keys.
+func TestCollidingAliasIsNotRemoved(t *testing.T) {
+	isolate(t)
+	api := fakeProvider(t, "fake-box", tokenKind)
+	theirs := alias{Provider: "fake", ID: "box-box1", Host: "h1", User: "u"}
+	if err := setAlias(theirs); err != nil {
+		t.Fatal(err)
+	}
+	hostLine := "conch-fake-box-box1 ssh-ed25519 THEIRS\n"
+	os.WriteFile(knownHostsFile(), []byte(hostLine), 0o600)
+	kept := func(when string) {
+		t.Helper()
+		if o, err := aliasOwner("conch-fake-box-box1"); err != nil || o.Provider != "fake" || o.ID != "box-box1" {
+			t.Fatalf("%s: their alias: %+v %v", when, o, err)
+		}
+		if got := readFile(t, knownHostsFile()); got != hostLine {
+			t.Fatalf("%s: their host keys: %q", when, got)
+		}
+	}
+	code, _, errs := run(t, "", "create", "--provider", "fake-box", "--yes")
+	if code != 1 || !strings.Contains(errs, "is fake's sandbox box-box1 already") || api.has("box1") {
+		t.Fatalf("create: %d %q", code, errs)
+	}
+	kept("after the refused create")
+
+	api.mu.Lock()
+	api.boxes["box1"] = map[string]any{"id": "box1", "state": "running"}
+	api.mu.Unlock()
+	if code, _, errs := run(t, "", "rm", "--provider", "fake-box", "box1"); code != 0 || api.has("box1") || strings.Contains(errs, "removed ssh alias") {
+		t.Fatalf("rm: %d %q", code, errs)
+	}
+	kept("after rm of the other")
+	if code, _, errs := run(t, "", "ssh-alias", "--provider", "fake-box", "box1", "--remove"); code != 0 {
+		t.Fatalf("ssh-alias --remove: %q", errs)
+	}
+	kept("after ssh-alias --remove of the other")
+
+	// Its owner's removal takes it, as does one for a block from before
+	// meta lines were written.
+	if removed, err := removeAlias("fake", "box-box1"); !removed || err != nil || hasAlias("conch-fake-box-box1") || readFile(t, knownHostsFile()) != "" {
+		t.Fatalf("owner: %v %v", removed, err)
+	}
+	writeAliases([]string{beginMark + "conch-p-i", "Host conch-p-i", "  HostName h", endMark + "conch-p-i"})
+	if removed, err := removeAlias("p", "i"); !removed || err != nil {
+		t.Fatalf("no meta line: %v %v", removed, err)
 	}
 }

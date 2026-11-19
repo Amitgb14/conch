@@ -335,8 +335,15 @@ func setAlias(al alias) error {
 
 // removeAlias takes name's block out, and the host keys kept for it, and
 // says whether it was there. The file stays, header and all, so the
-// Include in ~/.ssh/config still names a file.
-func removeAlias(name string) (bool, error) {
+// Include in ~/.ssh/config still names a file. Only provider's sandbox
+// id's block goes: one whose meta line names another sandbox — the same
+// alias, since conch-a-b-c is a's b-c and a-b's c alike — is that one's,
+// and is left with its host keys. A block with no meta line is taken.
+func removeAlias(provider, id string) (bool, error) {
+	name := aliasName(provider, id)
+	if o, ok := blockOwner(name); ok && (o.Provider != provider || o.ID != id) {
+		return false, nil
+	}
 	lines, err := readAliases()
 	if err != nil {
 		return false, err
