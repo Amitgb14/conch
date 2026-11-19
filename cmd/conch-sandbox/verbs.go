@@ -124,7 +124,17 @@ func (a *app) say(r result, asJSON bool) error {
 	}
 	fmt.Fprintf(a.stdout, "%s sandbox %s: %s\n", sandbox.ProviderLabel(r.Provider), what, r.State)
 	if r.Size != nil {
-		fmt.Fprintf(a.stdout, "  size    %d vCPU, %d GiB memory, %d GiB disk\n", r.Size.CPU, r.Size.MemoryGiB, r.Size.DiskGiB)
+		// What the provider did not say is left out, not called 0.
+		var parts []string
+		for _, p := range []struct {
+			n    int
+			unit string
+		}{{r.Size.CPU, "vCPU"}, {r.Size.MemoryGiB, "GiB memory"}, {r.Size.DiskGiB, "GiB disk"}} {
+			if p.n > 0 {
+				parts = append(parts, fmt.Sprintf("%d %s", p.n, p.unit))
+			}
+		}
+		fmt.Fprintf(a.stdout, "  size    %s\n", strings.Join(parts, ", "))
 	}
 	if r.Region != "" {
 		fmt.Fprintf(a.stdout, "  region  %s\n", r.Region)
@@ -477,8 +487,11 @@ func (a *app) get(ctx context.Context, args []string) error {
 		return gone(t.p, t.id, err)
 	}
 	r := describe(t.p.Name(), sb, "")
-	if own, err := aliasOwner(aliasName(t.p.Name(), t.id)); err == nil {
-		r.ProjectRoot = own.Root
+	// What its alias holds, as create said it: get asks the provider for
+	// no new token and lets no key in, so a sandbox with no alias has no
+	// ssh here (conch-sandbox ssh-alias writes one).
+	if al, ok := readAlias(aliasName(t.p.Name(), t.id)); ok {
+		r.ProjectRoot, r.SSH = al.Root, sshOf(al)
 	}
 	return a.say(r, t.out == jsonOut)
 }

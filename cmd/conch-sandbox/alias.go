@@ -154,6 +154,63 @@ func blockOwner(name string) (owner, bool) {
 	return owner{}, false
 }
 
+// readAlias is name's block read back: what create or start last wrote
+// for it, for get to say without asking the provider for a new token.
+func readAlias(name string) (alias, bool) {
+	o, ok := blockOwner(name)
+	if !ok || aliasName(o.Provider, o.ID) != name {
+		return alias{}, false
+	}
+	al := alias{Provider: o.Provider, ID: o.ID, Root: o.Root, Tool: o.Tool, Port: 22}
+	lines, _ := readAliases()
+	in := false
+	for _, l := range lines {
+		switch {
+		case l == beginMark+name:
+			in = true
+			continue
+		case !in:
+			continue
+		case l == endMark+name || strings.HasPrefix(l, beginMark):
+			return al, al.Host != ""
+		}
+		key, val, _ := strings.Cut(strings.TrimSpace(l), " ")
+		val = strings.Trim(strings.TrimSpace(val), `"`)
+		switch key {
+		case "HostName":
+			al.Host = val
+		case "Port":
+			al.Port, _ = strconv.Atoi(val)
+		case "User":
+			al.User = val
+		case "IdentityFile":
+			al.Identity = val
+		case "#":
+			if rest, ok := strings.CutPrefix(val, "the user is a token"); ok {
+				al.Token = true
+				// ", until 2026-11-20T12:00:00Z: conch-sandbox start…": the
+				// time's own colons are never followed by a space.
+				if when, ok := strings.CutPrefix(rest, ", until "); ok {
+					when, _, _ = strings.Cut(when, ": ")
+					if t, err := time.Parse(time.RFC3339, when); err == nil {
+						al.Expires = &t
+					}
+				}
+			}
+		}
+	}
+	return al, al.Host != ""
+}
+
+// sshOf is what a result says of how to reach al, a token struck out.
+func sshOf(al alias) *sshJSON {
+	s := &sshJSON{Alias: al.name(), Kind: "key", Host: al.Host, Port: al.Port, User: al.User, Expires: al.Expires, IdentityFile: al.Identity}
+	if al.Token {
+		s.Kind, s.User = "token", struck
+	}
+	return s
+}
+
 // configValue is v as one ssh_config argument. A value with a newline or a
 // quote in it — from a provider's reply — could add lines of its own to
 // the file, so it is refused rather than escaped. So is one with a % token

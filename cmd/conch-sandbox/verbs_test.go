@@ -218,9 +218,10 @@ func TestGetStartStopRm(t *testing.T) {
 	// Flags before or after the ID.
 	code, out, _ := run(t, "", "get", "box1", "--provider", "fakebox", "--json")
 	r := decode[result](t, out)
-	if code != 0 || r.ID != "box1" || r.State != "started" || r.SSH != nil {
+	if code != 0 || r.ID != "box1" || r.State != "started" || r.SSH == nil || r.SSH.User != struck {
 		t.Fatalf("get: %d %+v", code, r)
 	}
+	noToken(t, out)
 	code, out, _ = run(t, "", "stop", "--provider=fakebox", "--json", "box1")
 	if r := decode[result](t, out); code != 0 || r.State != "stopped" || r.ID != "box1" {
 		t.Fatalf("stop: %d %s", code, out)
@@ -313,5 +314,71 @@ func TestAliasTokenAsksForTheLongestLife(t *testing.T) {
 	defer api.mu.Unlock()
 	if got := api.bodies["POST /boxes/box1/ssh"]; got != `{"ttl":86400}` {
 		t.Fatalf("asked %s", got)
+	}
+}
+
+// get says how to reach the sandbox as create did — from its alias, so no
+// new token is asked for and no key let in — with a token struck out.
+func TestGetSaysTheSSHCreateDid(t *testing.T) {
+	for _, kind := range []providerKind{tokenKind, keyKind} {
+		home := isolate(t)
+		if kind == keyKind {
+			userKey(t, home)
+		}
+		api := fakeProvider(t, "fakebox", kind)
+		code, out, errs := run(t, "", "create", "--provider", "fakebox", "--json", "--yes")
+		if code != 0 {
+			t.Fatalf("%q", errs)
+		}
+		made := decode[result](t, out).SSH
+		calls := api.called()
+		code, out, errs = run(t, "", "get", "--machine", "conch-fakebox-box1", "--json")
+		if code != 0 {
+			t.Fatalf("%q", errs)
+		}
+		got := decode[result](t, out).SSH
+		if got == nil || made == nil {
+			t.Fatalf("kind %d: create %+v, get %+v", kind, made, got)
+		}
+		if (got.Expires == nil) != (made.Expires == nil) || (got.Expires != nil && !got.Expires.Equal(*made.Expires)) {
+			t.Fatalf("expires %v, create said %v", got.Expires, made.Expires)
+		}
+		if kind == tokenKind && (got.Kind != "token" || got.Expires == nil) || kind == keyKind && (got.Kind != "key" || got.IdentityFile == "") {
+			t.Fatalf("kind %d: %+v", kind, got)
+		}
+		g, m := *got, *made
+		g.Expires, m.Expires = nil, nil
+		if g != m {
+			t.Fatalf("kind %d: get %+v, create %+v", kind, g, m)
+		}
+		noToken(t, out)
+		if strings.Count(api.called(), "/ssh") != strings.Count(calls, "/ssh") || strings.Count(api.called(), "/keys") != strings.Count(calls, "/keys") {
+			t.Fatalf("get asked for access:\n%s", api.called())
+		}
+	}
+	// No alias: no ssh, rather than a token asked for.
+	isolate(t)
+	api := fakeProvider(t, "fakebox", tokenKind)
+	api.mu.Lock()
+	api.boxes["box7"] = map[string]any{"id": "box7", "state": "running"}
+	api.mu.Unlock()
+	if code, out, _ := run(t, "", "get", "--provider", "fakebox", "box7", "--json"); code != 0 || decode[result](t, out).SSH != nil || strings.Contains(api.called(), "/ssh") {
+		t.Fatalf("%s\n%s", out, api.called())
+	}
+}
+
+// A size the provider did not give is left out, not said as 0.
+func TestSayLeavesOutWhatIsNotKnown(t *testing.T) {
+	for size, want := range map[sizeJSON]string{
+		{CPU: 2, MemoryGiB: 4}:              "  size    2 vCPU, 4 GiB memory\n",
+		{CPU: 2, MemoryGiB: 4, DiskGiB: 10}: "  size    2 vCPU, 4 GiB memory, 10 GiB disk\n",
+		{DiskGiB: 20}:                       "  size    20 GiB disk\n",
+	} {
+		var out strings.Builder
+		a := &app{stdout: &out}
+		a.say(result{Provider: "p", ID: "i", State: "started", Size: &size}, false)
+		if !strings.Contains(out.String(), want) || strings.Contains(out.String(), " 0 ") {
+			t.Errorf("%+v: %q", size, out.String())
+		}
 	}
 }
