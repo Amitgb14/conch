@@ -27,22 +27,35 @@ type Artifact struct {
 	Versions int       `json:"versions"`
 	Created  time.Time `json:"created"`
 	Updated  time.Time `json:"updated"`
+	// Dir is the directory the publishing session ran in.
+	Dir string `json:"dir,omitempty"`
 }
 
-// ArtifactList answers GET /api/artifacts: newest first.
+// ArtifactList answers GET /api/artifacts: newest first. Pane is empty
+// when it lists every artifact on this machine.
 type ArtifactList struct {
 	Pane      string     `json:"pane"`
 	Artifacts []Artifact `json:"artifacts"`
 }
 
-// artifacts lists what the pane's Claude Code session published. The
+// artifacts lists what the pane's Claude Code sessions published, or with
+// no pane, what every Claude Code session on this machine published. The
 // screen can't say: Claude Code draws full screen, and a link it printed
-// has scrolled away by the time anyone looks. Its transcript keeps every
+// has scrolled away by the time anyone looks. Its transcripts keep every
 // publish, with the title it was given.
 func (g *Gateway) artifacts(rq *request) (any, *APIError) {
+	root := claudeProjects()
 	ref := rq.r.URL.Query().Get("pane")
 	if ref == "" {
-		return nil, apiErr(CodeBadRequest, "which pane? pane is missing")
+		if root == "" {
+			return ArtifactList{Artifacts: []Artifact{}}, nil
+		}
+		m, _ := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))
+		arts, err := transcriptArtifacts.readAll(m)
+		if err != nil {
+			return nil, apiErr(CodeServerUnavailable, "could not read the transcripts: "+err.Error())
+		}
+		return ArtifactList{Artifacts: arts}, nil
 	}
 	c, pane, id, aerr := g.paneOn(rq.dev, ref)
 	if aerr != nil {
@@ -65,20 +78,30 @@ func (g *Gateway) artifacts(rq *request) (any, *APIError) {
 	if a == nil || a.Name != "claude" || a.SessionID == "" {
 		return out, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if root == "" {
 		return out, nil
 	}
-	path := findTranscript(filepath.Join(home, ".claude", "projects"), a.SessionID)
+	path := findTranscript(root, a.SessionID)
 	if path == "" {
 		return out, nil
 	}
-	arts, err := transcriptArtifacts.read(path)
+	// Every session that ran in the agent's directory, not just the current
+	// one: a resumed or cleared agent starts a new transcript there.
+	m, _ := filepath.Glob(filepath.Join(filepath.Dir(path), "*.jsonl"))
+	arts, err := transcriptArtifacts.readAll(m)
 	if err != nil {
 		return nil, apiErr(CodeServerUnavailable, "could not read the agent's transcript: "+err.Error())
 	}
 	out.Artifacts = arts
 	return out, nil
+}
+
+func claudeProjects() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "projects")
 }
 
 // findTranscript is Claude Code's transcript for a session: a session id
@@ -130,12 +153,61 @@ func (c *artifactCache) read(path string) ([]Artifact, error) {
 		return nil, err
 	}
 	c.mu.Lock()
-	if len(c.entries) > 64 {
+	if len(c.entries) > 1024 {
 		clear(c.entries)
 	}
 	c.entries[path] = artifactEntry{size: st.Size(), mtime: st.ModTime(), arts: arts}
 	c.mu.Unlock()
 	return arts, nil
+}
+
+// readAll merges the artifacts of several transcripts: an artifact two
+// sessions published is one entry, with both sessions' versions.
+func (c *artifactCache) readAll(paths []string) ([]Artifact, error) {
+	byURL := map[string]*Artifact{}
+	var firstErr error
+	for _, p := range paths {
+		arts, err := c.read(p)
+		if err != nil {
+			if firstErr == nil && !errors.Is(err, os.ErrNotExist) {
+				firstErr = err
+			}
+			continue
+		}
+		for _, a := range arts {
+			m := byURL[a.URL]
+			if m == nil {
+				cp := a
+				byURL[a.URL] = &cp
+				continue
+			}
+			m.Versions += a.Versions
+			if a.Created.Before(m.Created) {
+				m.Created = a.Created
+			}
+			if a.Updated.After(m.Updated) {
+				m.Updated, m.Title, m.Kind, m.Dir = a.Updated, a.Title, a.Kind, a.Dir
+			}
+		}
+	}
+	if len(byURL) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return newestFirst(byURL), nil
+}
+
+func newestFirst(byURL map[string]*Artifact) []Artifact {
+	out := make([]Artifact, 0, len(byURL))
+	for _, a := range byURL {
+		out = append(out, *a)
+	}
+	slices.SortFunc(out, func(a, b Artifact) int {
+		if c := b.Updated.Compare(a.Updated); c != 0 {
+			return c
+		}
+		return strings.Compare(a.URL, b.URL)
+	})
+	return out
 }
 
 var (
@@ -154,6 +226,7 @@ type artifactCall struct {
 
 type transcriptLine struct {
 	Timestamp time.Time `json:"timestamp"`
+	Cwd       string    `json:"cwd"`
 	Message   struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -186,12 +259,7 @@ func parseArtifacts(r io.Reader) ([]Artifact, error) {
 			return nil, err
 		}
 	}
-	out := make([]Artifact, 0, len(byURL))
-	for _, a := range byURL {
-		out = append(out, *a)
-	}
-	slices.SortFunc(out, func(a, b Artifact) int { return b.Updated.Compare(a.Updated) })
-	return out, nil
+	return newestFirst(byURL), nil
 }
 
 func collectArtifacts(line []byte, calls map[string]artifactCall, byURL map[string]*Artifact) {
@@ -221,7 +289,7 @@ func collectArtifacts(line []byte, calls map[string]artifactCall, byURL map[stri
 			}
 			a := byURL[m[1]]
 			if a == nil {
-				a = &Artifact{URL: m[1], Created: l.Timestamp}
+				a = &Artifact{URL: m[1], Created: l.Timestamp, Dir: l.Cwd}
 				byURL[m[1]] = a
 			}
 			a.Versions++
