@@ -1023,6 +1023,17 @@ func (c *Custom) sandbox(v any, id string) Sandbox {
 	}
 }
 
+// NameFor is the name a sandbox made for label is given where the file
+// names it ({name}): the file's prefix, the label and a few random letters.
+func (c *Custom) NameFor(label string) string { return c.nameFor(label) }
+
+// NamedByLabel says whether the file sends the label itself as the
+// sandbox's name ({label}, never {name}), so a caller that wants conch's
+// naming has to make the name and pass it as the label.
+func (c *Custom) NamedByLabel() bool {
+	return bodyUses(c.f.Create.Body, "{label}") && !bodyUses(c.f.Create.Body, "{name}")
+}
+
 // nameFor is a name of conch's: the file's prefix, the label as far as a
 // name takes it, and a few random letters, as for Tensorlake.
 func (c *Custom) nameFor(label string) string {
