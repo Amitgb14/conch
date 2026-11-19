@@ -91,7 +91,9 @@ func access(ctx context.Context, p sandbox.Provider, id string) (*sshJSON, alias
 	if err != nil {
 		return nil, alias{}, fmt.Errorf("let your ssh key in: %w", err)
 	}
-	ac, err := p.SSHAccess(ctx, id)
+	// The token goes into an alias, used later and again: as long a life
+	// as the file allows.
+	ac, err := p.SSHAccess(sandbox.LongLived(ctx), id)
 	if err != nil {
 		return nil, alias{}, err
 	}

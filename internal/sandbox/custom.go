@@ -195,7 +195,7 @@ type SSHWay struct {
 	// MaxSecs (format 4) is the longest life Access's credential may be
 	// asked for, sent as {expires_secs} or {expires_mins} in its call or
 	// body: conch-sandbox writes a token into an ssh alias, which has to
-	// last.
+	// last, and asks for it (LongLived); conch asks for an hour at most.
 	MaxSecs int `toml:"max_secs"`
 }
 
@@ -1282,6 +1282,22 @@ func (c *Custom) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// shortLife is the longest a credential conch asks for itself may live:
+// it is used for a connection and asked for again at the next, so the
+// longest the file allows would only leave it working for longer after.
+const shortLife = 3600
+
+type longLived struct{}
+
+// LongLived asks SSHAccess, under the context it returns, for the longest
+// life [ssh] max_secs allows: conch-sandbox writes the token into an ssh
+// alias, which is used later and again. conch itself never asks.
+func LongLived(ctx context.Context) context.Context {
+	return context.WithValue(ctx, longLived{}, true)
+}
+
+func isLongLived(ctx context.Context) bool { b, _ := ctx.Value(longLived{}).(bool); return b }
+
 func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 	if id == "" {
 		return Access{}, ErrNotFound
@@ -1292,6 +1308,9 @@ func (c *Custom) SSHAccess(ctx context.Context, id string) (Access, error) {
 	}
 	v := vars{"{id}": id, "{name}": s.Name}
 	if n := c.f.SSH.MaxSecs; n > 0 {
+		if n > shortLife && !isLongLived(ctx) {
+			n = shortLife
+		}
 		v["{expires_secs}"], v["{expires_mins}"] = n, n/60
 	}
 	reply := any(nil)

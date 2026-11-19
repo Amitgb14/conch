@@ -542,12 +542,17 @@ func TestSSHAccessAsksForTheLongestLife(t *testing.T) {
 		fmt.Fprint(w, `{"id":"b1","state":"started","name":"conch-x"}`)
 	}))
 	t.Cleanup(srv.Close)
-	for _, tc := range []struct{ change, want string }{
-		{"", " "},
+	// conch's own connections (SSHAccess as it is) ask for an hour at most,
+	// as a token used for one connection should; only a caller that keeps
+	// the token (LongLived: conch-sandbox's aliases) asks for max_secs.
+	for _, tc := range []struct{ change, conch, long string }{
+		{"", " ", " "},
 		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 86400\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access?expiresInMinutes={expires_mins}\"",
-			"expiresInMinutes=1440 "},
+			"expiresInMinutes=60 ", "expiresInMinutes=1440 "},
 		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 3600\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"\nbody = { ttl = \"{expires_secs}\" }",
-			` {"ttl":3600}`},
+			` {"ttl":3600}`, ` {"ttl":3600}`},
+		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 600\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"\nbody = { ttl = \"{expires_secs}\" }",
+			` {"ttl":600}`, ` {"ttl":600}`},
 	} {
 		body := string(data)
 		if from, to, ok := strings.Cut(tc.change, "=>"); ok {
@@ -565,17 +570,22 @@ func TestSSHAccessAsksForTheLongestLife(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		mu.Lock()
-		asked = nil
-		mu.Unlock()
-		if _, err := p.SSHAccess(context.Background(), "b1"); err != nil {
-			t.Fatal(err)
+		for _, c := range []struct {
+			ctx  context.Context
+			want string
+		}{{context.Background(), tc.conch}, {LongLived(context.Background()), tc.long}} {
+			mu.Lock()
+			asked = nil
+			mu.Unlock()
+			if _, err := p.SSHAccess(c.ctx, "b1"); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			if len(asked) != 1 || asked[0] != c.want {
+				t.Errorf("%s: asked %q, want %q", tc.change, asked, c.want)
+			}
+			mu.Unlock()
 		}
-		mu.Lock()
-		if len(asked) != 1 || asked[0] != tc.want {
-			t.Errorf("%s: asked %q, want %q", tc.change, asked, tc.want)
-		}
-		mu.Unlock()
 	}
 }
 
