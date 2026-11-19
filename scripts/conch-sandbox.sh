@@ -87,15 +87,20 @@ main() {
 
 	dir=$HOME/.local/share/conch-sandbox/$want
 	bin=$dir/conch-sandbox
-	# The version's folder is this user's alone; what holds it (~/.local
-	# and the rest, perhaps made here) is made as the umask says.
-	mkdir -p "${dir%/*}" </dev/null
+	# conch-sandbox's own folders, ~/.local/share/conch-sandbox and the
+	# version's, are this user's alone: anybody who could write the first
+	# could swap the second between its check and the run. What holds them
+	# (~/.local, ~/.local/share, perhaps made here) is made as the umask
+	# says.
+	mkdir -p "${dir%/*/*}" </dev/null
 	(umask 077 && mkdir -p "$dir") </dev/null
-	if [ ! -O "$dir" ]; then
-		say "$dir is not yours: not run"
-		exit 1
-	fi
-	chmod 700 "$dir" </dev/null
+	for d in "${dir%/*}" "$dir"; do
+		if [ ! -O "$d" ]; then
+			say "$d is not yours: not run"
+			exit 1
+		fi
+	done
+	chmod 700 "${dir%/*}" "$dir" </dev/null
 	if [ ! -f "$bin" ] || [ "$(sha256 "$bin")" != "$pin" ]; then
 		name=conch-sandbox-$want-$os-$arch
 		url=${CONCH_SANDBOX_URL:-https://github.com/Amitgb14/conch/releases/download/v$want}/$name

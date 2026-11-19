@@ -486,20 +486,27 @@ func TestLauncherKeepsItPrivate(t *testing.T) {
 	if st, _ := os.Stat(cached(home, "1.2.3")); st.Mode().Perm() != 0o755 {
 		t.Fatalf("program %v", st.Mode())
 	}
-	// What holds it, made here too, is made as the umask says (0 here):
-	// only conch-sandbox's own folder is closed.
-	for _, p := range []string{filepath.Join(home, ".local"), filepath.Join(home, ".local", "share"), filepath.Dir(dir)} {
+	// conch-sandbox's own folder, which holds the version's, is closed too:
+	// whoever could write it could swap the version's folder.
+	if st, _ := os.Stat(filepath.Dir(dir)); st.Mode().Perm() != 0o700 {
+		t.Errorf("%s made %v", filepath.Dir(dir), st.Mode())
+	}
+	// What holds them, made here too, is made as the umask says (0 here).
+	for _, p := range []string{filepath.Join(home, ".local"), filepath.Join(home, ".local", "share")} {
 		if st, _ := os.Stat(p); st.Mode().Perm() != 0o777 {
 			t.Errorf("%s made %v, not as the umask says", p, st.Mode())
 		}
 	}
-	// One made open before is closed again.
+	// Both made open before are closed again.
 	os.Chmod(dir, 0o777)
+	os.Chmod(filepath.Dir(dir), 0o777)
 	if code, _, errs := run.do(t); code != 0 {
 		t.Fatalf("%q", errs)
 	}
-	if st, _ := os.Stat(dir); st.Mode().Perm() != 0o700 {
-		t.Fatalf("folder left %v", st.Mode())
+	for _, p := range []string{dir, filepath.Dir(dir)} {
+		if st, _ := os.Stat(p); st.Mode().Perm() != 0o700 {
+			t.Fatalf("%s left %v", p, st.Mode())
+		}
 	}
 }
 
