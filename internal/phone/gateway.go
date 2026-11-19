@@ -354,6 +354,7 @@ var routes = []route{
 	{"POST", "/api/commit", PermFull, (*Gateway).commit},
 	{"POST", "/api/push", PermFull, (*Gateway).push},
 	{"POST", "/api/pr", PermFull, (*Gateway).openPR},
+	{"GET", "/api/artifacts", PermView, (*Gateway).artifacts},
 }
 
 // SocketPath is where the WebSocket is opened.

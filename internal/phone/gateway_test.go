@@ -29,6 +29,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 	want := []string{
 		"DELETE /api/push/subscribe view",
 		"GET /api/agents view",
+		"GET /api/artifacts view",
 		"GET /api/changes view",
 		"GET /api/diff view",
 		"GET /api/hello view",
