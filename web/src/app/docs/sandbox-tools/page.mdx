@@ -1,0 +1,76 @@
+export const metadata = { title: "Sandboxes for other tools", description: "conch-sandbox: conch's sandboxes for herdr, the herdr app and Orca, over plain ssh." }
+
+# Sandboxes for other tools
+
+`conch-sandbox` is a second, small program that makes, starts, stops and deletes conch's [sandboxes](/docs/sandboxes) for tools that are not conch — herdr, the herdr app and Orca — which reach a machine over plain ssh. It uses the same provider files, API keys and ssh key as conch, prints JSON for the tools, and **never installs anything inside a sandbox**: no conch server runs there, only sshd and whatever the tool brings.
+
+It contains nothing of conch's server, interface or agents, so it is a 7 MB download.
+
+## Getting it
+
+The plugins for herdr, the herdr app and Orca run it through a launcher, `conch-sandbox.sh`, that pins a version and a sha256 for each build. The launcher uses, in order:
+
+1. `conch-sandbox` on your `PATH`, if it is that version or newer;
+2. the copy kept in `~/.local/share/conch-sandbox/VERSION/`;
+3. that version's build for your OS and CPU, downloaded from conch's release and run **only** if its sha256 is the pinned one.
+
+Builds exist for macOS and Linux on arm64 and amd64.
+
+Without conch there are no provider files yet: a provider a command names is fetched from the [provider registry](/docs/sandboxes#the-provider-registry) the first time (or with `conch-sandbox provider install NAME`), and `providers` lists those the registry has as `installed: false`. Only a registry index signed with the key built into conch-sandbox is used, and the file must be the one the index lists. `sh conch-sandbox.sh --fetch` downloads and checks it without running anything. To build it yourself: `make conch-sandbox` puts it in `bin/`.
+
+## Commands
+
+```
+conch-sandbox providers [--json]
+conch-sandbox key set PROVIDER            the API key, read from stdin
+conch-sandbox provider install NAME       a provider's file, from the registry
+conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]]
+                     [--region R] [--size S] [--image I] [--tool T] [--yes]
+                     [--json | --format orca] [--from-orca]
+conch-sandbox get    SANDBOX [--json]
+conch-sandbox start  SANDBOX [--json | --format orca]
+conch-sandbox stop   SANDBOX [--json]
+conch-sandbox rm     SANDBOX [--json]
+conch-sandbox ssh-alias SANDBOX [--remove] [--yes] [--json]
+conch-sandbox orphans --tool herdr|herdr-app [--json] [--notify]
+conch-sandbox pick   --tool herdr
+```
+
+`SANDBOX` is one of `--provider P ID`, `--machine ALIAS` (one of its ssh aliases), `--from-orca` (Orca's `ORCA_VM_INSTANCE_ID`; `--provider` is needed only when that is a bare id rather than create's userData, which names it) or `--from-herdr` (the machine of the herdr workspace a plugin action runs in).
+
+With `--json` a command prints one object on stdout (`"schema": 1`) and its progress on stderr. Exit status is 0, 1 for a failure, 2 for a command it could not read.
+
+- **`key set`** reads the key from stdin (never the command line) and changes the one `api_key` line under `[sandbox.PROVIDER]` in `config.toml` where it can, and otherwise (an inline table, dotted keys) rewrites the file. A conch already running keeps its own copy of the settings: restart it.
+- **`--repo URL`** clones the repository into the sandbox's home over ssh, with git inside the sandbox. With `--ref` the branch need not be pushed, only the commit; a branch alone must be. A private repository is read with `GH_TOKEN` in the sandbox, there only when `[sandbox.PROVIDER] env` passes it in. A clone that fails deletes the sandbox.
+- **`--tool`** says who the sandbox is for: `herdr`, `herdr-app`, `orca` or `cli` (the default; Orca's flags say `orca` themselves). A tool's sandbox gets its home as `project_root` when nothing is cloned, and `orphans --tool X` counts only X's — a sandbox Orca is using is never offered to herdr for deletion.
+- **`orphans`** lists the sandboxes made for a tool that are still there, running or keeping a disk, and that the tool no longer has a machine for. `--notify` says so in a herdr notification (for the herdr app, on stderr).
+- **`pick`** is herdr's *New sandbox*: a few questions on the terminal — forgotten sandboxes first, then provider, name, region, size and what to check out (the current folder's repository and branch by default) — then the sandbox, a herdr machine and a workspace in the checkout.
+
+## ssh aliases
+
+`create` writes an ssh alias, `conch-PROVIDER-ID`, to `$CONCH_HOME/ssh/sandboxes` (not the `ssh/config` beside it, which conch rewrites at every start). ssh and the tools read it once `~/.ssh/config` includes it, so conch-sandbox asks, once, before adding this line to the top of `~/.ssh/config`:
+
+```
+Include /Users/you/.config/conch/ssh/sandboxes
+```
+
+`--yes` adds it without asking; with no terminal and no `--yes` it refuses and says what to run. The line must apply to every host — before any `Host` or `Match`, or under `Host *`. Host keys for the aliases are kept in `ssh/sandboxes_known_hosts`, apart from yours, and forgotten when the sandbox is deleted.
+
+A provider's sandboxes are reached one of two ways, which `providers` shows as `ssh`:
+
+| Kind | How | In the alias |
+| --- | --- | --- |
+| `key` | Your ssh key (or conch's own) is registered with the account or handed to the sandbox | `IdentityFile` and the sandbox's own address |
+| `token` | The provider hands out a token as the ssh user, through its gateway | The token, asked for with the longest life the provider file allows (`[ssh] max_secs`); `start` writes a fresh one |
+
+A token is struck from `--json` output; it is printed only by `--format orca`, since Orca has no other way to it.
+
+## For each tool
+
+| Tool | Calls |
+| --- | --- |
+| herdr | `pick --tool herdr`; `stop`/`start`/`rm --from-herdr`; `orphans --tool herdr --notify` on `workspace.closed` |
+| herdr app | `create --provider P --name N --tool herdr-app --json --yes [--repo URL --branch B --ref SHA] [--size S]`, then `stop`/`start`/`rm --machine ALIAS` |
+| Orca | `create`/`start --provider P --from-orca --format orca`; `stop`/`rm --provider P --from-orca` |
+
+`--from-orca` reads `ORCA_WORKSPACE_NAME` and `ORCA_REPO_URL`/`_BRANCH`/`_REF` (a `git@…` address is cloned over https), and `ORCA_VM_INSTANCE_ID` for the sandbox after that. `--from-herdr` reads only the machine fields of `HERDR_PLUGIN_CONTEXT_JSON` and matches herdr's machine ids, never labels. `hc` is `$HC_BIN_PATH`, else the one on `PATH`; herdr is `$HERDR_BIN_PATH`, else the one on `PATH`.

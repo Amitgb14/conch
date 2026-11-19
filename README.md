@@ -162,6 +162,16 @@ Then ask an agent in a conch pane: *"take issue 123 to a merged pull
 request"*, *"set up an automated workflow for this project"*. They act
 only inside conch. See [Agents working together](https://amitgb14.github.io/conch/docs/agents-together).
 
+## Sandboxes for herdr, the herdr app and Orca
+
+`conch-sandbox` is a small second program that makes, starts, stops and
+deletes conch's cloud sandboxes for tools that reach a machine over plain
+ssh, with the same provider files and keys as conch. It writes an ssh
+alias for each (`conch-PROVIDER-ID`), prints JSON for the tools, and
+installs nothing inside the sandbox. The plugins for those tools fetch it
+through a launcher that checks a pinned sha256. See
+[Sandboxes for other tools](https://amitgb14.github.io/conch/docs/sandbox-tools).
+
 ## Development
 
 ```sh

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -177,15 +178,78 @@ func registryGet(ctx context.Context, path string, limit int64) ([]byte, error) 
 // the index from before the move; format 2's sandbox entries keep its
 // fields.
 func FetchIndex(ctx context.Context) (*Index, error) {
+	ix, _, err := fetchIndex(ctx)
+	return ix, err
+}
+
+// ErrUnsigned is an index read with no signature checked: the registry
+// gave none, or conch knows no key for it.
+var ErrUnsigned = errors.New("the provider registry's index is not signed with a key this program knows")
+
+// ErrIndexTooNew is an index in a format newer than this build reads.
+var ErrIndexTooNew = errors.New("the provider registry's index is newer than this build reads")
+
+// FetchSignedIndex is FetchIndex for a caller that installs without a
+// person reading what is installed (conch-sandbox, run by another tool):
+// an index whose signature was not checked against a known key is
+// refused, never read.
+//
+// The key must be the one compiled in (integration.RegistryKey): a key
+// from $CONCH_PROVIDERS_KEY would make an index signed by anybody's key
+// count as conch's, and conch-sandbox installs with nobody asked — conch
+// honours that variable because it shows the hosts and asks. With no key
+// compiled in, the answer is known before any request: ErrUnsigned.
+func FetchSignedIndex(ctx context.Context) (*Index, error) {
+	reg := ownRegistry()
+	want := integration.RegistryKey
+	if envKeyCounts {
+		want = reg.Key // a test's own registry and key
+	}
+	if want == "" || reg.Key != want {
+		return nil, ErrUnsigned
+	}
+	ix, signed, err := fetchIndexFrom(ctx, reg)
+	if err != nil {
+		return nil, err
+	}
+	if !signed {
+		return nil, ErrUnsigned
+	}
+	return ix, nil
+}
+
+// envKeyCounts lets $CONCH_PROVIDERS_KEY stand for the compiled-in key in
+// FetchSignedIndex: only in a test binary, which signs registries of its
+// own, and a test can turn it off (OnlyCompiledKey).
+var envKeyCounts = testing.Testing()
+
+// OnlyCompiledKey makes FetchSignedIndex trust the compiled-in key alone
+// for the rest of a test, as it does outside one.
+func OnlyCompiledKey(t interface{ Cleanup(func()) }) {
+	old := envKeyCounts
+	envKeyCounts = false
+	t.Cleanup(func() { envKeyCounts = old })
+}
+
+// ownRegistry is conch's own registry, where FetchIndex reads it.
+func ownRegistry() integration.Registry {
 	reg := integration.Registries(config.IntegrationsCfg{})[0]
 	reg.URL = RegistryURL()
-	data, _, err := integration.FetchIndexData(ctx, reg)
+	return reg
+}
+
+func fetchIndex(ctx context.Context) (*Index, bool, error) {
+	return fetchIndexFrom(ctx, ownRegistry())
+}
+
+func fetchIndexFrom(ctx context.Context, reg integration.Registry) (*Index, bool, error) {
+	data, signed, err := integration.FetchIndexData(ctx, reg)
 	if err != nil {
-		return nil, fmt.Errorf("the provider registry: %w", err)
+		return nil, false, fmt.Errorf("the provider registry: %w", err)
 	}
 	var ix Index
 	if err := json.Unmarshal(data, &ix); err != nil {
-		return nil, fmt.Errorf("the provider registry's index: %w", err)
+		return nil, false, fmt.Errorf("the provider registry's index: %w", err)
 	}
 	switch ix.Format {
 	case 1:
@@ -199,7 +263,7 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 			Disabled []entry `json:"disabled"`
 		}
 		if err := json.Unmarshal(data, &v2); err != nil {
-			return nil, fmt.Errorf("the provider registry's index: %w", err)
+			return nil, false, fmt.Errorf("the provider registry's index: %w", err)
 		}
 		ix.Providers = nil
 		for _, e := range v2.Entries {
@@ -213,7 +277,7 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 			}
 		}
 	default:
-		return nil, fmt.Errorf("the provider registry's index is format %d; this conch reads up to %d: update conch", ix.Format, indexFormat)
+		return nil, false, fmt.Errorf("%w (format %d; this conch reads up to %d): update conch", ErrIndexTooNew, ix.Format, indexFormat)
 	}
 	// An entry whose name could not be a provider's is left out: its name
 	// would be made a path here, and no conch could install it anyway.
@@ -222,7 +286,7 @@ func FetchIndex(ctx context.Context) (*Index, error) {
 	ix.Disabled = slices.DeleteFunc(ix.Disabled, bad)
 	sort.Slice(ix.Providers, func(i, j int) bool { return ix.Providers[i].Name < ix.Providers[j].Name })
 	sort.Slice(ix.Disabled, func(i, j int) bool { return ix.Disabled[i].Name < ix.Disabled[j].Name })
-	return &ix, nil
+	return &ix, signed, nil
 }
 
 // FetchProviderFile downloads e's file and checks it is the one the index

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -274,6 +275,10 @@ func TestProviderFileFormat4Problems(t *testing.T) {
 		{"[snapshot.save]=>[size]\nnames = [\"s\"]\ncpu = [1, 4]\n\n[snapshot.save]", "names, or cpu"},
 		{"url = \"url\"\nmax_secs=>max_secs", "[preview] url"},
 		{"name = \"{snapshot_name}\", includeMemory=>includeMemory", "never sends {snapshot_name}"},
+		{"/ssh-access\"=>/ssh-access?expiresInMinutes={expires_mins}\"", "has no max_secs to fill it with"},
+		{"key = \"none\"=>key = \"none\"\nmax_secs = 600", "never sends {expires_secs} or {expires_mins}"},
+		{"key = \"none\"=>key = \"none\"\nmax_secs = -1", "max_secs -1: a number of seconds"},
+		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 30\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access?m={expires_mins}\"", "under a minute"},
 	}
 	for _, tc := range cases {
 		from, to, _ := strings.Cut(tc.change, "=>")
@@ -513,5 +518,79 @@ memory_gib = "x"`, "memory_mb or memory_gib"},
 		if _, problems, err := ReadProviderFile(p); err != nil || !strings.Contains(strings.Join(problems, "\n"), c.want) {
 			t.Errorf("%s: want %q, got %v %v", c.change, c.want, problems, err)
 		}
+	}
+}
+
+// [ssh] max_secs asks [ssh.access] for a credential that lasts, in seconds
+// or minutes, as the API counts; a file without it asks as before.
+func TestSSHAccessAsksForTheLongestLife(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "registry", "daytona.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var asked []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		b, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/ssh-access") {
+			asked = append(asked, r.URL.RawQuery+" "+string(b))
+			fmt.Fprint(w, `{"token":"t","expiresAt":"2026-11-20T12:00:00Z"}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":"b1","state":"started","name":"conch-x"}`)
+	}))
+	t.Cleanup(srv.Close)
+	// conch's own connections (SSHAccess as it is) ask for an hour at most,
+	// as a token used for one connection should; only a caller that keeps
+	// the token (LongLived: conch-sandbox's aliases) asks for max_secs.
+	for _, tc := range []struct{ change, conch, long string }{
+		{"", " ", " "},
+		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 86400\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access?expiresInMinutes={expires_mins}\"",
+			"expiresInMinutes=60 ", "expiresInMinutes=1440 "},
+		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 3600\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"\nbody = { ttl = \"{expires_secs}\" }",
+			` {"ttl":3600}`, ` {"ttl":3600}`},
+		{"[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"=>max_secs = 600\n[ssh.access]\ncall = \"POST /sandbox/{id}/ssh-access\"\nbody = { ttl = \"{expires_secs}\" }",
+			` {"ttl":600}`, ` {"ttl":600}`},
+	} {
+		body := string(data)
+		if from, to, ok := strings.Cut(tc.change, "=>"); ok {
+			if !strings.Contains(body, from) {
+				t.Fatalf("the file has no %q", from)
+			}
+			body = strings.Replace(body, from, to, 1)
+		}
+		body = regexp.MustCompile(`(?m)^api = ".*"$`).ReplaceAllString(body, fmt.Sprintf("api = %q", srv.URL))
+		customHome(t, "daytona", body)
+		if _, problems, err := ReadProviderFile(ProviderFilePath("daytona")); err != nil || len(problems) > 0 {
+			t.Fatalf("%s: %v %v", tc.change, err, problems)
+		}
+		p, err := openCustom("daytona", config.SandboxCfg{"daytona": {APIKey: "k"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct {
+			ctx  context.Context
+			want string
+		}{{context.Background(), tc.conch}, {LongLived(context.Background()), tc.long}} {
+			mu.Lock()
+			asked = nil
+			mu.Unlock()
+			if _, err := p.SSHAccess(c.ctx, "b1"); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			if len(asked) != 1 || asked[0] != c.want {
+				t.Errorf("%s: asked %q, want %q", tc.change, asked, c.want)
+			}
+			mu.Unlock()
+		}
+	}
+}
+
+func TestMaxSecsNeedsFormat4(t *testing.T) {
+	if got := (&ProviderFile{SSH: SSHWay{MaxSecs: 60}}).needs4(); got != "[ssh] max_secs" {
+		t.Fatalf("%q", got)
 	}
 }
