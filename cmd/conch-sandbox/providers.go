@@ -27,6 +27,14 @@ func openProvider(name string) (sandbox.Provider, config.Config, error) {
 		return nil, config.Config{}, errors.New(why)
 	}
 	if !sandbox.Known(name) {
+		// A file that is there but wrong — no [ssh], say — is not unknown:
+		// what is wrong with it is the answer.
+		if sandbox.CheckName(name) == nil {
+			path := sandbox.ProviderFilePath(name)
+			if _, problems, err := sandbox.ReadProviderFile(path); err == nil && len(problems) > 0 {
+				return nil, config.Config{}, fmt.Errorf("%s cannot be used: %s", path, strings.Join(problems, "; "))
+			}
+		}
 		return nil, config.Config{}, fmt.Errorf("unknown sandbox provider %q; %s", name, installedWords())
 	}
 	cfg, err := config.Load()

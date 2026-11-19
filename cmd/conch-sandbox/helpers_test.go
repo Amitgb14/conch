@@ -189,6 +189,7 @@ const (
 	tokenKind providerKind = iota // a token from [ssh.access], like Daytona
 	keyKind                       // a key handed over, like Hetzner
 	labelKind                     // a token, and the name sent as {label}, as Daytona's file does
+	noSSHKind                     // no [ssh] at all, which no conch will open
 )
 
 // fakeProvider installs a provider file NAME.toml for a fake API, and its key.
@@ -288,7 +289,7 @@ free = true
 	if err := os.WriteFile(sandbox.ProviderFilePath(name), []byte(file), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, problems, err := sandbox.ReadProviderFile(sandbox.ProviderFilePath(name)); err != nil || len(problems) > 0 {
+	if _, problems, err := sandbox.ReadProviderFile(sandbox.ProviderFilePath(name)); err != nil || (len(problems) > 0) != (kind == noSSHKind) {
 		t.Fatalf("the fake's file: %v %v", err, problems)
 	}
 	return f

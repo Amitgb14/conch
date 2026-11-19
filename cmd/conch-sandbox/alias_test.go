@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,7 +245,11 @@ func TestAliasRefusesWhatWouldInjectConfig(t *testing.T) {
 	if _, err := os.Stat(aliasFile()); err == nil && strings.Contains(readFile(t, aliasFile()), "evil") {
 		t.Fatal("written")
 	}
-	for v, ok := range map[string]bool{"plain": true, "with space": true, "": false, `a"b`: false, "a\rb": false, "a\x00": false} {
+	// ssh expands % tokens and ${VAR} in some values, and which ones
+	// depends on its version (User since 10.0): an escape one version
+	// undoes another would send as it is, so they are refused too.
+	for v, ok := range map[string]bool{"plain": true, "with space": true, "": false, `a"b`: false, "a\rb": false, "a\x00": false,
+		"a%hb": false, "a%%b": false, "a${HOME}b": false, "a$b": true, "a{b}": true} {
 		got, err := configValue("x", v)
 		if (err == nil) != ok {
 			t.Errorf("%q: %v", v, err)
@@ -265,6 +272,10 @@ func TestAliasRefusesWhatWouldInjectConfig(t *testing.T) {
 
 func TestHostsName(t *testing.T) {
 	for line, want := range map[string]bool{
+		// ssh-keygen -H's hash of "conch-a-b", and of another name.
+		"|1|ZmFrZXNhbHRmYWtlc2FsdGZhaw==|" + hashedHost("ZmFrZXNhbHRmYWtlc2FsdGZhaw==", "conch-a-b") + " ssh-ed25519 K":  true,
+		"|1|ZmFrZXNhbHRmYWtlc2FsdGZhaw==|" + hashedHost("ZmFrZXNhbHRmYWtlc2FsdGZhaw==", "conch-a-bc") + " ssh-ed25519 K": false,
+		"|1|not-base64|x ssh-ed25519 K":   false,
 		"conch-a-b ssh-ed25519 K":         true,
 		"[conch-a-b]:2222 ssh-ed25519 K":  true,
 		"x,conch-a-b ssh-ed25519 K":       true,
@@ -277,5 +288,72 @@ func TestHostsName(t *testing.T) {
 		if hostsName(line, "conch-a-b") != want {
 			t.Errorf("%q: %v", line, !want)
 		}
+	}
+}
+
+// hashedHost is known_hosts' hash of host with salt (base64), as
+// HashKnownHosts writes it — worked out here independently of hostsName.
+func hashedHost(salt, host string) string {
+	key, _ := base64.StdEncoding.DecodeString(salt)
+	m := hmac.New(sha1.New, key)
+	m.Write([]byte(host))
+	return base64.StdEncoding.EncodeToString(m.Sum(nil))
+}
+
+// Every block says HashKnownHosts no — Debian's and Ubuntu's own
+// ssh_config hash them — and a line already hashed is still forgotten
+// with its alias, so the next sandbox given the name is not refused.
+func TestHashedHostKeysAreForgotten(t *testing.T) {
+	isolate(t)
+	b, err := alias{Provider: "p", ID: "i", Host: "h", User: "u"}.block()
+	if err != nil || !strings.Contains(b, "  HashKnownHosts no\n") {
+		t.Fatalf("%v\n%s", err, b)
+	}
+	salt := "c2FsdHNhbHRzYWx0c2FsdHNhbHQ="
+	mine := "|1|" + salt + "|" + hashedHost(salt, "conch-p-i") + " ssh-ed25519 AAAA\n"
+	other := "|1|" + salt + "|" + hashedHost(salt, "conch-p-j") + " ssh-ed25519 BBBB\n"
+	os.MkdirAll(filepath.Dir(knownHostsFile()), 0o700)
+	os.WriteFile(knownHostsFile(), []byte(mine+other), 0o600)
+	if _, err := removeAlias("conch-p-i"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, knownHostsFile()); got != other {
+		t.Fatalf("%q", got)
+	}
+}
+
+// setAlias never writes over a block another sandbox's meta line claims:
+// conch-a-b-c is provider a's b-c and provider a-b's c alike.
+func TestSetAliasKeepsAnotherSandboxsBlock(t *testing.T) {
+	isolate(t)
+	if err := setAlias(alias{Provider: "a-b", ID: "c", Host: "h1", User: "u"}); err != nil {
+		t.Fatal(err)
+	}
+	err := setAlias(alias{Provider: "a", ID: "b-c", Host: "h2", User: "u"})
+	if err == nil || !strings.Contains(err.Error(), "a-b's sandbox c") {
+		t.Fatalf("%v", err)
+	}
+	if own, err := aliasOwner("conch-a-b-c"); err != nil || own.Provider != "a-b" || !strings.Contains(readFile(t, aliasFile()), "HostName h1") {
+		t.Fatalf("%+v %v", own, err)
+	}
+	// Its own block is rewritten as ever.
+	if err := setAlias(alias{Provider: "a-b", ID: "c", Host: "h3", User: "u"}); err != nil || !strings.Contains(readFile(t, aliasFile()), "HostName h3") {
+		t.Fatal(err)
+	}
+}
+
+// A CONCH_HOME given as a relative path is made whole: ssh reads an
+// Include's relative path against ~/.ssh, not where conch-sandbox ran.
+func TestAliasFileIsAbsolute(t *testing.T) {
+	home := isolate(t)
+	t.Chdir(home)
+	t.Setenv("CONCH_HOME", "rel")
+	for _, p := range []string{aliasFile(), knownHostsFile()} {
+		if !filepath.IsAbs(p) || !strings.HasPrefix(p, home) {
+			t.Errorf("%s", p)
+		}
+	}
+	if line := includeLine(); line != "Include "+filepath.Join(home, "rel", "ssh", "sandboxes") {
+		t.Errorf("%s", line)
 	}
 }

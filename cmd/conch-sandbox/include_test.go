@@ -113,8 +113,37 @@ func TestIncludeAlreadyThere(t *testing.T) {
 		"  Include " + filepath.Join(filepath.Dir(tilde), "*"),
 		"Include " + rel,
 	} {
-		if !includes("Host x\n"+line+"\n", home) {
+		if !includes("Host *\n"+line+"\n", home) {
 			t.Errorf("%q not seen", line)
+		}
+	}
+	// ssh reads an Include where it stands: one under a Host or Match
+	// that is not every host is read for those hosts alone, and so for
+	// none of the aliases.
+	line := "  Include " + aliasFile() + "\n"
+	for _, text := range []string{
+		line,
+		"# mine\nUser me\n" + line + "Host x\n",
+		"Host x\n  User y\nHost *\n" + line,
+		"Host x\nMatch all\n" + line,
+		"Match All\n" + line,
+		"Host=*\n" + line,
+		"Host \"*\"\n" + line,
+	} {
+		if !includes(text, home) {
+			t.Errorf("%q not seen", text)
+		}
+	}
+	for _, text := range []string{
+		"Host work-*\n" + line,
+		"Host * !bastion\n" + line,
+		"Host x *\n" + line,
+		"Match host x\n" + line,
+		"Match all exec true\n" + line,
+		"Host *\nMatch user me\n" + line,
+	} {
+		if includes(text, home) {
+			t.Errorf("%q seen", text)
 		}
 	}
 	for _, line := range []string{"# Include " + aliasFile(), "Include " + aliasFile() + ".old", "IncludeX " + aliasFile(), "Include", ""} {
@@ -189,5 +218,20 @@ func TestSplitArgs(t *testing.T) {
 		if got := strings.Join(splitArgs(in), "|"); got != want {
 			t.Errorf("%q: %q", in, got)
 		}
+	}
+}
+
+// ssh expands % and ${} in an Include's path, so a CONCH_HOME with them
+// would be included as some other file: refused, ~/.ssh/config untouched.
+func TestIncludeRefusesAPathSSHWouldExpand(t *testing.T) {
+	home := bare(t)
+	t.Setenv("CONCH_HOME", filepath.Join(home, "50%off"))
+	fakeProvider(t, "fakebox", tokenKind)
+	code, _, errs := run(t, "", "create", "--provider", "fakebox", "--yes")
+	if code != 1 || !strings.Contains(errs, "CONCH_HOME") {
+		t.Fatalf("%d %q", code, errs)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".ssh", "config")); !os.IsNotExist(err) {
+		t.Fatalf("~/.ssh/config: %v", err)
 	}
 }

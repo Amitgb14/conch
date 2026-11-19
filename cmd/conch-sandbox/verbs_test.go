@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -266,5 +268,50 @@ func TestGetStartStopRm(t *testing.T) {
 	// A provider whose file cannot stop is refused before the API.
 	if err := can("nope-not-installed", "stop"); err != nil {
 		t.Fatalf("a provider that says nothing is left to its file: %v", err)
+	}
+}
+
+// A provider whose file has no way in over ssh is never opened (conch
+// reaches every sandbox over ssh): create and start are refused before the
+// provider is asked anything, and ~/.ssh/config is left alone.
+func TestNoSSHWayInIsRefusedFirst(t *testing.T) {
+	home := bare(t)
+	api := fakeProvider(t, "fakebox", noSSHKind)
+	for _, args := range [][]string{
+		{"create", "--provider", "fakebox", "--yes"},
+		{"start", "--provider", "fakebox", "box1"},
+	} {
+		code, out, errs := run(t, "", args...)
+		if code != 1 || out != "" || !strings.Contains(errs, "[ssh] host and user") {
+			t.Errorf("%v: %d %q %q", args, code, out, errs)
+		}
+	}
+	if c := api.called(); c != "" {
+		t.Fatalf("the provider was asked:\n%s", c)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".ssh", "config")); !os.IsNotExist(err) {
+		t.Fatalf("~/.ssh/config: %v", err)
+	}
+}
+
+// The token in an alias is used later and again, so conch-sandbox asks for
+// the longest life the file allows — which conch itself never does.
+func TestAliasTokenAsksForTheLongestLife(t *testing.T) {
+	isolate(t)
+	api := fakeProvider(t, "fakebox", tokenKind)
+	path := sandbox.ProviderFilePath("fakebox")
+	b, _ := os.ReadFile(path)
+	from := "[ssh.access]\ncall = \"POST /boxes/{id}/ssh\"\n"
+	if !strings.Contains(string(b), from) {
+		t.Fatal("the fake's file changed")
+	}
+	os.WriteFile(path, []byte(strings.Replace(string(b), from, "max_secs = 86400\n"+from+"body = { ttl = \"{expires_secs}\" }\n", 1)), 0o600)
+	if code, _, errs := run(t, "", "create", "--provider", "fakebox"); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if got := api.bodies["POST /boxes/box1/ssh"]; got != `{"ttl":86400}` {
+		t.Fatalf("asked %s", got)
 	}
 }

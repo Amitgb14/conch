@@ -37,22 +37,40 @@ func includeLine() string {
 	return "Include " + p
 }
 
-// includes says whether ssh config text includes the alias file: by its
-// path, with ~, relative to ~/.ssh as ssh reads it, or by a pattern that
-// matches it.
+// includes says whether ssh config text includes the alias file for every
+// host: by its path, with ~, relative to ~/.ssh as ssh reads it, or by a
+// pattern that matches it — before the first Host or Match, or under
+// Host * or Match all. ssh reads an Include where it stands, so one under
+// Host work-* is read for those hosts alone, and no alias is among them.
 func includes(text, home string) bool {
 	want := filepath.Clean(aliasFile())
+	everyHost := true
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		i := strings.IndexAny(line, " \t=")
-		if i < 0 || !strings.EqualFold(line[:i], "include") {
+		if i < 0 {
 			continue
 		}
 		rest := strings.TrimLeft(line[i:], " \t")
 		rest = strings.TrimLeft(strings.TrimPrefix(rest, "="), " \t")
-		for _, arg := range splitArgs(rest) {
+		args := splitArgs(rest)
+		switch strings.ToLower(line[:i]) {
+		case "host":
+			everyHost = len(args) == 1 && args[0] == "*"
+			continue
+		case "match":
+			everyHost = len(args) == 1 && strings.EqualFold(args[0], "all")
+			continue
+		case "include":
+		default:
+			continue
+		}
+		if !everyHost {
+			continue
+		}
+		for _, arg := range args {
 			switch {
 			case strings.HasPrefix(arg, "~/"):
 				arg = filepath.Join(home, arg[2:])
@@ -104,6 +122,10 @@ func includePresent() bool {
 // there already, or yes says to add it, or the person at the terminal
 // agrees. With nobody to ask it refuses, saying what to run.
 func (a *app) ensureInclude(yes bool) error {
+	// An Include's path is expanded as ssh reads it, % and ${} alike.
+	if err := sshLiteral("alias file", aliasFile()); err != nil {
+		return fmt.Errorf("%w: set CONCH_HOME to a folder without them", err)
+	}
 	again := a.again()
 	path, err := userSSHConfig()
 	if err != nil {
