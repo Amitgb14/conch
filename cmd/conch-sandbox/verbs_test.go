@@ -191,7 +191,7 @@ func TestCreateRefusesBeforeSpending(t *testing.T) {
 		want string
 	}{
 		{[]string{"create"}, 2, "give --provider NAME"},
-		{[]string{"create", "--provider", "nope"}, 1, `unknown sandbox provider "nope"; installed: fakebox`},
+		{[]string{"create", "--provider", "nope"}, 1, `unknown sandbox provider "nope", and its file could not be fetched`},
 		{[]string{"create", "--provider", "fakebox", "extra"}, 2, "create takes no arguments"},
 		{[]string{"create", "--provider", "fakebox", "--region", "mars"}, 1, "mars"},
 	} {

@@ -26,6 +26,9 @@ func openProvider(name string) (sandbox.Provider, config.Config, error) {
 	if why, gone := sandbox.Dropped(name); gone {
 		return nil, config.Config{}, errors.New(why)
 	}
+	if err := ensureInstalled(name); err != nil {
+		return nil, config.Config{}, err
+	}
 	if !sandbox.Known(name) {
 		// A file that is there but wrong — no [ssh], say — is not unknown:
 		// what is wrong with it is the answer.
@@ -74,7 +77,7 @@ func installedWords() string {
 	if names := sandbox.Names(); len(names) > 0 {
 		return "installed: " + strings.Join(names, ", ")
 	}
-	return "none is installed: conch sandbox provider install NAME installs one, or put its file in " + sandbox.ProvidersDir()
+	return "none is installed: conch-sandbox provider install NAME fetches one from the provider registry, or put its file in " + sandbox.ProvidersDir()
 }
 
 // sshKind is how a provider's sandboxes are reached: "key" (a key of the
@@ -111,8 +114,11 @@ type settingJSON struct {
 type providerJSON struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
-	Ready bool   `json:"ready"`
-	Why   string `json:"why,omitempty"`
+	// Installed is false for one the registry has and this computer does
+	// not yet: it is fetched when a command first names it.
+	Installed bool   `json:"installed"`
+	Ready     bool   `json:"ready"`
+	Why       string `json:"why,omitempty"`
 	// KeyEnv is the variable the key may be in; key set writes config.toml.
 	KeyEnv   string            `json:"key_env,omitempty"`
 	SSH      string            `json:"ssh"`
@@ -126,9 +132,11 @@ type providerJSON struct {
 type providersJSON struct {
 	Schema    int            `json:"schema"`
 	Providers []providerJSON `json:"providers"`
+	// RegistryProblem says why the registry's providers are not listed.
+	RegistryProblem string `json:"registry_problem,omitempty"`
 }
 
-func (a *app) providers(_ context.Context, args []string) error {
+func (a *app) providers(ctx context.Context, args []string) error {
 	c := a.command("providers", "conch-sandbox providers [--json]")
 	asJSON := c.Bool("json", false, "print JSON on stdout")
 	rest, err := c.parse(args)
@@ -140,7 +148,7 @@ func (a *app) providers(_ context.Context, args []string) error {
 	}
 	out := providersJSON{Schema: schema, Providers: []providerJSON{}}
 	for _, name := range sandbox.Offered() {
-		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name), Capabilities: sandbox.CapabilitiesOf(name)}
+		j := providerJSON{Name: name, Label: sandbox.ProviderLabel(name), Installed: true, Capabilities: sandbox.CapabilitiesOf(name)}
 		p, _, err := openProvider(name)
 		if err == nil {
 			if err = p.Check(); err != nil {
@@ -173,6 +181,16 @@ func (a *app) providers(_ context.Context, args []string) error {
 		}
 		out.Providers = append(out.Providers, j)
 	}
+	here := map[string]bool{}
+	for _, j := range out.Providers {
+		here[j.Name] = true
+	}
+	if more, err := registryProviders(ctx, here); err != nil {
+		out.RegistryProblem = err.Error()
+		fmt.Fprintf(a.stderr, "Only the providers installed here: %v\n", err)
+	} else {
+		out.Providers = append(out.Providers, more...)
+	}
 	if *asJSON {
 		return a.printJSON(out)
 	}
@@ -184,7 +202,10 @@ func (a *app) providers(_ context.Context, args []string) error {
 	fmt.Fprintln(tw, "PROVIDER\tNAME\tSSH\tREADY")
 	for _, j := range out.Providers {
 		state := "yes"
-		if !j.Ready {
+		switch {
+		case !j.Installed:
+			state = "not installed (fetched when first used)"
+		case !j.Ready:
 			state = "no: " + j.Why
 		}
 		way := j.SSH

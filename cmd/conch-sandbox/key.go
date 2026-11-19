@@ -34,6 +34,10 @@ func (a *app) key(args []string) error {
 	if why, gone := sandbox.Dropped(name); gone {
 		return fmt.Errorf("%s", why)
 	}
+	// One not installed is fetched first: the key is for its file.
+	if err := ensureInstalled(name); err != nil {
+		return err
+	}
 	if !sandbox.Known(name) {
 		return fmt.Errorf("unknown sandbox provider %q; %s", name, installedWords())
 	}

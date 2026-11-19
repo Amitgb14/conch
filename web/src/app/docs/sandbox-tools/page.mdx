@@ -14,13 +14,16 @@ The plugins for herdr, the herdr app and Orca run it through a launcher, `conch-
 2. the copy kept in `~/.local/share/conch-sandbox/VERSION/`;
 3. that version's build for your OS and CPU, downloaded from conch's release and run **only** if its sha256 is the pinned one.
 
-Builds exist for macOS and Linux on arm64 and amd64. `sh conch-sandbox.sh --fetch` downloads and checks it without running anything. To build it yourself: `make conch-sandbox` puts it in `bin/`.
+Builds exist for macOS and Linux on arm64 and amd64.
+
+Without conch there are no provider files yet: a provider a command names is fetched from the [provider registry](/docs/sandboxes#the-provider-registry) the first time (or with `conch-sandbox provider install NAME`), and `providers` lists those the registry has as `installed: false`. Only a registry index signed with a key conch-sandbox knows is used, and the file must be the one the index lists. `sh conch-sandbox.sh --fetch` downloads and checks it without running anything. To build it yourself: `make conch-sandbox` puts it in `bin/`.
 
 ## Commands
 
 ```
 conch-sandbox providers [--json]
 conch-sandbox key set PROVIDER            the API key, read from stdin
+conch-sandbox provider install NAME       a provider's file, from the registry
 conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]]
                      [--region R] [--size S] [--image I] [--tool T] [--yes]
                      [--json | --format orca] [--from-orca]

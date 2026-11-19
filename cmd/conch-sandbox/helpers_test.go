@@ -62,6 +62,10 @@ func bare(t *testing.T) string {
 	t.Setenv("CONCH_SSH", "/nonexistent/ssh")
 	t.Setenv("HERDR_BIN_PATH", "/nonexistent/herdr")
 	t.Setenv("HC_BIN_PATH", "/nonexistent/hc")
+	// The registry is conch's own, which a test binary puts at an address
+	// nothing answers: a test that wants one serves it (fakeRegistry).
+	t.Setenv("CONCH_PROVIDERS_URL", "")
+	t.Setenv("CONCH_PROVIDERS_KEY", "")
 	t.Setenv("PATH", "/usr/bin:/bin")
 	for _, k := range []string{"HERDR_PLUGIN_CONTEXT_JSON", "ORCA_WORKSPACE_NAME", "ORCA_REPO_URL", "ORCA_REPO_BRANCH",
 		"ORCA_REPO_REF", "ORCA_VM_INSTANCE_ID", "GH_TOKEN"} {
@@ -196,6 +200,23 @@ const (
 // fakeProvider installs a provider file NAME.toml for a fake API, and its key.
 func fakeProvider(t *testing.T, name string, kind providerKind) *fakeAPI {
 	t.Helper()
+	f, file := fakeProviderFile(t, name, kind)
+	if err := os.MkdirAll(sandbox.ProvidersDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sandbox.ProviderFilePath(name), []byte(file), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, problems, err := sandbox.ReadProviderFile(sandbox.ProviderFilePath(name)); err != nil || (len(problems) > 0) != (kind == noSSHKind) {
+		t.Fatalf("the fake's file: %v %v", err, problems)
+	}
+	return f
+}
+
+// fakeProviderFile is a fake API and the text of a provider file for it,
+// not installed.
+func fakeProviderFile(t *testing.T, name string, kind providerKind) (*fakeAPI, string) {
+	t.Helper()
 	f := &fakeAPI{boxes: map[string]map[string]any{}, bodies: map[string]string{}, failOn: map[string]int{}}
 	srv := httptest.NewServer(f)
 	t.Cleanup(srv.Close)
@@ -284,16 +305,7 @@ items = "items"
 value = "name"
 free = true
 %s`, name, srv.URL, nameField, allMine, ssh)
-	if err := os.MkdirAll(sandbox.ProvidersDir(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(sandbox.ProviderFilePath(name), []byte(file), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, problems, err := sandbox.ReadProviderFile(sandbox.ProviderFilePath(name)); err != nil || (len(problems) > 0) != (kind == noSSHKind) {
-		t.Fatalf("the fake's file: %v %v", err, problems)
-	}
-	return f
+	return f, file
 }
 
 // run runs conch-sandbox with stdin, returning its status, stdout and stderr.

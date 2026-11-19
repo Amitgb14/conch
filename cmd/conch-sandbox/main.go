@@ -36,6 +36,7 @@ installs anything inside a sandbox.
 Usage:
   conch-sandbox providers [--json]
   conch-sandbox key set PROVIDER            the API key, read from stdin
+  conch-sandbox provider install NAME       a provider's file, from the registry
   conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]]
                        [--region R] [--size S] [--image I] [--tool T] [--yes]
                        [--json | --format orca] [--from-orca]
@@ -56,7 +57,9 @@ ssh aliases; --from-orca (ORCA_VM_INSTANCE_ID, with --provider); or
 With --json a command prints one JSON object on stdout ("schema": 1) and
 its progress on stderr. Keys, provider files and the ssh key are conch's:
 ` + "`$CONCH_HOME`" + `, else ~/.config/conch. A provider file is installed with
-conch sandbox provider install NAME, or by hand in its providers folder.
+conch-sandbox provider install NAME (or when a command first names it),
+from the provider registry's signed index; or by hand in the providers
+folder. providers lists those the registry has as well, installed false.
 
 create writes an ssh alias, conch-PROVIDER-ID, to $CONCH_HOME/ssh/sandboxes,
 which ssh and the tools read once ~/.ssh/config includes it: conch-sandbox
@@ -142,6 +145,9 @@ func (a *app) run(ctx context.Context, args []string) int {
 	}
 	verb, rest := args[0], args[1:]
 	a.line = args
+	// A provider named and not installed is fetched from the registry.
+	installer = func(name string) error { return a.install(ctx, name) }
+	defer func() { installer = nil }()
 	var err error
 	switch verb {
 	case "help", "-h", "-help", "--help":
@@ -154,6 +160,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.providers(ctx, rest)
 	case "key":
 		err = a.key(rest)
+	case "provider":
+		err = a.provider(ctx, rest)
 	case "create":
 		err = a.create(ctx, rest)
 	case "get":

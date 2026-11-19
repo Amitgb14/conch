@@ -292,7 +292,7 @@ func (a *app) pick(ctx context.Context, args []string) error {
 		usable = append(usable, choice{name, cp})
 	}
 	if len(usable) == 0 {
-		why := "none is installed: conch sandbox provider install NAME"
+		why := "none is installed: conch-sandbox provider install NAME"
 		if len(unready) > 0 {
 			why = "none has a key: conch-sandbox key set " + unready[0]
 		}
