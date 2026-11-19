@@ -729,7 +729,7 @@ func (g *Gateway) hello(rq *request) (any, *APIError) {
 	// socket says again when it answers.
 	return Hello{APIVersion: APIVersion, ConchVersion: proto.Version, DeviceID: rq.dev.ID,
 		Permission: rq.dev.Permission, CSRFToken: csrfToken(rq.token),
-		Machines: machineList(g.machinesFor(rq.dev), nil)}, nil
+		Machines: machineList(g.machinesFor(rq.dev), nil), Features: features()}, nil
 }
 
 func (g *Gateway) listAgents(rq *request) (any, *APIError) {

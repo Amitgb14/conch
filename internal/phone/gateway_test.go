@@ -1055,3 +1055,40 @@ func TestCloseWaitsForSocketsToRecordClosing(t *testing.T) {
 		t.Fatalf("Close returned before the socket recorded closing: %+v", e)
 	}
 }
+
+// TestHelloNamesItsFeatures: routes added after APIVersion 2 are named in
+// hello, so a client can tell what this gateway answers before calling
+// (an older one answers 404 "no such route"), and each name stands for
+// routes that really are here.
+func TestHelloNamesItsFeatures(t *testing.T) {
+	f := newFixture(t)
+	p := f.pair(PermView)
+	var h Hello
+	if status := p.get("/api/hello", &h); status != 200 {
+		t.Fatal(status)
+	}
+	want := []string{"artifacts", "artifacts.all", "attach", "git.review", "project", "resources"}
+	if strings.Join(h.Features, " ") != strings.Join(want, " ") {
+		t.Fatalf("features %v, want %v", h.Features, want)
+	}
+	have := map[string]bool{}
+	for _, rt := range routes {
+		have[rt.method+" "+rt.path] = true
+	}
+	for _, name := range h.Features {
+		rs := featureRoutes[name]
+		if len(rs) == 0 {
+			t.Errorf("feature %q names no routes", name)
+		}
+		for _, r := range rs {
+			if !have[r] {
+				t.Errorf("feature %q: no route %s", name, r)
+			}
+		}
+	}
+	// The field is new; a client that predates it is not sent null.
+	_, raw := p.do("GET", "/api/hello", nil)
+	if !strings.Contains(string(raw), `"features":["artifacts",`) {
+		t.Errorf("hello %s", raw)
+	}
+}

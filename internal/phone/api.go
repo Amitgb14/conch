@@ -6,12 +6,50 @@
 // to one; change that file first when a shape here has to change.
 package phone
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // APIVersion is what hello reports, so a UI cached from an older build can
 // see that it is out of date. 2 is machines: a pane ID is machine:pane,
 // which is not something an older app can read.
 const APIVersion = 2
+
+// Features are the routes added since APIVersion 2, named in hello's
+// features so a client can tell what this gateway answers before calling
+// one; a gateway from before a feature answers 404 "no such route". They
+// are additions, so they leave APIVersion alone: an app that knows none of
+// them still works against this gateway.
+const (
+	FeatureProject      = "project"       // GET /api/project
+	FeatureResources    = "resources"     // GET /api/resources
+	FeatureAttach       = "attach"        // POST /api/attach
+	FeatureGitReview    = "git.review"    // changes, diff, stage, review/note, commit, push, pr
+	FeatureArtifacts    = "artifacts"     // GET /api/artifacts?pane=
+	FeatureArtifactsAll = "artifacts.all" // GET /api/artifacts with no pane: every session's
+)
+
+// featureRoutes is which routes each feature stands for, sorted by name.
+var featureRoutes = map[string][]string{
+	FeatureArtifacts:    {"GET /api/artifacts"},
+	FeatureArtifactsAll: {"GET /api/artifacts"},
+	FeatureAttach:       {"POST /api/attach"},
+	FeatureGitReview: {"GET /api/changes", "GET /api/diff", "POST /api/stage", "POST /api/review/note",
+		"POST /api/commit", "POST /api/push", "POST /api/pr"},
+	FeatureProject:   {"GET /api/project"},
+	FeatureResources: {"GET /api/resources"},
+}
+
+// features is hello's list: every feature, sorted.
+func features() []string {
+	out := make([]string, 0, len(featureRoutes))
+	for f := range featureRoutes {
+		out = append(out, f)
+	}
+	slices.Sort(out)
+	return out
+}
 
 // CookieName carries the device token.
 const CookieName = "conch_device"
@@ -602,6 +640,10 @@ type Hello struct {
 	// Machines is every machine the gateway reaches, local first, so the
 	// app can draw them before asking for anything else.
 	Machines []Machine `json:"machines"`
+	// Features names the routes added since APIVersion 2 that this
+	// gateway answers (FeatureProject and the rest); absent from a
+	// gateway older than them.
+	Features []string `json:"features,omitempty"`
 }
 
 // AgentList is GET /api/agents and the socket's "agents".
