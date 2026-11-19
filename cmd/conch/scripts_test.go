@@ -18,7 +18,7 @@ import (
 // this Mac's source path out of what it ships.
 func TestReleaseScriptsParse(t *testing.T) {
 	root := filepath.Join("..", "..")
-	scripts := []string{"scripts/release.sh", "scripts/brew-formula.sh", "macos/bundle.sh", "macos/release.sh", "macos/notarize.sh"}
+	scripts := []string{"scripts/release.sh", "scripts/sandbox-release.sh", "scripts/conch-sandbox.sh", "scripts/brew-formula.sh", "macos/bundle.sh", "macos/release.sh", "macos/notarize.sh"}
 	for _, s := range scripts {
 		out, err := exec.Command("sh", "-n", filepath.Join(root, s)).CombinedOutput()
 		if err != nil {

@@ -256,9 +256,30 @@ func TestMakeTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	mk := string(b)
-	for _, want := range []string{"\nconch-sandbox:\n", "-X main.version=$(VERSION)", "-o bin/conch-sandbox ./cmd/conch-sandbox"} {
+	for _, want := range []string{"\nconch-sandbox:\n", "-X main.version=$(VERSION)", "-o bin/conch-sandbox ./cmd/conch-sandbox",
+		"\nsandbox-release:\n\tscripts/sandbox-release.sh $(VERSION)\n"} {
 		if !strings.Contains(mk, want) {
 			t.Errorf("Makefile lacks %q", want)
 		}
+	}
+}
+
+// A release builds conch-sandbox after conch (release.sh empties dist/)
+// and publishes the builds, their sums and the pinned launcher, on both
+// of the publish step's paths.
+func TestReleaseWorkflow(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf := string(b)
+	conch, sb := strings.Index(wf, `scripts/release.sh "${GITHUB_REF_NAME}"`), strings.Index(wf, `scripts/sandbox-release.sh "${GITHUB_REF_NAME}"`)
+	if conch < 0 || sb < conch {
+		t.Fatalf("sandbox-release.sh is not run after release.sh")
+	}
+	files := "dist/conch-sandbox-* dist/SHA256SUMS dist/conch-sandbox.sh"
+	if strings.Count(wf, files) != 2 || !strings.Contains(wf, "gh release upload \"$TAG\" dist/*.tar.gz dist/checksums.txt "+files) ||
+		!strings.Contains(wf, "gh release create \"$TAG\" dist/*.tar.gz dist/checksums.txt "+files) {
+		t.Fatalf("release.yml does not publish %s on both paths", files)
 	}
 }

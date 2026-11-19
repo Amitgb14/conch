@@ -5,7 +5,7 @@ LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
 
-.PHONY: build conch-sandbox install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check
+.PHONY: build conch-sandbox sandbox-release install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/conch ./cmd/conch
@@ -56,6 +56,11 @@ settings-ui-check: settings-ui
 
 release:
 	scripts/release.sh $(VERSION)
+
+# conch-sandbox for darwin and linux, arm64 and amd64, SHA256SUMS and the
+# launcher with them pinned, into dist/ beside release's archives.
+sandbox-release:
+	scripts/sandbox-release.sh $(VERSION)
 
 # Conch.app for others to download (the desktop beta): dist/Conch_<v>_macos_arm64.zip.
 # NOTARY=<notarytool profile> notarizes it; a Developer ID in the keychain signs it.
