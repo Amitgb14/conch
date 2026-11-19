@@ -5,10 +5,15 @@ LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
 
-.PHONY: build install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check
+.PHONY: build conch-sandbox install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/conch ./cmd/conch
+
+# conch-sandbox: conch's provider code alone, for herdr, the herdr app and
+# Orca (cmd/conch-sandbox). Its version is the launcher's to compare.
+conch-sandbox:
+	go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o bin/conch-sandbox ./cmd/conch-sandbox
 
 install:
 	go install -trimpath -ldflags "$(LDFLAGS)" ./cmd/conch
