@@ -81,7 +81,7 @@ conch stops a sandbox when no agent is working or waiting and no pane has printe
 
 ## Starting one again
 
-When a stopped sandbox starts, conch offers to start again the agents and terminals that were running.
+When a stopped sandbox starts, conch offers to restart the agents and terminals it had.
 
 **How:** say yes when asked. **Bring back what was running** (`restore_running`) turns it off per provider.
 
@@ -109,8 +109,6 @@ Flags are on [Command line](/docs/cli#sandbox).
 
 Every provider, from [the registry](https://github.com/Amitgb14/conch-integrations). Install says where your key is sent, and asks; an update that changes that asks again.
 
-It says what each can do.
-
 **How:** `M` → **New sandbox…** → **\* Install a provider from the registry…**, **Integrations → Sandboxes** in Conch.app, or:
 
 ```sh
@@ -119,6 +117,10 @@ conch sandbox provider install hetzner
 conch sandbox provider update
 conch sandbox provider publish NAME    # a pull request through gh
 ```
+
+## For other tools
+
+herdr and Orca use [conch-sandbox](/docs/sandbox-tools).
 
 ## A provider conch doesn't know
 
