@@ -6,6 +6,7 @@ import { CodeBlock } from "@/components/code-block"
 import { Shot } from "@/components/doc-shot"
 import { AgentStates, AutopilotLoop, Feature, FeatureGrid, TaskFlow, TuiShot } from "@/components/docs-visuals"
 import { Architecture } from "@/components/landing/architecture"
+import { SandboxDemo } from "@/components/landing/sandbox-demo"
 import { Step, Steps } from "@/components/steps"
 import { cn } from "@/lib/utils"
 
@@ -61,6 +62,7 @@ const components: MDXComponents = {
   Step,
   Shot,
   Architecture,
+  SandboxDemo,
   FeatureGrid,
   Feature,
   AutopilotLoop,
