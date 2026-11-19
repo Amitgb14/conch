@@ -11,6 +11,7 @@ import (
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sandbox"
+	"github.com/Amitgb14/conch/internal/sshkey"
 )
 
 // A sandbox is saved as a machine whose target is "PROVIDER:ID". Its ssh
@@ -92,44 +93,19 @@ func TransportFor(ctx context.Context, label, target string, interactive bool, o
 	}
 	// A provider that takes a key of your own rather than handing out a
 	// secret is given conch's public key, so the way in is one this
-	// computer already holds the other half of.
-	identity := ""
-	if ka, ok := p.(sandbox.KeyAuthorizer); ok && authorizesKey(p) {
-		line, path, err := publicKey(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := ka.AuthorizeKey(ctx, id, line); err != nil {
-			return nil, err
-		}
-		// ssh has to offer the key conch just authorized. The generated
-		// config names conch's own key, which stops ssh trying the
-		// defaults, so the user's key would never be offered and the
-		// sandbox would refuse a login it was set up to allow.
-		identity = strings.TrimSuffix(path, ".pub")
-	} else if ak, ok := p.(sandbox.AccountKeyed); ok && ak.AccountKey() {
-		// The same key, registered by the person with the provider
-		// rather than by conch: offered for the same reason.
-		_, path, err := publicKey(ctx)
-		if err != nil {
-			return nil, err
-		}
-		identity = strings.TrimSuffix(path, ".pub")
+	// computer already holds the other half of. ssh has to offer that key:
+	// the generated config names conch's own key, which stops ssh trying
+	// the defaults, so the user's key would never be offered and the
+	// sandbox would refuse a login it was set up to allow.
+	identity, err := sshkey.Authorize(ctx, p, id, resetConfig)
+	if err != nil {
+		return nil, err
 	}
 	a, err := p.SSHAccess(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	return sandboxSSH(label, a, identity), nil
-}
-
-// authorizesKey says whether a provider that can take a key wants one:
-// a provider described by a file says so in it.
-func authorizesKey(p sandbox.Provider) bool {
-	if a, ok := p.(interface{ AuthorizesKey() bool }); ok {
-		return a.AuthorizesKey()
-	}
-	return true
 }
 
 // DefaultSandboxLabel names a sandbox nobody named, after its ID.
@@ -287,9 +263,4 @@ func SandboxShell(ctx context.Context, label, target, command string, tty bool) 
 // A provider file that makes a sandbox with a public key in it is given
 // the one conch reaches machines with, so the key it later offers is the
 // key that was put there.
-func init() {
-	sandbox.PublicKey = func(ctx context.Context) (string, error) {
-		line, _, err := publicKey(ctx)
-		return line, err
-	}
-}
+func init() { sshkey.Use(resetConfig) }
