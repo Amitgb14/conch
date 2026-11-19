@@ -143,14 +143,13 @@ export function commands(c: Choice) {
 
 // The window is drawn as Conch.app draws it (macos/Sources/ConchApp): the
 // Terminal theme's colours and the surfaces the app derives from them
-// (ConchKit/Themes.swift), and its own light pair, Terminal Light, in a
-// light page. The
+// (ConchKit/Themes.swift), VS Code Light Modern in a light page. The
 // menus are the machine row's (ConchKit/RowMenu.swift) and the sheet is
 // New Sandbox… (NewSandboxSheet.swift), field for field.
 const look =
-  "[--app-bg:#FBFBFC] [--app-chrome:#F1F1F2] [--app-side:#F6F6F7] [--app-raise:#ECECED] [--app-well:#FFFFFF] " +
-  "[--app-fg:#1F2328] [--app-fg2:#616468] [--app-muted:#6E7781] [--app-line:#DADDE2] [--app-accent:#0F7B8A] " +
-  "[--app-ok:#1A7F37] [--app-warn:#9A6700] [--app-menu:#F6F6F6] " +
+  "[--app-bg:#FFFFFF] [--app-chrome:#F5F5F5] [--app-side:#FAFAFA] [--app-raise:#F0F0F0] [--app-well:#FFFFFF] " +
+  "[--app-fg:#3B3B3B] [--app-fg2:#767676] [--app-muted:#616161] [--app-line:#E5E5E5] [--app-accent:#005FB8] " +
+  "[--app-ok:#388A34] [--app-warn:#BF8803] [--app-menu:#F6F6F6] " +
   "dark:[--app-bg:#0C0E11] dark:[--app-chrome:#181A1D] dark:[--app-side:#121417] dark:[--app-raise:#1F2124] " +
   "dark:[--app-well:#090B0D] dark:[--app-fg:#D4D9DF] dark:[--app-fg2:#989CA1] dark:[--app-muted:#8B949E] " +
   "dark:[--app-line:#1E232A] dark:[--app-accent:#2AA5B5] dark:[--app-ok:#9ECE6A] dark:[--app-warn:#E0AF68] " +
