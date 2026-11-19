@@ -37,7 +37,7 @@ func makeRelease(t *testing.T, version string) *fakeRelease {
 	t.Helper()
 	r := &fakeRelease{dir: t.TempDir(), sums: map[string]string{}}
 	for _, p := range platforms {
-		body := fmt.Sprintf("#!/bin/sh\necho \"downloaded %s %s: $*\"\n[ \"${1:-}\" = stdin ] && cat\nexit 0\n", version, p)
+		body := fmt.Sprintf("#!/bin/sh\necho \"downloaded %s %s: $*\"\n[ \"${1:-}\" = stdin ] && cat\n[ \"${1:-}\" = env ] && env\nexit 0\n", version, p)
 		os.WriteFile(filepath.Join(r.dir, "conch-sandbox-"+version+"-"+p), []byte(body), 0o644)
 		sum := sha256.Sum256([]byte(body))
 		r.sums[p] = hex.EncodeToString(sum[:])
@@ -486,6 +486,13 @@ func TestLauncherKeepsItPrivate(t *testing.T) {
 	if st, _ := os.Stat(cached(home, "1.2.3")); st.Mode().Perm() != 0o755 {
 		t.Fatalf("program %v", st.Mode())
 	}
+	// What holds it, made here too, is made as the umask says (0 here):
+	// only conch-sandbox's own folder is closed.
+	for _, p := range []string{filepath.Join(home, ".local"), filepath.Join(home, ".local", "share"), filepath.Dir(dir)} {
+		if st, _ := os.Stat(p); st.Mode().Perm() != 0o777 {
+			t.Errorf("%s made %v, not as the umask says", p, st.Mode())
+		}
+	}
 	// One made open before is closed again.
 	os.Chmod(dir, 0o777)
 	if code, _, errs := run.do(t); code != 0 {
@@ -526,6 +533,21 @@ func TestLauncherSaysWhatItLacks(t *testing.T) {
 		code, out, errs := run.do(t)
 		if code != 1 || out != "" || !strings.Contains(errs, c.want) || strings.Contains(errs, "not the build") || strings.Contains(errs, "could not fetch") {
 			t.Errorf("%v: %d %q %q", c.have, code, out, errs)
+		}
+	}
+}
+
+// The guard against a launcher asking itself its version is for the
+// launcher alone: the program it runs, and what that starts (herdr, ssh,
+// git), are not given it.
+func TestLauncherGuardStaysWithTheLauncher(t *testing.T) {
+	r := makeRelease(t, "1.2.3")
+	script := pinned(t, "1.2.3", r.sums)
+	for _, extra := range [][]string{nil, {"CONCH_SANDBOX_LAUNCHER=1"}} {
+		run := launcherRun{argv: []string{"/bin/sh", script, "env"}, env: append(launcherEnv(t.TempDir(), "file://"+r.dir), extra...)}
+		code, out, errs := run.do(t)
+		if code != 0 || !strings.Contains(out, "HOME=") || strings.Contains(out, "CONCH_SANDBOX_LAUNCHER") {
+			t.Fatalf("%v: %d %q %q", extra, code, out, errs)
 		}
 	}
 }

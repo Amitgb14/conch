@@ -16,7 +16,7 @@ The plugins for herdr, the herdr app and Orca run it through a launcher, `conch-
 
 Builds exist for macOS and Linux on arm64 and amd64.
 
-Without conch there are no provider files yet: a provider a command names is fetched from the [provider registry](/docs/sandboxes#the-provider-registry) the first time (or with `conch-sandbox provider install NAME`), and `providers` lists those the registry has as `installed: false`. Only a registry index signed with a key conch-sandbox knows is used, and the file must be the one the index lists. `sh conch-sandbox.sh --fetch` downloads and checks it without running anything. To build it yourself: `make conch-sandbox` puts it in `bin/`.
+Without conch there are no provider files yet: a provider a command names is fetched from the [provider registry](/docs/sandboxes#the-provider-registry) the first time (or with `conch-sandbox provider install NAME`), and `providers` lists those the registry has as `installed: false`. Only a registry index signed with the key built into conch-sandbox is used, and the file must be the one the index lists. `sh conch-sandbox.sh --fetch` downloads and checks it without running anything. To build it yourself: `make conch-sandbox` puts it in `bin/`.
 
 ## Commands
 

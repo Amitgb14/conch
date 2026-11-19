@@ -223,6 +223,14 @@ func TestRegistryRefusals(t *testing.T) {
 			if api.called() != "" {
 				t.Fatalf("the provider was asked:\n%s", api.called())
 			}
+			if strings.HasPrefix(c.name, "no key known") {
+				reg.mu.Lock()
+				n := len(reg.hits)
+				reg.mu.Unlock()
+				if n != 0 {
+					t.Fatalf("the registry was asked with no key known: %v", reg.hits)
+				}
+			}
 		})
 	}
 }
@@ -324,5 +332,34 @@ func TestKeySetInstalls(t *testing.T) {
 	}
 	if _, err := os.Stat(sandbox.ProviderFilePath("keybox")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Outside a test binary only the key compiled into conch-sandbox counts.
+// A registry of one's own, rightly signed by a key of one's own and both
+// given through the environment, is somebody's — not the registry conch
+// ships — so nothing is installed from it, and since that is known before
+// any request, the registry is not asked at all.
+func TestOwnSignedRegistryIsNotTrusted(t *testing.T) {
+	isolate(t)
+	sandbox.OnlyCompiledKey(t)
+	reg := newSignedRegistry(t)
+	api, body := fakeProviderFile(t, "fakebox", tokenKind)
+	reg.publish(t, "fakebox", body, false, nil)
+	code, out, errs := run(t, "", "create", "--provider", "fakebox", "--yes")
+	if code != 1 || out != "" || !strings.Contains(errs, "not signed with a key conch-sandbox knows") {
+		t.Fatalf("create: %d %q %q", code, out, errs)
+	}
+	code, out, errs = run(t, "", "providers", "--json")
+	if got := decode[providersJSON](t, out); code != 0 || len(got.Providers) != 0 || !strings.Contains(got.RegistryProblem, "not signed") {
+		t.Fatalf("providers: %d %s %q", code, out, errs)
+	}
+	if entries, _ := os.ReadDir(sandbox.ProvidersDir()); len(entries) != 0 {
+		t.Fatalf("wrote under providers/: %v", entries)
+	}
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if len(reg.hits) != 0 || api.called() != "" {
+		t.Fatalf("asked: registry %v, provider %q", reg.hits, api.called())
 	}
 }

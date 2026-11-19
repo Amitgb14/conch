@@ -295,9 +295,18 @@ func TestFetchSignedIndex(t *testing.T) {
 	if ix, err := FetchIndex(ctx); err != nil || len(ix.Providers) != 1 {
 		t.Fatalf("FetchIndex: %v", err)
 	}
+	r.mu.Lock()
+	before := r.hits["index.json"]
+	r.mu.Unlock()
 	if _, err := FetchSignedIndex(ctx); !errors.Is(err, ErrUnsigned) {
 		t.Fatalf("no key: %v", err)
 	}
+	// Known before any request: nothing is asked of the registry.
+	r.mu.Lock()
+	if r.hits["index.json"] != before || r.hits["index.json.sig"] != 0 {
+		t.Fatalf("asked with no key known: %v", r.hits)
+	}
+	r.mu.Unlock()
 	// A key known and no signature, or another key's: refused by both.
 	t.Setenv("CONCH_PROVIDERS_KEY", pub)
 	if _, err := FetchSignedIndex(ctx); err == nil || !strings.Contains(err.Error(), "not signed") {
@@ -318,6 +327,27 @@ func TestFetchSignedIndex(t *testing.T) {
 	if ix, err := FetchSignedIndex(ctx); err != nil || len(ix.Providers) != 1 || ix.Providers[0].Name != "acme" {
 		t.Fatalf("signed: %+v %v", ix, err)
 	}
+	// Outside a test binary the key is the compiled-in one alone: an index
+	// rightly signed by a key from $CONCH_PROVIDERS_KEY is anybody's, and
+	// is refused before it is asked for. conch's own FetchIndex still
+	// reads it, as it shows the hosts and asks.
+	t.Run("only the compiled-in key", func(t *testing.T) {
+		OnlyCompiledKey(t)
+		r.mu.Lock()
+		before := r.hits["index.json"]
+		r.mu.Unlock()
+		if _, err := FetchSignedIndex(ctx); !errors.Is(err, ErrUnsigned) {
+			t.Fatalf("self-signed: %v", err)
+		}
+		r.mu.Lock()
+		if r.hits["index.json"] != before {
+			t.Fatalf("asked: %v", r.hits)
+		}
+		r.mu.Unlock()
+		if ix, err := FetchIndex(ctx); err != nil || len(ix.Providers) != 1 {
+			t.Fatalf("conch's FetchIndex: %v", err)
+		}
+	})
 	// One byte changed after signing: refused.
 	r.mu.Lock()
 	r.raw = append(append([]byte{}, data...), ' ')

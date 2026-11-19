@@ -39,8 +39,13 @@ func ensureInstalled(name string) error {
 	return installer(name)
 }
 
-// registryTimeout bounds one look at the registry.
-const registryTimeout = time.Minute
+// registryTimeout bounds one look at the registry to install from it.
+// listTimeout is shorter: providers is a listing a tool's dialog waits on,
+// and a network that drops packets should not hold it for a minute.
+const (
+	registryTimeout = time.Minute
+	listTimeout     = 10 * time.Second
+)
 
 // install fetches name's file from the registry's signed index and
 // installs it.
@@ -146,7 +151,7 @@ func (a *app) provider(ctx context.Context, args []string) error {
 // here that have a way in over ssh, for the tools' pickers: each says
 // installed false, and is installed when first named.
 func registryProviders(ctx context.Context, here map[string]bool) ([]providerJSON, error) {
-	ctx, cancel := context.WithTimeout(ctx, registryTimeout)
+	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
 	ix, err := sandbox.FetchSignedIndex(ctx)
 	if err != nil {

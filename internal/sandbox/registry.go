@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
@@ -192,8 +193,22 @@ var ErrIndexTooNew = errors.New("the provider registry's index is newer than thi
 // person reading what is installed (conch-sandbox, run by another tool):
 // an index whose signature was not checked against a known key is
 // refused, never read.
+//
+// The key must be the one compiled in (integration.RegistryKey): a key
+// from $CONCH_PROVIDERS_KEY would make an index signed by anybody's key
+// count as conch's, and conch-sandbox installs with nobody asked — conch
+// honours that variable because it shows the hosts and asks. With no key
+// compiled in, the answer is known before any request: ErrUnsigned.
 func FetchSignedIndex(ctx context.Context) (*Index, error) {
-	ix, signed, err := fetchIndex(ctx)
+	reg := ownRegistry()
+	want := integration.RegistryKey
+	if envKeyCounts {
+		want = reg.Key // a test's own registry and key
+	}
+	if want == "" || reg.Key != want {
+		return nil, ErrUnsigned
+	}
+	ix, signed, err := fetchIndexFrom(ctx, reg)
 	if err != nil {
 		return nil, err
 	}
@@ -203,9 +218,31 @@ func FetchSignedIndex(ctx context.Context) (*Index, error) {
 	return ix, nil
 }
 
-func fetchIndex(ctx context.Context) (*Index, bool, error) {
+// envKeyCounts lets $CONCH_PROVIDERS_KEY stand for the compiled-in key in
+// FetchSignedIndex: only in a test binary, which signs registries of its
+// own, and a test can turn it off (OnlyCompiledKey).
+var envKeyCounts = testing.Testing()
+
+// OnlyCompiledKey makes FetchSignedIndex trust the compiled-in key alone
+// for the rest of a test, as it does outside one.
+func OnlyCompiledKey(t interface{ Cleanup(func()) }) {
+	old := envKeyCounts
+	envKeyCounts = false
+	t.Cleanup(func() { envKeyCounts = old })
+}
+
+// ownRegistry is conch's own registry, where FetchIndex reads it.
+func ownRegistry() integration.Registry {
 	reg := integration.Registries(config.IntegrationsCfg{})[0]
 	reg.URL = RegistryURL()
+	return reg
+}
+
+func fetchIndex(ctx context.Context) (*Index, bool, error) {
+	return fetchIndexFrom(ctx, ownRegistry())
+}
+
+func fetchIndexFrom(ctx context.Context, reg integration.Registry) (*Index, bool, error) {
 	data, signed, err := integration.FetchIndexData(ctx, reg)
 	if err != nil {
 		return nil, false, fmt.Errorf("the provider registry: %w", err)

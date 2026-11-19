@@ -10,6 +10,8 @@
 # A kept or fetched copy whose hash is not the pinned one never runs. --fetch
 # only fetches and checks it, and prints where it is.
 #
+# The kept copy's folder is made 0700 and must be this user's.
+#
 # It may be run from a file or piped into sh -s (Orca's recipes): nothing it
 # runs reads stdin, which then holds the rest of the script, and the
 # program gets the stdin the launcher was given — under sh -s that is the
@@ -20,7 +22,6 @@
 # new hashes, so its plugins need the new launcher. CONCH_SANDBOX_URL is
 # where the builds are, for a mirror or a test.
 set -eu
-umask 077 # the kept copy's folder is this user's alone
 
 want=0.2.1-dev
 sha_darwin_arm64=
@@ -86,7 +87,10 @@ main() {
 
 	dir=$HOME/.local/share/conch-sandbox/$want
 	bin=$dir/conch-sandbox
-	mkdir -p "$dir" </dev/null
+	# The version's folder is this user's alone; what holds it (~/.local
+	# and the rest, perhaps made here) is made as the umask says.
+	mkdir -p "${dir%/*}" </dev/null
+	(umask 077 && mkdir -p "$dir") </dev/null
 	if [ ! -O "$dir" ]; then
 		say "$dir is not yours: not run"
 		exit 1
@@ -121,6 +125,9 @@ main() {
 		echo "$bin"
 		exit 0
 	fi
+	# The guard is for a launcher started under this one; the program and
+	# what it starts (herdr, ssh, git) need not carry it.
+	unset CONCH_SANDBOX_LAUNCHER
 	exec "$bin" "$@" <&3 3<&-
 }
 
