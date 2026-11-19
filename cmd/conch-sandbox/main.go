@@ -51,8 +51,9 @@ Usage:
   conch-sandbox VERB --help                 more about one of them
 
 SANDBOX is one of: --provider P ID; --machine ALIAS, one of conch-sandbox's
-ssh aliases; --from-orca (ORCA_VM_INSTANCE_ID, with --provider); or
---from-herdr (the machine of the herdr workspace a plugin action runs in).
+ssh aliases; --from-orca (ORCA_VM_INSTANCE_ID; --provider too when that is
+a bare id); or --from-herdr (the machine of the herdr workspace a plugin
+action runs in).
 
 With --json a command prints one JSON object on stdout ("schema": 1) and
 its progress on stderr. Keys, provider files and the ssh key are conch's:

@@ -36,14 +36,14 @@ conch-sandbox orphans --tool herdr|herdr-app [--json] [--notify]
 conch-sandbox pick   --tool herdr
 ```
 
-`SANDBOX` is one of `--provider P ID`, `--machine ALIAS` (one of its ssh aliases), `--from-orca` (Orca's `ORCA_VM_INSTANCE_ID`, with `--provider`) or `--from-herdr` (the machine of the herdr workspace a plugin action runs in).
+`SANDBOX` is one of `--provider P ID`, `--machine ALIAS` (one of its ssh aliases), `--from-orca` (Orca's `ORCA_VM_INSTANCE_ID`; `--provider` is needed only when that is a bare id rather than create's userData, which names it) or `--from-herdr` (the machine of the herdr workspace a plugin action runs in).
 
 With `--json` a command prints one object on stdout (`"schema": 1`) and its progress on stderr. Exit status is 0, 1 for a failure, 2 for a command it could not read.
 
-- **`key set`** reads the key from stdin (never the command line) and changes the one `api_key` line under `[sandbox.PROVIDER]` in `config.toml`. A conch already running keeps its own copy of the settings: restart it.
+- **`key set`** reads the key from stdin (never the command line) and changes the one `api_key` line under `[sandbox.PROVIDER]` in `config.toml` where it can, and otherwise (an inline table, dotted keys) rewrites the file. A conch already running keeps its own copy of the settings: restart it.
 - **`--repo URL`** clones the repository into the sandbox's home over ssh, with git inside the sandbox. With `--ref` the branch need not be pushed, only the commit; a branch alone must be. A private repository is read with `GH_TOKEN` in the sandbox, there only when `[sandbox.PROVIDER] env` passes it in. A clone that fails deletes the sandbox.
 - **`--tool`** says who the sandbox is for: `herdr`, `herdr-app`, `orca` or `cli` (the default; Orca's flags say `orca` themselves). A tool's sandbox gets its home as `project_root` when nothing is cloned, and `orphans --tool X` counts only X's — a sandbox Orca is using is never offered to herdr for deletion.
-- **`orphans`** lists the sandboxes made for a tool that are still there, running or keeping a disk, and that the tool no longer has a machine for. `--notify` says so in a herdr notification.
+- **`orphans`** lists the sandboxes made for a tool that are still there, running or keeping a disk, and that the tool no longer has a machine for. `--notify` says so in a herdr notification (for the herdr app, on stderr).
 - **`pick`** is herdr's *New sandbox*: a few questions on the terminal — forgotten sandboxes first, then provider, name, region, size and what to check out (the current folder's repository and branch by default) — then the sandbox, a herdr machine and a workspace in the checkout.
 
 ## ssh aliases

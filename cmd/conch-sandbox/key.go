@@ -20,7 +20,8 @@ const maxKey = 64 << 10
 // from stdin, never from the command line, which other processes can see.
 func (a *app) key(args []string) error {
 	c := a.command("key", "conch-sandbox key set PROVIDER   (the key on stdin)\n\n"+
-		"Sets [sandbox.PROVIDER] api_key in config.toml, that line alone. A conch\n"+
+		"Sets [sandbox.PROVIDER] api_key in config.toml, that line alone where it\n"+
+		"can (an inline table or dotted keys: the file is rewritten). A conch\n"+
 		"already running holds its settings in memory and writes them all back\n"+
 		"when one is changed on its settings screen: restart it after this.")
 	rest, err := c.parse(args)
