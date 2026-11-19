@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,14 +36,21 @@ installs anything inside a sandbox.
 Usage:
   conch-sandbox providers [--json]
   conch-sandbox key set PROVIDER            the API key, read from stdin
-  conch-sandbox create --provider P [--name N] [--region R] [--size S] [--image I] [--yes] [--json]
-  conch-sandbox get    --provider P ID [--json]
-  conch-sandbox start  --provider P ID [--json]
-  conch-sandbox stop   --provider P ID [--json]
-  conch-sandbox rm     --provider P ID [--json]
-  conch-sandbox ssh-alias --provider P ID [--remove] [--yes] [--json]
+  conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]]
+                       [--region R] [--size S] [--image I] [--yes] [--json | --format orca] [--from-orca]
+  conch-sandbox get    SANDBOX [--json]
+  conch-sandbox start  SANDBOX [--json | --format orca]
+  conch-sandbox stop   SANDBOX [--json]
+  conch-sandbox rm     SANDBOX [--json]
+  conch-sandbox ssh-alias SANDBOX [--remove] [--yes] [--json]
+  conch-sandbox orphans --tool herdr|herdr-app [--json] [--notify]
+  conch-sandbox pick   --tool herdr           questions on the terminal, for herdr's New sandbox
   conch-sandbox version
   conch-sandbox VERB --help                 more about one of them
+
+SANDBOX is one of: --provider P ID; --machine ALIAS, one of conch-sandbox's
+ssh aliases; --from-orca (ORCA_VM_INSTANCE_ID, with --provider); or
+--from-herdr (the machine of the herdr workspace a plugin action runs in).
 
 With --json a command prints one JSON object on stdout ("schema": 1) and
 its progress on stderr. Keys, provider files and the ssh key are conch's:
@@ -67,12 +76,34 @@ type app struct {
 	wait time.Duration
 	// line is the command run, after the program's name.
 	line []string
+	// reader reads stdin a line at a time, for every question asked: one
+	// reader, or the first question's would keep the next one's answer.
+	reader *bufio.Reader
+	// retry is how long to wait between tries of a sandbox's ssh that is
+	// not answering yet.
+	retry time.Duration
+	// dir is where pick looks for the repository to check out; "" is the
+	// working directory.
+	dir string
+}
+
+// readLine reads an answer from stdin, without its newline. At the end of
+// the input it is what was there, and io.EOF only when nothing was.
+func (a *app) readLine() (string, error) {
+	if a.reader == nil {
+		a.reader = bufio.NewReader(a.stdin)
+	}
+	s, err := a.reader.ReadString('\n')
+	if err == io.EOF && s != "" {
+		err = nil
+	}
+	return strings.TrimRight(s, "\r\n"), err
 }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	a := &app{stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, wait: 10 * time.Minute,
+	a := &app{stdin: os.Stdin, stdout: os.Stdout, stderr: os.Stderr, wait: 10 * time.Minute, retry: 2 * time.Second,
 		terminal: term.IsTerminal(os.Stdin.Fd()),
 		readSecret: func() (string, error) {
 			b, err := term.ReadPassword(os.Stdin.Fd())
@@ -123,6 +154,10 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.rm(ctx, rest)
 	case "ssh-alias":
 		err = a.sshAlias(ctx, rest)
+	case "orphans":
+		err = a.orphans(ctx, rest)
+	case "pick":
+		err = a.pick(ctx, rest)
 	default:
 		fmt.Fprintf(a.stderr, "conch-sandbox: unknown command %q\n\n%s", verb, usage)
 		return 2

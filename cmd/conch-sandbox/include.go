@@ -90,6 +90,16 @@ func splitArgs(s string) []string {
 	return out
 }
 
+// includePresent says whether ~/.ssh/config includes the alias file now.
+func includePresent() bool {
+	path, err := userSSHConfig()
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(path)
+	return err == nil && includes(string(b), filepath.Dir(filepath.Dir(path)))
+}
+
 // ensureInclude makes sure ~/.ssh/config includes the alias file: it is
 // there already, or yes says to add it, or the person at the terminal
 // agrees. With nobody to ask it refuses, saying what to run.
@@ -119,7 +129,7 @@ func (a *app) ensureInclude(yes bool) error {
 				"Run %s --yes to add the line, or put this line at the top of ~/.ssh/config yourself:\n  %s", again, includeLine())
 		}
 		fmt.Fprintf(a.stderr, "ssh reads conch-sandbox's aliases only if ~/.ssh/config includes them.\nAdd this line to the top of %s?\n  %s\n[Y/n] ", path, includeLine())
-		answer, _ := bufio.NewReader(a.stdin).ReadString('\n')
+		answer, _ := a.readLine()
 		if a := strings.ToLower(strings.TrimSpace(answer)); a != "" && a != "y" && a != "yes" {
 			return fmt.Errorf("not added, so no alias was written. Add this line at the top of ~/.ssh/config, or run %s --yes:\n  %s", again, includeLine())
 		}

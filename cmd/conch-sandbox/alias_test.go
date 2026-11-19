@@ -25,7 +25,7 @@ func TestAliasTokenKind(t *testing.T) {
 	}
 	text := readFile(t, aliasFile())
 	for _, want := range []string{
-		"# >>> conch-sandbox conch-fakebox-box1\nHost conch-fakebox-box1\n",
+		"# >>> conch-sandbox conch-fakebox-box1\n# conch-sandbox provider=fakebox id=box1\nHost conch-fakebox-box1\n",
 		"  HostName gw.test\n", "  Port 22\n", "  User tok-secret-box1-1\n",
 		"  StrictHostKeyChecking accept-new\n", "  HostKeyAlias conch-fakebox-box1\n",
 		"  UserKnownHostsFile " + knownHostsFile() + "\n",
@@ -257,7 +257,7 @@ func TestAliasRefusesWhatWouldInjectConfig(t *testing.T) {
 		}
 	}
 	exp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("x", 3600))
-	b, _ := alias{Provider: "p", ID: "i", Host: "h", User: "u", Expires: &exp}.block()
+	b, _ := alias{Provider: "p", ID: "i", Host: "h", User: "u", Token: true, Expires: &exp}.block()
 	if !strings.Contains(b, "until 2026-01-02T02:04:05Z") {
 		t.Errorf("expiry in UTC: %s", b)
 	}

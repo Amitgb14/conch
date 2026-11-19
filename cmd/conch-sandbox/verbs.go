@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -103,7 +105,7 @@ func access(ctx context.Context, p sandbox.Provider, id string) (*sshJSON, alias
 		s.Expires, al.Expires = &e, &e
 	}
 	if !ac.PlainUser {
-		s.User = struck
+		s.User, al.Token = struck, true
 	}
 	return s, al, nil
 }
@@ -137,35 +139,154 @@ func (a *app) say(r result, asJSON bool) error {
 	return nil
 }
 
-// sandboxFlags are the flags every verb on one sandbox takes.
-func (a *app) sandboxCommand(verb, usage string) (*command, *string, *bool) {
-	c := a.command(verb, usage)
-	provider := c.String("provider", "", "the provider (conch-sandbox providers lists them)")
-	asJSON := c.Bool("json", false, "print one JSON object on stdout")
-	return c, provider, asJSON
+// output is how a verb prints its result.
+type output int
+
+const (
+	textOut output = iota
+	jsonOut
+	orcaOut // Orca's own result, with the real user name
+)
+
+// opts are the flags of a verb on one sandbox.
+type opts struct {
+	*command
+	provider, machine, format   *string
+	asJSON, fromOrca, fromHerdr *bool
 }
 
-// one parses a verb on one sandbox: its provider, ready to use, and its ID.
-func (a *app) one(verb, usage string, args []string) (p sandbox.Provider, id string, asJSON bool, err error) {
-	c, provider, j := a.sandboxCommand(verb, usage)
-	rest, err := c.parse(args)
+// sandboxFlags declares them; orca says the verb can print Orca's result.
+func (a *app) sandboxFlags(verb, usage string, orca bool) *opts {
+	c := a.command(verb, usage)
+	o := &opts{command: c, format: new(string), machine: new(string), fromHerdr: new(bool)}
+	o.provider = c.String("provider", "", "the provider (conch-sandbox providers lists them)")
+	o.asJSON = c.Bool("json", false, "print one JSON object on stdout")
+	o.fromOrca = c.Bool("from-orca", false, "read the sandbox (or, for create, the workspace) from Orca's ORCA_* variables")
+	if verb != "create" {
+		o.machine = c.String("machine", "", "the sandbox behind this ssh alias, one of conch-sandbox's")
+		o.fromHerdr = c.Bool("from-herdr", false, "the sandbox of the herdr workspace a plugin action runs in")
+	}
+	if orca {
+		o.format = c.String("format", "", `"orca" prints Orca's result instead`)
+	}
+	return o
+}
+
+func (o *opts) output() (output, error) {
+	switch {
+	case *o.format == "":
+	case *o.format != "orca":
+		return 0, o.wrong(fmt.Sprintf("--format %q: the only one is orca", *o.format))
+	case *o.asJSON:
+		return 0, o.wrong("give --json or --format orca, not both")
+	default:
+		return orcaOut, nil
+	}
+	if *o.asJSON {
+		return jsonOut, nil
+	}
+	return textOut, nil
+}
+
+// orcaInstance reads ORCA_VM_INSTANCE_ID: the userData create printed
+// ({"provider": …, "id": …}) as Orca hands it back, or the id alone.
+func orcaInstance(provider string) (string, string, error) {
+	raw := strings.TrimSpace(os.Getenv("ORCA_VM_INSTANCE_ID"))
+	if raw == "" {
+		return "", "", errors.New("--from-orca: ORCA_VM_INSTANCE_ID is not set")
+	}
+	if !strings.HasPrefix(raw, "{") {
+		return provider, raw, nil
+	}
+	var ud orcaUserData
+	if err := json.Unmarshal([]byte(raw), &ud); err != nil || ud.ID == "" {
+		return "", "", fmt.Errorf("--from-orca: ORCA_VM_INSTANCE_ID is neither an id nor create's userData: %q", raw)
+	}
+	if provider != "" && ud.Provider != "" && ud.Provider != provider {
+		return "", "", fmt.Errorf("--from-orca: that sandbox is %s's, not %s's", ud.Provider, provider)
+	}
+	return firstOf(provider, ud.Provider), ud.ID, nil
+}
+
+// locate is the sandbox a verb is about, from exactly one of: an ID with
+// --provider, --machine ALIAS, --from-orca or --from-herdr. An alias names
+// its provider; one given beside it must agree.
+func (a *app) locate(ctx context.Context, o *opts, rest []string) (provider, id string, err error) {
+	given := 0
+	for _, b := range []bool{len(rest) > 0, *o.machine != "", *o.fromOrca, *o.fromHerdr} {
+		if b {
+			given++
+		}
+	}
+	if given != 1 || len(rest) > 1 {
+		return "", "", o.wrong("give one sandbox: an ID with --provider, --machine ALIAS, --from-orca or --from-herdr")
+	}
+	provider = *o.provider
+	alias := *o.machine
+	switch {
+	case len(rest) == 1:
+		id = rest[0]
+	case *o.fromOrca:
+		if provider, id, err = orcaInstance(provider); err != nil {
+			return "", "", err
+		}
+	case *o.fromHerdr:
+		if alias, err = herdrAlias(ctx); err != nil {
+			return "", "", err
+		}
+	}
+	if alias != "" {
+		own, err := aliasOwner(alias)
+		if err != nil {
+			return "", "", err
+		}
+		if provider != "" && provider != own.Provider {
+			return "", "", fmt.Errorf("%s is a %s sandbox, not %s", alias, own.Provider, provider)
+		}
+		provider, id = own.Provider, own.ID
+	}
+	if provider == "" {
+		return "", "", o.wrong("give --provider NAME (" + installedWords() + ")")
+	}
+	if err := sandbox.CheckName(provider); err != nil {
+		return "", "", o.wrong(err.Error())
+	}
+	if err := checkID(id); err != nil {
+		return "", "", o.wrong(err.Error())
+	}
+	return provider, id, nil
+}
+
+// target is a verb's sandbox, its provider ready to use.
+type target struct {
+	p   sandbox.Provider
+	id  string
+	out output
+	o   *opts
+}
+
+func (a *app) one(ctx context.Context, verb, usage string, args []string, orca bool) (*target, error) {
+	o := a.sandboxFlags(verb, usage, orca)
+	rest, err := o.parse(args)
 	if err != nil {
-		return nil, "", false, err
+		return nil, err
 	}
-	if len(rest) != 1 {
-		return nil, "", false, c.wrong("give one sandbox ID")
+	out, err := o.output()
+	if err != nil {
+		return nil, err
 	}
-	if err := checkID(rest[0]); err != nil {
-		return nil, "", false, c.wrong(err.Error())
+	provider, id, err := a.locate(ctx, o, rest)
+	if err != nil {
+		return nil, err
 	}
-	if *provider == "" {
-		return nil, "", false, c.wrong("give --provider NAME (" + installedWords() + ")")
+	if err := can(provider, verb); err != nil {
+		return nil, err
 	}
-	if err := can(*provider, verb); err != nil {
-		return nil, "", false, err
+	p, _, err := ready(provider)
+	if err != nil {
+		return nil, err
 	}
-	p, _, err = ready(*provider)
-	return p, rest[0], *j, err
+	return &target{p: p, id: id, out: out, o: o}, nil
 }
 
 // gone says a provider no longer has the sandbox, in words naming it.
@@ -176,42 +297,45 @@ func gone(p sandbox.Provider, id string, err error) error {
 	return err
 }
 
-func (a *app) create(ctx context.Context, args []string) error {
-	c, provider, asJSON := a.sandboxCommand("create",
-		"conch-sandbox create --provider P [--name N] [--region R] [--size S] [--image I] [--yes] [--json]")
-	name := c.String("name", "", "what it is for; the sandbox is named conch-NAME-…")
-	region := c.String("region", "", "where it runs: one the provider's file offers (default: config.toml's)")
-	size := c.String("size", "", "a named size, for a provider whose machines come in them")
-	image := c.String("image", "", "the image or snapshot to start from (default: config.toml's, or the provider's)")
-	yes := c.Bool("yes", false, "add the Include line for the ssh aliases to ~/.ssh/config without asking")
-	rest, err := c.parse(args)
+// createReq is a sandbox to make.
+type createReq struct {
+	provider, name, region, size, image string
+	repo                                repo
+	// yes adds the Include line without asking; orca makes it not needed,
+	// since Orca connects by the address it is given.
+	yes, orca bool
+	// root asks for the sandbox's home as the root when there is no
+	// checkout: Orca and herdr open a workspace there.
+	root bool
+}
+
+// makeSandbox makes the sandbox, lets this computer's key in or asks for
+// a token, writes its alias, and checks the repository out. Anything that
+// fails once the sandbox exists deletes it.
+func (a *app) makeSandbox(ctx context.Context, req createReq) (result, alias, error) {
+	if err := req.repo.check(); err != nil {
+		return result{}, alias{}, err
+	}
+	if err := can(req.provider, "create"); err != nil {
+		return result{}, alias{}, err
+	}
+	p, cfg, err := ready(req.provider)
 	if err != nil {
-		return err
-	}
-	if len(rest) > 0 {
-		return c.wrong("create takes no arguments: " + strings.Join(rest, " "))
-	}
-	if *provider == "" {
-		return c.wrong("give --provider NAME (" + installedWords() + ")")
-	}
-	if err := can(*provider, "create"); err != nil {
-		return err
-	}
-	p, cfg, err := ready(*provider)
-	if err != nil {
-		return err
+		return result{}, alias{}, err
 	}
 	// Asked before anything is made: a sandbox with an alias nothing
 	// reads is one a tool cannot reach.
-	if err := a.ensureInclude(*yes); err != nil {
-		return err
+	if !req.orca || req.yes {
+		if err := a.ensureInclude(req.yes); err != nil {
+			return result{}, alias{}, err
+		}
 	}
-	pc := cfg.Sandbox.Of(*provider)
+	pc := cfg.Sandbox.Of(req.provider)
 	env, err := sandbox.EnvFrom(pc.Env)
 	if err != nil {
-		return err
+		return result{}, alias{}, err
 	}
-	spec := sandbox.Spec{Name: strings.TrimSpace(*name), Region: *region, Size: *size, Snapshot: *image, Env: env, AutoStop: pc.AutoStop}
+	spec := sandbox.Spec{Name: strings.TrimSpace(req.name), Region: req.region, Size: req.size, Snapshot: req.image, Env: env, AutoStop: pc.AutoStop}
 	// conch's own sandboxes are named by the file: its prefix (conch-),
 	// the name, a few letters. A file that sends the name as it is given
 	// is handed one made that way, so every sandbox reads as conch's.
@@ -220,33 +344,98 @@ func (a *app) create(ctx context.Context, args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, a.wait)
 	defer cancel()
-	fmt.Fprintf(a.stderr, "Creating a %s sandbox…\n", sandbox.ProviderLabel(*provider))
+	fmt.Fprintf(a.stderr, "Creating a %s sandbox…\n", sandbox.ProviderLabel(req.provider))
 	sb, err := p.Create(ctx, spec)
 	if err != nil {
 		if sb.ID != "" {
 			a.abandon(p, sb.ID)
 		}
-		return err
+		return result{}, alias{}, err
 	}
 	fmt.Fprintf(a.stderr, "  sandbox %s started\n", sb.ID)
-	r := describe(*provider, sb, *region)
+	r := describe(req.provider, sb, req.region)
 	var al alias
 	if r.SSH, al, err = access(ctx, p, sb.ID); err == nil {
 		err = setAlias(al)
 	}
+	if err == nil {
+		switch {
+		case req.repo.URL != "":
+			fmt.Fprintf(a.stderr, "  cloning %s\n", req.repo.URL)
+			al.Root, err = a.remoteRoot(ctx, al, req.repo.cloneScript(req.repo.dirName(req.name)))
+		case req.orca || req.root:
+			al.Root, err = a.remoteRoot(ctx, al, homeScript)
+		}
+	}
+	if err == nil && al.Root != "" {
+		err = setAlias(al)
+	}
 	if err != nil {
 		a.abandon(p, sb.ID)
-		return err
+		return result{}, alias{}, err
 	}
-	r.SSH.Alias = al.name()
+	r.SSH.Alias, r.ProjectRoot = al.name(), al.Root
 	fmt.Fprintf(a.stderr, "  ssh alias %s\n", al.name())
-	return a.say(r, *asJSON)
+	return r, al, nil
 }
 
-// abandon deletes a sandbox whose making failed: it costs while it runs,
-// and nobody has it to delete. It is given time of its own, since the
-// failure may have been the deadline or an interrupt.
+func (a *app) create(ctx context.Context, args []string) error {
+	o := a.sandboxFlags("create",
+		"conch-sandbox create --provider P [--name N] [--repo URL [--branch B] [--ref SHA]] [--region R] [--size S] [--image I] [--yes] [--json | --format orca] [--from-orca]", true)
+	name := o.String("name", "", "what it is for; the sandbox is named conch-NAME-…, the checkout ~/NAME")
+	region := o.String("region", "", "where it runs: one the provider's file offers (default: config.toml's)")
+	size := o.String("size", "", "a named size, for a provider whose machines come in them")
+	image := o.String("image", "", "the image or snapshot to start from (default: config.toml's, or the provider's)")
+	yes := o.Bool("yes", false, "add the Include line for the ssh aliases to ~/.ssh/config without asking")
+	var rp repo
+	o.StringVar(&rp.URL, "repo", "", "an https:// repository to clone into the sandbox's home")
+	o.StringVar(&rp.Branch, "branch", "", "the branch to check out")
+	o.StringVar(&rp.Ref, "ref", "", "the commit to check out (pushed)")
+	rest, err := o.parse(args)
+	if err != nil {
+		return err
+	}
+	out, err := o.output()
+	if err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		return o.wrong("create takes no arguments: " + strings.Join(rest, " "))
+	}
+	if *o.fromOrca {
+		// Orca's workspace says what is wanted; a flag given as well wins.
+		*name = firstOf(*name, os.Getenv("ORCA_WORKSPACE_NAME"))
+		rp.URL = firstOf(rp.URL, os.Getenv("ORCA_REPO_URL"))
+		rp.Branch = firstOf(rp.Branch, os.Getenv("ORCA_REPO_BRANCH"))
+		rp.Ref = firstOf(rp.Ref, os.Getenv("ORCA_REPO_REF"))
+	}
+	if *o.provider == "" {
+		return o.wrong("give --provider NAME (" + installedWords() + ")")
+	}
+	r, al, err := a.makeSandbox(ctx, createReq{provider: *o.provider, name: *name, region: *region, size: *size, image: *image,
+		repo: rp, yes: *yes, orca: out == orcaOut})
+	if err != nil {
+		return err
+	}
+	return a.emit(r, al, out, firstOf(*name, r.Name, r.ID))
+}
+
+// emit prints a result as the verb was asked to.
+func (a *app) emit(r result, al alias, out output, label string) error {
+	switch out {
+	case orcaOut:
+		return a.sayOrca(r, al, label)
+	case jsonOut:
+		return a.printJSON(r)
+	}
+	return a.say(r, false)
+}
+
+// abandon deletes a sandbox whose making failed, and its alias: it costs
+// while it runs, and nobody has it to delete. It is given time of its own,
+// since the failure may have been the deadline or an interrupt.
 func (a *app) abandon(p sandbox.Provider, id string) {
+	_, _ = removeAlias(aliasName(p.Name(), id))
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := p.Delete(ctx, id); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
@@ -258,72 +447,96 @@ func (a *app) abandon(p sandbox.Provider, id string) {
 }
 
 func (a *app) get(ctx context.Context, args []string) error {
-	p, id, asJSON, err := a.one("get", "conch-sandbox get --provider P ID [--json]", args)
+	t, err := a.one(ctx, "get", "conch-sandbox get (--provider P ID | --machine ALIAS | --from-orca | --from-herdr) [--json]", args, false)
 	if err != nil {
 		return err
 	}
-	sb, err := p.Get(ctx, id)
+	sb, err := t.p.Get(ctx, t.id)
 	if err != nil {
-		return gone(p, id, err)
+		return gone(t.p, t.id, err)
 	}
-	return a.say(describe(p.Name(), sb, ""), asJSON)
+	r := describe(t.p.Name(), sb, "")
+	if own, err := aliasOwner(aliasName(t.p.Name(), t.id)); err == nil {
+		r.ProjectRoot = own.Root
+	}
+	return a.say(r, t.out == jsonOut)
 }
 
 // start wakes a sandbox and says how to reach it, which for a token
 // provider is a fresh token.
 func (a *app) start(ctx context.Context, args []string) error {
-	p, id, asJSON, err := a.one("start", "conch-sandbox start --provider P ID [--json]", args)
+	t, err := a.one(ctx, "start", "conch-sandbox start (--provider P ID | --machine ALIAS | --from-orca | --from-herdr) [--json | --format orca]", args, true)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, a.wait)
 	defer cancel()
-	fmt.Fprintf(a.stderr, "Starting %s…\n", id)
-	sb, err := p.Start(ctx, id)
+	fmt.Fprintf(a.stderr, "Starting %s…\n", t.id)
+	sb, err := t.p.Start(ctx, t.id)
 	if err != nil {
-		return gone(p, id, err)
+		return gone(t.p, t.id, err)
 	}
 	if sb.ID == "" {
-		sb.ID = id
+		sb.ID = t.id
 	}
-	r := describe(p.Name(), sb, "")
+	r := describe(t.p.Name(), sb, "")
 	var al alias
-	if r.SSH, al, err = access(ctx, p, id); err != nil {
+	if r.SSH, al, err = access(ctx, t.p, t.id); err != nil {
 		return err
 	}
 	// An alias made for it gets the new token, or the new address of a
 	// sandbox that came back on another machine. One never made is left
-	// to ssh-alias, which asks about ~/.ssh/config.
-	if hasAlias(al.name()) {
+	// to ssh-alias, which asks about ~/.ssh/config — but Orca, which
+	// connects by the address, is given one, and its checkout's root.
+	if hasAlias(al.name()) || t.out == orcaOut {
 		if err := setAlias(al); err != nil {
 			return err
 		}
-		r.SSH.Alias = al.name()
+		own, _ := aliasOwner(al.name())
+		al.Root = own.Root
+		if al.Root == "" && t.out == orcaOut {
+			if al.Root, err = a.remoteRoot(ctx, al, homeScript); err != nil {
+				return err
+			}
+			if err := setAlias(al); err != nil {
+				return err
+			}
+		}
+		r.SSH.Alias, r.ProjectRoot = al.name(), al.Root
 	}
-	return a.say(r, asJSON)
+	label := firstOf(r.Name, r.ID)
+	if *t.o.fromOrca {
+		label = firstOf(os.Getenv("ORCA_WORKSPACE_NAME"), label) // as create named it
+	}
+	return a.emit(r, al, t.out, label)
 }
 
 func (a *app) stop(ctx context.Context, args []string) error {
-	p, id, asJSON, err := a.one("stop", "conch-sandbox stop --provider P ID [--json]", args)
+	t, err := a.one(ctx, "stop", "conch-sandbox stop (--provider P ID | --machine ALIAS | --from-orca | --from-herdr) [--json]", args, false)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, a.wait)
 	defer cancel()
-	fmt.Fprintf(a.stderr, "Stopping %s…\n", id)
-	if err := p.Stop(ctx, id); err != nil {
-		return gone(p, id, err)
+	fmt.Fprintf(a.stderr, "Stopping %s…\n", t.id)
+	if err := t.p.Stop(ctx, t.id); err != nil {
+		return gone(t.p, t.id, err)
 	}
-	return a.say(result{Schema: schema, Provider: p.Name(), ID: id, State: string(sandbox.StateStopped)}, asJSON)
+	return a.say(result{Schema: schema, Provider: t.p.Name(), ID: t.id, State: string(sandbox.StateStopped)}, t.out == jsonOut)
 }
 
-// rm deletes a sandbox. One already gone is not an error: a tool deleting
-// what it made wants it gone, and it is.
+// rm deletes a sandbox and its alias. One already gone is not an error: a
+// tool deleting what it made wants it gone, and it is. Run from herdr,
+// herdr's machine for it goes too.
 func (a *app) rm(ctx context.Context, args []string) error {
-	p, id, asJSON, err := a.one("rm", "conch-sandbox rm --provider P ID [--json]", args)
+	t, err := a.one(ctx, "rm", "conch-sandbox rm (--provider P ID | --machine ALIAS | --from-orca | --from-herdr) [--json]", args, false)
 	if err != nil {
 		return err
 	}
+	return a.remove(ctx, t.p, t.id, t.out == jsonOut, *t.o.fromHerdr)
+}
+
+func (a *app) remove(ctx context.Context, p sandbox.Provider, id string, asJSON, herdr bool) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	switch err := p.Delete(ctx, id); {
@@ -334,40 +547,34 @@ func (a *app) rm(ctx context.Context, args []string) error {
 	default:
 		sandbox.NoteDeleted(p.Name(), id, time.Now())
 	}
-	if removed, err := removeAlias(aliasName(p.Name(), id)); err != nil {
+	name := aliasName(p.Name(), id)
+	if herdr {
+		a.forgetInHerdr(ctx, name)
+	}
+	if removed, err := removeAlias(name); err != nil {
 		return err
 	} else if removed {
-		fmt.Fprintf(a.stderr, "  removed ssh alias %s\n", aliasName(p.Name(), id))
+		fmt.Fprintf(a.stderr, "  removed ssh alias %s\n", name)
 	}
 	return a.say(result{Schema: schema, Provider: p.Name(), ID: id, State: "deleted"}, asJSON)
 }
 
 // sshAlias writes, or with --remove takes out, a sandbox's ssh alias.
 func (a *app) sshAlias(ctx context.Context, args []string) error {
-	usage := "conch-sandbox ssh-alias --provider P ID [--remove] [--yes] [--json]"
-	c, provider, asJSON := a.sandboxCommand("ssh-alias", usage)
-	remove := c.Bool("remove", false, "take the alias out rather than write it")
-	yes := c.Bool("yes", false, "add the Include line to ~/.ssh/config without asking")
-	rest, err := c.parse(args)
+	o := a.sandboxFlags("ssh-alias", "conch-sandbox ssh-alias (--provider P ID | --machine ALIAS) [--remove] [--yes] [--json]", false)
+	remove := o.Bool("remove", false, "take the alias out rather than write it")
+	yes := o.Bool("yes", false, "add the Include line to ~/.ssh/config without asking")
+	rest, err := o.parse(args)
 	if err != nil {
 		return err
 	}
-	if len(rest) != 1 {
-		return c.wrong("give one sandbox ID")
-	}
-	id := rest[0]
-	if err := checkID(id); err != nil {
-		return c.wrong(err.Error())
-	}
-	if *provider == "" {
-		return c.wrong("give --provider NAME (" + installedWords() + ")")
-	}
 	if *remove {
 		// No provider is asked: its file may be gone, and the alias with it.
-		if err := sandbox.CheckName(*provider); err != nil {
-			return c.wrong(err.Error())
+		provider, id, err := a.locate(ctx, o, rest)
+		if err != nil {
+			return err
 		}
-		name := aliasName(*provider, id)
+		name := aliasName(provider, id)
 		removed, err := removeAlias(name)
 		if err != nil {
 			return err
@@ -375,18 +582,22 @@ func (a *app) sshAlias(ctx context.Context, args []string) error {
 		if !removed {
 			fmt.Fprintf(a.stderr, "no ssh alias %s\n", name)
 		}
-		if *asJSON {
-			return a.printJSON(aliasJSON{Schema: schema, Provider: *provider, ID: id, Alias: name, Removed: removed})
+		if *o.asJSON {
+			return a.printJSON(aliasJSON{Schema: schema, Provider: provider, ID: id, Alias: name, Removed: removed})
 		}
 		if removed {
 			fmt.Fprintf(a.stdout, "removed %s\n", name)
 		}
 		return nil
 	}
+	provider, id, err := a.locate(ctx, o, rest)
+	if err != nil {
+		return err
+	}
 	if err := a.ensureInclude(*yes); err != nil {
 		return err
 	}
-	p, _, err := ready(*provider)
+	p, _, err := ready(provider)
 	if err != nil {
 		return err
 	}
@@ -395,7 +606,7 @@ func (a *app) sshAlias(ctx context.Context, args []string) error {
 		return gone(p, id, err)
 	}
 	if sb.State != sandbox.StateStarted {
-		return fmt.Errorf("sandbox %s is %s: start it first (conch-sandbox start --provider %s %s)", id, sb.State, *provider, id)
+		return fmt.Errorf("sandbox %s is %s: start it first (conch-sandbox start --provider %s %s)", id, sb.State, provider, id)
 	}
 	r := describe(p.Name(), sb, "")
 	var al alias
@@ -406,7 +617,7 @@ func (a *app) sshAlias(ctx context.Context, args []string) error {
 		return err
 	}
 	r.SSH.Alias = al.name()
-	if *asJSON {
+	if *o.asJSON {
 		return a.printJSON(r)
 	}
 	fmt.Fprintln(a.stdout, al.name())

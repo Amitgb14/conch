@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -43,7 +44,72 @@ type alias struct {
 	Port         int
 	User         string
 	Identity     string // the private key, for the key kind
+	Token        bool   // User is a token, a secret
 	Expires      *time.Time
+	// Root is the checkout in the sandbox, or its home; kept so start can
+	// say it again (Orca's projectRoot).
+	Root string
+}
+
+// metaMark starts the line in each block that says whose it is, so a
+// caller that knows only the alias — the herdr app, a herdr workspace —
+// gets the provider and id back without guessing where a name with - in
+// it ends and an id with - in it begins.
+const metaMark = "# conch-sandbox "
+
+func (al alias) meta() string {
+	m := metaMark + "provider=" + al.Provider + " id=" + al.ID
+	if al.Root != "" {
+		m += " root=" + url.QueryEscape(al.Root)
+	}
+	return m
+}
+
+// parseMeta reads a meta line; ok is false for any other line.
+func parseMeta(line string) (provider, id, root string, ok bool) {
+	rest, found := strings.CutPrefix(line, metaMark)
+	if !found {
+		return "", "", "", false
+	}
+	for _, f := range strings.Fields(rest) {
+		k, v, _ := strings.Cut(f, "=")
+		switch k {
+		case "provider":
+			provider = v
+		case "id":
+			id = v
+		case "root":
+			root, _ = url.QueryUnescape(v)
+		}
+	}
+	return provider, id, root, provider != "" && id != ""
+}
+
+// owner is the sandbox behind one of conch-sandbox's aliases.
+type owner struct{ Provider, ID, Root string }
+
+// aliasOwner is the sandbox name is the alias of, read from its block's
+// meta line. A name with no block of conch-sandbox's — or one whose meta
+// line does not name it back — is not conch-sandbox's to act on.
+func aliasOwner(name string) (owner, error) {
+	lines, err := readAliases()
+	if err != nil {
+		return owner{}, err
+	}
+	for i, l := range lines {
+		if l != beginMark+name {
+			continue
+		}
+		for _, m := range lines[i+1:] {
+			if m == endMark+name || strings.HasPrefix(m, beginMark) {
+				break
+			}
+			if p, id, root, ok := parseMeta(m); ok && aliasName(p, id) == name {
+				return owner{Provider: p, ID: id, Root: root}, nil
+			}
+		}
+	}
+	return owner{}, fmt.Errorf("%s is not one of conch-sandbox's ssh aliases (%s)", name, aliasFile())
 }
 
 func (al alias) name() string { return aliasName(al.Provider, al.ID) }
@@ -89,6 +155,7 @@ func (al alias) block() (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString(beginMark + al.name() + "\n")
+	b.WriteString(al.meta() + "\n")
 	fmt.Fprintf(&b, "Host %s\n  HostName %s\n  Port %d\n  User %s\n", al.name(), host, port, user)
 	b.WriteString("  StrictHostKeyChecking accept-new\n")
 	fmt.Fprintf(&b, "  HostKeyAlias %s\n  UserKnownHostsFile %s\n", al.name(), known)
@@ -99,8 +166,11 @@ func (al alias) block() (string, error) {
 		}
 		fmt.Fprintf(&b, "  IdentityFile %s\n  IdentitiesOnly yes\n", id)
 	}
-	if al.Expires != nil {
+	switch {
+	case al.Token && al.Expires != nil:
 		fmt.Fprintf(&b, "  # the user is a token, until %s: conch-sandbox start writes a new one\n", al.Expires.UTC().Format(time.RFC3339))
+	case al.Token:
+		b.WriteString("  # the user is a token: conch-sandbox start writes a new one\n")
 	}
 	b.WriteString(endMark + al.name() + "\n")
 	return b.String(), nil
@@ -165,6 +235,15 @@ func setAlias(al alias) error {
 	block, err := al.block()
 	if err != nil {
 		return err
+	}
+	if al.Root == "" {
+		// A rewrite with a fresh token keeps the checkout it was made with.
+		if o, err := aliasOwner(al.name()); err == nil {
+			al.Root = o.Root
+			if block, err = al.block(); err != nil {
+				return err
+			}
+		}
 	}
 	lines, err := readAliases()
 	if err != nil {

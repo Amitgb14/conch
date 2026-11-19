@@ -28,12 +28,12 @@ func TestUsage(t *testing.T) {
 		t.Fatalf("version: %d %q", code, out)
 	}
 	// Every verb has --help of its own, on stdout, and exits 0.
-	for _, verb := range []string{"providers", "key", "create", "get", "start", "stop", "rm", "ssh-alias"} {
+	for _, verb := range []string{"providers", "key", "create", "get", "start", "stop", "rm", "ssh-alias", "orphans", "pick"} {
 		code, out, errs := run(t, "", verb, "--help")
 		if code != 0 || !strings.Contains(out, "Usage: conch-sandbox "+verb) || errs != "" {
 			t.Errorf("%s --help: %d %q %q", verb, code, out, errs)
 		}
-		if verb != "providers" && verb != "key" && !strings.Contains(out, "-provider") {
+		if verb != "providers" && verb != "key" && verb != "orphans" && verb != "pick" && !strings.Contains(out, "-provider") {
 			t.Errorf("%s --help names no flags: %q", verb, out)
 		}
 	}
