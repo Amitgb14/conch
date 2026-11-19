@@ -233,6 +233,9 @@ final class Store: ObservableObject {
     private(set) var sessionViews: [String: SessionsModel] = [:]
     private(set) var commitViews: [String: CommitsModel] = [:]
     private var asking: Set<String> = []
+    /// Questions just answered from here, not shown again while the agent
+    /// takes the answer (AnsweredQuestions).
+    private(set) var answered = AnsweredQuestions()
 
     /// Which window this store is (Windows+Store.swift): "main" for the
     /// first, which also says what is said once for every window — a
@@ -1826,6 +1829,7 @@ final class Store: ObservableObject {
                 // waiting, that published a change of nothing and redrew
                 // the window past snapshotsChanged's coalescing.
                 dropValue(k, from: \Store.questions, of: self)
+                answered.clear(k)
             }
         case "pane.closed":
             // The server says only which pane ({"id": …}); read as a whole
@@ -1936,6 +1940,9 @@ final class Store: ObservableObject {
         Task {
             defer { asking.remove(k) }
             let q = try? await readQuestion(b, pane: id, machine: m)
+            // The one just answered, still on the agent's screen: not
+            // shown again, or the card's buttons came back for a moment.
+            if answered.hides(k, q) { return }
             // Only a change is drawn again: read every tick, most reads
             // find the same question.
             if questions[k] != q { questions[k] = q }
@@ -1965,6 +1972,7 @@ final class Store: ObservableObject {
 
     func answer(_ k: String, _ q: Question, _ c: Choice) {
         guard let b = binary else { return }
+        answered.note(k, q)
         questions.removeValue(forKey: k) // answered: the buttons go at once
         let (m, id) = unkey(k)
         Task {
@@ -1972,6 +1980,7 @@ final class Store: ObservableObject {
                 try await ConchKit.answer(b, pane: id, machine: m, question: q, choice: c)
             } catch {
                 self.error = "\(error)"
+                answered.clear(k)
                 ask(k)
             }
         }

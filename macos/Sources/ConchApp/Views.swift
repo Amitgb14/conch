@@ -1643,6 +1643,9 @@ struct NeedsYouCard: View {
 
     var body: some View {
         let q = store.questions[key]
+        // Its text stays the question's while an answer is on its way,
+        // rather than falling back to the agent's message for a moment.
+        let shown = q ?? store.answered.question(key)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Mark(agent: pane.agent?.name)
@@ -1650,7 +1653,7 @@ struct NeedsYouCard: View {
                 Spacer(minLength: 4)
                 Pill(text: questionKind(pane.agent?.message), fg: Theme.onWarn, bg: Theme.warn)
             }
-            let text = cardText(q?.text.isEmpty == false ? q!.text : (pane.agent?.message ?? ""), choices: q?.choices ?? [])
+            let text = cardText(shown?.text.isEmpty == false ? shown!.text : (pane.agent?.message ?? ""), choices: shown?.choices ?? [])
             if !text.isEmpty {
                 Text(text).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
             }
@@ -1661,6 +1664,9 @@ struct NeedsYouCard: View {
             }
             if let q, !q.choices.isEmpty {
                 ChoiceButtons(store: store, pane: key, question: q)
+            } else if store.answered.answering(key) {
+                // Answered from here; the card goes once the agent moves on.
+                Text("Sending your answer…").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
             } else {
                 Button("Open to Answer") { store.open(key) }.buttonStyle(.plain)
                     .font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
