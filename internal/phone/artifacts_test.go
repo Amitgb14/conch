@@ -1,6 +1,7 @@
 package phone
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,5 +150,86 @@ not json at all
 	}
 	if status, b := p.do("GET", "/api/artifacts?pane=nope", nil); status < 400 {
 		t.Errorf("an unknown pane: %d %s", status, b)
+	}
+}
+
+// TestReadAllKeepsManyTranscripts: listing every artifact reads every
+// transcript, and a computer can hold more than a thousand. Each must stay
+// cached between requests, or every request reads them all again.
+func TestReadAllKeepsManyTranscripts(t *testing.T) {
+	dir := t.TempDir()
+	pub := func(url string) string {
+		return `{"timestamp":"2026-11-13T07:00:00Z","message":{"content":[{"type":"tool_use","id":"x","name":"Artifact","input":{"title":"T"}}]}}
+{"timestamp":"2026-11-13T07:00:01Z","message":{"content":[{"type":"tool_result","tool_use_id":"x","content":"Created a new Artifact at ` + url + `"}]}}
+`
+	}
+	first := filepath.Join(dir, "first.jsonl")
+	if err := os.WriteFile(first, []byte(pub("https://claude.ai/artifact/AAAA")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{first}
+	for i := range 1500 {
+		p := filepath.Join(dir, fmt.Sprintf("s%d.jsonl", i))
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	c := &artifactCache{entries: map[string]artifactEntry{}}
+	if _, err := c.readAll(paths); err != nil {
+		t.Fatal(err)
+	}
+	// Change the first file behind the cache's back, same size and time:
+	// only a cache that kept it still answers the old URL.
+	st, _ := os.Stat(first)
+	if err := os.WriteFile(first, []byte(pub("https://claude.ai/artifact/BBBB")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(first, st.ModTime(), st.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	arts, err := c.readAll(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 || arts[0].URL != "https://claude.ai/artifact/AAAA" {
+		t.Errorf("second listing read the transcript again: %+v", arts)
+	}
+}
+
+// TestArtifactCacheFull: at its bound the cache forgets transcripts that
+// are gone and keeps the ones still there.
+func TestArtifactCacheFull(t *testing.T) {
+	old := maxCachedTranscripts
+	maxCachedTranscripts = 3
+	t.Cleanup(func() { maxCachedTranscripts = old })
+	dir := t.TempDir()
+	var paths []string
+	for i := range 4 {
+		p := filepath.Join(dir, fmt.Sprintf("s%d.jsonl", i))
+		if err := os.WriteFile(p, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, p)
+	}
+	c := &artifactCache{entries: map[string]artifactEntry{}}
+	if _, err := c.readAll(paths[:3]); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(paths[0])
+	if _, err := c.readAll(paths[3:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, gone := c.entries[paths[0]]; gone || len(c.entries) != 3 {
+		t.Errorf("entries %v: want the deleted one dropped and the rest kept", c.entries)
+	}
+	// Full of transcripts that all still exist: it starts again.
+	p := filepath.Join(dir, "s9.jsonl")
+	os.WriteFile(p, nil, 0o600)
+	if _, err := c.read(p); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.entries) != 1 {
+		t.Errorf("%d entries, want the cache started again with one", len(c.entries))
 	}
 }

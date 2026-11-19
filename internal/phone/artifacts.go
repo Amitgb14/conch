@@ -121,6 +121,12 @@ func findTranscript(root, session string) string {
 // changes: a long session's transcript runs to megabytes.
 var transcriptArtifacts = &artifactCache{entries: map[string]artifactEntry{}}
 
+// maxCachedTranscripts bounds the cache. Listing every artifact reads every
+// transcript on the computer, and there can be thousands, so a small bound
+// would empty the cache part-way through each listing and make every
+// request read them all again; an entry is a size, a time and a short list.
+var maxCachedTranscripts = 1 << 14
+
 type artifactCache struct {
 	mu      sync.Mutex
 	entries map[string]artifactEntry
@@ -153,8 +159,16 @@ func (c *artifactCache) read(path string) ([]Artifact, error) {
 		return nil, err
 	}
 	c.mu.Lock()
-	if len(c.entries) > 1024 {
-		clear(c.entries)
+	if len(c.entries) >= maxCachedTranscripts {
+		// Transcripts deleted since go first; only past that, everything.
+		for p := range c.entries {
+			if _, err := os.Stat(p); err != nil {
+				delete(c.entries, p)
+			}
+		}
+		if len(c.entries) >= maxCachedTranscripts {
+			clear(c.entries)
+		}
 	}
 	c.entries[path] = artifactEntry{size: st.Size(), mtime: st.ModTime(), arts: arts}
 	c.mu.Unlock()
