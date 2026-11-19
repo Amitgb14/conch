@@ -71,14 +71,51 @@ func TestProcListening(t *testing.T) {
 func TestPortsUnder(t *testing.T) {
 	children := map[int][]int{10: {11, 12}, 12: {13}, 13: {10}} // a loop must not hang
 	ports := map[int][]int{11: {9000}, 13: {4317, 9000}, 99: {1}}
-	if got := portsUnder(10, children, ports); !slices.Equal(got, []int{4317, 9000}) {
+	if got := portsUnder(10, 0, children, ports); !slices.Equal(got, []int{4317, 9000}) {
 		t.Fatalf("got %v", got)
 	}
-	if got := portsUnder(99, nil, ports); !slices.Equal(got, []int{1}) {
+	if got := portsUnder(99, 0, nil, ports); !slices.Equal(got, []int{1}) {
 		t.Fatalf("got %v", got)
 	}
-	if got := portsUnder(7, children, ports); len(got) != 0 {
+	if got := portsUnder(7, 0, children, ports); len(got) != 0 {
 		t.Fatalf("got %v", got)
+	}
+	// The agent's own ports are left out, what runs under it is not:
+	// the agent as the pane's program, and below a shell.
+	if got := portsUnder(99, 99, nil, ports); len(got) != 0 {
+		t.Fatalf("the agent's own port: %v", got)
+	}
+	if got := portsUnder(10, 12, children, ports); !slices.Equal(got, []int{4317, 9000}) {
+		t.Fatalf("under the agent: %v", got)
+	}
+	if got := portsUnder(10, 13, children, ports); !slices.Equal(got, []int{9000}) {
+		t.Fatalf("skipping 13: %v", got)
+	}
+	// A pid not in the tree skips nothing.
+	if got := portsUnder(10, 4242, children, ports); !slices.Equal(got, []int{4317, 9000}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// An agent's own listening port (Claude Code keeps one on 127.0.0.1) is
+// not shown as the pane's, where it read as a dev server; a server the
+// agent started still is.
+func TestLookListeningLeavesOutTheAgentsOwnPort(t *testing.T) {
+	a5IsolateEnv(t)
+	s, _ := a5Server(t)
+	a5Listen(t, s) // looked for only while somebody is connected
+	info, e := bgPane(t, s)
+	server := info.PID + 100000
+	bgFakes(t, func() (map[int]psRow, error) {
+		return map[int]psRow{
+			info.PID: {pid: info.PID, ppid: 1, args: "claude"},
+			server:   {pid: server, ppid: info.PID, args: "npm run dev"},
+		}, nil
+	}, map[int][]int{info.PID: {52032}, server: {5173}})
+
+	s.lookListening(context.Background())
+	if got := e.info().Listening; !slices.Equal(got, []int{5173}) {
+		t.Fatalf("listening %v, want [5173]", got)
 	}
 }
 
