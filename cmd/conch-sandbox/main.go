@@ -15,7 +15,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -34,11 +34,12 @@ installs anything inside a sandbox.
 Usage:
   conch-sandbox providers [--json]
   conch-sandbox key set PROVIDER            the API key, read from stdin
-  conch-sandbox create --provider P [--name N] [--region R] [--size S] [--image I] [--json]
+  conch-sandbox create --provider P [--name N] [--region R] [--size S] [--image I] [--yes] [--json]
   conch-sandbox get    --provider P ID [--json]
   conch-sandbox start  --provider P ID [--json]
   conch-sandbox stop   --provider P ID [--json]
   conch-sandbox rm     --provider P ID [--json]
+  conch-sandbox ssh-alias --provider P ID [--remove] [--yes] [--json]
   conch-sandbox version
   conch-sandbox VERB --help                 more about one of them
 
@@ -46,6 +47,11 @@ With --json a command prints one JSON object on stdout ("schema": 1) and
 its progress on stderr. Keys, provider files and the ssh key are conch's:
 ` + "`$CONCH_HOME`" + `, else ~/.config/conch. A provider file is installed with
 conch sandbox provider install NAME, or by hand in its providers folder.
+
+create writes an ssh alias, conch-PROVIDER-ID, to $CONCH_HOME/ssh/sandboxes,
+which ssh and the tools read once ~/.ssh/config includes it: conch-sandbox
+asks before adding that line, or adds it with --yes. start writes a fresh
+token into an alias that has one; rm takes the alias out.
 `
 
 // app is one run: its streams, so a test can give it its own.
@@ -59,6 +65,8 @@ type app struct {
 	readSecret func() (string, error)
 	// wait bounds making or starting a sandbox.
 	wait time.Duration
+	// line is the command run, after the program's name.
+	line []string
 }
 
 func main() {
@@ -90,6 +98,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 		return 2
 	}
 	verb, rest := args[0], args[1:]
+	a.line = args
 	var err error
 	switch verb {
 	case "help", "-h", "-help", "--help":
@@ -112,6 +121,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.stop(ctx, rest)
 	case "rm":
 		err = a.rm(ctx, rest)
+	case "ssh-alias":
+		err = a.sshAlias(ctx, rest)
 	default:
 		fmt.Fprintf(a.stderr, "conch-sandbox: unknown command %q\n\n%s", verb, usage)
 		return 2
@@ -174,9 +185,12 @@ func (c *command) wrong(why string) error {
 
 // checkID refuses what cannot be a sandbox's ID: it goes into the
 // provider's paths and, later, an ssh alias.
+// An ID is also part of an ssh alias, where * ? ! and , are patterns.
 func checkID(id string) error {
-	if id == "" || strings.ContainsAny(id, "@/: \t\n\"'\\") || strings.HasPrefix(id, "-") {
+	if !idChars.MatchString(id) || len(id) > 128 {
 		return fmt.Errorf("%q is not a sandbox ID", id)
 	}
 	return nil
 }
+
+var idChars = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

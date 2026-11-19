@@ -79,33 +79,33 @@ func describe(provider string, s sandbox.Sandbox, region string) result {
 
 // access readies the sandbox for an ssh login and says how to make it:
 // the key handed over or offered for the key kind, a fresh token for the
-// token kind. A provider whose file has no way in gives nil.
-func access(ctx context.Context, p sandbox.Provider, id string) (*sshJSON, string, error) {
+// token kind. What is printed has the token struck out; the alias has it.
+func access(ctx context.Context, p sandbox.Provider, id string) (*sshJSON, alias, error) {
 	kind := sshKind(p)
 	if kind == "" {
-		return nil, "", nil
+		return nil, alias{}, errors.New(sandbox.ProviderLabel(p.Name()) + "'s file says no ssh way in")
 	}
 	identity, err := sshkey.Authorize(ctx, p, id, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("let your ssh key in: %w", err)
+		return nil, alias{}, fmt.Errorf("let your ssh key in: %w", err)
 	}
 	ac, err := p.SSHAccess(ctx, id)
 	if err != nil {
-		return nil, "", err
+		return nil, alias{}, err
 	}
-	s := &sshJSON{Kind: kind, Host: ac.Host, Port: ac.Port, User: ac.User, IdentityFile: identity}
-	if s.Port == 0 {
-		s.Port = 22
+	al := alias{Provider: p.Name(), ID: id, Host: ac.Host, Port: ac.Port, User: ac.User, Identity: identity}
+	if al.Port == 0 {
+		al.Port = 22
 	}
+	s := &sshJSON{Kind: kind, Host: ac.Host, Port: al.Port, User: ac.User, IdentityFile: identity}
 	if !ac.Expires.IsZero() {
 		e := ac.Expires.UTC()
-		s.Expires = &e
+		s.Expires, al.Expires = &e, &e
 	}
-	secret := ""
 	if !ac.PlainUser {
-		secret, s.User = ac.User, struck
+		s.User = struck
 	}
-	return s, secret, nil
+	return s, al, nil
 }
 
 // say prints r: JSON on stdout, or a line or two for a person.
@@ -178,11 +178,12 @@ func gone(p sandbox.Provider, id string, err error) error {
 
 func (a *app) create(ctx context.Context, args []string) error {
 	c, provider, asJSON := a.sandboxCommand("create",
-		"conch-sandbox create --provider P [--name N] [--region R] [--size S] [--image I] [--json]")
+		"conch-sandbox create --provider P [--name N] [--region R] [--size S] [--image I] [--yes] [--json]")
 	name := c.String("name", "", "what it is for; the sandbox is named conch-NAME-…")
 	region := c.String("region", "", "where it runs: one the provider's file offers (default: config.toml's)")
 	size := c.String("size", "", "a named size, for a provider whose machines come in them")
 	image := c.String("image", "", "the image or snapshot to start from (default: config.toml's, or the provider's)")
+	yes := c.Bool("yes", false, "add the Include line for the ssh aliases to ~/.ssh/config without asking")
 	rest, err := c.parse(args)
 	if err != nil {
 		return err
@@ -198,6 +199,11 @@ func (a *app) create(ctx context.Context, args []string) error {
 	}
 	p, cfg, err := ready(*provider)
 	if err != nil {
+		return err
+	}
+	// Asked before anything is made: a sandbox with an alias nothing
+	// reads is one a tool cannot reach.
+	if err := a.ensureInclude(*yes); err != nil {
 		return err
 	}
 	pc := cfg.Sandbox.Of(*provider)
@@ -224,10 +230,16 @@ func (a *app) create(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(a.stderr, "  sandbox %s started\n", sb.ID)
 	r := describe(*provider, sb, *region)
-	if r.SSH, _, err = access(ctx, p, sb.ID); err != nil {
+	var al alias
+	if r.SSH, al, err = access(ctx, p, sb.ID); err == nil {
+		err = setAlias(al)
+	}
+	if err != nil {
 		a.abandon(p, sb.ID)
 		return err
 	}
+	r.SSH.Alias = al.name()
+	fmt.Fprintf(a.stderr, "  ssh alias %s\n", al.name())
 	return a.say(r, *asJSON)
 }
 
@@ -275,8 +287,18 @@ func (a *app) start(ctx context.Context, args []string) error {
 		sb.ID = id
 	}
 	r := describe(p.Name(), sb, "")
-	if r.SSH, _, err = access(ctx, p, id); err != nil {
+	var al alias
+	if r.SSH, al, err = access(ctx, p, id); err != nil {
 		return err
+	}
+	// An alias made for it gets the new token, or the new address of a
+	// sandbox that came back on another machine. One never made is left
+	// to ssh-alias, which asks about ~/.ssh/config.
+	if hasAlias(al.name()) {
+		if err := setAlias(al); err != nil {
+			return err
+		}
+		r.SSH.Alias = al.name()
 	}
 	return a.say(r, asJSON)
 }
@@ -312,5 +334,89 @@ func (a *app) rm(ctx context.Context, args []string) error {
 	default:
 		sandbox.NoteDeleted(p.Name(), id, time.Now())
 	}
+	if removed, err := removeAlias(aliasName(p.Name(), id)); err != nil {
+		return err
+	} else if removed {
+		fmt.Fprintf(a.stderr, "  removed ssh alias %s\n", aliasName(p.Name(), id))
+	}
 	return a.say(result{Schema: schema, Provider: p.Name(), ID: id, State: "deleted"}, asJSON)
+}
+
+// sshAlias writes, or with --remove takes out, a sandbox's ssh alias.
+func (a *app) sshAlias(ctx context.Context, args []string) error {
+	usage := "conch-sandbox ssh-alias --provider P ID [--remove] [--yes] [--json]"
+	c, provider, asJSON := a.sandboxCommand("ssh-alias", usage)
+	remove := c.Bool("remove", false, "take the alias out rather than write it")
+	yes := c.Bool("yes", false, "add the Include line to ~/.ssh/config without asking")
+	rest, err := c.parse(args)
+	if err != nil {
+		return err
+	}
+	if len(rest) != 1 {
+		return c.wrong("give one sandbox ID")
+	}
+	id := rest[0]
+	if err := checkID(id); err != nil {
+		return c.wrong(err.Error())
+	}
+	if *provider == "" {
+		return c.wrong("give --provider NAME (" + installedWords() + ")")
+	}
+	if *remove {
+		// No provider is asked: its file may be gone, and the alias with it.
+		if err := sandbox.CheckName(*provider); err != nil {
+			return c.wrong(err.Error())
+		}
+		name := aliasName(*provider, id)
+		removed, err := removeAlias(name)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			fmt.Fprintf(a.stderr, "no ssh alias %s\n", name)
+		}
+		if *asJSON {
+			return a.printJSON(aliasJSON{Schema: schema, Provider: *provider, ID: id, Alias: name, Removed: removed})
+		}
+		if removed {
+			fmt.Fprintf(a.stdout, "removed %s\n", name)
+		}
+		return nil
+	}
+	if err := a.ensureInclude(*yes); err != nil {
+		return err
+	}
+	p, _, err := ready(*provider)
+	if err != nil {
+		return err
+	}
+	sb, err := p.Get(ctx, id)
+	if err != nil {
+		return gone(p, id, err)
+	}
+	if sb.State != sandbox.StateStarted {
+		return fmt.Errorf("sandbox %s is %s: start it first (conch-sandbox start --provider %s %s)", id, sb.State, *provider, id)
+	}
+	r := describe(p.Name(), sb, "")
+	var al alias
+	if r.SSH, al, err = access(ctx, p, id); err != nil {
+		return err
+	}
+	if err := setAlias(al); err != nil {
+		return err
+	}
+	r.SSH.Alias = al.name()
+	if *asJSON {
+		return a.printJSON(r)
+	}
+	fmt.Fprintln(a.stdout, al.name())
+	return nil
+}
+
+type aliasJSON struct {
+	Schema   int    `json:"schema"`
+	Provider string `json:"provider"`
+	ID       string `json:"id"`
+	Alias    string `json:"alias"`
+	Removed  bool   `json:"removed"`
 }
