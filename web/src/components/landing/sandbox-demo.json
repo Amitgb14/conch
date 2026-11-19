@@ -8,7 +8,7 @@
       "access": "a fresh ssh token per connection",
       "regions": ["us", "eu"],
       "sizes": [],
-      "limits": { "cpu": [1, 4], "memory": [1, 8], "disk": [1, 10] }
+      "limits": {}
     },
     {
       "name": "boat",
