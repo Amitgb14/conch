@@ -583,7 +583,7 @@ func (s *Server) runAutopilot(quit <-chan struct{}) {
 			s.autopilotMerges()
 			s.groups.merges() // a task's Merge All When Green
 			s.autopilotPendingCI()
-			go s.autopilotResolves() // a fetch can take a while; merges must not wait for it
+			goSafe("autopilot resolve", s.autopilotResolves) // a fetch can take a while; merges must not wait for it
 		}
 	}
 }
@@ -743,7 +743,7 @@ func (s *Server) autopilotFix(projectID, branch, what string, about *proto.NoteC
 	if !ok {
 		return
 	}
-	go func() {
+	goSafe("autopilot send", func() {
 		prompt, read, err := text()
 		if read != nil {
 			about = read
@@ -762,7 +762,7 @@ func (s *Server) autopilotFix(projectID, branch, what string, about *proto.NoteC
 		}
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, CI: about, Kind: kind,
 			Text: fmt.Sprintf("%s: sent it to %s to fix", failed(about), agent.DisplayName())})
-	}()
+	})
 }
 
 // autopilotCheck is how the project's own check on a branch ended, told
@@ -795,7 +795,7 @@ func (s *Server) autopilotCheckEnded(p *project, ck proto.AutopilotCheck, output
 	}
 	s.autopilot.checked(branchKey(ck.ProjectID, ck.Branch), head, ck.Exit == 0)
 	if ck.Exit == 0 {
-		go s.autopilotShip(ck.ProjectID, ck.Branch)
+		goSafe("autopilot ship", func() { s.autopilotShip(ck.ProjectID, ck.Branch) })
 	} else {
 		s.autopilotFix(ck.ProjectID, ck.Branch, "The project's check", nil, func() (string, *proto.NoteCI, error) {
 			lines := output
@@ -919,7 +919,7 @@ func (s *Server) autopilotMerge(key string) {
 	}
 	a.merging[key] = true
 	a.mu.Unlock()
-	go func() {
+	goSafe("autopilot merge", func() {
 		res, perr := s.projects.mergePR(proto.BranchPRMergeParams{ProjectID: projectID, Branch: branch, Number: pr.Number, Head: pr.Head})
 		// One GitHub refused is not tried again until it turns green
 		// again — after a push, which is what it takes to change
@@ -937,7 +937,7 @@ func (s *Server) autopilotMerge(key string) {
 		s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Merged: true, Kind: proto.ActivityMerge,
 			Text: fmt.Sprintf("merged #%d on GitHub (%s), green", pr.Number, res.Method)})
 		s.notifyMerged(info.Name, branch, pr.Number, pr.URL)
-	}()
+	})
 }
 
 // mergeGates holds a green pull request for its project's check until it
@@ -963,7 +963,7 @@ func (s *Server) mergeGates(p *project, info proto.ProjectInfo, branch string, p
 		case checkedOut && wt.Path != "" && branchHead(p, branch) == at:
 			// A failure there is mergeHold's to say; this is a commit
 			// with no verdict yet.
-			go s.autopilotStartCheck(info.ID, branch, cmd)
+			goSafe("autopilot check", func() { s.autopilotStartCheck(info.ID, branch, cmd) })
 			return "this project's check has not run on it yet; running it"
 		default:
 			// Merging would put a commit nobody checked on the base, and

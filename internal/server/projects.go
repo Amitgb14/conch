@@ -117,10 +117,10 @@ func (pm *projectManager) background(f func()) bool {
 		return false
 	}
 	pm.bg.Add(1)
-	go func() {
+	goSafe("project work", func() {
 		defer pm.bg.Done()
 		f()
-	}()
+	})
 	return true
 }
 

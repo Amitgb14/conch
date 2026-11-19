@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
@@ -242,15 +241,17 @@ func (s *Server) Run() error {
 	}) {
 		loaded()
 	}
-	go s.uploads.run(s.quit)
-	go s.packs.run(s.quit)
-	go s.sshFiles.run(s.quit)
-	go s.watcher.run(s.quit)
-	go s.runSchedule(s.quit)
-	go s.runAutopilot(s.quit)
-	go s.runIntake(s.quit)
-	go s.runListening(s.quit)
-	go s.runShellTheme(s.quit)
+	s.noteLive(true) // its locks are what a recovered panic checks (survive.go)
+	defer s.noteLive(false)
+	s.keep("uploads", func() { s.uploads.run(s.quit) })
+	s.keep("packs", func() { s.packs.run(s.quit) })
+	s.keep("ssh files", func() { s.sshFiles.run(s.quit) })
+	s.keep("worktree watch", func() { s.watcher.run(s.quit) })
+	s.keep("schedule", func() { s.runSchedule(s.quit) })
+	s.keep("autopilot", func() { s.runAutopilot(s.quit) })
+	s.keep("intake", func() { s.runIntake(s.quit) })
+	s.keep("listening ports", func() { s.runListening(s.quit) })
+	s.keep("shell theme", func() { s.runShellTheme(s.quit) })
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -277,7 +278,7 @@ func (s *Server) Run() error {
 	s.ln = ln
 	s.mu.Unlock()
 	log.Printf("conch server %s listening on %s (pid %d)", proto.Version, s.sockPath, os.Getpid())
-	go s.autoResume()
+	goSafe("auto resume", s.autoResume)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -303,7 +304,7 @@ func (s *Server) Run() error {
 				}
 				return
 			}
-			go s.serve(conn)
+			goSafe("connection", func() { s.serve(conn) })
 		}
 	}()
 
@@ -447,7 +448,9 @@ func (s *Server) serve(nc net.Conn) {
 			go s.handleAside(c, msg)
 			continue
 		}
-		if !s.handle(c, msg) {
+		ok := true
+		recovering(c, msg, func() { ok = s.handle(c, msg) })
+		if !ok {
 			return
 		}
 	}
@@ -475,29 +478,33 @@ var slowMethods = map[string]bool{
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
 }
 
-// repanic makes handleAside's recover panic again, so a test meets the
-// bug rather than an error reply that hides it.
-var repanic = testing.Testing()
+// repanic makes a recovered panic panic again in a test, so a test meets
+// the bug rather than an error reply that hides it (survive.go).
+var repanic = func() *atomic.Bool {
+	var b atomic.Bool
+	b.Store(testing.Testing())
+	return &b
+}()
 
-// handleAside is handle for a request run on a goroutine of its own. A
-// panic there would end the whole server — every pane with it — for one
-// bad request, so it becomes an error reply and a log line with the stack
-// instead. Only these: what they hold is a file or a git process, while a
-// request handled in line may hold the server's locks, and carrying on
-// past a panic there would trade a crash for a hang.
+// handleAside is handle for a request run on a goroutine of its own.
 func (s *Server) handleAside(c *client, msg proto.Message) {
 	recovering(c, msg, func() { s.handle(c, msg) })
 }
 
+// recovering runs one request. A panic in it would end the whole server —
+// every pane with it — for one bad request, so it becomes an error reply
+// and a log line with the stack instead, unless it left one of the
+// server's own locks held (recovered, survive.go): carrying on past that
+// would trade a crash for a hang.
 func recovering(c *client, msg proto.Message, handle func()) {
 	defer func() {
 		r := recover()
 		if r == nil {
 			return
 		}
-		log.Printf("%s: panic: %v\n%s", msg.Method, r, debug.Stack())
-		if repanic {
-			panic(r)
+		recovered(msg.Method, r)
+		if msg.ID == "" { // a notification: nobody waits for an answer
+			return
 		}
 		c.send(proto.Message{ID: msg.ID, Error: proto.Errorf(proto.ErrInternal, "%s failed inside the server: %v", msg.Method, r)})
 	}()
@@ -534,7 +541,7 @@ func (s *Server) handle(c *client, msg proto.Message) bool {
 	if msg.Method == proto.MethodServerReload && perr == nil {
 		if r, ok := result.(proto.ServerReloadResult); ok {
 			c.flush(replyWait)
-			go s.reload(r.Binary)
+			goSafe("reload", func() { s.reload(r.Binary) })
 		}
 	}
 	return true
@@ -1583,7 +1590,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		s.autopilot.set(pol)
 		s.autopilotMerges()
 		if len(pol.Intake) > 0 || len(pol.Triage) > 0 {
-			go s.backlogOnce() // a label just named is looked at now, not in five minutes
+			goSafe("backlog", s.backlogOnce) // a label just named is looked at now, not in five minutes
 		}
 		return s.autopilotState(), nil
 
@@ -1896,7 +1903,7 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	info := e.info()
 	log.Printf("pane %s created: %v in %s", id, cp.Command, cp.Cwd)
 	s.broadcast(proto.EventPaneCreated, info)
-	go s.watch(e)
+	goSafe("pane watch "+e.p.ID(), func() { s.watch(e) })
 	return info, nil
 }
 
@@ -2089,7 +2096,7 @@ func (s *Server) subscribe(c *client, e *entry) {
 	c.mu.Unlock()
 	s.setWatchers(e, +1)
 
-	go func() {
+	goSafe("pane frames", func() {
 		for {
 			changed := p.Changed() // grab before rendering so no change is missed
 			frame := p.FrameAt(sub.anchoredOffset(p.History()))
@@ -2113,7 +2120,7 @@ func (s *Server) subscribe(c *client, e *entry) {
 				}
 			}
 		}
-	}()
+	})
 }
 
 // subscription is one client's live view of a pane.

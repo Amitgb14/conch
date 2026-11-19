@@ -24,8 +24,8 @@ func TestAsidePanicIsAnError(t *testing.T) {
 			got <- m
 		}
 	}()
-	defer func(was bool) { repanic = was }(repanic)
-	repanic = false
+	defer func(was bool) { repanic.Store(was) }(repanic.Load())
+	repanic.Store(false)
 	recovering(c, proto.Message{ID: "7", Method: proto.MethodFSWriteRange}, func() { panic("makeslice: len out of range") })
 	select {
 	case m := <-got:
@@ -36,10 +36,27 @@ func TestAsidePanicIsAnError(t *testing.T) {
 		t.Fatal("no reply")
 	}
 
-	// Nothing panicked: nothing extra is sent.
+	// Nothing panicked, or a notification panicked: nothing is sent. The
+	// next reply read is the one for "10".
 	recovering(c, proto.Message{ID: "8"}, func() {})
+	recovering(c, proto.Message{Method: proto.MethodPaneSendText}, func() { panic("bug") })
+	go func() {
+		m, err := proto.NewConn(b).Read()
+		if err == nil {
+			got <- m
+		}
+	}()
+	recovering(c, proto.Message{ID: "10"}, func() { panic("bug") })
+	select {
+	case m := <-got:
+		if m.ID != "10" {
+			t.Fatalf("read reply %q, want only the one for 10", m.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no reply")
+	}
 
-	repanic = true
+	repanic.Store(true)
 	defer func() {
 		if recover() == nil {
 			t.Fatal("under test the panic was swallowed")

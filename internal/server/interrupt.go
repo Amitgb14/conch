@@ -56,7 +56,7 @@ func (s *Server) interruptAgent(p proto.AgentInterruptParams) (proto.AgentInterr
 	}
 	e.evalMu.Unlock()
 	if state == proto.AgentWorking {
-		go s.watchStop(e)
+		goSafe("stop watch", func() { s.watchStop(e) })
 	}
 	return proto.AgentInterruptResult{ID: info.ID, Keys: keys, State: state}, nil
 }

@@ -45,7 +45,7 @@ func (s *Server) autopilotFinished(info proto.PaneInfo) {
 		// A worktree read mid-rebase is on no branch, and an agent that
 		// finishes straight after its rebase would be lost on it: the
 		// branch is read again, now.
-		go func() {
+		goSafe("autopilot finished", func() {
 			p, perr := s.projects.get(info.ProjectID)
 			if perr != nil {
 				return
@@ -55,14 +55,14 @@ func (s *Server) autopilotFinished(info proto.PaneInfo) {
 				info.Branch = wt.Branch
 				s.autopilotFinished(info)
 			}
-		}()
+		})
 		return
 	}
 	if cmd := s.autopilot.policy().Checks[info.ProjectID]; cmd != "" {
-		go s.autopilotStartCheck(info.ProjectID, info.Branch, cmd)
+		goSafe("autopilot check", func() { s.autopilotStartCheck(info.ProjectID, info.Branch, cmd) })
 		return
 	}
-	go s.autopilotShip(info.ProjectID, info.Branch)
+	goSafe("autopilot ship", func() { s.autopilotShip(info.ProjectID, info.Branch) })
 }
 
 // autopilotStartCheck runs the project's check in the branch's worktree,
@@ -206,7 +206,7 @@ func (s *Server) autopilotExited(info proto.PaneInfo) {
 	if e, perr := s.get(info.ID); perr == nil {
 		output = e.p.PlainLines()
 	}
-	go s.autopilotCheckDone(key, head, cmd, info, output)
+	goSafe("autopilot check", func() { s.autopilotCheckDone(key, head, cmd, info, output) })
 }
 
 // autopilotCheckDone acts on a check of the server's that ended.
@@ -291,7 +291,7 @@ func (s *Server) autopilotReship(projectID string) {
 	}
 	a.mu.Unlock()
 	for _, branch := range branches {
-		go s.autopilotShip(projectID, branch)
+		goSafe("autopilot ship", func() { s.autopilotShip(projectID, branch) })
 	}
 }
 
