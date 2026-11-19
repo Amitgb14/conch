@@ -104,7 +104,7 @@ func Authorize(ctx context.Context, p sandbox.Provider, id string, made func()) 
 		}
 		return k, err
 	}
-	if ka, ok := p.(sandbox.KeyAuthorizer); ok && AuthorizesKey(p) {
+	if ka, ok := sandbox.As[sandbox.KeyAuthorizer](p); ok && AuthorizesKey(p) {
 		k, err := public()
 		if err != nil {
 			return "", err
@@ -114,7 +114,7 @@ func Authorize(ctx context.Context, p sandbox.Provider, id string, made func()) 
 		}
 		return k.Identity(), nil
 	}
-	if ak, ok := p.(sandbox.AccountKeyed); ok && ak.AccountKey() {
+	if ak, ok := sandbox.As[sandbox.AccountKeyed](p); ok && ak.AccountKey() {
 		k, err := public()
 		if err != nil {
 			return "", err
