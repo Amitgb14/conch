@@ -277,6 +277,20 @@ final class Store: ObservableObject {
         Theme.style = style
         if style.roster { sidebarVisible = false }
         watchChanges()
+        // A new Conch.app starts white (firstLaunchTOML): written before
+        // the first theme is read, so the window never shows dark first.
+        // New is an app that has kept no preference yet — not merely one
+        // that has not seen this welcome, which a Conch.app from before
+        // the welcome hasn't either.
+        if primary {
+            let kept = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:]
+            let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+            let next = firstLaunchTOML(toml, newInstall: kept.isEmpty)
+            if next != toml {
+                try? FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+                try? next.write(toFile: configFile, atomically: true, encoding: .utf8)
+            }
+        }
         loadTheme()
         watchClicks()
         watchConfig()
@@ -1142,17 +1156,39 @@ final class Store: ObservableObject {
     /// A TUI open meanwhile holds its own copy of the file; the settings
     /// page is the way to change it there.
     private func setAppSetting(_ key: String, _ value: String?) {
+        changeConfig(key) { settingTOML($0, section: "app", key: key, value: value) }
+    }
+
+    /// config.toml changed by edit, the rest of the file kept, then read
+    /// back so the window takes it; what names the setting if it fails.
+    private func changeConfig(_ what: String, _ edit: (String) -> String) {
         let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
-        let next = settingTOML(toml, section: "app", key: key, value: value)
+        let next = edit(toml)
         guard next != toml else { return }
         do {
             try FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
             try next.write(toFile: configFile, atomically: true, encoding: .utf8)
         } catch {
-            say("Could not save \(key): \(error.localizedDescription)", .err)
+            say("Could not save \(what): \(error.localizedDescription)", .err)
             return
         }
         loadTheme()
+    }
+
+    /// The look the welcome asked for, written to config.toml's [ui] so the
+    /// TUI and every terminal take it too. A theme pinned for this window
+    /// (View → Theme) would hide it, so the pin goes.
+    func chooseLook(_ id: WelcomeLookID) {
+        changeConfig("the theme") { welcomeLookTOML($0, id) }
+        if !themeChoice.isEmpty { chooseTheme("") }
+        lookChosen = welcomeLook(in: try? String(contentsOfFile: configFile, encoding: .utf8))
+    }
+
+    /// The welcome's look as config.toml has it, for its tick.
+    @Published var lookChosen: WelcomeLookID? = nil
+
+    func readLook() {
+        lookChosen = welcomeLook(in: try? String(contentsOfFile: configFile, encoding: .utf8))
     }
 
     /// ⌘+ / ⌘−: the terminal's font a point bigger or smaller; nil, the default.
