@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -13,7 +14,9 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // The launcher, scripts/conch-sandbox.sh, is run with sh against a fake
@@ -34,7 +37,7 @@ func makeRelease(t *testing.T, version string) *fakeRelease {
 	t.Helper()
 	r := &fakeRelease{dir: t.TempDir(), sums: map[string]string{}}
 	for _, p := range platforms {
-		body := fmt.Sprintf("#!/bin/sh\necho \"downloaded %s %s: $*\"\n", version, p)
+		body := fmt.Sprintf("#!/bin/sh\necho \"downloaded %s %s: $*\"\n[ \"${1:-}\" = stdin ] && cat\nexit 0\n", version, p)
 		os.WriteFile(filepath.Join(r.dir, "conch-sandbox-"+version+"-"+p), []byte(body), 0o644)
 		sum := sha256.Sum256([]byte(body))
 		r.sums[p] = hex.EncodeToString(sum[:])
@@ -325,5 +328,204 @@ echo "$args" >> "$(dirname "$out")/args.log"
 	cmd.Env = append(os.Environ(), "GO="+filepath.Join(bin, "go"))
 	if err := cmd.Run(); err == nil {
 		t.Fatal("1.2/3 taken")
+	}
+}
+
+// launcherRun is one run of the launcher with everything said: how sh is
+// started, its environment and its stdin. A watchdog kills its whole
+// process group if it runs on — a launcher that calls itself would.
+type launcherRun struct {
+	argv  []string // sh and its arguments
+	env   []string
+	stdin string
+	limit time.Duration // the watchdog's; 0 is 30s
+}
+
+func (r launcherRun) do(t *testing.T) (int, string, string) {
+	t.Helper()
+	limit := r.limit
+	if limit == 0 {
+		limit = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), limit)
+	defer cancel()
+	cmd := exec.Command(r.argv[0], r.argv[1:]...)
+	cmd.Env, cmd.Stdin = r.env, strings.NewReader(r.stdin)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var out, errb strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-done:
+	case <-ctx.Done():
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		<-done
+		t.Fatalf("still running after %v (%v): %q %q", limit, r.argv, out.String(), errb.String())
+	}
+	// Anything it left in its group goes too.
+	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if ee.ExitCode() < 0 {
+			t.Logf("%v: %v", r.argv, ee)
+		}
+		return ee.ExitCode(), out.String(), errb.String()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return 0, out.String(), errb.String()
+}
+
+func launcherEnv(home, url string, path ...string) []string {
+	return []string{"HOME=" + home, "PATH=" + strings.Join(append(path, "/usr/bin", "/bin"), ":"), "CONCH_SANDBOX_URL=" + url}
+}
+
+// The launcher itself on PATH as conch-sandbox — copied there, or a
+// package that installed it under that name — asks itself its version
+// once, not for ever: it fetches and runs the pinned build.
+func TestLauncherOnPathIsNotAForkBomb(t *testing.T) {
+	r := makeRelease(t, "1.2.3")
+	script := pinned(t, "1.2.3", r.sums)
+	onPath := t.TempDir()
+	b, _ := os.ReadFile(script)
+	os.WriteFile(filepath.Join(onPath, "conch-sandbox"), b, 0o755)
+	for _, run := range []launcherRun{
+		{argv: []string{"/bin/sh", script, "get", "--json"}},
+		{argv: []string{filepath.Join(onPath, "conch-sandbox"), "get", "--json"}},
+	} {
+		// A launcher calling itself makes hundreds of processes a second:
+		// the watchdog is short, and kills the whole group.
+		home := t.TempDir()
+		run.env, run.limit = launcherEnv(home, "file://"+r.dir, onPath), 5*time.Second
+		code, out, errs := run.do(t)
+		if code != 0 || out != "downloaded 1.2.3 "+hostPlatform()+": get --json\n" {
+			t.Fatalf("%v: %d %q %q", run.argv, code, out, errs)
+		}
+	}
+}
+
+// What stops it: a launcher started under another (CONCH_SANDBOX_LAUNCHER
+// set) asks no conch-sandbox on PATH, however new, and one that asks
+// passes the mark on to what it runs.
+func TestLauncherGuard(t *testing.T) {
+	r := makeRelease(t, "1.2.3")
+	script := pinned(t, "1.2.3", r.sums)
+	newer := t.TempDir()
+	os.WriteFile(filepath.Join(newer, "conch-sandbox"), []byte("#!/bin/sh\n[ \"$1\" = version ] && { echo 9.9.9; exit 0; }\necho \"path copy [$CONCH_SANDBOX_LAUNCHER]\"\n"), 0o755)
+	run := launcherRun{argv: []string{"/bin/sh", script, "get"}, env: append(launcherEnv(t.TempDir(), "file://"+r.dir, newer), "CONCH_SANDBOX_LAUNCHER=1")}
+	if code, out, errs := run.do(t); code != 0 || out != "downloaded 1.2.3 "+hostPlatform()+": get\n" {
+		t.Fatalf("nested: %d %q %q", code, out, errs)
+	}
+	run.env = launcherEnv(t.TempDir(), "file://"+r.dir, newer)
+	if code, out, errs := run.do(t); code != 0 || !strings.HasPrefix(out, "path copy [") || out == "path copy []\n" {
+		t.Fatalf("not nested: %d %q %q", code, out, errs)
+	}
+}
+
+// Piped into sh -s, as Orca's recipes run it: a conch-sandbox on PATH
+// that reads stdin when asked its version takes none of the script, and
+// the launcher goes on to the pinned build. From a file, the program gets
+// the launcher's stdin (key set reads the key there).
+func TestLauncherFromStdin(t *testing.T) {
+	r := makeRelease(t, "1.2.3")
+	script := pinned(t, "1.2.3", r.sums)
+	b, _ := os.ReadFile(script)
+	greedy := t.TempDir()
+	os.WriteFile(filepath.Join(greedy, "conch-sandbox"), []byte("#!/bin/sh\ncat >/dev/null\necho 0.0.1\n"), 0o755)
+	shells := []string{"/bin/sh"}
+	if d, err := exec.LookPath("dash"); err == nil {
+		shells = append(shells, d)
+	}
+	for _, sh := range shells {
+		for _, path := range [][]string{nil, {greedy}} {
+			home := t.TempDir()
+			run := launcherRun{argv: []string{sh, "-s", "--", "get", "--json", "a b"}, env: launcherEnv(home, "file://"+r.dir, path...), stdin: string(b)}
+			code, out, errs := run.do(t)
+			if code != 0 || out != "downloaded 1.2.3 "+hostPlatform()+": get --json a b\n" {
+				t.Errorf("%s -s, PATH %v: %d %q %q", sh, path, code, out, errs)
+			}
+		}
+		// The program's stdin, from a file and through sh -s.
+		run := launcherRun{argv: []string{sh, script, "stdin"}, env: launcherEnv(t.TempDir(), "file://"+r.dir), stdin: "the key\n"}
+		if code, out, errs := run.do(t); code != 0 || !strings.HasSuffix(out, ": stdin\nthe key\n") {
+			t.Errorf("%s, stdin through: %d %q %q", sh, code, out, errs)
+		}
+		run = launcherRun{argv: []string{sh, "-s", "--", "stdin"}, env: launcherEnv(t.TempDir(), "file://"+r.dir), stdin: string(b)}
+		if code, out, errs := run.do(t); code != 0 || out != "downloaded 1.2.3 "+hostPlatform()+": stdin\n" {
+			t.Errorf("%s -s, stdin at its end: %d %q %q", sh, code, out, errs)
+		}
+	}
+	// A conch-sandbox on PATH new enough gets the stdin too.
+	reader := t.TempDir()
+	os.WriteFile(filepath.Join(reader, "conch-sandbox"), []byte("#!/bin/sh\n[ \"$1\" = version ] && { echo 9.9.9; exit 0; }\necho \"path copy: $*\"; cat\n"), 0o755)
+	run := launcherRun{argv: []string{"/bin/sh", script, "key", "set", "p"}, env: launcherEnv(t.TempDir(), "file:///nonexistent", reader), stdin: "k-1\n"}
+	if code, out, errs := run.do(t); code != 0 || out != "path copy: key set p\nk-1\n" {
+		t.Fatalf("path copy's stdin: %d %q %q", code, out, errs)
+	}
+}
+
+// The kept copy's folder is the user's alone, whatever the umask: nobody
+// else can swap the program between its check and its run.
+func TestLauncherKeepsItPrivate(t *testing.T) {
+	r := makeRelease(t, "1.2.3")
+	script := pinned(t, "1.2.3", r.sums)
+	home := t.TempDir()
+	run := launcherRun{argv: []string{"/bin/sh", "-c", `umask 0; exec /bin/sh "$0" "$@"`, script, "--fetch"}, env: launcherEnv(home, "file://"+r.dir)}
+	if code, _, errs := run.do(t); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	dir := filepath.Dir(cached(home, "1.2.3"))
+	if st, _ := os.Stat(dir); st.Mode().Perm() != 0o700 {
+		t.Fatalf("folder %v", st.Mode())
+	}
+	if st, _ := os.Stat(cached(home, "1.2.3")); st.Mode().Perm() != 0o755 {
+		t.Fatalf("program %v", st.Mode())
+	}
+	// One made open before is closed again.
+	os.Chmod(dir, 0o777)
+	if code, _, errs := run.do(t); code != 0 {
+		t.Fatalf("%q", errs)
+	}
+	if st, _ := os.Stat(dir); st.Mode().Perm() != 0o700 {
+		t.Fatalf("folder left %v", st.Mode())
+	}
+}
+
+// Without curl and wget, or without a sha256 tool, it says which it
+// lacks rather than blaming the network or the build.
+func TestLauncherSaysWhatItLacks(t *testing.T) {
+	r := makeRelease(t, "1.2.3")
+	script := pinned(t, "1.2.3", r.sums)
+	tools := func(names ...string) string {
+		dir := t.TempDir()
+		for _, n := range names {
+			for _, d := range []string{"/usr/bin", "/bin"} {
+				if _, err := os.Stat(filepath.Join(d, n)); err == nil {
+					os.Symlink(filepath.Join(d, n), filepath.Join(dir, n))
+					break
+				}
+			}
+		}
+		return dir
+	}
+	base := []string{"sh", "uname", "mkdir", "chmod", "mktemp", "mv", "rm", "cut", "cat", "env", "perl"}
+	for _, c := range []struct {
+		have []string
+		want string
+	}{
+		{append(base, "sha256sum", "shasum"), "needs curl or wget to fetch conch-sandbox-1.2.3-"},
+		{append(base, "curl", "wget"), "needs sha256sum or shasum"},
+	} {
+		run := launcherRun{argv: []string{"/bin/sh", script, "get"},
+			env: []string{"HOME=" + t.TempDir(), "PATH=" + tools(c.have...), "CONCH_SANDBOX_URL=file://" + r.dir}}
+		code, out, errs := run.do(t)
+		if code != 1 || out != "" || !strings.Contains(errs, c.want) || strings.Contains(errs, "not the build") || strings.Contains(errs, "could not fetch") {
+			t.Errorf("%v: %d %q %q", c.have, code, out, errs)
+		}
 	}
 }
