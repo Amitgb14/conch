@@ -152,6 +152,8 @@ func (f *ProviderFile) needs4() string {
 		return "[ssh] wait_secs"
 	case f.SSH.Command != "" || f.SSH.Expires != "":
 		return "[ssh] command or expires"
+	case f.SSH.MaxSecs != 0:
+		return "[ssh] max_secs"
 	case f.List.AllMine:
 		return "[list] all_mine"
 	case f.Get.MemoryGiB != "" || f.Get.DiskGiB != "" || f.Get.Desired != "":
@@ -282,14 +284,25 @@ func (f *ProviderFile) problems4() []string {
 	if f.SSH.WaitSecs < 0 || f.SSH.WaitSecs > 600 {
 		add("[ssh] wait_secs %d: 0 to 600", f.SSH.WaitSecs)
 	}
-	if (f.SSH.Endpoint != "" || f.SSH.WaitSecs > 0 || f.SSH.Command != "" || f.SSH.Expires != "") && f.SSH.Access.Call == "" {
-		add("[ssh] endpoint, wait_secs, command and expires read [ssh.access]'s reply, and there is none")
+	asksLife := strings.Contains(f.SSH.Access.Call, "{expires_") || bodyUses(f.SSH.Access.Body, "{expires_")
+	switch {
+	case f.SSH.MaxSecs < 0:
+		add("[ssh] max_secs %d: a number of seconds", f.SSH.MaxSecs)
+	case f.SSH.MaxSecs > 0 && f.SSH.MaxSecs < 60 && strings.Contains(f.SSH.Access.Call+fmt.Sprint(f.SSH.Access.Body), "{expires_mins}"):
+		add("[ssh] max_secs %d: under a minute, which {expires_mins} sends as 0", f.SSH.MaxSecs)
+	case f.SSH.MaxSecs > 0 && !asksLife:
+		add("[ssh] max_secs: [ssh.access] never sends {expires_secs} or {expires_mins}")
+	case f.SSH.MaxSecs == 0 && asksLife:
+		add("[ssh.access] sends {expires_secs} or {expires_mins}, and [ssh] has no max_secs to fill it with")
+	}
+	if (f.SSH.Endpoint != "" || f.SSH.WaitSecs > 0 || f.SSH.Command != "" || f.SSH.Expires != "" || f.SSH.MaxSecs != 0) && f.SSH.Access.Call == "" {
+		add("[ssh] endpoint, wait_secs, command, expires and max_secs are [ssh.access]'s, and there is none")
 	}
 	return p
 }
 
 // placeholders4 are what format 4's calls may say beyond format 3's.
-var placeholders4 = []string{"{region}", "{image}", "{template}", "{size}", "{ttl_secs}", "{port}", "{expires_secs}",
+var placeholders4 = []string{"{region}", "{image}", "{template}", "{size}", "{ttl_secs}", "{port}", "{expires_secs}", "{expires_mins}",
 	"{snapshot_name}", "{from}", "{to}"}
 
 // As is p as capability T — Previewer, Snapshotter, Metered, NamedSizes,
