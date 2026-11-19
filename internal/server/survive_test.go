@@ -13,6 +13,26 @@ func noRepanic(t *testing.T) {
 	t.Cleanup(func() { repanic.Store(was) })
 }
 
+// panicsTaken counts the panics recovered from here on, for a test to
+// wait until a goroutine's recover is over.
+func panicsTaken(t *testing.T) <-chan string {
+	t.Helper()
+	ch := make(chan string, 64)
+	was := tookPanic
+	tookPanic = func(what string) { ch <- what }
+	t.Cleanup(func() { tookPanic = was })
+	return ch
+}
+
+func waitTaken(t *testing.T, ch <-chan string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the panic was never taken")
+	}
+}
+
 // A panic on a goroutine of the server's own is that goroutine's: logged,
 // its own deferred work done, and the caller told.
 func TestSafelyTakesAPanic(t *testing.T) {
@@ -27,13 +47,13 @@ func TestSafelyTakesAPanic(t *testing.T) {
 	if safely("test", func() {}) {
 		t.Fatal("no panic reported as one")
 	}
-	done := make(chan struct{})
-	goSafe("test", func() { defer close(done); panic("boom") })
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("goSafe's goroutine never finished")
-	}
+	// On a goroutine of its own, waited for until its recover is over:
+	// waiting for less once let the test end first and put repanic back,
+	// and the late recover panicked again and ended the whole test binary
+	// — now and then, on CI.
+	taken := panicsTaken(t)
+	goSafe("test", func() { panic("boom") })
+	waitTaken(t, taken)
 }
 
 // A loop of the server's own is started again after a panic, and not
@@ -43,6 +63,7 @@ func TestKeepStartsALoopAgain(t *testing.T) {
 	was := keepAgain
 	keepAgain = time.Millisecond
 	t.Cleanup(func() { keepAgain = was })
+	taken := panicsTaken(t)
 
 	s := &Server{quit: make(chan struct{})}
 	var runs atomic.Int32
@@ -58,15 +79,17 @@ func TestKeepStartsALoopAgain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("ran %d times, want 3", runs.Load())
 	}
+	waitTaken(t, taken)
+	waitTaken(t, taken)
 
 	// Stopped: a loop that panics is not started again.
 	keepAgain = time.Hour
 	s2 := &Server{quit: make(chan struct{})}
 	var runs2 atomic.Int32
 	s2.keep("test", func() { runs2.Add(1); panic("boom") })
-	time.Sleep(50 * time.Millisecond)
+	waitTaken(t, taken)
 	close(s2.quit)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // were it to start again, it would by now
 	if n := runs2.Load(); n != 1 {
 		t.Fatalf("ran %d times, want 1", n)
 	}

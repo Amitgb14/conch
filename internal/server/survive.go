@@ -76,7 +76,12 @@ func recovered(what string, r any) {
 		log.Printf("%s: the panic left %s held; ending the server rather than hanging", what, lock)
 		panic(r)
 	}
+	tookPanic(what)
 }
+
+// tookPanic is told each panic taken, last thing: a test waits on it to
+// know a goroutine's recover is over before it puts repanic back.
+var tookPanic = func(string) {}
 
 // lockWait is how long a lock may stay held after a panic before the
 // server is taken to be wedged. Every one of them is held for moments.
