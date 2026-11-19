@@ -21,6 +21,8 @@ public struct WelcomeCard: Equatable, Sendable {
     public var title: String
     public var body: String
     public var keys: [WelcomeKey]
+    /// The card that asks which look the window takes (welcomeLooks).
+    public var asksLook = false
 }
 
 /// The welcome, card by card.
@@ -29,6 +31,10 @@ public let welcomeCards: [WelcomeCard] = [
                 title: "Welcome to Conch",
                 body: "conch runs your coding agents — Claude Code, Codex, Gemini CLI, OpenCode, Devin — in terminals its own server keeps. Close this window and they carry on; open it again, or the TUI, and they are all there.",
                 keys: []),
+    WelcomeCard(symbol: "paintpalette",
+                title: "Pick a Look",
+                body: "The window, the TUI and every terminal take it. Settings → Appearance has the rest of conch's themes, and View → Theme tries one on this window alone.",
+                keys: [], asksLook: true),
     WelcomeCard(symbol: "sidebar.left",
                 title: "Everything in the Sidebar",
                 body: "Machines, then their projects, branches, agents and terminals. Click a row to open it; right-click it for what you can do there. An agent's dot says what it is doing: working, waiting for you, or done.",
@@ -64,3 +70,47 @@ public let welcomeVersion = 1
 /// Whether to show the welcome when the app opens, given the version last
 /// seen (0 for none).
 public func shouldShowWelcome(seen: Int) -> Bool { seen < welcomeVersion }
+
+/// A look the welcome offers: conch's own theme, or VS Code's Modern pair.
+public enum WelcomeLookID: String, Sendable, CaseIterable {
+    case conch, vscodeLight, vscodeDark
+}
+
+public struct WelcomeLook: Equatable, Sendable {
+    public var id: WelcomeLookID
+    public var title: String
+    public var detail: String
+    /// The theme it is, by its id in ConchTheme.all.
+    public var theme: String
+}
+
+public let welcomeLooks: [WelcomeLook] = [
+    WelcomeLook(id: .conch, title: "Default", detail: "conch's own: dark, teal on charcoal.", theme: "conch"),
+    WelcomeLook(id: .vscodeLight, title: "VS Code Light Modern", detail: "Light, as VS Code draws it.", theme: "vscode-light-modern"),
+    // The app shows a theme with a light pair in that pair while macOS is
+    // light (ConchTheme.lightPairs), as VS Code follows the system.
+    WelcomeLook(id: .vscodeDark, title: "VS Code Dark Modern", detail: "Dark; Light Modern while macOS is light, as VS Code does.", theme: "vscode-dark-modern"),
+]
+
+/// The look config.toml has now: no theme is the default; a theme, or a
+/// light_theme, the welcome does not offer is none of them.
+public func welcomeLook(in toml: String?) -> WelcomeLookID? {
+    if uiSetting("light_theme", in: toml) != nil { return nil }
+    let theme = uiSetting("theme", in: toml) ?? "conch"
+    return welcomeLooks.first { $0.theme == theme }?.id
+}
+
+/// config.toml with a look chosen: its theme in [ui] and no light_theme,
+/// which would show another theme while macOS is light. Default takes out
+/// only a theme the welcome wrote; a theme chosen elsewhere is left alone.
+public func welcomeLookTOML(_ toml: String, _ id: WelcomeLookID) -> String {
+    let current = welcomeLook(in: toml)
+    if current == id { return toml }
+    guard id != .conch else {
+        guard current != nil else { return toml }
+        return settingTOML(toml, section: "ui", key: "theme", value: nil)
+    }
+    let theme = welcomeLooks.first { $0.id == id }!.theme
+    let next = settingTOML(toml, section: "ui", key: "theme", value: "\"\(theme)\"")
+    return settingTOML(next, section: "ui", key: "light_theme", value: nil)
+}

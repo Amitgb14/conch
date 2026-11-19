@@ -33,6 +33,11 @@ struct WelcomeSheet: View {
                 .foregroundStyle(Theme.text)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+            if card.asksLook {
+                HStack(spacing: 10) {
+                    ForEach(welcomeLooks, id: \.id) { l in LookTile(look: l, on: store.lookChosen == l.id) { store.chooseLook(l.id) } }
+                }
+            }
             if !card.keys.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(card.keys, id: \.keys) { k in
@@ -78,12 +83,66 @@ struct WelcomeSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 540, height: 400)
+        .frame(width: 560, height: 420)
+        .onAppear { store.readLook() }
         .onDisappear { store.welcomeSeen() }
     }
 
     private func finish() {
         store.welcomeSeen()
         dismiss()
+    }
+}
+
+/// One look the welcome offers: a small window in that theme's colours
+/// (its sidebar, a row in its accent, a line of its text), its name and
+/// a line on it. Ticked while config.toml has it; a click chooses it.
+private struct LookTile: View {
+    let look: WelcomeLook
+    let on: Bool
+    let pick: () -> Void
+
+    var body: some View {
+        let t = ConchTheme.named(look.theme)
+        Button(action: pick) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.muted).opacity(0.6)).frame(width: 26, height: 4)
+                        RoundedRectangle(cornerRadius: 3).fill(Theme.color(t.accent).opacity(0.75)).frame(height: 9)
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.fg).opacity(0.5)).frame(width: 30, height: 4)
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.fg).opacity(0.5)).frame(width: 22, height: 4)
+                    }
+                    .padding(7).frame(width: 52, alignment: .topLeading).frame(maxHeight: .infinity, alignment: .top)
+                    .background(Theme.color(t.sidebar))
+                    VStack(alignment: .leading, spacing: 5) {
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.line)).frame(width: 34, height: 3)
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.fg).opacity(0.7)).frame(width: 60, height: 4)
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.ok)).frame(width: 40, height: 4)
+                        RoundedRectangle(cornerRadius: 2).fill(Theme.color(t.fg).opacity(0.45)).frame(width: 50, height: 4)
+                    }
+                    .padding(7).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .background(Theme.color(t.bg))
+                }
+                .frame(height: 70)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.color(t.border)))
+                HStack(spacing: 5) {
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 12)).foregroundStyle(on ? Theme.accent : Theme.muted)
+                    Text(look.title).font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                }
+                Text(look.detail).font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 9).fill(on ? Theme.accentDeep.opacity(0.12) : Theme.raise))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? Theme.accent : Theme.line, lineWidth: on ? 1.5 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(look.title)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
