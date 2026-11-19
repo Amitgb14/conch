@@ -3,11 +3,11 @@
 #   curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 # A version — older than the installed one, to go back to it — as an
 # argument or in CONCH_VERSION:
-#   curl -fsSL .../install.sh | sh -s -- 0.2.0
+#   curl -fsSL .../install.sh | sh -s -- 0.2.1
 # Once conch is installed, `conch update` does the same, `conch update list`
 # shows the releases and `conch update rollback` goes back one.
 # Environment:
-#   CONCH_VERSION      release to install (default: latest), e.g. 0.2.0
+#   CONCH_VERSION      release to install (default: latest), e.g. 0.2.1
 #   CONCH_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   CONCH_RELEASE_URL  release download base (default: GitHub releases)
 #   CONCH_APP=no       don't add conch to the desktop's applications
