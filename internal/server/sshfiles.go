@@ -117,7 +117,7 @@ func (sf *sshFiles) session(pane string, login remote.Login) (transfer.FS, *prot
 	if ss == nil {
 		ss = &sshSession{key: key, ready: make(chan struct{})}
 		sf.open[pane] = ss
-		go ss.connect(login)
+		goSafe("ssh files connect", func() { ss.connect(login) })
 	}
 	sf.mu.Unlock()
 	<-ss.ready

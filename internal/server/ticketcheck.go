@@ -43,9 +43,9 @@ func (s *Server) ticketCheck(cp proto.TicketCheckParams) (proto.TicketCheckResul
 	out := proto.TicketCheckResult{Trackers: make([]proto.TrackerState, 3)}
 	var wg sync.WaitGroup
 	wg.Add(3)
-	go func() { defer wg.Done(); out.Trackers[0] = s.checkGitHub(ctx, p) }()
-	go func() { defer wg.Done(); out.Trackers[1] = s.checkTracker(ctx, cfg.Trackers, tracker.Linear, p) }()
-	go func() { defer wg.Done(); out.Trackers[2] = s.checkTracker(ctx, cfg.Trackers, tracker.Jira, p) }()
+	goSafe("ticket check", func() { defer wg.Done(); out.Trackers[0] = s.checkGitHub(ctx, p) })
+	goSafe("ticket check", func() { defer wg.Done(); out.Trackers[1] = s.checkTracker(ctx, cfg.Trackers, tracker.Linear, p) })
+	goSafe("ticket check", func() { defer wg.Done(); out.Trackers[2] = s.checkTracker(ctx, cfg.Trackers, tracker.Jira, p) })
 	out.Projects = s.checkProjects(ctx, cfg.Trackers)
 	wg.Wait()
 	return out, nil
@@ -159,7 +159,8 @@ func (s *Server) checkProjects(ctx context.Context, cfg config.TrackersCfg) []pr
 	for i, e := range cfg.Projects {
 		out[i] = proto.TrackerProjectState{Project: e.Project, Tracker: e.Tracker, Area: e.Key}
 		wg.Add(1)
-		go func(st *proto.TrackerProjectState) {
+		st := &out[i]
+		goSafe("ticket check", func() {
 			defer wg.Done()
 			name := strings.ToLower(strings.TrimSpace(st.Tracker))
 			if st.Area == "" {
@@ -176,7 +177,7 @@ func (s *Server) checkProjects(ctx context.Context, cfg config.TrackersCfg) []pr
 				return
 			}
 			st.Open, st.More = len(list), len(list) >= proto.TicketCountMax
-		}(&out[i])
+		})
 	}
 	wg.Wait()
 	return out

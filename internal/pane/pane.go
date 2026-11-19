@@ -172,6 +172,7 @@ func (p *Pane) setCallbacks() {
 		DisableMode: func(mode ansi.Mode) { p.setMode(mode, false) },
 	})
 	p.emu.RegisterCsiHandler('J', p.clearHistory)
+	p.registerClamps()
 }
 
 // startIO starts copying the program's output into the emulator and the
@@ -292,18 +293,30 @@ func (p *Pane) readLoop(stop <-chan struct{}, done chan<- struct{}) {
 		}
 		n, err := p.ptmx.Read(buf)
 		if n > 0 {
-			p.readOSC(osc.scan(buf[:n]))
-			p.emuMu.Lock()
-			p.writeToEmulator(strs.filter(buf[:n]))
-			if len(p.raws) > 0 {
-				p.sendRaw(p.rawq.filter(buf[:n]))
-			}
-			p.emuMu.Unlock()
-			p.notify()
+			p.took(buf[:n], &osc, &strs)
 		}
 		if err != nil {
 			return
 		}
+	}
+}
+
+// took handles one read of output. Its own function so that a panic in
+// it (survived) is that output's alone: emuMu is released and the read
+// loop goes on.
+func (p *Pane) took(b []byte, osc *oscScanner, strs *stringFilter) {
+	defer p.survived()
+	p.readOSC(osc.scan(b))
+	p.intoEmulator(b, strs)
+	p.notify()
+}
+
+func (p *Pane) intoEmulator(b []byte, strs *stringFilter) {
+	p.emuMu.Lock()
+	defer p.emuMu.Unlock()
+	p.writeToEmulator(strs.filter(b))
+	if len(p.raws) > 0 {
+		p.sendRaw(p.rawq.filter(b))
 	}
 }
 
@@ -759,7 +772,7 @@ func (p *Pane) writeToEmulator(b []byte) {
 	// that uses none, once the output is in: each is looked at there.
 	for _, frame := range splitAfter(b, ansi.ResetModeSynchronizedOutput) {
 		for _, chunk := range chunkByLines(frame, max(p.emu.Height()/2, 1)) {
-			_, _ = p.emu.Write(chunk)
+			p.fed(chunk)
 			p.takeScrollback()
 			p.noteAltScroll()
 		}

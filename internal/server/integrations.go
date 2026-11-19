@@ -160,14 +160,14 @@ func (s *Server) notifyFiles(m integration.Message) {
 			continue
 		}
 		s.notifyWG.Add(1)
-		go func(f *integration.File) {
+		goSafe("notify", func() {
 			defer s.notifyWG.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), notifyTimeout)
 			defer cancel()
 			if err := conn.Send(ctx, m); err != nil {
 				log.Printf("notify %s: %v", f.Name, err)
 			}
-		}(f)
+		})
 	}
 }
 

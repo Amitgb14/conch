@@ -84,7 +84,7 @@ func (pm *projectManager) ciStats(sp proto.CIStatsParams) (proto.CIStats, *proto
 	next := make(chan ghx.Run)
 	for range min(ciJobsWorkers, len(want)) {
 		wg.Add(1)
-		go func() {
+		goSafe("ci jobs", func() {
 			defer wg.Done()
 			for r := range next {
 				js, err := ghx.RunJobs(ctx, p.root, r.ID)
@@ -104,7 +104,7 @@ func (pm *projectManager) ciStats(sp proto.CIStatsParams) (proto.CIStats, *proto
 					p.mu.Unlock()
 				}
 			}
-		}()
+		})
 	}
 	for _, r := range want {
 		next <- r

@@ -614,10 +614,10 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	var wg sync.WaitGroup
 	for i, ad := range s.adapters {
 		wg.Add(1)
-		go func() { // each check starts a login shell; run them together
+		goSafe("agent check", func() { // each check starts a login shell; run them together
 			defer wg.Done()
 			avs[i] = ad.Detect(context.Background(), config.DefaultShell())
-		}()
+		})
 	}
 	wg.Wait()
 	var out []proto.AgentAvailability

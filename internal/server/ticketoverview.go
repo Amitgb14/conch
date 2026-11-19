@@ -71,12 +71,12 @@ func (s *Server) ticketOverview(op proto.TicketOverviewParams) (proto.TicketOver
 	var wg sync.WaitGroup
 	for i, p := range ps {
 		wg.Add(1)
-		go func(i int, p *project) {
+		goSafe("tickets", func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			out.Projects[i] = s.projectTickets(ctx, cfg.Trackers, p, login, limit, sched, panes)
-		}(i, p)
+		})
 	}
 	wg.Wait()
 	if len(want) == 0 && len(cfg.Trackers.Projects) == 0 {

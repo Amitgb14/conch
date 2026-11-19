@@ -216,14 +216,17 @@ func Adopt(snap Snapshot, ptmx *os.File) (*Pane, error) {
 	// or a query left in the replay would too. With nobody reading, that
 	// write blocks the replay — and the reload with it. They are the
 	// replay's, not the program's, so they are read here and dropped.
-	drained := drainReplies(p.emu)
+	emu := p.emu // fed may replace a screen that fails; the drain is this one's
+	drained := drainReplies(emu)
 	// A piece at a time, so the history being replayed goes into text as
 	// it scrolls rather than all of it into the emulator's cells first.
+	// Through fed: a replay the emulator panics on would otherwise end the
+	// server that has just taken over every pane — at every reload.
 	for _, chunk := range chunkByLines([]byte(snap.Replay), replayChunk) {
-		_, _ = p.emu.Write(chunk)
+		p.fed(chunk)
 		p.takeScrollback()
 	}
-	p.emu.SendText(replayDone)
+	emu.SendText(replayDone)
 	<-drained
 	if p.emu.IsAltScreen() {
 		p.alt.on = true

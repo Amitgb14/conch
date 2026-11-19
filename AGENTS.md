@@ -505,6 +505,19 @@ helpers in `cmd/conch` and `internal/remote`.
   is ever sent to it (`sendKey`, `paneMouse`): typed into its own pane, a
   key comes straight back as input and is typed in again, for ever, which
   is how a TUI locked up in R63 (`internal/tui/tabs.go`, `ownPane`).
+- **A panic ends every pane, so the server's goroutines take theirs.**
+  Any goroutine's panic ends the process, and with it every pane and
+  agent. Twice that was the terminal emulator (a program's scroll region
+  past the bottom of a screen that had just shrunk), which is why the
+  pane clamps margins (`internal/pane/guard.go`) and feeds the emulator
+  through `fed`, which resets that pane's screen rather than dying. In
+  `internal/server` a new goroutine is started with `goSafe` (a long-lived
+  loop with `s.keep`, which starts it again), and requests run under
+  `recovering`, never a bare `go` (`survive.go`). A recovered panic still
+  ends the server when it left one of the server's own locks held — a hung
+  server is worse than a restarted one — and under test it panics again
+  (`repanic`), so a test meets the bug. Go's fatal errors (a map written
+  concurrently, out of memory) are past any recover.
 - **Panes on macOS.** `poll` doesn't work on ttys and read deadlines aren't
   supported on ptys; the read loop uses `select`. Shared pane fields are
   guarded by `p.mu`/`p.emuMu` — check with `-race`.

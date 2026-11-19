@@ -192,7 +192,7 @@ func (g *groupBook) armMerge(mp proto.GroupTaskMergeParams) (proto.GroupTask, *p
 	info := g.taskInfo(*t)
 	g.mu.Unlock()
 	g.changed()
-	go g.merges() // now, rather than at the next tick
+	goSafe("group merge", g.merges) // now, rather than at the next tick
 	return info, nil
 }
 
@@ -317,10 +317,10 @@ func (g *groupBook) mergeStep(group, branch string, order, merged []string) {
 		g.changed()
 	}
 	if start {
-		go g.mergeOne(group, branch, next, nextPR)
+		goSafe("group merge", func() { g.mergeOne(group, branch, next, nextPR) })
 	}
 	if finish {
-		go g.tidy(group, branch)
+		goSafe("group tidy", func() { g.tidy(group, branch) })
 	}
 }
 

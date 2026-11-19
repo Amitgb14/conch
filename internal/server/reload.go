@@ -240,7 +240,7 @@ func (s *Server) adopt(st *reloadState) {
 		s.panes[rp.Snapshot.ID] = e
 		s.order = append(s.order, rp.Snapshot.ID)
 		s.mu.Unlock()
-		go s.watch(e)
+		goSafe("pane watch "+e.p.ID(), func() { s.watch(e) })
 	}
 	log.Printf("reloaded from build %s: took over %d pane(s)", st.FromBuild, len(st.Panes))
 }

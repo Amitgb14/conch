@@ -221,10 +221,10 @@ func (s *Server) unsay(key, what string) {
 // project has a check, and shipped — which replaces the pushed branch.
 func (s *Server) autopilotRewritten(projectID, branch string) {
 	if cmd := s.autopilot.policy().Checks[projectID]; cmd != "" {
-		go s.autopilotStartCheck(projectID, branch, cmd)
+		goSafe("autopilot check", func() { s.autopilotStartCheck(projectID, branch, cmd) })
 		return
 	}
-	go s.autopilotShip(projectID, branch)
+	goSafe("autopilot ship", func() { s.autopilotShip(projectID, branch) })
 }
 
 // askToResolve hands a conflict to the branch's agent, within

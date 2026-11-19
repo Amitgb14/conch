@@ -26,7 +26,7 @@ func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.E
 	s.setWatchers(e, +1)
 
 	replay, cols, rows, raw := p.SubscribeRaw()
-	go func() {
+	goSafe("pane output", func() {
 		defer func() { p.UnsubscribeRaw(raw) }()
 		for {
 			select {
@@ -79,6 +79,6 @@ func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.E
 				// pane.scroll means nothing to a raw view.
 			}
 		}
-	}()
+	})
 	return proto.PaneRawStart{ID: p.ID(), Cols: cols, Rows: rows, Replay: []byte(replay)}, nil
 }
