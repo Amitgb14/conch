@@ -277,6 +277,20 @@ final class Store: ObservableObject {
         Theme.style = style
         if style.roster { sidebarVisible = false }
         watchChanges()
+        // A new Conch.app starts white (firstLaunchTOML): written before
+        // the first theme is read, so the window never shows dark first.
+        // New is an app that has kept no preference yet — not merely one
+        // that has not seen this welcome, which a Conch.app from before
+        // the welcome hasn't either.
+        if primary {
+            let kept = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:]
+            let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+            let next = firstLaunchTOML(toml, newInstall: kept.isEmpty)
+            if next != toml {
+                try? FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+                try? next.write(toFile: configFile, atomically: true, encoding: .utf8)
+            }
+        }
         loadTheme()
         watchClicks()
         watchConfig()

@@ -33,6 +33,21 @@ struct WelcomeSheet: View {
                 .foregroundStyle(Theme.text)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+            if !card.steps.isEmpty {
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(Array(card.steps.enumerated()), id: \.offset) { i, step in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text("\(i + 1)")
+                                .font(.ui(size: 11.5, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 20, height: 20)
+                                .background(Circle().fill(Theme.accentDeep.opacity(0.18)))
+                            Text(step).font(.ui(size: 13)).foregroundStyle(Theme.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
             if card.asksLook {
                 HStack(spacing: 10) {
                     ForEach(welcomeLooks, id: \.id) { l in LookTile(look: l, on: store.lookChosen == l.id) { store.chooseLook(l.id) } }
@@ -83,7 +98,7 @@ struct WelcomeSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 560, height: 420)
+        .frame(width: 600, height: 460)
         .onAppear { store.readLook() }
         .onDisappear { store.welcomeSeen() }
     }
