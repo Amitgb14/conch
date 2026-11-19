@@ -272,7 +272,14 @@ func Exec(ctx context.Context, s *relay.Session, o ExecOptions) (int, error) {
 		return 255, dropped(s, err)
 	}
 	defer k.Close()
-	start, _ := json.Marshal(map[string]any{"script": o.Script, "tty": o.TTY})
+	// The size goes in the first message, so the terminal has it before
+	// the script runs; the resize after it is for an older agent, which
+	// reads only that.
+	first := map[string]any{"script": o.Script, "tty": o.TTY}
+	if o.TTY && o.Cols > 0 && o.Rows > 0 {
+		first["cols"], first["rows"] = o.Cols, o.Rows
+	}
+	start, _ := json.Marshal(first)
 	if err := k.Send(ctx, string(start)); err != nil {
 		return 255, dropped(s, err)
 	}

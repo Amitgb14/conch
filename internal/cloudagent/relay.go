@@ -158,6 +158,11 @@ func (a *Agent) serveBridge(w http.ResponseWriter, r *http.Request) {
 type execStart struct {
 	Script string `json:"script"`
 	TTY    bool   `json:"tty"`
+	// Cols and Rows size the terminal from the start; a resize sent after
+	// the first message could arrive after the script asked its size.
+	// An older client sends only the resize.
+	Cols int `json:"cols,omitempty"`
+	Rows int `json:"rows,omitempty"`
 }
 
 type execIn struct {
@@ -234,7 +239,11 @@ func (a *Agent) serveExec(w http.ResponseWriter, r *http.Request) {
 	var outputs sync.WaitGroup
 	var pipes []io.Closer // a script's stdout and stderr, without a terminal
 	if start.TTY {
-		term, err = pty.StartWithAttrs(cmd, &pty.Winsize{Cols: 80, Rows: 24}, withSession(attrs, true))
+		size := &pty.Winsize{Cols: 80, Rows: 24}
+		if start.Cols > 0 && start.Rows > 0 && start.Cols <= 0xffff && start.Rows <= 0xffff {
+			size = &pty.Winsize{Cols: uint16(start.Cols), Rows: uint16(start.Rows)}
+		}
+		term, err = pty.StartWithAttrs(cmd, size, withSession(attrs, true))
 		if err != nil {
 			a.execFailed(ws, err)
 			return
