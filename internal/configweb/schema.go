@@ -262,7 +262,7 @@ func Schema(c Choices) []Section {
 				{Key: "check_releases", Label: "Check for releases daily", Kind: KindBool},
 				{Key: "auto", Label: "Install them on their own", Kind: KindBool, Help: "Needs the daily check. conch update rollback goes back."},
 			}},
-		{ID: "web", Key: "web", Title: "Phone (conch web)", Icon: "smartphone", Description: "Your agents from your phone, over Tailscale or a relay.",
+		{ID: "web", Key: "web", Title: "Phone", Icon: "smartphone", Description: "Your agents from your phone, over Tailscale or a relay.",
 			Fields: []Field{
 				{Key: "url", Label: "Address phones open", Kind: KindString, Placeholder: "https://laptop.tail1234.ts.net"},
 				{Key: "port", Label: "Port", Kind: KindInt, Min: intp(0), Max: intp(65535), Placeholder: "8722"},
