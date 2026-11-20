@@ -129,7 +129,12 @@ extension Store {
             do {
                 let info = try await c.call("pane.create", P(agent: agent, account: account, no_project: true, cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 open(ConchKit.key(machine, info.id))
-                say("Started \(agent) on \(account): sign in there once with /login")
+                // Sign In is pressed in Settings, in front of the window the
+                // pane opens in: bring that window forward, or the agent
+                // waits for its /login behind Settings unseen.
+                AppWindows.shared.bringForward(self)
+                focusTerminal()
+                say("Started \(agentTitle(agent)) on \(account): sign in there with /login")
             } catch {
                 say("Could not start \(agent) on \(account): \(error.localizedDescription)", .err)
             }

@@ -2417,7 +2417,7 @@ struct StatusBar: View {
                 // in view's windows; a click opens a tab per account
                 // (UsagePanel.swift), which maximizes into a window.
                 Button { showLimits.toggle() } label: { AccountUsageChip(store: store).contentShape(Rectangle()) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).focusEffectDisabled()
                     .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
                     .barPopover(isPresented: $showLimits) {
                         UsagePanel(store: store) { showLimits = false; showUsageWindow = true }
