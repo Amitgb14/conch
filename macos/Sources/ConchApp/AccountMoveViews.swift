@@ -158,3 +158,34 @@ struct MoveAgentSheet: View {
         }
     }
 }
+
+/// Several agents moved off one account that has room again: one card,
+/// Move All Back or Later for them all.
+struct MoveBackAllCard: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var store: Store
+    let to: String
+    let machine: String
+    let offers: [(key: String, pane: PaneInfo, to: String)]
+
+    var body: some View {
+        let _ = look
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Mark(agent: offers.first?.pane.agent?.name)
+                Text("\(to) has room again").font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+            }
+            Text("\(offers.count) agents moved off it: \(offers.map { $0.pane.displayName }.joined(separator: ", ")).")
+                .font(.ui(size: 11.5)).foregroundStyle(Theme.text2).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                Button("Move All Back") { store.moveAllBack(to: to, on: machine) }.buttonStyle(.borderedProminent).tint(Theme.accentDeep).controlSize(.small)
+                Button("Later") { for o in offers { store.backLater.insert(o.key) } }.controlSize(.small)
+            }
+            .focusEffectDisabled()
+        }
+        .padding(11)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise.opacity(0.85)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+        .padding(.bottom, 6)
+    }
+}

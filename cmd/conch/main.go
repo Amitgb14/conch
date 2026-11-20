@@ -115,6 +115,9 @@ Usage:
   conch account suggest [AGENT]
                                 the agent's accounts ranked as a move would weigh them: signed
                                 in, the most room, the fewest agents; the pick first
+  conch account back [ACCOUNT]
+                                every agent moved off ACCOUNT (default: the agent's own) moved
+                                back to it, once it has room
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID

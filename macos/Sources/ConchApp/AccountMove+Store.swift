@@ -108,4 +108,33 @@ extension Store {
         }
         return out.sorted { $0.key < $1.key }
     }
+
+    /// The running agents on machine moved off account (by its label),
+    /// whatever its room now.
+    func movedOff(_ account: String, on machine: String) -> [String] {
+        (snapshots[machine]?.panes ?? []).filter { $0.running && $0.movedFrom == account }.map { ConchKit.key(machine, $0.id) }.sorted()
+    }
+
+    /// Every agent moved off account moved back to it, one after another.
+    func moveAllBack(to account: String, on machine: String) {
+        let keys = movedOff(account, on: machine)
+        guard !keys.isEmpty else { return }
+        for k in keys { backLater.remove(k) }
+        say("Moving \(keys.count) agent\(keys.count == 1 ? "" : "s") back to \(account)")
+        for k in keys { moveAgent(k, to: account, reason: "back") }
+    }
+
+    /// The move-back offers, one per account they would go back to.
+    var moveBackGroups: [(to: String, machine: String, offers: [(key: String, pane: PaneInfo, to: String)])] {
+        var out: [(to: String, machine: String, offers: [(key: String, pane: PaneInfo, to: String)])] = []
+        for o in moveBackOffers {
+            let m = unkey(o.key).machine
+            if let i = out.firstIndex(where: { $0.to == o.to && $0.machine == m }) {
+                out[i].offers.append(o)
+            } else {
+                out.append((o.to, m, [o]))
+            }
+        }
+        return out
+    }
 }

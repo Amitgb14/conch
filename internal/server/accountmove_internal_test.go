@@ -168,3 +168,25 @@ func TestMover(t *testing.T) {
 		t.Error("release")
 	}
 }
+
+// TestMoverFinishedTurn: an agent's first look is never a finished turn; after
+// that, a turn counted since the last look is, once.
+func TestMoverFinishedTurn(t *testing.T) {
+	m := newMover()
+	if m.finishedTurn("p1", 5) {
+		t.Error("the first look at an idle agent counted as a finished turn")
+	}
+	if m.finishedTurn("p1", 5) {
+		t.Error("no new turn, but finished")
+	}
+	if !m.finishedTurn("p1", 6) {
+		t.Error("a new turn was not seen")
+	}
+	if m.finishedTurn("p1", 6) {
+		t.Error("the same turn seen twice")
+	}
+	m.drop("p1")
+	if m.finishedTurn("p1", 9) {
+		t.Error("after drop, the next look is a first look")
+	}
+}
