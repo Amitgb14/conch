@@ -144,7 +144,10 @@ conch carries skills that teach an agent to run other agents: start a
 helper and read its answer (`conch`), several at once (`conch-team`),
 review until clean (`conch-review`), tests to a merged pull request
 (`conch-ship`), a ticket all the way (`conch-factory`), and the automated
-workflow for a project (`conch-autopilot`). Install them for every agent
+workflow for a project (`conch-autopilot`) — and the roles a helper works
+as: `conch-architect`, `conch-dev`, `conch-reviewer`, `conch-qa`,
+`conch-security`, `conch-cicd` and `conch-debug`, each with its job's
+checklist and what it must never do. Install them for every agent
 — Claude Code, Codex, Gemini CLI, OpenCode, Devin, Copilot CLI, Cline, Qwen Code and Goose:
 
 ```sh

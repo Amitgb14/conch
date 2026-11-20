@@ -207,7 +207,7 @@ extension SettingsNav {
                 let guests = schema.filter { mergedInto[$0.id] == id }
                 text = ([s] + guests).flatMap(hay).joined(separator: " ").lowercased()
             } else {
-                text = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot".lowercased()
+                text = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot conch-architect conch-dev conch-reviewer conch-qa conch-security conch-cicd conch-debug".lowercased()
             }
             return words.allSatisfy { text.contains($0) }
         }
