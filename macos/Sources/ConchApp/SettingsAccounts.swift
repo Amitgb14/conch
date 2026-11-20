@@ -71,6 +71,7 @@ struct AgentAccountsCard: View {
     func load() {
         store.loadAccounts(on: machine)
         store.loadAccountUsage(on: machine)
+        store.loadRanks(on: machine, agent: "claude")
         if machine == "local" { store.refreshLimits() }
     }
 
@@ -191,6 +192,13 @@ struct AgentAccountsCard: View {
             .frame(width: 92, alignment: .trailing)
             .opacity(u?.usage == nil && !store.keepsAccountUsage ? 0 : 1)
             HStack(spacing: 6) {
+                let off = machine == "local" ? store.movedOff(a.isDefault == true ? "default" : a.name, on: machine).filter { k in store.pane(k)?.agent?.name == a.agent } : []
+                if !off.isEmpty {
+                    let room = moveBack(movedFrom: a.isDefault == true ? "default" : a.name, ranks: store.accountRanks[machine + "|" + a.agent] ?? []) != nil
+                    Button("Move \(off.count) Back") { store.moveAllBack(to: a.isDefault == true ? "default" : a.name, on: machine) }
+                        .controlSize(.small).disabled(!room)
+                        .help(room ? "\(off.count) agent\(off.count == 1 ? " was" : "s were") moved off this account: move them back" : "\(off.count) agent\(off.count == 1 ? " was" : "s were") moved off this account; it has no room yet")
+                }
                 if agentAccountSignIn(a) == .signIn {
                     Button("Sign In") { store.signIn(agent: a.agent, account: a.name, on: machine) }
                         .controlSize(.small).help("Start \(store.agentTitle(a.agent)) on \(a.name) and sign in there once with /login")

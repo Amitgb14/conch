@@ -97,12 +97,12 @@ var compSubcommands = map[string][]compItem{
 	"account": {
 		{"list", "each account, its plan usage and agents"}, {"add", "another account of an agent"},
 		{"remove", "forget one, leaving its folder"}, {"pin", "a folder's agents use it"},
-		{"unpin", "take a folder's pin off"}, {"failover", "new agents skip an account near its limit"},
+		{"unpin", "take a folder's pin off"}, {"failover", "new agents skip an account near its limit"}, {"suggest", "the accounts ranked for a move"}, {"back", "move every agent back to an account"},
 	},
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}, {"heap", "write the server's heap profile, and say its memory"}},
 	"agent": {
 		{"status", "which agents are installed"}, {"install", "install an agent"},
-		{"explain", "how a pane's agent state was decided"}, {"prompt", "send an agent a prompt"},
+		{"explain", "how a pane's agent state was decided"}, {"prompt", "send an agent a prompt"}, {"move", "carry an agent to another account"},
 		{"setup", "what an agent loads in a checkout"}, {"sync", "give the others one agent's setup"},
 		{"library", "servers and skills every agent follows"}, {"skill", "install conch's skills for agents"},
 		{"add", "describe an agent of your own"},

@@ -769,6 +769,7 @@ struct MainView: View {
         }
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
+        .sheet(item: $store.moveAsk) { a in MoveAgentSheet(store: store, ask: a) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id, cloud: t.cloud) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id, cloud: t.cloud, pick: t.pick) }
@@ -893,13 +894,25 @@ struct Sidebar: View {
                     // Direction C's "Needs you": every waiting agent as a
                     // card, answered from here, above the tree.
                     let needs = store.needsYou
-                    if !needs.isEmpty {
+                    let moving = store.movingAgents.sorted { $0.key < $1.key }
+                    let backs = store.moveBackGroups
+                    if !needs.isEmpty || !moving.isEmpty || !backs.isEmpty {
                         HStack {
                             SectionHeading(text: "NEEDS YOU")
                             Spacer()
-                            Text("\(needs.count)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Text("\(needs.count + moving.count + backs.reduce(0) { $0 + $1.offers.count })").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         }
                         .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 2)
+                        // Agents being moved to another account, and ones
+                        // that can go back to theirs (AccountMoveViews.swift).
+                        ForEach(moving, id: \.key) { m in MovingCard(store: store, key: m.key, moving: m.value) }
+                        ForEach(backs, id: \.to) { g in
+                            if g.offers.count > 1 {
+                                MoveBackAllCard(store: store, to: g.to, machine: g.machine, offers: g.offers)
+                            } else if let o = g.offers.first {
+                                MoveBackCard(store: store, key: o.key, pane: o.pane, to: o.to)
+                            }
+                        }
                         ForEach(needs, id: \.key) { n in
                             NeedsYouCard(store: store, key: n.key, pane: n.pane, machine: n.machine)
                         }
@@ -2417,7 +2430,7 @@ struct StatusBar: View {
                 // in view's windows; a click opens a tab per account
                 // (UsagePanel.swift), which maximizes into a window.
                 Button { showLimits.toggle() } label: { AccountUsageChip(store: store).contentShape(Rectangle()) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.plain).focusEffectDisabled()
                     .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
                     .barPopover(isPresented: $showLimits) {
                         UsagePanel(store: store) { showLimits = false; showUsageWindow = true }

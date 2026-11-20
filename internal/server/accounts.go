@@ -105,6 +105,16 @@ func (s *Server) chooseAccount(agent, asked, dir string) (accounts.Choice, *prot
 		return ch, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	if ch.PassedOver != "" {
+		// The best of the rest by room, not the next in the order added:
+		// signed in, with the most room, the fewest agents on it.
+		if ranked := s.rankAccounts(agent, accountName(ch.PassedOver)); len(ranked) > 0 && ranked[0].Usable {
+			best := ranked[0].Account
+			dir := ""
+			if a, ok := s.accountBook().Get(agent, best); ok {
+				dir = a.Dir
+			}
+			ch.Account, ch.Dir = best, dir
+		}
 		log.Printf("accounts: %s's %s account is past its failover line; starting on %s", agent, ch.PassedOver, accounts.Label(ch.Account))
 	}
 	return ch, nil
