@@ -2466,8 +2466,50 @@ final class Store: ObservableObject {
             blankBrowsers += 1
             k = browserKey("about:blank#\(blankBrowsers)")
         }
+        // Into a workbench a browser goes as one of its parts — a plain
+        // split there was taken for its terminal, and could not be shown,
+        // hidden or closed from the workbench's bar.
+        if split != nil, layout.current?.benchAgent != nil, layout.addBenchBrowser(k, chat: offersChat) {
+            terminalHasKeyboard = false
+            return
+        }
         if let split, layout.focused != k { layout.split(split, with: k) } else { layout.open(k) }
         terminalHasKeyboard = false
+    }
+
+    /// The workbench's Browser switch: shows or hides its browser, or opens
+    /// one — on the agent's dev server when it listens on a port.
+    func toggleBenchBrowser() {
+        guard let parts = layout.benchParts(layout.active) else { return }
+        if let b = parts.browser {
+            layout.toggleHidden(b)
+            return
+        }
+        let port = pane(parts.agent)?.listening?.first
+        openBrowser(port.map { "http://localhost:\($0)" }, split: .horizontal)
+    }
+
+    /// Closes a browser: out of its workbench, or its split or tab.
+    func closeBrowser(_ k: String) {
+        if let i = layout.tab(showing: k), layout.tabs[i].benchAgent != nil {
+            layout.select(i)
+            layout.removeBenchBrowser(chat: offersChat)
+        } else {
+            layout.close(k)
+        }
+        browserViews.removeValue(forKey: k)
+    }
+
+    /// A browser out of a workbench or split, in a tab of its own.
+    func browserToItsOwnTab(_ k: String) {
+        guard let i = layout.tab(showing: k), layout.tabs[i].root.panes.count > 1 else { return }
+        if layout.tabs[i].benchAgent != nil {
+            layout.select(i)
+            layout.removeBenchBrowser(chat: offersChat)
+        } else {
+            layout.close(k)
+        }
+        layout.open(k)
     }
 
     /// Each task's brief being edited, by machine and folder: kept here so

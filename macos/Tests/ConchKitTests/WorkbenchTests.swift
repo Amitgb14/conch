@@ -567,3 +567,87 @@ private let phoneParts = BenchParts(files: parts.files, shell: parts.shell, chat
     #expect(layout.current?.shows(p.chat) == false && layout.current?.shows(p.agent) == true)
     #expect(layout.current?.shows(p.phone!) == true && layout.benchParts(layout.active) == p, "the phone survives hiding the chat")
 }
+
+// A browser in a workbench: one of its parts, never its terminal.
+
+@Test func aBrowserIsAWorkbenchPartNotItsTerminal() {
+    var l = Layout()
+    l.openBench(.chat, parts)
+    let b = browserKey("http://localhost:3000")
+    let added1 = l.addBenchBrowser(b)
+    #expect(added1)
+    let p = l.benchParts(l.active)
+    #expect(p?.browser == b)
+    #expect(p?.shell == parts.shell, "the terminal stays the terminal")
+    #expect(l.tabs[l.active].shows(b) && l.focused == b)
+    #expect(l.tabs.count == 1)
+    // Every part that was shown still is, and the agent's terminal still waits hidden.
+    #expect(l.tabs[0].shows(parts.chat) && l.tabs[0].shows(parts.files) && l.tabs[0].shows(parts.shell))
+    #expect(!l.tabs[0].shows(parts.agent))
+    // Another layout keeps it, and the terminal.
+    l.setBench(.ide)
+    #expect(l.benchParts(0)?.browser == b && l.benchParts(0)?.shell == parts.shell && l.tabs[0].shows(b))
+    l.setBench(.agent)
+    #expect(l.benchParts(0)?.browser == b && l.tabs[0].root.panes.contains(parts.shell))
+    // Hidden and shown from the bar, then taken out.
+    l.toggleHidden(b)
+    #expect(!l.tabs[0].shows(b))
+    l.toggleHidden(b)
+    #expect(l.tabs[0].shows(b))
+    l.removeBenchBrowser()
+    #expect(l.benchParts(0)?.browser == nil && !l.tabs[0].root.panes.contains(b))
+    #expect(l.benchParts(0)?.shell == parts.shell)
+    #expect(l.tabs[0].shows(l.focused ?? ""), "the keyboard is somewhere shown")
+}
+
+@Test func aBrowserTakenIntoAWorkbenchLeavesItsTab() {
+    var l = Layout()
+    let b = browserKey("http://localhost:5173")
+    l.open(b)
+    l.openBench(.ide, parts)
+    let added2 = l.addBenchBrowser(b)
+    #expect(added2)
+    #expect(l.tabs.count == 1, "a pane is shown in one place")
+    // A second browser takes the first one's place.
+    let c = browserKey("https://example.com")
+    let added3 = l.addBenchBrowser(c)
+    #expect(added3)
+    #expect(l.benchParts(0)?.browser == c && !l.tabs[0].root.panes.contains(b))
+}
+
+@Test func aBrowserIsNotAddedToWhatIsNoWorkbench() {
+    var l = Layout()
+    l.open("local|p1")
+    let added4 = l.addBenchBrowser(browserKey("http://localhost:3000"))
+    #expect(!added4)
+    #expect(l.tabs.count == 1 && l.tabs[0].root.panes == ["local|p1"])
+    l.openBench(.chat, parts)
+    let added5 = l.addBenchBrowser("local|p77")
+    #expect(!added5, "only a browser")
+    var empty = Layout()
+    let addedEmpty = empty.addBenchBrowser(browserKey("x"))
+    #expect(!addedEmpty)
+    var none = Layout()
+    none.removeBenchBrowser()
+    #expect(none.tabs.isEmpty)
+}
+
+@Test func aWorkbenchSplitByHandIsReadRight() {
+    // How it broke: a browser split into a workbench by hand, before it
+    // was a part, sat before the terminal and was read as the terminal.
+    var l = Layout()
+    l.openBench(.chat, parts)
+    let b = browserKey("https://www.youtube.com/")
+    l.split(.horizontal, with: b)
+    let p = l.benchParts(l.active)
+    #expect(p?.shell == parts.shell && p?.browser == b)
+    l.setBench(.ide)
+    #expect(l.tabs[0].root.panes.contains(parts.shell) && l.tabs[0].root.panes.contains(b))
+}
+
+@Test func benchPartsCountTheBrowser() {
+    let p = BenchParts(files: "f", shell: "s", chat: "c", agent: "a", phone: "m", browser: "browser|x")
+    #expect(p.all == ["f", "s", "c", "a", "m", "browser|x"])
+    let (root, _, hidden) = benchArrangement(.chat, BenchParts(files: "files|local|r", shell: "local|p2", chat: chatKey("local|p1"), agent: "local|p1", browser: browserKey("http://localhost:1")))
+    #expect(root.panes.contains(browserKey("http://localhost:1")) && !hidden.contains(browserKey("http://localhost:1")))
+}

@@ -139,6 +139,11 @@ final class FocusingWebView: WKWebView {
 struct BrowserView: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var model: BrowserModel
+    /// Closes it: out of its workbench, split or tab.
+    var close: (() -> Void)? = nil
+    /// Moves it out of a workbench or split into a tab of its own; nil when
+    /// it is a tab of its own already.
+    var ownTab: (() -> Void)? = nil
     @State private var typed = ""
     @FocusState private var editing: Bool
 
@@ -160,8 +165,22 @@ struct BrowserView: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(editing ? Theme.accent : Theme.line))
                     .accessibilityLabel("Address")
                 button("safari", "Open in your browser", enabled: !model.address.isEmpty) { model.openOutside() }
+                if let close { button("xmark.circle", "Close the browser") { close() } }
             }
             .padding(.horizontal, 10).frame(height: 38)
+            // The page takes its own right-clicks, so the bar holds the
+            // browser's: a workbench's browser had none, and no way to close.
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Reload") { model.reload() }
+                Button("Open in Your Browser") { model.openOutside() }.disabled(model.address.isEmpty)
+                Button("Copy Address") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(model.address, forType: .string)
+                }.disabled(model.address.isEmpty)
+                if let ownTab { Divider(); Button("Move to Its Own Tab") { ownTab() } }
+                if let close { Divider(); Button("Close Browser") { close() } }
+            }
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture().onEnded { model.store.focus(model.key) })
             .contextMenu { SplitMenu(store: model.store, pane: model.key) }
