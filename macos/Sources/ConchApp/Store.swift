@@ -2433,7 +2433,15 @@ final class Store: ObservableObject {
 
     /// A page in a tab of its own beside the agents; nil for an empty one
     /// to type an address into. A page already open is shown, not opened twice.
-    func openBrowser(_ url: String?) {
+    /// Puts tab `from` beside (or below) tab `into`, in one tab.
+    func joinTab(_ from: Int, into: Int, _ axis: SplitNode.Axis) {
+        layout.join(from, into: into, axis)
+        if let f = layout.focused, parseBrowserKey(f) != nil { terminalHasKeyboard = false } else { focusTerminal() }
+    }
+
+    /// A browser in a tab of its own, or with `split` beside the focused
+    /// pane — an agent on one side, its page on the other.
+    func openBrowser(_ url: String?, split: SplitNode.Axis? = nil) {
         let k: String
         if let url {
             k = browserKey(url)
@@ -2441,7 +2449,7 @@ final class Store: ObservableObject {
             blankBrowsers += 1
             k = browserKey("about:blank#\(blankBrowsers)")
         }
-        layout.open(k)
+        if let split, layout.focused != k { layout.split(split, with: k) } else { layout.open(k) }
         terminalHasKeyboard = false
     }
 
@@ -2748,6 +2756,8 @@ final class Store: ObservableObject {
         case "newTab": newTerminal(split: nil)
         case "splitRight": newTerminal(split: .horizontal)
         case "splitDown": newTerminal(split: .vertical)
+        case "splitRightBrowser": openBrowser(nil, split: .horizontal)
+        case "splitDownBrowser": openBrowser(nil, split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
         case "find": if let f = focusedFiles { f.findInFile(replace: false) } else { openFind() }

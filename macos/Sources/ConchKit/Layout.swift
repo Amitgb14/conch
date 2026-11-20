@@ -212,6 +212,31 @@ public struct Layout: Equatable, Sendable {
         active = i
     }
 
+    /// Whether a tab may be put beside another (join): neither a workbench.
+    public func canJoin(_ from: Int, into: Int) -> Bool {
+        from != into && tabs.indices.contains(from) && tabs.indices.contains(into)
+            && tabs[from].bench == nil && tabs[into].bench == nil
+    }
+
+    /// Puts a whole tab beside another — an agent's tab and a browser's in
+    /// one, side by side or one above the other — keeping its splits. The
+    /// tab moved in takes the keyboard; the one it left is gone.
+    public mutating func join(_ from: Int, into: Int, _ axis: SplitNode.Axis) {
+        guard from != into, tabs.indices.contains(from), tabs.indices.contains(into) else { return }
+        // A workbench draws its own arrangement, not the split tree.
+        guard tabs[from].bench == nil, tabs[into].bench == nil else { return }
+        let moved = tabs[from]
+        tabs[into].root = .split(axis, [tabs[into].root, moved.root])
+        // Shares were kept by a split's place, which has moved under them.
+        tabs[into].weights = [:]
+        tabs[into].zoomed = false
+        tabs[into].hidden.formUnion(moved.hidden)
+        tabs[into].focused = moved.focused
+        let keep = tabs[into].id
+        tabs.remove(at: from)
+        active = tabs.firstIndex { $0.id == keep } ?? 0
+    }
+
     /// Takes a pane out of the window — closed, or gone from the server.
     /// Its split closes, and its tab when it was the last.
     public mutating func close(_ pane: String) {

@@ -1749,10 +1749,18 @@ struct TabBar: View {
     }
 
     var plus: some View {
-        Button { store.newTerminal(split: nil) } label: {
+        // A terminal, a browser, or a browser beside what is in front.
+        Menu {
+            Button("New Terminal Tab") { store.newTerminal(split: nil) }.keyboardShortcut("t", modifiers: .command)
+            Button("New Browser Tab") { store.openBrowser(nil) }.keyboardShortcut("b", modifiers: [.command, .shift])
+            Divider()
+            Button("Split Right with Browser") { store.openBrowser(nil, split: .horizontal) }
+            Button("Split Down with Browser") { store.openBrowser(nil, split: .vertical) }
+        } label: {
             Text("+").font(.ui(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
         }
-        .buttonStyle(.plain).focusable(false).help("New terminal tab (⌘T)")
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .focusable(false).help("New terminal or browser tab (⌘T, ⇧⌘B), or a browser in a split")
     }
 
     var body: some View {
@@ -1830,6 +1838,13 @@ struct TabButton: View {
             return a.isEmpty || a.hasPrefix("about:") ? "New Tab" : (URL(string: a)?.host.map { h in URL(string: a)?.port.map { "\(h):\($0)" } ?? h } ?? a)
         }
         return p?.displayName ?? tab.focused
+    }
+
+    /// Another tab as its menu names it: its number and its title.
+    func tabLabel(_ j: Int) -> String {
+        let t = store.layout.tabs[j]
+        let other = TabButton(store: store, index: j, tab: t)
+        return "\(j + 1)  " + other.title(changes: parseChangesKey(t.focused), pane: store.pane(t.benchAgent ?? t.focused))
     }
 
     var body: some View {
@@ -1927,6 +1942,20 @@ struct TabButton: View {
         .contextMenu {
             Button("Rename Tab…") { store.renameTab(index) }
             if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }
+            let others = store.layout.tabs.indices.filter { store.layout.canJoin(index, into: $0) }
+            if !others.isEmpty {
+                Divider()
+                Menu("Move Beside") {
+                    ForEach(others, id: \.self) { j in
+                        Button(tabLabel(j)) { store.joinTab(index, into: j, .horizontal) }
+                    }
+                }
+                Menu("Move Below") {
+                    ForEach(others, id: \.self) { j in
+                        Button(tabLabel(j)) { store.joinTab(index, into: j, .vertical) }
+                    }
+                }
+            }
             if let ref = store.paneRef(key: tab.focused) {
                 Divider()
                 Button("Copy Pane ID (\(ref))") { store.copyPaneRef(ref) }
@@ -2135,7 +2164,7 @@ struct PaneCard: View {
                 if store.appLook.ports, let ports = p?.listening, !ports.isEmpty {
                     // What its programs listen on, a click away (pane.listening.v1).
                     ForEach(ports.prefix(3), id: \.self) { port in
-                        ListeningPort(store: store, port: port, machine: unkey(pane).machine)
+                        ListeningPort(store: store, port: port, machine: unkey(pane).machine, pane: pane)
                     }
                 } else if let p, p.agent == nil, let port = store.port(of: pane) {
                     PortLink(port: port, local: unkey(pane).machine == "local")
@@ -2296,6 +2325,8 @@ struct ListeningPort: View {
     @ObservedObject var store: Store
     let port: Int
     let machine: String
+    /// The pane listening on it, so its page opens beside it.
+    var pane: String? = nil
 
     var body: some View {
         let _ = look
@@ -2305,9 +2336,13 @@ struct ListeningPort: View {
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent.opacity(0.14)))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.35)))
-            .help(local ? "Listening on \(port) — click to open it in a tab, ⌥-click in your browser"
+            .help(local ? "Listening on \(port) — click to open it beside this pane, ⌘-click in a tab of its own, ⌥-click in your browser"
                         : "Listening on \(port) on \(store.label(machine)) — click to copy an ssh tunnel to it")
-            .onTapGesture { store.openPort(port, machine: machine, outside: NSEvent.modifierFlags.contains(.option)) }
+            .onTapGesture {
+                let mods = NSEvent.modifierFlags
+                store.openPort(port, machine: machine, outside: mods.contains(.option),
+                               beside: mods.contains(.command) ? nil : pane)
+            }
     }
 }
 

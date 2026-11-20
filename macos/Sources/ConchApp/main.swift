@@ -371,6 +371,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .separator(),
             item("Split Right", "d", .command, "splitRight"),
             item("Split Down", "d", [.command, .shift], "splitDown"),
+            item("Split Right with Browser", "", .command, "splitRightBrowser"),
+            item("Split Down with Browser", "", .command, "splitDownBrowser"),
             item("Zoom Split", "\r", [.command, .shift], "zoomSplit"),
             item("Select Split Left", String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option], "splitLeft"),
             item("Select Split Right", String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option], "splitRightward"),
