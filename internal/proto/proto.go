@@ -3264,6 +3264,13 @@ type SessionInfo struct {
 	// Interrupted means the agent was running in conch when its server
 	// stopped (a restart or reboot) and hasn't been resumed.
 	Interrupted bool `json:"interrupted,omitempty"`
+	// Ended is why the agent last running this conversation ended without
+	// being closed — "killed (SIGKILL)", "exited with code 1" — while
+	// that is kept (pane.ended.v1); EndedID is the record, for
+	// pane.ended.dismiss. EndedFailed is anything but its own clean exit.
+	Ended       string `json:"ended,omitempty"`
+	EndedID     string `json:"ended_id,omitempty"`
+	EndedFailed bool   `json:"ended_failed,omitempty"`
 	// Snippet is the text around a match inside the conversation, in
 	// session.search results; empty when the title or other details matched.
 	Snippet string `json:"snippet,omitempty"`

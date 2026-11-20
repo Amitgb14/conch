@@ -194,3 +194,54 @@ func TestEndedResumedInPlace(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionsEnded: a session whose agent crashed says why on its row,
+// the header counts them, e lists only those and the interrupted runs,
+// and x on one dismisses its record rather than an interrupted run.
+func TestSessionsEnded(t *testing.T) {
+	m, sv := a2SessionsModel()
+	c, peer := a1FakeClient(t, proto.CapPaneEnded)
+	m.machines[0].c, m.machines[0].server = c, c.Server
+	d := m.sessions[sessionsKey(localMachine, "r1")]
+	d.list[0].Ended, d.list[0].EndedID, d.list[0].EndedFailed = "killed (SIGKILL)", "p1.x", true
+	m.machines[0].ended = []proto.EndedAgent{{ID: "p1.x", Pane: "p1", Agent: "claude"}}
+
+	for _, w := range []int{120, 40, 20} {
+		for _, l := range sv.render(*m, w, 12) {
+			if ansi.StringWidth(l) > w {
+				t.Fatalf("line wider than %d: %q", w, ansi.Strip(l))
+			}
+		}
+	}
+	out := ansi.Strip(strings.Join(sv.render(*m, 140, 12), "\n"))
+	if !strings.Contains(out, "ended: killed (SIGKILL)") || !strings.Contains(out, "⚠ 1 ended (e lists them)") {
+		t.Fatalf("not marked:\n%s", out)
+	}
+	if d.troubled() != 3 {
+		t.Fatalf("troubled %d, want the ended one and two interrupted", d.troubled())
+	}
+
+	sv.key(m, a2Key("e"))
+	list := sv.visible(*m)
+	if len(list) != 3 || list[0].ID != "s1" {
+		t.Fatalf("e lists only the ended and interrupted: %+v", list)
+	}
+	if out := ansi.Strip(strings.Join(sv.render(*m, 140, 12), "\n")); !strings.Contains(out, "only ended and interrupted") {
+		t.Fatalf("filter not said:\n%s", out)
+	}
+	sv.sel = 0
+	_, cmd := sv.key(m, a2Key("x"))
+	runBatch(cmd)
+	peer.waitMethod(t, proto.MethodPaneEndedDismiss, `"p1.x"`)
+	if len(m.machines[0].ended) != 0 {
+		t.Fatal("record kept in the tree")
+	}
+	if n := peer.count(t, c, proto.MethodSessionDismiss, ""); n != 0 {
+		t.Fatal("dismissed as an interrupted run")
+	}
+
+	sv.key(m, a2Key("e"))
+	if len(sv.visible(*m)) != 4 {
+		t.Fatal("e again shows all")
+	}
+}

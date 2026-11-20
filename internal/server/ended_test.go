@@ -283,3 +283,41 @@ func TestEndedByARestart(t *testing.T) {
 		t.Fatal("an older log")
 	}
 }
+
+// TestSessionsMarkEnded: a session whose agent ended unasked says why, by
+// its id, or for an agent that reported none by its folder and time; one
+// open in a pane again is not marked; a crash sorts first, a clean exit
+// does not.
+func TestSessionsMarkEnded(t *testing.T) {
+	now := time.Now()
+	out := []proto.SessionInfo{
+		{Agent: "claude", ID: "a", Dir: "/w", Updated: now.Add(-time.Hour)},
+		{Agent: "claude", ID: "b", Dir: "/w", Updated: now.Add(-2 * time.Hour), PaneID: "p3"},
+		{Agent: "codex", ID: "c1", Dir: "/w", Updated: now.Add(-3 * time.Hour)},
+		{Agent: "codex", ID: "c2", Dir: "/w", Updated: now.Add(-20 * time.Minute)},
+		{Agent: "claude", ID: "d", Dir: "/w", Updated: now},
+	}
+	markEnded(out, []proto.EndedAgent{
+		{ID: "e1", Agent: "claude", Session: "a", Why: proto.EndedKilled, Signal: "SIGKILL"},
+		{ID: "e2", Agent: "claude", Session: "b", Why: proto.EndedExited, ExitCode: 1},
+		{ID: "e3", Agent: "codex", Dir: "/w", Why: proto.EndedExited, ExitCode: 2, Started: now.Add(-time.Hour), Ended: now.Add(-15 * time.Minute)},
+		{ID: "e4", Agent: "claude", Session: "d", Why: proto.EndedExited},
+		{ID: "e5", Agent: "gemini", Session: "zz", Why: proto.EndedServer},
+	})
+	if out[0].Ended != "killed (SIGKILL)" || out[0].EndedID != "e1" || !out[0].EndedFailed {
+		t.Fatalf("by id: %+v", out[0])
+	}
+	if out[1].Ended != "" {
+		t.Fatalf("open again but marked: %+v", out[1])
+	}
+	if out[2].Ended != "" || out[3].Ended != "exited with code 2" {
+		t.Fatalf("by folder and time: %+v / %+v", out[2], out[3])
+	}
+	if out[4].Ended != "exited" || out[4].EndedFailed {
+		t.Fatalf("clean exit: %+v", out[4])
+	}
+	sortSessions(out)
+	if out[0].ID != "c2" || out[1].ID != "a" || out[2].ID != "d" {
+		t.Fatalf("crashes first, newest first: %s %s %s", out[0].ID, out[1].ID, out[2].ID)
+	}
+}

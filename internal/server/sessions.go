@@ -340,6 +340,8 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 	}
 	out = dedupeSessions(markInterrupted(out, runs))
 
+	markEnded(out, s.runs.endedList())
+
 	for i := range out {
 		if out[i].Branch == "HEAD" {
 			out[i].Branch = ""
@@ -441,12 +443,13 @@ func sortSessions(out []proto.SessionInfo) {
 }
 
 func lessSession(a, b proto.SessionInfo) bool {
-	// Interrupted first: that is work waiting to be picked up, where a
-	// star is a bookmark somebody left. Then starred, which is what
-	// starring is for — finding it among a project's hundreds without
-	// remembering its first line. Recency decides within each.
-	if a.Interrupted != b.Interrupted {
-		return a.Interrupted
+	// Interrupted (or ended by a crash) first: that is work waiting to be
+	// picked up, where a star is a bookmark somebody left. Then starred,
+	// which is what starring is for — finding it among a project's
+	// hundreds without remembering its first line. Recency decides within
+	// each.
+	if ai, bi := a.Interrupted || a.EndedFailed, b.Interrupted || b.EndedFailed; ai != bi {
+		return ai
 	}
 	if a.Starred != b.Starred {
 		return a.Starred

@@ -324,7 +324,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			return "", glyphStyle, "Sessions", styleMuted, ""
 		}
 		right = styleMuted.Render(fmt.Sprint(len(d.list)))
-		if n := d.interrupted(); n > 0 {
+		if n := d.troubled(); n > 0 {
 			right = joinRight(styleWarn.Render(fmt.Sprintf("⚠%d", n)), right)
 		}
 		return "", glyphStyle, "Sessions", styleMuted, right

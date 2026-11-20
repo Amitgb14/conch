@@ -161,6 +161,35 @@ func (s *Server) placeEnded(rec proto.EndedAgent) proto.EndedAgent {
 	return rec
 }
 
+// markEnded says, on each session whose agent ended without being closed,
+// why — by its session id, or, for an agent that never reported one, the
+// newest session of that agent in its folder from while it ran. A session
+// open in a pane again is not marked: it is back.
+func markEnded(out []proto.SessionInfo, ended []proto.EndedAgent) {
+	for _, r := range ended {
+		best := -1
+		for i, si := range out {
+			if si.Agent != r.Agent || si.PaneID != "" || si.EndedID != "" {
+				continue
+			}
+			if r.Session != "" {
+				if si.ID == r.Session {
+					best = i
+					break
+				}
+				continue
+			}
+			if si.Dir == r.Dir && !si.Updated.Before(r.Started.Add(-time.Minute)) && !si.Updated.After(r.Ended.Add(10*time.Minute)) &&
+				(best < 0 || si.Updated.After(out[best].Updated)) {
+				best = i
+			}
+		}
+		if best >= 0 {
+			out[best].Ended, out[best].EndedID, out[best].EndedFailed = r.Reason(), r.ID, r.Failed()
+		}
+	}
+}
+
 func (s *Server) listEnded() proto.EndedList {
 	list := s.runs.endedList()
 	for i := range list {
