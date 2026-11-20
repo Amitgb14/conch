@@ -56,6 +56,16 @@ func skillCommandsExist(t *testing.T, text string) {
 	seen := 0
 	for _, u := range uses {
 		cmd, rest := u.cmd, u.rest
+		// A subcommand with a usage line of its own (conch branch prune)
+		// is checked against that line, not its command's first one.
+		if f := strings.Fields(rest); len(f) > 0 && !strings.HasPrefix(f[0], "-") {
+			for _, l := range usageLines {
+				if strings.Contains(l, "conch "+cmd+" "+f[0]+" ") {
+					cmd, rest = cmd+" "+f[0], strings.TrimPrefix(strings.TrimSpace(rest), f[0])
+					break
+				}
+			}
+		}
 		var line string
 		for i, l := range usageLines {
 			// A command another machine can run is listed as
@@ -73,7 +83,12 @@ func skillCommandsExist(t *testing.T, text string) {
 		}
 		seen++
 		for _, flag := range regexp.MustCompile(`(?:^|\s)(-[a-z]+)`).FindAllStringSubmatch(rest, -1) {
-			if !strings.Contains(line, "["+flag[1]) && !strings.Contains(line, " "+flag[1]+" ") {
+			// Every branch subcommand takes -branch and -cwd (branchFlags),
+			// which the usage says once, on branch commit's line.
+			if strings.HasPrefix(cmd, "branch ") && (flag[1] == "-branch" || flag[1] == "-cwd") {
+				continue
+			}
+			if !strings.Contains(line, "["+flag[1]) && !strings.Contains(line, " "+flag[1]+" ") && !strings.Contains(line, "| "+flag[1]+"]") {
 				t.Errorf("the skill passes %s to `conch %s`, which doesn't take it:\n%s", flag[1], cmd, line)
 			}
 		}
@@ -179,14 +194,14 @@ func TestPrintSkill(t *testing.T) {
 	}
 	var err error
 	out, _ := a4Capture(t, "", func() { err = printSkill([]string{"-list"}) })
-	if err != nil || out != "conch\nconch-architect\nconch-autopilot\nconch-cicd\nconch-debug\nconch-dev\nconch-factory\nconch-qa\nconch-review\nconch-reviewer\nconch-security\nconch-ship\nconch-team\n" {
+	if err != nil || out != "conch\nconch-autopilot\nconch-cicd\nconch-factory\nconch-qa\nconch-review\nconch-setup\nconch-ship\nconch-status\nconch-team\n" {
 		t.Fatalf("-list: %v %q", err, out)
 	}
 	out, _ = a4Capture(t, "", func() { err = printSkill(nil) })
 	if err != nil || out != string(agentsetup.Skill) {
 		t.Fatal("no name: not conch's own")
 	}
-	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-architect, conch-autopilot") {
+	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-autopilot, conch-cicd") {
 		t.Fatalf("unknown: %v", err)
 	}
 	for _, bad := range [][]string{{"-x"}, {"a", "b"}} {

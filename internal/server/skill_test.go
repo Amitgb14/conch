@@ -30,7 +30,7 @@ func TestAgentSkillMethod(t *testing.T) {
 	// Every one of conch's skills, for each of the three folders, each
 	// named — the first is conch's own in Claude's.
 	if perr != nil || res.Applied || len(res.Changes) != 3*len(agentsetup.Skills) || res.Changes[0].Action != proto.SyncCreate ||
-		res.Changes[0].Path != claude || res.Changes[0].Skill != "conch" || res.Changes[1].Skill != "conch-architect" {
+		res.Changes[0].Path != claude || res.Changes[0].Skill != "conch" || res.Changes[1].Skill != "conch-autopilot" {
 		t.Fatalf("plan: %+v %v", res, perr)
 	}
 	if _, err := os.Stat(claude); err == nil {

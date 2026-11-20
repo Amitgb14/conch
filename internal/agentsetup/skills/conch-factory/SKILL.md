@@ -124,7 +124,7 @@ disagree on.
 ## 6. Test
 
 ```sh
-conch task -name test-123 -base BRANCH "You are testing branch BRANCH for issue 123 (gh issue view 123). First bring your worktree to its newest commit: git checkout --detach BRANCH. Run the project's whole test suite, then try the change the way a user would, including its edge cases. Don't fix anything. Write TEST-REPORT.md in your worktree: 'pass', or each failure with the command that shows it."
+conch task -name test-123 -base BRANCH "You are testing branch BRANCH for issue 123 (gh issue view 123). If you have the conch-qa skill, work as that role. First bring your worktree to its newest commit: git checkout --detach BRANCH. Run the project's whole test suite, then try the change the way a user would, including its edge cases. Don't fix anything. Write TEST-REPORT.md in your worktree: 'pass', or each failure with the command that shows it."
 conch wait -state done,waiting -timeout 45m test-123
 ```
 

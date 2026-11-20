@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -338,7 +339,7 @@ func TestInstallSkillLeftoverCopy(t *testing.T) {
 // that is its folder's, a description under the cut, and conch's mark —
 // without which conch could never update or remove it.
 func TestBundledSkills(t *testing.T) {
-	want := []string{"conch", "conch-architect", "conch-autopilot", "conch-cicd", "conch-debug", "conch-dev", "conch-factory", "conch-qa", "conch-review", "conch-reviewer", "conch-security", "conch-ship", "conch-team"}
+	want := []string{"conch", "conch-autopilot", "conch-cicd", "conch-factory", "conch-qa", "conch-review", "conch-setup", "conch-ship", "conch-status", "conch-team"}
 	var names []string
 	for _, sk := range Skills {
 		names = append(names, sk.Name)
@@ -409,48 +410,62 @@ func TestBundledSkills(t *testing.T) {
 	}
 }
 
-// The role skills: an agent conch started for one job — building,
-// reviewing, testing, CI, security, design, debugging — and what that job
-// promises. Each keeps to its job: the ones that only read never change
-// the author's code, and none of them ships what the person didn't ask to.
+// The skills for a day's work in conch: testing a branch and CI (roles a
+// helper is started as), setting a project up and seeing what is going
+// on. Each does its job with conch's own pieces, and promises what the
+// person relies on: QA never changes the author's code, nothing goes to
+// production unasked, setup proposes what conch keeps for the person and
+// asks where agents run, status changes nothing without a yes.
 func TestRoleSkills(t *testing.T) {
 	roles := map[string][]string{
-		"conch-dev": {"test-first", "$CONCH_PORT", "conch review reply", "conch branch commit", "How this branch is shipped",
-			"Don't push, force-push or merge", "conch-reviewer"},
-		"conch-reviewer": {"git diff BASE...BRANCH", "Fidelity first", "conch review add -branch BRANCH", "REVIEW.md", "blocker",
-			"You never edit the author's", "git checkout --detach BRANCH", "conch-review"},
-		"conch-qa": {"TEST-REPORT.md", "Acceptance criteria", "$CONCH_PORT", "conch preview shot", "Steps to reproduce",
+		"conch-qa": {"git checkout --detach BRANCH", "Acceptance criteria", "$CONCH_PORT", "conch preview run", "conch preview shot",
+			"conch integration previews", "conch review add -branch BRANCH", "TEST-REPORT.md", "Steps to reproduce",
 			"Don't fix the author's code", "never against production"},
-		"conch-cicd": {"gh run view", "--log-failed", "conch branch fix-ci", "conch branch rerun-ci", "A flaky test is a bug",
-			"permissions:", "pin", "conch integration previews", "conch integration promote", "only when the person asked",
-			"Never disable a check"},
-		"conch-security": {"Threat model", "injection", "path traversal", "SSRF", "Never paste a secret", "rotate",
-			"never against a live system", "conch review add -branch BRANCH", "SECURITY-REVIEW.md"},
-		"conch-architect": {"DESIGN.md", "Non-goals", "Options", "conch task", "-after", "Acceptance criteria",
-			"approve", "write no code"},
-		"conch-debug": {"Reproduce", "failing test", "git bisect", "git bisect reset", "root cause", "DEBUG.md",
-			"never a sleep", "-count="},
+		"conch-cicd": {"conch config path", "auto_merge", "conch integration ls", "--log-failed", "conch branch fix-ci",
+			"conch branch rerun-ci", "A flaky test is a bug", "conch integration previews", "conch integration promote",
+			"only when the person asked", "no `-y` on their behalf", "Never disable a check"},
+		// Where agents run is asked, with three answers: here, a machine
+		// already connected (listed), or a new sandbox — made only after
+		// a yes to what it costs.
+		"conch-setup": {"conch doctor", "conch agent setup", "conch project files ID", "replaces the list", "conch agent skill -apply",
+			"Propose; the person runs", "This computer", "A machine already connected", "conch machine ls", "A new sandbox",
+			"conch sandbox providers", "conch sandbox provider install NAME", "never\n  ask for it yourself", "said yes to its cost",
+			"conch task -sandbox"},
+		"conch-status": {"conch status -json", "conch agent question", "conch schedule ls", "conch worktree ls", "conch review -branch BRANCH",
+			"Needs you", "Never answer a waiting agent's question", "conch worktree clean -y", "conch branch prune -merged",
+			"only what they say yes to", "Never add\n`-force`"},
 	}
+	// Six different conch commands at least: a role that could be
+	// followed without conch belongs in somebody's own skills, not here.
+	cmds := regexp.MustCompile("conch ((?:agent |branch |review |preview |integration |ticket )?[a-z][a-z-]*)")
 	for name, wants := range roles {
 		sk, ok := BundledSkillNamed(name)
 		if !ok {
 			t.Errorf("no %s skill", name)
 			continue
 		}
+		text := string(sk.Body)
 		for _, w := range wants {
-			if !strings.Contains(string(sk.Body), w) {
+			if !strings.Contains(text, w) {
 				t.Errorf("%s no longer says %q", name, w)
 			}
 		}
-		// A role is a skill an agent loads for its whole session, so it
-		// says when not to use it as well as when to.
-		if !strings.Contains(string(sk.Body), "## Rules") {
+		if !strings.Contains(text, "## Rules") {
 			t.Errorf("%s has no rules", name)
+		}
+		// Only code counts: prose says "conch started you" without a command.
+		code := strings.Join(regexp.MustCompile("(?s)```[a-z]*\n.*?```|`[^`\n]+`").FindAllString(text, -1), "\n")
+		seen := map[string]bool{}
+		for _, m := range cmds.FindAllStringSubmatch(code, -1) {
+			seen[m[1]] = true
+		}
+		if len(seen) < 6 {
+			t.Errorf("%s uses %d of conch's commands (%v); a role here is how to do the job with conch", name, len(seen), seen)
 		}
 	}
 	// conch's own skill points a helper at the role it was started for.
 	own, _ := BundledSkillNamed("conch")
-	for name := range roles {
+	for _, name := range []string{"conch-qa", "conch-cicd"} {
 		if !strings.Contains(string(own.Body), "`"+name+"`") {
 			t.Errorf("conch's skill doesn't name the %s role", name)
 		}

@@ -15,7 +15,7 @@ How an agent in conch starts other agents — a reviewer, a tester, a second opi
 
 ## Setting it up
 
-The agents learn how from skills conch carries. Install them once per machine.
+Install conch's skills once per machine.
 
 ```sh
 conch agent skill            # shows where it would write
@@ -46,16 +46,14 @@ Ask for the other skills the same way, or by name as a command in Claude Code.
 | _"Open the pull request for this branch and merge it once CI is green."_ | conch-ship |
 | _"Take issue 123 from build to a merged pull request."_ | conch-factory (`/conch-factory 123`) |
 | _"Set up an automated workflow for this project."_ | conch-autopilot |
+| _"QA this branch."_ | conch-qa |
+| _"Why is CI red?"_ | conch-cicd |
+| _"Set up this repo."_ | conch-setup |
+| _"What's going on?"_ | conch-status |
 
 <AutopilotLoop />
 
 Every stage is an agent spending your usage, so ask for the team size you want.
-
-## Roles
-
-A helper can work as a role: `conch-architect`, `conch-dev`, `conch-reviewer`, `conch-qa`, `conch-security`, `conch-cicd`, `conch-debug`.
-
-**How:** _"Have Codex review this as conch-reviewer."_
 
 ## Who started what
 

@@ -400,7 +400,7 @@ func printSetup(w io.Writer, res proto.AgentSetupResult) {
 func agentSkill(args []string) error {
 	fs := flag.NewFlagSet("agent skill", flag.ContinueOnError)
 	agents := fs.String("agent", "", "only these agents, separated by commas (default: all)")
-	skills := fs.String("skill", "", "only these of conch's skills, separated by commas: conch, conch-team, conch-review, conch-ship, conch-factory, conch-autopilot, and the roles conch-architect, conch-dev, conch-reviewer, conch-qa, conch-security, conch-cicd, conch-debug (default: all)")
+	skills := fs.String("skill", "", "only these of conch's skills, separated by commas: conch, conch-team, conch-review, conch-ship, conch-factory, conch-autopilot, conch-qa, conch-cicd, conch-setup, conch-status (default: all)")
 	remove := fs.Bool("remove", false, "take conch's skill away again")
 	apply := fs.Bool("apply", false, "write the changes; without it, only say what they would be")
 	if err := fs.Parse(args); err != nil {

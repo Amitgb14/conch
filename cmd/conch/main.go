@@ -133,9 +133,8 @@ Usage:
   conch view                    what the terminal is showing: its tabs, and which pane has the keyboard
   conch show [-name N] ID...    ask the terminal to put those panes in front of the person
   conch skill [-list | NAME]    print conch's skill (or conch-team, conch-review, conch-ship,
-                                conch-factory, conch-autopilot, or a role: conch-architect,
-                                conch-dev, conch-reviewer, conch-qa, conch-security,
-                                conch-cicd, conch-debug) instead, for an agent conch cannot
+                                conch-factory, conch-autopilot, conch-qa, conch-cicd,
+                                conch-setup, conch-status) instead, for an agent conch cannot
                                 install it for
   conch agent skill [-skill NAMES] [-agent NAMES] [-remove] [-apply]
                                 teach the agents conch: its skills, in each agent's own skills
@@ -144,10 +143,9 @@ Usage:
                                 review again), conch-ship (tests, pull request, CI, merge),
                                 conch-factory (a ticket all the way to a merged PR) and
                                 conch-autopilot (set up the automated workflow for a project),
-                                and the roles a helper works as: conch-architect (design and
-                                tasks), conch-dev (build test-first), conch-reviewer (comment,
-                                never edit), conch-qa (TEST-REPORT.md), conch-security,
-                                conch-cicd (red runs, pipelines, deploys), conch-debug
+                                conch-qa (test a branch as a user would), conch-cicd (red CI,
+                                pipelines, deploys), conch-setup (a project ready for agents)
+                                and conch-status (what every agent is doing, and tidying up)
   conch agent add NAME -command BINARY [-label L] [-prompt 'FLAG {prompt}'] [-resume 'FLAG {id}']
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend
