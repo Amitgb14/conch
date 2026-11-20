@@ -3885,3 +3885,32 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh", state: "exited")))
     #expect(!closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh", state: "starting")))
 }
+
+@Test func everyInstalledProvidersMachineIsASandbox() {
+    // InstaBox is a provider file, not one of the old built-ins: its
+    // machine was taken for an ssh host, with no Delete Sandbox.
+    let box = MachineEntry(id: "ib", label: "web", target: "instabox:m_agq7tsac25mgywba63lsvhzhhu")
+    let known = MachineEntry.builtInSandboxProviders.union(["instabox"])
+    #expect(box.sandboxProvider(known: known) == "instabox")
+    #expect(box.sandboxProvider(known: MachineEntry.builtInSandboxProviders) == nil, "not installed: not a sandbox conch can act on")
+    #expect(MachineEntry(id: "d", label: "d", target: "daytona:abc").sandboxProvider(known: []) == nil)
+    // conch: is Conch Cloud's, even were a provider file named so.
+    #expect(MachineEntry(id: "c", label: "c", target: "conch:m_i806gqdxqcmoyx2y").sandboxProvider(known: ["conch"]) == nil)
+    // An ssh host with a port, or a user, is never one.
+    #expect(MachineEntry(id: "h", label: "h", target: "instabox:22").sandboxProvider(known: known) == "instabox",
+            "a host named like a provider, with a port, reads as that provider's sandbox — as conch's own parser reads it")
+    #expect(MachineEntry(id: "h", label: "h", target: "me@instabox:22").sandboxProvider(known: known) == nil)
+    #expect(MachineEntry(id: "h", label: "h", target: "instabox:").sandboxProvider(known: known) == nil)
+    #expect(MachineEntry(id: "h", label: "h", target: nil).sandboxProvider(known: known) == nil)
+}
+
+@Test func installedProvidersAreTheFilesInTheFolder() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir.appendingPathComponent("drafts"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    for n in ["instabox.toml", "daytona.toml", "registry.json", "Bad Name.toml", ".toml", "hetzner-cloud.toml"] {
+        try Data("x".utf8).write(to: dir.appendingPathComponent(n))
+    }
+    #expect(installedSandboxProviders(dir: dir.path) == ["instabox", "daytona", "hetzner-cloud"])
+    #expect(installedSandboxProviders(dir: dir.appendingPathComponent("missing").path).isEmpty)
+}

@@ -186,14 +186,25 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
         self.enabled = enabled
     }
 
+    /// The providers whose machines are sandboxes: the ones conch once had
+    /// built in (a machine they made still opens), devin (dropped, but its
+    /// machine still says so rather than becoming an ssh host), and every
+    /// provider file installed, which the app adds as it reads machines.json
+    /// (installedSandboxProviders). A fixed list here once left InstaBox's
+    /// machines plain ssh hosts: no Stop, Start or Delete Sandbox.
+    public static let builtInSandboxProviders: Set<String> = ["daytona", "boat", "devin", "tensorlake"]
+    nonisolated(unsafe) public static var sandboxProviders: Set<String> = builtInSandboxProviders
+
     /// The provider when this machine is a hosted sandbox (its target is
-    /// "provider:id", as remote.ParseSandboxTarget reads it), else nil.
-    /// devin stays, though Devin Cloud was dropped: such a machine is still
-    /// a sandbox, whose provider says it is gone, not an ssh host.
-    public var sandboxProvider: String? {
+    /// "provider:id", as remote.ParseSandboxTarget reads it: a provider
+    /// conch knows), else nil.
+    public var sandboxProvider: String? { sandboxProvider(known: Self.sandboxProviders) }
+
+    public func sandboxProvider(known: Set<String>) -> String? {
         guard let t = target, let colon = t.firstIndex(of: ":") else { return nil }
         let p = String(t[..<colon]), id = t[t.index(after: colon)...]
-        guard ["daytona", "boat", "devin", "tensorlake"].contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
+        // conch: is a Conch Cloud machine, never a provider's.
+        guard p != "conch", known.contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
         return p
     }
 
@@ -1382,3 +1393,18 @@ public struct RepoSummary: Equatable, Sendable {
     }
 }
 
+/// The providers installed as files in a providers folder
+/// ($CONCH_HOME/providers/NAME.toml), by name: what makes a machine
+/// "NAME:ID" a sandbox, as sandbox.Known does in conch. A name that is
+/// not one conch would take is left out.
+public func installedSandboxProviders(dir: String, fm: FileManager = .default) -> Set<String> {
+    guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
+    var out: Set<String> = []
+    for n in names where n.hasSuffix(".toml") {
+        let p = String(n.dropLast(".toml".count))
+        if !p.isEmpty, p.allSatisfy({ ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") || $0 == "-" || $0 == "_" }) {
+            out.insert(p)
+        }
+    }
+    return out
+}
