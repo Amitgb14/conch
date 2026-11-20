@@ -190,3 +190,39 @@ func TestMoverFinishedTurn(t *testing.T) {
 		t.Error("after drop, the next look is a first look")
 	}
 }
+
+// TestJobCommands: what an agent left running, as the refusal and the card
+// say it; long commands cut, none for no agent.
+func TestJobCommands(t *testing.T) {
+	if got := jobCommands(proto.PaneInfo{}); got != nil {
+		t.Errorf("no agent: %v", got)
+	}
+	long := "go test -race -count=1 -timeout 20m ./internal/server/ ./cmd/conch/ ./internal/accounts/"
+	info := proto.PaneInfo{Agent: &proto.AgentStatus{Name: "claude", Jobs: []proto.BackgroundJob{
+		{PID: 1, Command: "  npm run dev  "}, {PID: 2, Command: long}}}}
+	got := jobCommands(info)
+	if len(got) != 2 || got[0] != "npm run dev" || len([]rune(got[1])) > 60 || !strings.HasSuffix(got[1], "…") {
+		t.Errorf("jobs: %q", got)
+	}
+}
+
+// TestMoverWaiting: the clock starts at the first ask, runs on, and stops
+// (and starts over) once nothing waits.
+func TestMoverWaiting(t *testing.T) {
+	m := newMover()
+	t0 := time.Date(2026, 11, 20, 4, 0, 0, 0, time.UTC)
+	if w := m.waiting("p1", t0, false); w != 0 {
+		t.Errorf("first ask: %v", w)
+	}
+	if w := m.waiting("p1", t0.Add(3*time.Minute), false); w != 3*time.Minute {
+		t.Errorf("three minutes on: %v", w)
+	}
+	m.waiting("p1", t0.Add(4*time.Minute), true)
+	if w := m.waiting("p1", t0.Add(20*time.Minute), false); w != 0 {
+		t.Errorf("after stopping, a new first ask: %v", w)
+	}
+	m.drop("p1")
+	if _, ok := m.waitFrom["p1"]; ok {
+		t.Error("drop left the clock")
+	}
+}

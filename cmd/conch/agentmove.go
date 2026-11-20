@@ -18,12 +18,13 @@ func agentMove(args []string) error {
 	fs := flag.NewFlagSet("agent move", flag.ContinueOnError)
 	account := fs.String("account", "", "the account to move it to (default: the one with most room; default is the agent's own)")
 	cont := fs.Bool("continue", false, "send it \"continue\" once it is back, as for an agent its limit stopped")
+	force := fs.Bool("force", false, "move it even with background commands running; they stop with it")
 	words, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(words) != 1 {
-		return errors.New("usage: conch agent move ID [-account NAME] [-continue]")
+		return errors.New("usage: conch agent move ID [-account NAME] [-continue] [-force]")
 	}
 	c, err := connect(false)
 	if err != nil {
@@ -38,7 +39,7 @@ func agentMove(args []string) error {
 		return err
 	}
 	var nw proto.PaneInfo
-	if err := call(c, proto.MethodAgentMove, proto.AgentMoveParams{ID: id, Account: *account, Continue: *cont}, &nw); err != nil {
+	if err := call(c, proto.MethodAgentMove, proto.AgentMoveParams{ID: id, Account: *account, Continue: *cont, Force: *force}, &nw); err != nil {
 		return err
 	}
 	to := nw.Account

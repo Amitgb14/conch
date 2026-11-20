@@ -17,7 +17,11 @@ public struct AgentMoving: Decodable, Equatable, Sendable {
     public var to: String
     public var at: Date
     public var reason: String
-    public init(pane: String, agent: String, from: String, to: String, at: Date, reason: String) {
+    /// The background commands that stop with it, when the server waited
+    /// for them and they went on.
+    public var stops: [String]?
+    public init(pane: String, agent: String, from: String, to: String, at: Date, reason: String, stops: [String]? = nil) {
+        self.stops = stops
         self.pane = pane
         self.agent = agent
         self.from = from
@@ -79,7 +83,10 @@ public struct AgentMoveParams: Encodable, Sendable {
     public var account: String?
     public var `continue`: Bool?
     public var reason: String?
-    public init(id: String, account: String? = nil, continue: Bool? = nil, reason: String? = nil) {
+    /// Moves it even with background commands running, which stop.
+    public var force: Bool?
+    public init(id: String, account: String? = nil, continue: Bool? = nil, reason: String? = nil, force: Bool? = nil) {
+        self.force = force
         self.id = id
         self.account = account
         self.continue = `continue`

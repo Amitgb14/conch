@@ -36,13 +36,13 @@ extension Store {
 
     /// Moves pane k's agent to account (nil: conch picks), and puts the
     /// pane it comes back in where this one was.
-    func moveAgent(_ k: String, to account: String?, continue cont: Bool = false, reason: String = "hand") {
+    func moveAgent(_ k: String, to account: String?, continue cont: Bool = false, reason: String = "hand", force: Bool = false) {
         let (m, id) = unkey(k)
         guard let c = conns[m] else { return }
         movingAgents[k] = nil
         job("Moving \(id) to \(account ?? "the account with most room")", done: nil) {
             do {
-                let nw = try await c.call("agent.move", AgentMoveParams(id: id, account: account, continue: cont ? true : nil, reason: reason), as: PaneInfo.self)
+                let nw = try await c.call("agent.move", AgentMoveParams(id: id, account: account, continue: cont ? true : nil, reason: reason, force: force ? true : nil), as: PaneInfo.self)
                 self.landed(old: k, new: ConchKit.key(m, nw.id))
                 self.say("\(id) now on \(accountLabel(nw.account)), as \(nw.id)")
             } catch {
@@ -54,7 +54,7 @@ extension Store {
     /// A scheduled move made at once.
     func moveNow(_ k: String) {
         guard let mv = movingAgents[k] else { return }
-        moveAgent(k, to: mv.to, continue: mv.reason == "limit", reason: mv.reason)
+        moveAgent(k, to: mv.to, continue: mv.reason == "limit", reason: mv.reason, force: true)
     }
 
     /// A scheduled move called off: the agent stays where it is until it

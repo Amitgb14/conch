@@ -132,6 +132,9 @@ type AgentMoveParams struct {
 	// Reason is said in the log and the event: "hand", "limit", "line" or
 	// "back"; "hand" when empty.
 	Reason string `json:"reason,omitempty"`
+	// Force moves it even with background commands running, which stop
+	// with it; without it, such a move is refused and they are named.
+	Force bool `json:"force,omitempty"`
 }
 
 // AgentMoveCancelParams calls off pane ID's scheduled move.
@@ -147,6 +150,9 @@ type AgentMoving struct {
 	To     string    `json:"to"`
 	At     time.Time `json:"at"`
 	Reason string    `json:"reason"`
+	// Stops is the background commands that stop with it, when the server
+	// waited for them and they went on running.
+	Stops []string `json:"stops,omitempty"`
 }
 
 // AgentMoved is a move done.

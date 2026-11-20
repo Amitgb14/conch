@@ -11,3 +11,11 @@ func SetMoveTiming(tick, delay time.Duration) (restore func()) {
 	moveTick, moveDelay = tick, delay
 	return func() { moveTick, moveDelay = oldTick, oldDelay }
 }
+
+// SetMoveJobWait is how long servers started after it wait on an agent's
+// background commands before a move; it gives back a restore.
+func SetMoveJobWait(d time.Duration) (restore func()) {
+	old := moveJobWait
+	moveJobWait = d
+	return func() { moveJobWait = old }
+}

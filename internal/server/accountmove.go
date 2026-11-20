@@ -30,6 +30,27 @@ import (
 // Claude Code only for now: its conversation is one file under the
 // account's projects/, and --resume takes its id. Codex keeps its own.
 
+// moveJobWait is how long a move the server would make waits for the
+// agent's background commands to finish before it is scheduled anyway,
+// naming them.
+var moveJobWait = 10 * time.Minute
+
+// jobCommands is what an agent left running, as it was started.
+func jobCommands(info proto.PaneInfo) []string {
+	if info.Agent == nil {
+		return nil
+	}
+	var out []string
+	for _, j := range info.Agent.Jobs {
+		c := strings.TrimSpace(j.Command)
+		if len(c) > 60 {
+			c = c[:57] + "…"
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // moveDelay is how long a scheduled move waits, for somebody to call it off,
 // and moveTick how often agents are looked at for a limit: each server
 // takes them as it starts (newMover), so a test changes them before.
@@ -50,6 +71,10 @@ type mover struct {
 	// the failover line follows a turn just finished and never an agent
 	// left idle.
 	turns map[string]int
+	// jobWait, and when each agent needing a move was first found with
+	// background commands running.
+	jobWait  time.Duration
+	waitFrom map[string]time.Time
 }
 
 // finishedTurn says whether the agent has finished a turn since the last
@@ -64,7 +89,8 @@ func (m *mover) finishedTurn(pane string, turns int) bool {
 }
 
 func newMover() *mover {
-	return &mover{tick: moveTick, delay: moveDelay, pending: map[string]proto.AgentMoving{}, held: map[string]bool{}, turns: map[string]int{}}
+	return &mover{tick: moveTick, delay: moveDelay, pending: map[string]proto.AgentMoving{}, held: map[string]bool{}, turns: map[string]int{},
+		jobWait: moveJobWait, waitFrom: map[string]time.Time{}}
 }
 
 // rankAccounts is agent's accounts other than exclude ("" its own; "-"
@@ -224,6 +250,12 @@ func (s *Server) moveAgent(p proto.AgentMoveParams) (proto.PaneInfo, *proto.Erro
 	}
 	if info.Agent != nil && info.Agent.State == proto.AgentWorking {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "%s is working: move it when its turn ends", p.ID)
+	}
+	// What the agent left running is its process's children and stops with
+	// it; the resumed agent has no way back to them.
+	if jobs := jobCommands(info); len(jobs) > 0 && !p.Force {
+		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "%s has %d background command(s) running, which would stop: %s (move it anyway with force)",
+			p.ID, len(jobs), strings.Join(jobs, "; "))
 	}
 	from := e.accountName()
 	to := ""
@@ -519,6 +551,7 @@ func (s *Server) lookForMoves(now time.Time) {
 			reason = "line"
 		}
 		if reason == "" {
+			s.mover.waiting(info.ID, now, true)
 			if m, ok := s.mover.get(info.ID); ok {
 				s.mover.forget(info.ID)
 				log.Printf("accounts: %s no longer needs moving off %s", info.ID, m.From)
@@ -531,13 +564,25 @@ func (s *Server) lookForMoves(now time.Time) {
 		if m, ok := s.mover.get(info.ID); ok {
 			if !now.Before(m.At) {
 				s.mover.forget(info.ID)
-				if _, perr := s.moveAgent(proto.AgentMoveParams{ID: info.ID, Account: m.To, Continue: m.Reason == "limit", Reason: m.Reason}); perr != nil {
+				if _, perr := s.moveAgent(proto.AgentMoveParams{ID: info.ID, Account: m.To, Continue: m.Reason == "limit", Reason: m.Reason, Force: true}); perr != nil {
 					log.Printf("accounts: moving %s off %s: %s", info.ID, m.From, perr.Message)
 					s.mover.hold(info.ID)
 				}
 			}
 			continue
 		}
+		// Background commands stop with the agent: wait for them, and only
+		// past the wait schedule it, saying which.
+		jobs := jobCommands(info)
+		if len(jobs) > 0 {
+			if waited := s.mover.waiting(info.ID, now, false); waited < s.mover.jobWait {
+				if waited == 0 {
+					log.Printf("accounts: %s would move (%s), and waits for its %d background command(s)", info.ID, reason, len(jobs))
+				}
+				continue
+			}
+		}
+		s.mover.waiting(info.ID, now, true)
 		ranked := s.rankAccounts("claude", info.Account)
 		if len(ranked) == 0 || !ranked[0].Usable {
 			s.mover.hold(info.ID) // nowhere to go: said once, not every tick
@@ -545,7 +590,7 @@ func (s *Server) lookForMoves(now time.Time) {
 			continue
 		}
 		m := proto.AgentMoving{Pane: info.ID, Agent: "claude", From: accounts.Label(info.Account), To: accounts.Label(ranked[0].Account),
-			At: now.Add(s.mover.delay), Reason: reason}
+			At: now.Add(s.mover.delay), Reason: reason, Stops: jobs}
 		s.mover.schedule(m)
 		log.Printf("accounts: %s will move from %s to %s in %v (%s)", info.ID, m.From, m.To, s.mover.delay, reason)
 		s.broadcast(proto.EventAgentMoving, m)
@@ -620,6 +665,24 @@ func (m *mover) drop(pane string) {
 	delete(m.pending, pane)
 	delete(m.held, pane)
 	delete(m.turns, pane)
+	delete(m.waitFrom, pane)
+}
+
+// waiting says how long the agent has been waiting on its background
+// commands for a move, starting the clock at the first ask; done stops it.
+func (m *mover) waiting(pane string, now time.Time, done bool) time.Duration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if done {
+		delete(m.waitFrom, pane)
+		return 0
+	}
+	from, ok := m.waitFrom[pane]
+	if !ok {
+		m.waitFrom[pane] = now
+		return 0
+	}
+	return now.Sub(from)
 }
 
 func (m *mover) hold(pane string) {
