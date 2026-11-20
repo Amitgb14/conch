@@ -83,9 +83,46 @@ public struct UsagePeriod: Decodable, Equatable, Sendable {
 public struct AgentUsage: Decodable, Equatable, Sendable {
     public var agent: String
     public var periods: [UsagePeriod]
+    /// Which of the agent's accounts, when asked for by account
+    /// (usage.history.accounts.v1): nil or "" for its own.
+    public var account: String?
+    /// The last 24 hours an hour at a time, and the last 30 days a day at a
+    /// time, oldest first; only when asked for by account.
+    public var hours: [UsageBucket]?
+    public var days: [UsageBucket]?
+
+    public init(agent: String, periods: [UsagePeriod], account: String? = nil, hours: [UsageBucket]? = nil, days: [UsageBucket]? = nil) {
+        self.agent = agent
+        self.periods = periods
+        self.account = account
+        self.hours = hours
+        self.days = days
+    }
 
     /// The period of this many hours, if there is one.
     public func period(_ hours: Int) -> UsagePeriod? { periods.first { $0.hours == hours } }
+}
+
+/// What was used from start for an hour or a day, by model.
+public struct UsageBucket: Decodable, Equatable, Sendable {
+    public var start: Date
+    public var tokens: UsageTokens
+    public var models: [ModelUsage]
+
+    enum CodingKeys: String, CodingKey { case start, models }
+
+    public init(start: Date, tokens: UsageTokens, models: [ModelUsage] = []) {
+        self.start = start
+        self.tokens = tokens
+        self.models = models
+    }
+
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        start = try c.decode(Date.self, forKey: .start)
+        models = try c.decodeIfPresent([ModelUsage].self, forKey: .models) ?? []
+        tokens = try UsageTokens(from: d)
+    }
 }
 
 public struct UsageHistory: Decodable, Equatable, Sendable {

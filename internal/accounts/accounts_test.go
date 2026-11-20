@@ -304,3 +304,74 @@ func TestLabel(t *testing.T) {
 		t.Errorf("Label = %q %q", Label(""), Label("work"))
 	}
 }
+
+// TestFailoverPerAgent: an agent with a line of its own is held to it, the
+// others to every agent's; taking it away puts the agent back on the
+// shared line; and a book from before per-agent lines loads unchanged.
+func TestFailoverPerAgent(t *testing.T) {
+	home := t.TempDir()
+	var b Book
+	b.Add("claude", "work", "", home)
+	b.Add("codex", "review", "", home)
+	used := map[string]float64{"claude/": 85, "codex/": 85}
+	usage := func(agent, account string) float64 { return used[agent+"/"+account] }
+
+	b.FailoverAt = 80
+	if b.LineFor("claude") != 80 || b.LineFor("codex") != 80 {
+		t.Fatalf("shared line: %d %d", b.LineFor("claude"), b.LineFor("codex"))
+	}
+	if ch, _ := b.Choose("codex", "", "", usage); ch.Account != "review" {
+		t.Errorf("codex past the shared 80: %+v", ch)
+	}
+	// Codex's own line, higher: 85% is under it now; Claude's is unchanged.
+	if err := b.SetLine("codex", 90, true); err != nil {
+		t.Fatal(err)
+	}
+	if ch, _ := b.Choose("codex", "", "", usage); ch.Account != "" || ch.PassedOver != "" {
+		t.Errorf("codex under its own 90: %+v", ch)
+	}
+	if ch, _ := b.Choose("claude", "", "", usage); ch.Account != "work" {
+		t.Errorf("claude still on the shared 80: %+v", ch)
+	}
+	// An agent's own line of 0 is off for that agent alone.
+	if err := b.SetLine("claude", 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if ch, _ := b.Choose("claude", "", "", usage); ch.Account != "" {
+		t.Errorf("claude's own line off: %+v", ch)
+	}
+	if b.LineFor("claude") != 0 || b.FailoverAt != 80 {
+		t.Errorf("claude off touched the shared line: %d %d", b.LineFor("claude"), b.FailoverAt)
+	}
+	// Taken away: back on the shared line, and an empty map is not kept.
+	b.SetLine("claude", 0, false)
+	b.SetLine("codex", 0, false)
+	if b.LineFor("claude") != 80 || b.FailoverFor != nil {
+		t.Errorf("after taking both away: %d %v", b.LineFor("claude"), b.FailoverFor)
+	}
+	// Taking away a line an agent never had is nothing.
+	if err := b.SetLine("codex", 0, false); err != nil {
+		t.Errorf("taking away nothing: %v", err)
+	}
+	// An agent that keeps one account has no line to set.
+	if err := b.SetLine("gemini", 90, true); err == nil {
+		t.Error("gemini took a failover line")
+	}
+
+	// Saved and read back; and the file 0.2.1 wrote still loads.
+	b.SetLine("codex", 95, true)
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	if err := b.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil || got.LineFor("codex") != 95 || got.LineFor("claude") != 80 {
+		t.Errorf("read back: %v %v", got.FailoverFor, err)
+	}
+	old := filepath.Join(t.TempDir(), "accounts.json")
+	os.WriteFile(old, []byte(`{"accounts":[{"agent":"claude","name":"work","dir":"/w"}],"failover_at":90}`), 0o600)
+	o, err := Load(old)
+	if err != nil || o.LineFor("claude") != 90 || o.LineFor("codex") != 90 || o.FailoverFor != nil {
+		t.Errorf("0.2.1's book: %+v %v", o, err)
+	}
+}

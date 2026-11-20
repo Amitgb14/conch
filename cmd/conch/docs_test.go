@@ -139,6 +139,7 @@ func TestDocsPictures(t *testing.T) {
 		"../../web/src/app/docs/why/page.mdx":    {"<FeatureGrid", "<AutopilotLoop", "<Shot"},
 		"../../web/src/app/docs/tasks/page.mdx":  {"<TaskFlow"},
 		"../../web/src/app/docs/agents/page.mdx": {"<AgentStates"},
+		"../../web/src/app/docs/cli/page.mdx":    {"<AccountFlow"},
 	} {
 		b, err := os.ReadFile(page)
 		if err != nil {

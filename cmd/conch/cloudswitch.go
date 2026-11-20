@@ -19,8 +19,28 @@ import (
 // image knows nothing of the switch. What is refused is what offers
 // Cloud: signing in, the account, listing and making machines.
 
-// cloudCommands are Conch Cloud's own commands.
-var cloudCommands = []string{"login", "logout", "account", "cloud"}
+// cloudCommands are Conch Cloud's own commands. `account` is not one of
+// them: its subcommands are an agent's accounts, which are no part of
+// Cloud, and only `conch account [-json]` on its own is Cloud's
+// (cloudAccount). Listing it here once refused every agent-account
+// command with Cloud hidden, which was every release.
+var cloudCommands = []string{"login", "logout", "cloud"}
+
+// cloudAccountEntry is the usage entry for Cloud's own `conch account`,
+// taken out of help while Cloud is hidden; the agent-account entries
+// beside it stay.
+const cloudAccountEntry = "  conch account [-json]"
+
+// cloudAccount reports whether `conch account ARGS` is Conch Cloud's
+// account rather than an agent's: anything but an agent-account
+// subcommand, or nothing, which lists agent accounts while Cloud is
+// hidden.
+func cloudAccount(args []string) bool {
+	if len(args) > 0 && agentAccountCommands[args[0]] {
+		return false
+	}
+	return len(args) > 0 || cloudOn()
+}
 
 // cloudPlumbing are the `conch cloud` subcommands that run with Cloud off.
 var cloudPlumbing = []string{"bridge", "exec", "agent", "install", "git-credential"}
@@ -45,6 +65,12 @@ var cloudMachineVerbs = []string{"wake", "start", "sleep", "stop", "rm", "delete
 // cloudGate is nil when the command may run: any command that is not
 // Cloud's, Cloud's while it is enabled, and the plumbing either way.
 func cloudGate(cmd string, args []string) error {
+	if cmd == "account" {
+		if cloudAccount(args) && !cloudOn() {
+			return cloudNotEnabled(cmd)
+		}
+		return nil
+	}
 	if !slices.Contains(cloudCommands, cmd) {
 		return nil
 	}
@@ -81,18 +107,36 @@ func fullUsage() string {
 	if cloudOn() {
 		return usage
 	}
-	return withoutCommands(usage, cloudCommands)
+	return withoutCloudAccount(withoutCommands(usage, cloudCommands))
+}
+
+// withoutCloudAccount is text less Cloud's own `conch account` entry,
+// while Cloud is hidden; an agent's account entries stay.
+func withoutCloudAccount(text string) string {
+	if cloudOn() {
+		return text
+	}
+	return withoutEntries(text, func(line string) bool { return strings.HasPrefix(line, cloudAccountEntry) })
 }
 
 // withoutCommands is text with the usage entries of cmds taken out, as
 // usageOf finds them.
 func withoutCommands(text string, cmds []string) string {
+	return withoutEntries(text, func(line string) bool {
+		m := helpWords.FindStringSubmatch(line)
+		return m != nil && slices.ContainsFunc(strings.Split(m[1], "|"), func(c string) bool {
+			return slices.Contains(cmds, c)
+		})
+	})
+}
+
+// withoutEntries is text less each usage entry whose first line drop
+// picks, with the lines under it.
+func withoutEntries(text string, drop func(line string) bool) string {
 	lines := strings.Split(text, "\n")
 	var b strings.Builder
 	for i := 0; i < len(lines); i++ {
-		if m := helpWords.FindStringSubmatch(lines[i]); m != nil && slices.ContainsFunc(strings.Split(m[1], "|"), func(c string) bool {
-			return slices.Contains(cmds, c)
-		}) {
+		if drop(lines[i]) {
 			for i+1 < len(lines) && strings.HasPrefix(lines[i+1], "                ") {
 				i++
 			}

@@ -61,7 +61,7 @@ var compCommands = []compItem{
 	{"relay", "run a relay phones reach conch web through"},
 	{"login", "sign this device in to Conch Cloud"},
 	{"logout", "sign this device out of Conch Cloud"},
-	{"account", "your Conch Cloud account"},
+	{"account", "an agent's other accounts: a work and a home subscription"},
 	{"cloud", "Conch Cloud's machines"},
 	{"config", "edit every setting in the browser"},
 	{"ask", "ask the brain to plan actions"},
@@ -93,6 +93,11 @@ var compSubcommands = map[string][]compItem{
 		{"shot", "a picture of its screen"}, {"tap", "touch it"}, {"type", "type into it"},
 		{"button", "press home or back"}, {"run", "build an Xcode app and open it"},
 		{"detect", "what kind of mobile app a folder is"},
+	},
+	"account": {
+		{"list", "each account, its plan usage and agents"}, {"add", "another account of an agent"},
+		{"remove", "forget one, leaving its folder"}, {"pin", "a folder's agents use it"},
+		{"unpin", "take a folder's pin off"}, {"failover", "new agents skip an account near its limit"},
 	},
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}, {"heap", "write the server's heap profile, and say its memory"}},
 	"agent": {

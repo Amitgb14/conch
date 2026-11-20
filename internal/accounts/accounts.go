@@ -85,6 +85,39 @@ type Book struct {
 	// FailoverAt is the percentage of a plan window past which new agents
 	// start on the agent's next account instead; 0 never moves them.
 	FailoverAt int `json:"failover_at,omitempty"`
+	// FailoverFor is an agent's own line, in place of FailoverAt for it
+	// (0 never moves that agent's). An agent not named here takes
+	// FailoverAt; a book from before it simply has none.
+	FailoverFor map[string]int `json:"failover_for,omitempty"`
+}
+
+// LineFor is the failover line agent's new agents are held to: its own,
+// else every agent's.
+func (b Book) LineFor(agent string) int {
+	if at, ok := b.FailoverFor[agent]; ok {
+		return at
+	}
+	return b.FailoverAt
+}
+
+// SetLine sets agent's own line, or with own false takes it away so the
+// agent follows every agent's again.
+func (b *Book) SetLine(agent string, at int, own bool) error {
+	if !Supports(agent) {
+		return fmt.Errorf("%s keeps one account, so it has no failover", agent)
+	}
+	if !own {
+		delete(b.FailoverFor, agent)
+		if len(b.FailoverFor) == 0 {
+			b.FailoverFor = nil
+		}
+		return nil
+	}
+	if b.FailoverFor == nil {
+		b.FailoverFor = map[string]int{}
+	}
+	b.FailoverFor[agent] = at
+	return nil
 }
 
 // File is where the book is kept under conch's folder.
@@ -338,7 +371,8 @@ func (b Book) Choose(agent, asked, dir string, used Usage) (Choice, error) {
 			ch.Pinned = true
 		}
 	}
-	if b.FailoverAt <= 0 || used == nil || used(agent, ch.Account) < float64(b.FailoverAt) {
+	line := b.LineFor(agent)
+	if line <= 0 || used == nil || used(agent, ch.Account) < float64(line) {
 		return ch, nil
 	}
 	ring := append([]Account{{Agent: agent}}, b.Of(agent)...)
@@ -350,7 +384,7 @@ func (b Book) Choose(agent, asked, dir string, used Usage) (Choice, error) {
 	}
 	for k := 1; k < len(ring); k++ {
 		a := ring[(at+k)%len(ring)]
-		if used(agent, a.Name) < float64(b.FailoverAt) {
+		if used(agent, a.Name) < float64(line) {
 			return Choice{Account: a.Name, Dir: a.Dir, PassedOver: Label(ch.Account)}, nil
 		}
 	}

@@ -8,6 +8,9 @@ import SwiftUI
 struct InstalledAgentsCard: View {
     @ObservedObject var store: Store
     @State private var machine = "local"
+    /// Folded to its one line by default: the list is long, and the
+    /// accounts above it are what people come here for.
+    @AppStorage("conch.settings.installedAgentsOpen") private var open = false
     @Environment(\.conchTheme) private var theme
 
     var online: [MachineLink] { store.machines.filter { $0.state.isEmpty || $0.id == "local" } }
@@ -21,6 +24,24 @@ struct InstalledAgentsCard: View {
         })
         let rows = installedAgentRows(status ?? [], installing: installing, canInstall: store.installsAgents(on: machine))
         SettingsCard(title: "Installed agents", trailing: AnyView(header)) {
+            if !open {
+                // Folded: the installed agents' marks, a click from the
+                // list, with as much room under them as above.
+                let marks = rows.filter { if case .installed = $0.state { return true } else { return false } }
+                Button { open = true } label: {
+                    HStack(spacing: 8) {
+                        ForEach(marks) { r in Mark(agent: r.name).frame(width: 16).help(r.title) }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 12)
+                .accessibilityLabel("Show the installed agents")
+            }
+            if open {
+            // Room under the header before the first row.
+            Color.clear.frame(height: 8)
             if status == nil {
                 Text(store.conns[machine] == nil ? "\(store.label(machine)) is not connected" : "Asking \(store.label(machine))…")
                     .font(.ui(size: 12)).foregroundStyle(Theme.muted)
@@ -34,6 +55,7 @@ struct InstalledAgentsCard: View {
             Text("Install runs the agent's own installer in a terminal on \(machine == "local" ? "this Mac" : store.label(machine)); the terminal opens if it fails.")
                 .font(.ui(size: 12)).foregroundStyle(Theme.muted)
                 .padding(.horizontal, 16).padding(.vertical, 10)
+            }
         }
         .onAppear { if status == nil { store.checkAgents(on: machine) } }
         .onChange(of: machine) { _, m in store.checkAgents(on: m) }
@@ -41,6 +63,14 @@ struct InstalledAgentsCard: View {
 
     var header: some View {
         HStack(spacing: 8) {
+            Button { open.toggle() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .semibold))
+                    Text(open ? "Hide" : "Show").font(.ui(size: 12))
+                }
+                .foregroundStyle(Theme.text2)
+            }
+            .buttonStyle(.plain).help(open ? "Hide the installed agents" : "Show the installed agents")
             if online.count > 1 {
                 Picker("Machine", selection: $machine) {
                     ForEach(online) { m in

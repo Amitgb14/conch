@@ -69,6 +69,12 @@ final class Store: ObservableObject {
     @Published var agentStatus: [String: [AgentAvailability]] = [:]
     /// The agents whose installer is running, key(machine, agent).
     @Published var installingAgents: Set<String> = []
+    /// Each machine's agent accounts (account.list), for Settings →
+    /// Agents; nil for a machine not asked yet or that could not say.
+    @Published var agentAccounts: [String: AgentAccountList] = [:]
+    /// Each machine's usage by account, with its hours and days
+    /// (usage.history.accounts.v1), for the usage panel and Settings.
+    @Published var accountUsage: [String: UsageHistory] = [:]
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
     /// Counts the autopilot's notes from each machine, so a feed showing
@@ -1937,7 +1943,7 @@ final class Store: ObservableObject {
             return
         case "agent.limits":
             if machine == "local", let l = try? dec.decode(PlanLimits.self, from: data) {
-                limits.removeAll { $0.agent == l.agent }
+                limits.removeAll { $0.usageKey == l.usageKey }
                 limits.append(l)
             }
             return

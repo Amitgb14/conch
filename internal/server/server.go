@@ -1286,7 +1286,17 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodUsageHistory:
 		var others []usage.Root
 		for _, a := range s.accountBook().Accounts {
-			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
+			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir, Name: a.Name})
+		}
+		// Older clients send nothing: one entry per agent, as before.
+		var hp proto.UsageHistoryParams
+		if len(msg.Params) > 0 {
+			if err := json.Unmarshal(msg.Params, &hp); err != nil {
+				return nil, proto.Errorf(proto.ErrBadRequest, "usage.history: %v", err)
+			}
+		}
+		if hp.ByAccount {
+			return s.usage.ByAccount(os.Getenv("HOME"), os.Getenv, time.Now(), time.Local, others...), nil
 		}
 		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
 

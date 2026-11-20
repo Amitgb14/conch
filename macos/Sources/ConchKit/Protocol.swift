@@ -144,10 +144,13 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     /// How it is watched for those (pane.monitor.v1).
     public var monitor: PaneMonitor?
     /// The TCP ports its programs listen on, lowest first (pane.listening.v1).
+    /// The agent account it was started on (agent.accounts.v1); nil or
+    /// empty for the agent's own.
+    public var account: String?
     public var listening: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team, account
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"
@@ -488,6 +491,8 @@ public struct PlanLimits: Decodable, Equatable, Sendable {
         }
     }
     public var agent: String
+    /// The agent's account it is for; empty or nil for the agent's own.
+    public var account: String?
     public var fiveHour: Window?
     public var week: Window?
     public var spend: Window?
@@ -495,17 +500,26 @@ public struct PlanLimits: Decodable, Equatable, Sendable {
     /// When the agent reported it.
     public var at: Date?
     enum CodingKeys: String, CodingKey {
-        case agent, week, spend, windows, at
+        case agent, account, week, spend, windows, at
         case fiveHour = "five_hour"
     }
-    public init(agent: String, fiveHour: Window? = nil, week: Window? = nil, spend: Window? = nil, windows: [Named]? = nil, at: Date? = nil) {
+    public init(agent: String, account: String? = nil, fiveHour: Window? = nil, week: Window? = nil, spend: Window? = nil, windows: [Named]? = nil, at: Date? = nil) {
         self.agent = agent
+        self.account = account
         self.fiveHour = fiveHour
         self.week = week
         self.spend = spend
         self.windows = windows
         self.at = at
     }
+
+    /// Which agent's which account this is: one entry each in the status
+    /// bar, so a report for one account never replaces another's.
+    public var usageKey: String { agent + "|" + (account ?? "") }
+
+    /// Whether it says anything to show: any window at all. Codex on some
+    /// plans reports a week and no five hours.
+    public var reportsUse: Bool { !allWindows.isEmpty }
 
     /// Every window, as the limits view lists them: the agent's own list
     /// when it gave one, else the three every server sends.
