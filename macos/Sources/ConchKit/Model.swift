@@ -1020,6 +1020,8 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("newSandbox", "New Sandbox (a Machine in the Cloud)…", ""),
     ("splitRight", "Split Right", "⌘D"),
     ("splitDown", "Split Down", "⇧⌘D"),
+    ("splitRightBrowser", "Split Right with Browser", ""),
+    ("splitDownBrowser", "Split Down with Browser", ""),
     ("closeSplit", "Close Split", "⌘W"),
     ("workbench", "Open Workbench (Files, Terminal, Chat and Agent)", "⌥⌘B"),
     ("bench:ide", "Workbench: IDE Layout", "⌥⌘1"),

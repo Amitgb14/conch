@@ -2,7 +2,7 @@ export const metadata = { title: "Mac app", description: "conch in a native macO
 
 # Mac app
 
-Conch.app shows conch's agents and terminals in a window; closing it stops nothing. New installs start white, with a welcome.
+Conch.app shows conch's agents and terminals in a window; closing it stops nothing.
 
 <Shot
   name="desktop-agents"
@@ -59,13 +59,13 @@ A pane sized by another window is letterboxed.
 
 A shell floating over the splits.
 
-**How:** ⌥Space shows or hides it, ⌥⌘↩ docks it as a split, ⌥⌘T makes it a tab.
+**How:** ⌥Space shows or hides it; ⌥⌘↩ docks it, ⌥⌘T makes it a tab.
 
 ## A branch's changes
 
 A branch opens in a tab. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** leaves a note.
 
-**How:** ⋯ holds **Push**, **Merge…**, **Open Pull Request** and **Delete Branch…**.
+**How:** ⋯ holds **Push**, **Merge…** and **Open Pull Request**.
 
 <Shot
   name="desktop-git"
@@ -119,9 +119,9 @@ An agent's files, a terminal and its chat in one tab.
 
 ## Browser tabs
 
-A web page in a tab beside the agents.
+A web page in a tab, or beside an agent.
 
-**How:** **File → New Browser Tab** (⇧⌘B).
+**How:** ⇧⌘B, or **+** → **Split Right with Browser**. An agent's port (`:3000 ↗`) opens beside it. Right-click a tab → **Move Beside** joins two tabs.
 
 <Shot
   name="desktop-browser"
@@ -147,7 +147,7 @@ CPU, memory, disk and the heaviest processes, on any machine conch reaches.
 
 ## Tickets
 
-Every project's issues and tickets, by **Mine**, **Ready for conch**, **Needs info** and **conch is on it**.
+Every project's issues and tickets, by who and what state.
 
 **How:** `⇧⌘I`. Setting up a tracker: [Tickets](/docs/tasks#tickets).
 
@@ -171,9 +171,9 @@ The TUI's `ctrl+b` [prefix keys](/docs/configuration#rebinding-the-keys) work to
 
 ## Installing the beta
 
-Download `Conch_<version>_macos_arm64.zip` from the [releases](https://github.com/Amitgb14/conch/releases); it needs Apple Silicon and macOS 14+.
+Download the `.dmg` from the [releases](https://github.com/Amitgb14/conch/releases); Apple Silicon, macOS 14+.
 
-**How:** unzip it into **Applications**; **Conch → Check for Updates…** updates it.
+**How:** drag it to **Applications**; **Conch → Check for Updates…** updates it.
 
 ## Building it
 

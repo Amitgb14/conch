@@ -18,10 +18,22 @@ extension Store {
     /// A port clicked: here, its page in a browser tab beside the agents
     /// (or, with outside, in the browser you use); on another machine, the
     /// tunnel to reach it copied.
-    func openPort(_ port: Int, machine: String, outside: Bool = false) {
+    /// A port's page: beside `beside` (the pane listening on it) when it
+    /// is given, else in a tab of its own; `outside`, the system browser.
+    func openPort(_ port: Int, machine: String, outside: Bool = false, beside: String? = nil) {
         if machine == "local" {
             if outside {
                 if let u = URL(string: "http://localhost:\(port)") { NSWorkspace.shared.open(u) }
+            } else if let beside, layout.tab(showing: beside) != nil {
+                let url = "http://localhost:\(port)"
+                // Already beside it: just show it. Else the agent takes the
+                // keyboard first, so the page opens next to it, not elsewhere.
+                if layout.tab(showing: browserKey(url)) == layout.tab(showing: beside) {
+                    openBrowser(url)
+                } else {
+                    layout.focus(beside)
+                    openBrowser(url, split: .horizontal)
+                }
             } else {
                 openBrowser("http://localhost:\(port)")
             }
