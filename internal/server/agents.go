@@ -205,7 +205,9 @@ func (s *Server) watch(e *entry) {
 				select {
 				case <-s.quit: // stopping the server: keep the run to offer resuming
 				default:
-					s.runs.forget(info.ID)
+					if run, ok := s.runs.forget(info.ID); ok {
+						s.agentEnded(e, info, run)
+					}
 				}
 				log.Printf("pane %s exited with code %d", info.ID, info.ExitCode)
 				s.launchFailed(e, info)

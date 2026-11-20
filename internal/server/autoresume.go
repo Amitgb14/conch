@@ -38,6 +38,8 @@ func (s *Server) autoResume() {
 	}
 	if cfg, err := loadAutoResumeConfig(); err == nil && cfg.Agents.NoAutoResume {
 		log.Printf("%d interrupted agent(s) left for Sessions ([agents] no_auto_resume)", len(runs))
+		s.projects.waitLoaded()
+		s.serverEnded(runs)
 		return
 	}
 	// A pane joins the project its folder is in, which needs the catalog.
@@ -76,6 +78,7 @@ func (s *Server) autoResume() {
 			Cols: autoResumeCols, Rows: autoResumeRows})
 		if perr != nil {
 			log.Printf("resuming %s in %s after the restart: %s (left in Sessions)", r.Agent, r.Dir, perr.Message)
+			s.serverEnded([]agentRun{r})
 			continue
 		}
 		// Back under its name: another agent addresses it by that

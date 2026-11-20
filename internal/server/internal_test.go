@@ -248,8 +248,17 @@ func TestA5RunLogNoteForgetResolve(t *testing.T) {
 	if r := l.active["p1"]; r.Agent != "claude" || r.Session != "" {
 		t.Fatalf("a different agent must not inherit the session: %+v", r)
 	}
+	// An exited pane is the exit's to account for (forget), which keeps
+	// its agent as ended: a look between the program ending and the exit
+	// being seen must not drop it first.
 	info.State = proto.PaneExited
 	l.note(info, "/d", created)
+	if len(l.active) != 1 {
+		t.Fatal("a look at an exited pane dropped its run before the exit was seen")
+	}
+	if r, ok := l.forget("p1"); !ok || r.Agent != "claude" {
+		t.Fatalf("forget hands back the run: %+v %v", r, ok)
+	}
 	if len(l.active) != 0 || len(read().Active) != 0 {
 		t.Fatal("an exited pane stays active")
 	}

@@ -139,6 +139,9 @@ var scoped = map[string]scopeKind{
 	// using it is shown: never an agent's, not even for its own project.
 	proto.MethodBranchRedeploy: scopeProject,
 	proto.MethodBranchPromote:  scopePerson,
+	// An ended agent may be anybody's: what it was scoped to ended with it.
+	proto.MethodPaneEndedDismiss: scopePerson,
+	proto.MethodPaneEndedResume:  scopePerson,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 	// The cloud agent decides what every agent's environment is given.
