@@ -9,6 +9,11 @@ package proto
 // it starts every agent on its own account.
 const CapAccounts = "agent.accounts.v1"
 
+// CapAccountFailoverAgent is a failover line per agent: AccountFailoverParams
+// with an Agent, and AccountList.FailoverFor. Without it a server keeps
+// one line for every agent and would take an Agent's line as everyone's.
+const CapAccountFailoverAgent = "account.failover.agent.v1"
+
 // Account methods.
 const (
 	// MethodAccountList lists the accounts, the pins and the failover line.
@@ -34,6 +39,10 @@ type AccountInfo struct {
 	Limits *PlanLimits `json:"limits,omitempty"`
 	// Agents is how many agents run on it now.
 	Agents int `json:"agents,omitempty"`
+	// SignedIn says whether the account has been signed in to, from the
+	// record the agent writes when it is (never its token); absent when
+	// the server cannot tell, or is older.
+	SignedIn *bool `json:"signed_in,omitempty"`
 }
 
 // AccountPin is a folder whose agents start on an account by that name.
@@ -49,6 +58,9 @@ type AccountList struct {
 	Pins       []AccountPin  `json:"pins,omitempty"`
 	FailoverAt int           `json:"failover_at,omitempty"`
 	Agents     []string      `json:"agents,omitempty"`
+	// FailoverFor is each agent's own line, where one has one
+	// (CapAccountFailoverAgent); the rest follow FailoverAt.
+	FailoverFor map[string]int `json:"failover_for,omitempty"`
 }
 
 // AccountAddParams makes Agent an account called Name, in Dir or a folder
@@ -74,4 +86,9 @@ type AccountPinParams struct {
 // AccountFailoverParams sets the failover line, in percent; 0 is off.
 type AccountFailoverParams struct {
 	At int `json:"at"`
+	// Agent sets that agent's own line rather than every agent's
+	// (CapAccountFailoverAgent); with Shared it takes the agent's own line
+	// away, so it follows every agent's again, and At is not read.
+	Agent  string `json:"agent,omitempty"`
+	Shared bool   `json:"shared,omitempty"`
 }

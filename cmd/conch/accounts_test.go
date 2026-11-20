@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,9 @@ func accountServer(t *testing.T) (*a4Server, *a4Var[map[string]json.RawMessage])
 	var seen a4Var[map[string]json.RawMessage]
 	seen.Set(map[string]json.RawMessage{})
 	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
-		m := seen.Get()
+		// A copy, never the map a reader may hold: the test reads it
+		// while the command it ran is still finishing its calls.
+		m := maps.Clone(seen.Get())
 		m[msg.Method] = msg.Params
 		seen.Set(m)
 		switch msg.Method {

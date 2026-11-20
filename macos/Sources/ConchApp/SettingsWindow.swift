@@ -620,6 +620,7 @@ struct SectionForm: View {
                 }
             case "agents":
                 card(nil, fields)
+                AgentAccountsCard(store: model.store)
                 InstalledAgentsCard(store: model.store)
                 Button { model.section = SettingsNav.skills } label: {
                     HStack(spacing: 12) {

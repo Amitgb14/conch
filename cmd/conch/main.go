@@ -107,9 +107,11 @@ Usage:
   conch account pin [PATH] NAME | unpin [PATH]
                                 agents started in a project, worktree or task folder use that
                                 account (the longest pin wins; NAME is any agent's of that name)
-  conch account failover PERCENT|off
+  conch account failover PERCENT|off|default [-agent AGENT]
                                 a new agent whose account is past PERCENT of a plan window
-                                starts on the agent's next account; running agents never move
+                                starts on the agent's next account; running agents never move.
+                                -agent gives one agent (claude, codex) its own line; default
+                                puts it back on every agent's
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID

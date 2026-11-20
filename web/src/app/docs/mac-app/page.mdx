@@ -2,7 +2,7 @@ export const metadata = { title: "Mac app", description: "conch in a native macO
 
 # Mac app
 
-Conch.app shows the TUI's agents and terminals in a macOS window; closing it stops nothing. New installs start white, with a welcome.
+Conch.app shows conch's agents and terminals in a window; closing it stops nothing. New installs start white, with a welcome.
 
 <Shot
   name="desktop-agents"
@@ -31,7 +31,7 @@ The sidebar is conch's tree; tabs and splits work as in the TUI.
 
 **Background:** a scene, or [your own](/docs/configuration#scenes-of-your-own): **Settings → Mac App → Background**.
 
-**How:** click a row to open it, right-click for more. ⌘. finds the next waiting agent, ⌃⌘S hides the sidebar.
+**How:** click a row, right-click for more. ⌘. finds a waiting agent; ⌃⌘S hides the sidebar.
 
 **Teams:** right-click an agent → **Team**, or drag it to a [team](/docs/configuration#teams).
 
@@ -45,7 +45,7 @@ The sidebar is conch's tree; tabs and splits work as in the TUI.
 
 ## Plan limits
 
-The status bar shows each agent's plan use.
+The status bar shows the account in view's plan; click for every account's plan and tokens.
 
 <Shot name="desktop-limits" alt="Conch.app's plan windows" caption="Plan windows and tokens used." />
 
@@ -81,9 +81,9 @@ What each agent loads in a checkout.
 
 ## Left running
 
-An agent that left a dev server running shows *idle · 2 running*.
+An agent that left a server running shows *idle · 2 running*.
 
-**How:** hover it for each command; click it to stop one.
+**How:** hover for each command; click to stop one.
 
 ## Answering an agent without opening it
 
