@@ -63,6 +63,8 @@ func NewHistory() *History { return &History{files: map[string]*histFile{}} }
 // own (internal/accounts), whose conversations count as the agent's.
 type Root struct {
 	Agent, Dir string
+	// Name is the account's, for ByAccount; "" is the agent's own.
+	Name string
 }
 
 // rootsOf is own and every other folder of agent, each once.
@@ -299,4 +301,126 @@ func summarise(agent string, msgs []message, now time.Time) proto.AgentUsage {
 		a.Periods = append(a.Periods, p)
 	}
 	return a
+}
+
+// ByAccount is Summary one entry per account rather than per agent, each
+// with its last 24 hours and 30 days in buckets for charting, the hours and
+// days starting where they do in loc. An account with nothing saved in the
+// last 30 days is left out, as an agent is in Summary.
+func (h *History) ByAccount(home string, env func(string) string, now time.Time, loc *time.Location, others ...Root) proto.UsageHistory {
+	longest := time.Duration(historyPeriods[len(historyPeriods)-1]) * time.Hour
+	since := now.Add(-longest)
+	out := proto.UsageHistory{At: now}
+	claudeRoot := filepath.Join(home, ".claude")
+	if d := env("CLAUDE_CONFIG_DIR"); d != "" {
+		claudeRoot = d
+	}
+	codexRoot := filepath.Join(home, ".codex")
+	if d := env("CODEX_HOME"); d != "" {
+		codexRoot = d
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	seen := map[string]bool{}
+	for _, agent := range []string{"claude", "codex"} {
+		own := claudeRoot
+		if agent == "codex" {
+			own = codexRoot
+		}
+		done := map[string]bool{}
+		roots := append([]Root{{Agent: agent, Dir: own}}, others...)
+		for _, r := range roots {
+			if r.Agent != agent || r.Dir == "" || done[filepath.Clean(r.Dir)] {
+				continue
+			}
+			done[filepath.Clean(r.Dir)] = true
+			var msgs []message
+			if agent == "claude" {
+				for _, f := range recentFiles(filepath.Join(r.Dir, "projects"), since) {
+					for id, m := range h.read(f, readClaude).byID {
+						if !seen[id] {
+							seen[id] = true
+							msgs = append(msgs, m)
+						}
+					}
+				}
+			} else {
+				for _, f := range recentFiles(filepath.Join(r.Dir, "sessions"), since) {
+					msgs = append(msgs, h.read(f, readCodex).turns...)
+				}
+			}
+			if len(msgs) == 0 {
+				continue
+			}
+			a := summarise(agent, msgs, now)
+			a.Account = r.Name
+			a.Hours = buckets(msgs, hourStarts(now, loc, 24), now)
+			a.Days = buckets(msgs, dayStarts(now, loc, 30), now)
+			out.Agents = append(out.Agents, a)
+		}
+	}
+	return out
+}
+
+// hourStarts is the start of each of the last n hours, the current one
+// last.
+func hourStarts(now time.Time, loc *time.Location, n int) []time.Time {
+	t := now.In(loc).Truncate(time.Hour)
+	out := make([]time.Time, n)
+	for i := range out {
+		out[n-1-i] = t.Add(-time.Duration(i) * time.Hour)
+	}
+	return out
+}
+
+// dayStarts is the start of each of the last n days in loc, today last —
+// by the calendar, so a day across a change of clocks is still one day.
+func dayStarts(now time.Time, loc *time.Location, n int) []time.Time {
+	y, m, d := now.In(loc).Date()
+	out := make([]time.Time, n)
+	for i := range out {
+		out[n-1-i] = time.Date(y, m, d-i, 0, 0, 0, 0, loc)
+	}
+	return out
+}
+
+// buckets adds msgs into the spans starting at starts, each running to the
+// next start (the last to now); what falls before the first or after now
+// is left out. Each bucket's models are the one that used most first.
+func buckets(msgs []message, starts []time.Time, now time.Time) []proto.UsageBucket {
+	out := make([]proto.UsageBucket, len(starts))
+	byModel := make([]map[string]*proto.ModelUsage, len(starts))
+	for i, s := range starts {
+		out[i].Start = s
+		byModel[i] = map[string]*proto.ModelUsage{}
+	}
+	for _, m := range msgs {
+		if m.at.Before(starts[0]) || m.at.After(now) {
+			continue
+		}
+		i := sort.Search(len(starts), func(k int) bool { return starts[k].After(m.at) }) - 1
+		if i < 0 {
+			continue
+		}
+		out[i].UsageTokens.Add(m.tok)
+		mu := byModel[i][m.model]
+		if mu == nil {
+			mu = &proto.ModelUsage{Model: m.model}
+			byModel[i][m.model] = mu
+		}
+		mu.UsageTokens.Add(m.tok)
+	}
+	for i := range out {
+		for _, mu := range byModel[i] {
+			out[i].Models = append(out[i].Models, *mu)
+		}
+		sort.Slice(out[i].Models, func(a, b int) bool {
+			ta, tb := out[i].Models[a].Total(), out[i].Models[b].Total()
+			if ta != tb {
+				return ta > tb
+			}
+			return out[i].Models[a].Model < out[i].Models[b].Model
+		})
+	}
+	return out
 }

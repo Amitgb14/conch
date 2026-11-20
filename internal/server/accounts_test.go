@@ -76,6 +76,26 @@ func TestAccountsOverTheSocket(t *testing.T) {
 	if _, err := os.Stat(want); err != nil {
 		t.Errorf("folder not made: %v", err)
 	}
+	// Signed in or not, from the record Claude Code writes on /login.
+	signedIn := func() *bool {
+		for _, a := range accountList(t, c).Accounts {
+			if a.Agent == "claude" && a.Name == "work" {
+				return a.SignedIn
+			}
+		}
+		t.Fatal("work is not listed")
+		return nil
+	}
+	if in := signedIn(); in == nil || *in {
+		t.Errorf("a new account: signed in %v", in)
+	}
+	if err := os.WriteFile(filepath.Join(want, ".claude.json"), []byte(`{"oauthAccount":{"accountUuid":"u-1"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if in := signedIn(); in == nil || !*in {
+		t.Errorf("after /login: signed in %v", in)
+	}
+	os.Remove(filepath.Join(want, ".claude.json"))
 	badRequest(t, c.Call(t.Context(), proto.MethodAccountAdd, proto.AccountAddParams{Agent: "gemini", Name: "work"}, nil), "gemini account")
 	badRequest(t, c.Call(t.Context(), proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "work"}, nil), "same name twice")
 
@@ -302,4 +322,49 @@ func TestResumeOnTheSessionsAccount(t *testing.T) {
 	if got := waitRan(t, out, "--resume s-work\n"); !strings.Contains(got, "claude=["+work.Dir+"]") {
 		t.Errorf("resumed as %q", got)
 	}
+}
+
+// TestFailoverPerAgentOverTheSocket: account.failover with an agent sets
+// that agent's line alone, account.list says which agents have one, and
+// shared takes it away again.
+func TestFailoverPerAgentOverTheSocket(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CODEX_HOME", "")
+	c, _ := startServer(t)
+	if miss := c.MissingCapabilities([]string{proto.CapAccountFailoverAgent}); len(miss) > 0 {
+		t.Fatalf("not announced: %v", miss)
+	}
+	set := func(p proto.AccountFailoverParams) error {
+		return c.Call(t.Context(), proto.MethodAccountFailover, p, nil)
+	}
+	if err := set(proto.AccountFailoverParams{At: 80}); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(proto.AccountFailoverParams{At: 90, Agent: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	l := accountList(t, c)
+	if l.FailoverAt != 80 || l.FailoverFor["codex"] != 90 || len(l.FailoverFor) != 1 {
+		t.Errorf("after codex's own line: %d %v", l.FailoverAt, l.FailoverFor)
+	}
+	// Off for one agent is a line of 0, kept as its own.
+	if err := set(proto.AccountFailoverParams{At: 0, Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := accountList(t, c).FailoverFor["claude"]; !ok || v != 0 {
+		t.Errorf("claude off: %v %v", v, ok)
+	}
+	if err := set(proto.AccountFailoverParams{Agent: "claude", Shared: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := set(proto.AccountFailoverParams{Agent: "codex", Shared: true}); err != nil {
+		t.Fatal(err)
+	}
+	if l := accountList(t, c); l.FailoverFor != nil || l.FailoverAt != 80 {
+		t.Errorf("both back on the shared line: %d %v", l.FailoverAt, l.FailoverFor)
+	}
+	badRequest(t, set(proto.AccountFailoverParams{At: 90, Agent: "gemini"}), "gemini's line")
+	badRequest(t, set(proto.AccountFailoverParams{At: 101, Agent: "codex"}), "over 100")
+	badRequest(t, set(proto.AccountFailoverParams{At: -1, Agent: "codex"}), "under 0")
+	badRequest(t, set(proto.AccountFailoverParams{Shared: true}), "shared with no agent")
 }

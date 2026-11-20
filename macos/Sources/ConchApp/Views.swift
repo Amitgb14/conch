@@ -2348,6 +2348,7 @@ struct AnswerStrip: View {
 struct StatusBar: View {
     @ObservedObject var store: Store
     @State private var showLimits = false
+    @State private var showUsageWindow = false
     @State private var showMonitor = false
     @State private var monitorHover = false
 
@@ -2411,19 +2412,17 @@ struct StatusBar: View {
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;
             // a click lists every window, as the TUI's limits view does.
-            if store.limits.contains(where: { $0.fiveHour != nil }) {
-                Button { showLimits.toggle() } label: {
-                    HStack(spacing: 8) {
-                        ForEach(store.limits.filter { $0.fiveHour != nil }, id: \.agent) { l in
-                            UsageChip(limits: l)
-                        }
+            if !chipMarks(store.usageAccountsHere).isEmpty {
+                // One chip for every account: a mark each, and the account
+                // in view's windows; a click opens a tab per account
+                // (UsagePanel.swift), which maximizes into a window.
+                Button { showLimits.toggle() } label: { AccountUsageChip(store: store).contentShape(Rectangle()) }
+                    .buttonStyle(.plain)
+                    .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
+                    .barPopover(isPresented: $showLimits) {
+                        UsagePanel(store: store) { showLimits = false; showUsageWindow = true }
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for every window")
-                .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
-                .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
+                    .sheet(isPresented: $showUsageWindow) { UsageWindow(store: store) }
             } else if store.connected {
                 // No plan reported yet: what was used is still a click away.
                 Button { showLimits.toggle() } label: { Text("Usage").foregroundStyle(Theme.muted) }
@@ -2508,7 +2507,7 @@ struct LimitsPopover: View {
             if store.limits.isEmpty {
                 Text("No agent has reported its plan yet.").foregroundStyle(.secondary)
             }
-            ForEach(store.limits, id: \.agent) { l in
+            ForEach(store.limits, id: \.usageKey) { l in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Mark(agent: l.agent)
@@ -2745,9 +2744,14 @@ struct UsageChip: View {
         let _ = look
         HStack(spacing: 8) {
             Mark(agent: limits.agent)
-            window("5h", limits.fiveHour?.usedPct)
+            if let a = limits.account, !a.isEmpty {
+                Text(a).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+            }
+            if let w = limits.fiveHour {
+                window("5h", w.usedPct)
+            }
             if let w = limits.week {
-                Rectangle().fill(Theme.line).frame(width: 1, height: 10)
+                if limits.fiveHour != nil { Rectangle().fill(Theme.line).frame(width: 1, height: 10) }
                 window("7d", w.usedPct)
             }
         }
@@ -2770,7 +2774,8 @@ struct UsageChip: View {
 
 /// An agent's windows and when each resets, for the chip's tooltip.
 @MainActor func usageHelp(_ l: PlanLimits) -> String {
-    let name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
+    var name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
+    if let a = l.account, !a.isEmpty { name += " (\(a))" }
     let parts = l.allWindows.map { w -> String in
         var s = "\(PlanLimits.label(w.key)) \(Int(w.usedPct.rounded()))%"
         if let r = w.resetsAt, r > Date() { s += ", resets in \(elapsed(Date(), r))" }

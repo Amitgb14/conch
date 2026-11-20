@@ -225,3 +225,118 @@ func TestHistoryCountsEveryAccount(t *testing.T) {
 		t.Errorf("codex on an account: %+v", day)
 	}
 }
+
+// TestHistoryByAccount: one entry per account with what it used, its last
+// 24 hours and 30 days in buckets by model, and the agent's own named "".
+func TestHistoryByAccount(t *testing.T) {
+	home, work, review := t.TempDir(), t.TempDir(), t.TempDir()
+	hourAgo, twoDays, old := histNow.Add(-time.Hour), histNow.Add(-49*time.Hour), histNow.Add(-40*24*time.Hour)
+	writeAt(t, filepath.Join(home, ".claude", "projects", "-src", "a.jsonl"),
+		claudeLine("m1", "claude-opus-5-5", hourAgo, 1, 0, 0, 10)+claudeLine("m2", "claude-sonnet-5-5", hourAgo.Add(5*time.Minute), 1, 0, 0, 30)+
+			claudeLine("m3", "claude-opus-5-5", twoDays, 1, 0, 0, 5), hourAgo)
+	writeAt(t, filepath.Join(work, "projects", "-src", "b.jsonl"), claudeLine("m4", "claude-opus-5-5", hourAgo, 2, 0, 0, 20), hourAgo)
+	// The same response carried into a second account's file counts once.
+	writeAt(t, filepath.Join(work, "projects", "-src", "c.jsonl"), claudeLine("m1", "claude-opus-5-5", hourAgo, 1, 0, 0, 10), hourAgo)
+	writeAt(t, filepath.Join(review, "sessions", "2026", "11", "04", "r.jsonl"), codexModel("gpt-5")+codexTotal(hourAgo, 100, 40, 7), hourAgo)
+	// An account whose last use is past 30 days is left out.
+	idle := t.TempDir()
+	writeAt(t, filepath.Join(idle, "projects", "-src", "d.jsonl"), claudeLine("m9", "claude-opus-5-5", old, 1, 0, 0, 99), old)
+
+	got := NewHistory().ByAccount(home, noEnv, histNow, time.UTC,
+		Root{Agent: "claude", Dir: work, Name: "work"}, Root{Agent: "codex", Dir: review, Name: "review"},
+		Root{Agent: "claude", Dir: idle, Name: "idle"})
+	byKey := map[string]proto.AgentUsage{}
+	for _, a := range got.Agents {
+		byKey[a.Agent+"|"+a.Account] = a
+	}
+	if len(got.Agents) != 3 || byKey["claude|idle"].Agent != "" {
+		t.Fatalf("accounts: %v", func() []string {
+			var k []string
+			for key := range byKey {
+				k = append(k, key)
+			}
+			return k
+		}())
+	}
+	own, w, r := byKey["claude|"], byKey["claude|work"], byKey["codex|review"]
+	if d := period(t, own, 24); d.Output != 40 || d.Messages != 2 {
+		t.Errorf("own, a day: %+v", d)
+	}
+	if wk := period(t, own, 7*24); wk.Output != 45 {
+		t.Errorf("own, a week: %+v", wk)
+	}
+	if d := period(t, w, 24); d.Output != 20 {
+		t.Errorf("work counted the response it shares with own: %+v", d)
+	}
+	if d := period(t, r, 24); d.Output != 7 || d.CacheRead != 40 {
+		t.Errorf("codex review: %+v", d)
+	}
+	// Buckets: 24 hours and 30 days, oldest first, the current one last.
+	if len(own.Hours) != 24 || len(own.Days) != 30 {
+		t.Fatalf("buckets: %d hours, %d days", len(own.Hours), len(own.Days))
+	}
+	if !own.Hours[23].Start.Equal(histNow.Truncate(time.Hour)) || !own.Days[29].Start.Equal(time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("last bucket starts %v, %v", own.Hours[23].Start, own.Days[29].Start)
+	}
+	h := own.Hours[22] // 11:00–12:00
+	if h.Output != 40 || len(h.Models) != 2 || h.Models[0].Model != "claude-sonnet-5-5" || h.Models[0].Output != 30 {
+		t.Errorf("the hour before now: %+v", h)
+	}
+	if own.Days[27].Output != 5 || own.Days[29].Output != 40 || own.Days[28].Output != 0 {
+		t.Errorf("days: %d %d %d", own.Days[27].Output, own.Days[28].Output, own.Days[29].Output)
+	}
+	var total int
+	for _, b := range own.Hours {
+		total += b.Output
+	}
+	if total != 40 {
+		t.Errorf("24 hours of buckets add up to %d, the day says 40", total)
+	}
+	// Summary, as older clients ask, is unchanged: one entry per agent.
+	sum := NewHistory().Summary(home, noEnv, histNow, Root{Agent: "claude", Dir: work, Name: "work"})
+	if len(sum.Agents) != 1 || sum.Agents[0].Account != "" || sum.Agents[0].Days != nil || period(t, sum.Agents[0], 24).Output != 60 {
+		t.Errorf("summary: %+v", sum.Agents)
+	}
+	// Nobody has used anything: no entries.
+	if e := NewHistory().ByAccount(t.TempDir(), noEnv, histNow, time.UTC); len(e.Agents) != 0 {
+		t.Errorf("empty home: %+v", e.Agents)
+	}
+}
+
+// TestHistoryDaysFollowTheCalendar: a day's bucket starts at local
+// midnight, so a day across a change of clocks is still one day, and the
+// day a response falls in is the local one.
+func TestHistoryDaysFollowTheCalendar(t *testing.T) {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Skip("no tz database:", err)
+	}
+	// The clocks went back on 2026-11-01 in Los Angeles.
+	now := time.Date(2026, 11, 3, 10, 0, 0, 0, loc)
+	starts := dayStarts(now, loc, 4)
+	for i, want := range []int{31, 1, 2, 3} {
+		if starts[i].Day() != want || starts[i].Hour() != 0 {
+			t.Errorf("day %d starts %v", i, starts[i])
+		}
+	}
+	if got := starts[1].Sub(starts[0]); got != 24*time.Hour {
+		t.Errorf("an ordinary day (Oct 31) is %v", got)
+	}
+	if got := starts[2].Sub(starts[1]); got != 25*time.Hour {
+		t.Errorf("the day the clocks went back (Nov 1) is %v", got)
+	}
+	// 11pm local on Nov 2 is Nov 3 in UTC, but lands on the 2nd here.
+	msg := message{at: time.Date(2026, 11, 2, 23, 0, 0, 0, loc), model: "m", tok: proto.UsageTokens{Output: 1}}
+	b := buckets([]message{msg}, starts, now)
+	if b[2].Output != 1 || b[3].Output != 0 {
+		t.Errorf("11pm on the 2nd: %d %d", b[2].Output, b[3].Output)
+	}
+	// Before the first bucket, or after now: left out.
+	early := message{at: starts[0].Add(-time.Second), model: "m", tok: proto.UsageTokens{Output: 1}}
+	late := message{at: now.Add(time.Minute), model: "m", tok: proto.UsageTokens{Output: 1}}
+	for _, x := range buckets([]message{early, late}, starts, now) {
+		if x.Output != 0 {
+			t.Errorf("outside the buckets counted: %+v", x)
+		}
+	}
+}
