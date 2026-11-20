@@ -73,7 +73,7 @@ make test                      # go test -race -timeout 20m ./...
 make vet                       # go vet ./...
 make lint                      # gofmt -l, go vet and staticcheck (pinned; staticcheck.conf says what it leaves out)
 gofmt -l cmd internal          # must print nothing
-go test -race -count=1 -timeout 20m ./...   # what to run before every commit
+go test -race -count=1 -timeout 20m ./...   # the whole suite: CI runs it on every pull request
 make gate                      # lint, then the same suite in ~4 minutes: internal/server split across processes (scripts/test.sh, as CI does across jobs)
 go test -coverprofile=/tmp/c.out ./... && go tool cover -func=/tmp/c.out | tail -1
 make settings-ui-check         # rebuild internal/configweb/dist and fail if it moved (needs pnpm)
@@ -112,9 +112,9 @@ cutting a release.
    - platform differences between macOS and Linux (paths, tools, pty
      behaviour)
    - state that persists: saved files from older versions must still load
-3. **Keep the full suite green.** Run `go test -race -count=1 -timeout 20m ./...` (not just
-   the package you touched), `go vet ./...` and `gofmt`. A flaky test is a bug:
-   fix it, don't retry it.
+3. **Keep the full suite green.** CI runs `go test -race -count=1 -timeout 20m ./...`
+   (every package, Linux and macOS) on every pull request; a change merges only
+   when all of it is green. A flaky test is a bug: fix it, don't retry it.
 4. **Found a bug you're not fixing now?** Write the test for the correct
    behaviour and mark it `t.Skip("bug: <what and where>")` so it stays
    visible; say so in your summary.
@@ -128,14 +128,16 @@ cutting a release.
    in `cmd/conch/main.go`, and the pages under `web/src/app/docs` (notably
    `interface/page.mdx` and `keys/page.mdx`).
 7. **Commit only when asked**, with a message that says what changed and why.
-8. **Nothing is pushed red.** Every new change — a feature, a fix, a doc
-   tweak that touches code — carries its own tests, and before any push the
-   whole regression suite must be green on the final state of the branch:
-   `go test -race -count=1 -timeout 20m ./...` and `make lint` (gofmt, vet,
-   staticcheck). Re-run it after the *last* edit, not just after the
-   big one: a one-line follow-up fix checked only in its own package is not
-   verified. If something fails, fix it before pushing; never push with a
-   failing, skipped-to-pass or retried-until-green test.
+8. **Nothing merges red.** Every new change — a feature, a fix, a doc
+   tweak that touches code — carries its own tests. Before a push, run
+   `make lint` (gofmt, vet, staticcheck), the tests of every package the
+   change touches (`go test -race -count=1 ./internal/server/ ./cmd/conch/`
+   …), and `swift test` in `macos/` when Swift changed — after the *last*
+   edit, not just the big one. The whole suite is CI's to run, on Linux and
+   macOS, so it does not tie up the machine somebody is working on; merge
+   only when every CI job is green. A red job is a failure to fix and push
+   again: never merge with a failing, skipped-to-pass or
+   retried-until-green test.
 
 ## Test isolation — required
 
@@ -704,7 +706,7 @@ user's own configuration.
 - [ ] Tests added or updated for the change, covering edge cases
 - [ ] `make lint` is clean (gofmt, `go vet`, staticcheck)
 - [ ] Changed `internal/configweb/app`? `make settings-ui` and commit `dist/`
-- [ ] `go test -race -count=1 -timeout 20m ./...` passes — run again after the last edit, before any push
+- [ ] The touched packages' tests pass locally after the last edit (and `swift test` for Swift); CI's full suite is green before merging
 - [ ] Help text, CLI usage and web docs updated for user-visible changes
 - [ ] Summary says what was tested, what wasn't, and any skipped bug tests
 - [ ] A new agent's sessions show, resume and delete in the Sessions view
