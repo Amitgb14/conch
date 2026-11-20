@@ -38,6 +38,12 @@ func TestAgentMoveCommand(t *testing.T) {
 	if p := sent[proto.AgentMoveParams](t, seen, proto.MethodAgentMove); p.Account != "" {
 		t.Errorf("no account asked for %q", p.Account)
 	}
+	if _, _, err := a4Out(t, func() error { return runAgent([]string{"move", "-force", "p3"}) }); err != nil {
+		t.Fatal(err)
+	}
+	if p := sent[proto.AgentMoveParams](t, seen, proto.MethodAgentMove); !p.Force || p.ID != "p3" {
+		t.Errorf("-force sent %+v", p)
+	}
 	for _, args := range [][]string{{"move"}, {"move", "p3", "p4"}} {
 		if _, _, err := a4Out(t, func() error { return runAgent(args) }); err == nil {
 			t.Errorf("%v: no error", args)

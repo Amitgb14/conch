@@ -24,6 +24,10 @@ struct MovingCard: View {
                      : "\(moving.from) is past its failover line. Moving it to \(moving.to) in \(s)s.")
                     .font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             }
+            if let stops = moving.stops, !stops.isEmpty {
+                Text("Stops what it left running: \(stops.joined(separator: ", ")).")
+                    .font(.ui(size: 11.5)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 6) {
                 Button("Move Now") { store.moveNow(key) }.buttonStyle(.borderedProminent).tint(Theme.accentDeep).controlSize(.small)
                 Button("Choose…") { store.askMove(key, to: nil) }.controlSize(.small)
@@ -107,6 +111,18 @@ struct MoveAgentSheet: View {
                 Text("3. Resumes it there, in a pane that takes this one's place.")
             }
             .font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            let jobs = store.pane(ask.pane)?.agent?.jobs ?? []
+            if !jobs.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("These stop with it, and the moved agent can't get back to them:").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
+                    ForEach(jobs, id: \.pid) { j in
+                        Text("· \(j.command)").font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                    }
+                    Text("A dev server is better in a terminal of its own, which a move leaves running.").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                }
+                .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.warn.opacity(0.08)))
+            }
             Text("Each account has its own CLAUDE.md, skills and MCP servers, and the first replies after a move re-read the conversation.")
                 .font(.ui(size: 11.5)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             if let r = ranks.first(where: { $0.label == target }), !r.usable {
@@ -116,7 +132,8 @@ struct MoveAgentSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Move to \(target.isEmpty ? "…" : target)") {
-                    store.moveAgent(ask.pane, to: target, reason: "hand")
+                    // The sheet named what stops, so this is the person's choice.
+                    store.moveAgent(ask.pane, to: target, reason: "hand", force: true)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

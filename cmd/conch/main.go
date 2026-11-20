@@ -134,11 +134,12 @@ Usage:
   conch agent team ID [TEAM | - | -clear]
                                 which team an agent is in, or put it in one: - keeps it out of
                                 every team, -clear leaves it to [[teams]]' rules in config.toml
-  conch agent move [-account NAME] [-continue] ID
+  conch agent move [-account NAME] [-continue] [-force] ID
                                 carry an agent's conversation to another of its accounts and
                                 resume it there (Claude Code), in a pane that replaces its own;
                                 no -account: the one with most room. At its limit an agent moves
-                                by itself unless [agents] no_move_at_limit
+                                by itself unless [agents] no_move_at_limit. Background commands
+                                it left running stop with it: refused unless -force
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
