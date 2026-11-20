@@ -94,3 +94,5 @@ After a reboot or a crash, the agents that were running come back by themselves 
 After `conch server stop`, or with `[agents] no_auto_resume = true`, they wait in Sessions marked `⚠ interrupted` for a week instead. So does one that can't come back, such as one whose worktree was removed.
 
 **How:** `I` resumes all of them, `x` dismisses one.
+
+They are also [kept in the tree](/docs/interface#agents-that-ended) where they were, as is an agent that crashed or was killed, with Resume on the row.
