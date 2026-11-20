@@ -338,7 +338,7 @@ func TestInstallSkillLeftoverCopy(t *testing.T) {
 // that is its folder's, a description under the cut, and conch's mark —
 // without which conch could never update or remove it.
 func TestBundledSkills(t *testing.T) {
-	want := []string{"conch", "conch-autopilot", "conch-factory", "conch-review", "conch-ship", "conch-team"}
+	want := []string{"conch", "conch-architect", "conch-autopilot", "conch-cicd", "conch-debug", "conch-dev", "conch-factory", "conch-qa", "conch-review", "conch-reviewer", "conch-security", "conch-ship", "conch-team"}
 	var names []string
 	for _, sk := range Skills {
 		names = append(names, sk.Name)
@@ -405,6 +405,54 @@ func TestBundledSkills(t *testing.T) {
 		"Acceptance criteria", "SPEC.md", "test-first, a slice at a time", "fidelity to /abs/path/SPEC.md", "## 9. Retro", "Propose the changes; don't make them"} {
 		if !strings.Contains(string(factory.Body), w) {
 			t.Errorf("conch-factory no longer says %q", w)
+		}
+	}
+}
+
+// The role skills: an agent conch started for one job — building,
+// reviewing, testing, CI, security, design, debugging — and what that job
+// promises. Each keeps to its job: the ones that only read never change
+// the author's code, and none of them ships what the person didn't ask to.
+func TestRoleSkills(t *testing.T) {
+	roles := map[string][]string{
+		"conch-dev": {"test-first", "$CONCH_PORT", "conch review reply", "conch branch commit", "How this branch is shipped",
+			"Don't push, force-push or merge", "conch-reviewer"},
+		"conch-reviewer": {"git diff BASE...BRANCH", "Fidelity first", "conch review add -branch BRANCH", "REVIEW.md", "blocker",
+			"You never edit the author's", "git checkout --detach BRANCH", "conch-review"},
+		"conch-qa": {"TEST-REPORT.md", "Acceptance criteria", "$CONCH_PORT", "conch preview shot", "Steps to reproduce",
+			"Don't fix the author's code", "never against production"},
+		"conch-cicd": {"gh run view", "--log-failed", "conch branch fix-ci", "conch branch rerun-ci", "A flaky test is a bug",
+			"permissions:", "pin", "conch integration previews", "conch integration promote", "only when the person asked",
+			"Never disable a check"},
+		"conch-security": {"Threat model", "injection", "path traversal", "SSRF", "Never paste a secret", "rotate",
+			"never against a live system", "conch review add -branch BRANCH", "SECURITY-REVIEW.md"},
+		"conch-architect": {"DESIGN.md", "Non-goals", "Options", "conch task", "-after", "Acceptance criteria",
+			"approve", "write no code"},
+		"conch-debug": {"Reproduce", "failing test", "git bisect", "git bisect reset", "root cause", "DEBUG.md",
+			"never a sleep", "-count="},
+	}
+	for name, wants := range roles {
+		sk, ok := BundledSkillNamed(name)
+		if !ok {
+			t.Errorf("no %s skill", name)
+			continue
+		}
+		for _, w := range wants {
+			if !strings.Contains(string(sk.Body), w) {
+				t.Errorf("%s no longer says %q", name, w)
+			}
+		}
+		// A role is a skill an agent loads for its whole session, so it
+		// says when not to use it as well as when to.
+		if !strings.Contains(string(sk.Body), "## Rules") {
+			t.Errorf("%s has no rules", name)
+		}
+	}
+	// conch's own skill points a helper at the role it was started for.
+	own, _ := BundledSkillNamed("conch")
+	for name := range roles {
+		if !strings.Contains(string(own.Body), "`"+name+"`") {
+			t.Errorf("conch's skill doesn't name the %s role", name)
 		}
 	}
 }

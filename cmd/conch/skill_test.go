@@ -33,7 +33,9 @@ func skillCommandsExist(t *testing.T, text string) {
 	// A line can hold more than one command — a prompt in quotes telling
 	// a helper to run `conch review -branch B` — so each is read on its
 	// own: its words run to the next command or the next quote.
-	re := regexp.MustCompile(`(?:^|[\s;&|("'])conch ((?:agent |server )?[a-z]+)`)
+	// A command's name may hold a dash (commit-message), and integration's
+	// subcommands each have a usage line of their own.
+	re := regexp.MustCompile(`(?:^|[\s;&|("'])conch ((?:agent |server |integration )?[a-z][a-z-]*)`)
 	usageLines := strings.Split(usage, "\n")
 	type use struct{ cmd, rest string }
 	var uses []use
@@ -177,14 +179,14 @@ func TestPrintSkill(t *testing.T) {
 	}
 	var err error
 	out, _ := a4Capture(t, "", func() { err = printSkill([]string{"-list"}) })
-	if err != nil || out != "conch\nconch-autopilot\nconch-factory\nconch-review\nconch-ship\nconch-team\n" {
+	if err != nil || out != "conch\nconch-architect\nconch-autopilot\nconch-cicd\nconch-debug\nconch-dev\nconch-factory\nconch-qa\nconch-review\nconch-reviewer\nconch-security\nconch-ship\nconch-team\n" {
 		t.Fatalf("-list: %v %q", err, out)
 	}
 	out, _ = a4Capture(t, "", func() { err = printSkill(nil) })
 	if err != nil || out != string(agentsetup.Skill) {
 		t.Fatal("no name: not conch's own")
 	}
-	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-autopilot, conch-factory") {
+	if err := printSkill([]string{"nope"}); err == nil || !strings.Contains(err.Error(), "no skill called nope; it has conch, conch-architect, conch-autopilot") {
 		t.Fatalf("unknown: %v", err)
 	}
 	for _, bad := range [][]string{{"-x"}, {"a", "b"}} {

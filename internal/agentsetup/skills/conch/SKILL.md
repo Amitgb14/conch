@@ -52,6 +52,24 @@ conch task -name reviewer -agent codex "Review the changes on this branch agains
 - Start one helper per job, and only as many as the task needs: each one
   is an agent spending the person's usage.
 
+## Give a helper its role
+
+conch has a skill for each job a helper is started for. When the person
+has installed them, name the role in the helper's prompt — "Work as the
+`conch-reviewer` role" — and it brings that job's whole checklist with it,
+so your prompt only needs the task:
+
+- `conch-architect` — a design and the tasks it splits into, no code;
+- `conch-dev` — builds the change test-first and answers review comments;
+- `conch-reviewer` — reads the branch and comments on its lines, never edits it;
+- `conch-qa` — uses the change as a user would and writes `TEST-REPORT.md`;
+- `conch-security` — a threat model and a security pass over the change;
+- `conch-cicd` — a red CI run, a pipeline, a deploy;
+- `conch-debug` — a bug reproduced, its root cause found and fixed.
+
+`conch skill NAME` prints one, for an agent that doesn't have it installed:
+put what it prints in the helper's prompt, or a file it can read.
+
 ## Prompt it and wait for the answer
 
 ```sh
