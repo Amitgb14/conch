@@ -50,12 +50,6 @@ func (mach *machine) loadEnded() tea.Cmd {
 	}
 }
 
-// keepsEnded says whether the machine's server keeps ended agents: then
-// an agent's pane that ends is left for its record rather than closed.
-func (mach *machine) keepsEnded() bool {
-	return mach != nil && mach.c != nil && len(mach.c.MissingCapabilities([]string{proto.CapPaneEnded})) == 0
-}
-
 // addEnded keeps a record from a pane.ended event, newest first.
 func (mach *machine) addEnded(rec proto.EndedAgent) {
 	mach.ended = slices.DeleteFunc(mach.ended, func(e proto.EndedAgent) bool { return e.ID == rec.ID })
