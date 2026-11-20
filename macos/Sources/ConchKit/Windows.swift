@@ -94,11 +94,17 @@ public struct SavedLayout: Codable, Equatable, Sendable {
     public var tabs: [SavedTab]
     public var active: Int
 
-    /// What can come back of a layout: everything but what lives in the app
-    /// alone and goes with it — a browser's page, a workbench's own shell.
-    public init(_ l: Layout) {
+    /// What can come back of a layout: everything but a workbench's own
+    /// shell, which lives in the app alone and goes with it. A browser, in
+    /// a tab or a split, comes back at the page it is on (addresses, by
+    /// its key; else the page it opened at); an empty one that was never
+    /// given an address does not.
+    public init(_ l: Layout, addresses: [String: String] = [:]) {
         var l = l
-        for k in l.tabs.flatMap(\.root.panes) where parseBrowserKey(k) != nil || parseBenchShellKey(k) != nil { l.close(k) }
+        var names: [String: String] = [:]
+        for (k, a) in addresses where parseBrowserKey(k) != nil && !a.isEmpty && !a.hasPrefix("about:") { names[k] = browserKey(a) }
+        l.rename(leaves: names)
+        for k in l.tabs.flatMap(\.root.panes) where parseBenchShellKey(k) != nil || parseBrowserKey(k)?.hasPrefix("about:") == true { l.close(k) }
         tabs = l.tabs.map { t in
             SavedTab(root: SavedNode(t.root), focused: t.focused, name: t.name,
                      weights: t.weights.isEmpty ? nil : t.weights, zoomed: t.zoomed ? true : nil,

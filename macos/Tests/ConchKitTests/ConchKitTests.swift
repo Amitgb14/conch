@@ -267,7 +267,7 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let items = fixture().paletteItems()
     #expect(filterPalette(items, query: "") == items)
     let split = filterPalette(items, query: "split")
-    #expect(split.map(\.title) == ["Split Right", "Split Down", "Split Right with Browser", "Split Down with Browser", "Close Split"])
+    #expect(split.map(\.title) == ["Split Right", "Split Down", "Split Right with Browser", "Split Down with Browser", "Split Right with Agent", "Close Split"])
     #expect(filterPalette(items, query: "down split").map(\.title) == ["Split Down", "Split Down with Browser"])
     #expect(filterPalette(items, query: "HEALTH").first?.title == "Add health check")
     #expect(filterPalette(items, query: "zzqq").isEmpty)
