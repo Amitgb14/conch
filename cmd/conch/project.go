@@ -586,7 +586,7 @@ func runSandboxTask(provider string, proj proto.ProjectInfo, task proto.TaskCrea
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait+10*time.Minute)
 	defer cancel()
 	label := proj.Name + "-task"
-	saved, sb, c, err := makeSandbox(ctx, label, sandbox.Spec{}, nil, false)
+	saved, sb, c, err := makeSandbox(ctx, label, sandbox.Spec{}, nil, false, false)
 	if err != nil {
 		return err
 	}

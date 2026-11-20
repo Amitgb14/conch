@@ -49,7 +49,9 @@ export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 
 ## In the TUI
 
-**How:** press `M`, choose **New sandbox…**, then a provider; change Settings' choices for this one alone. If setup fails, the sandbox is deleted.
+**How:** `M` → **New sandbox…**, then a provider; Settings' choices can change for this one. A failed setup deletes it.
+
+**In Conch.app:** the sheet shows each step; **Run in Background** hides it; the status bar's chip reopens it.
 
 `m` on a sandbox's row adds:
 
@@ -61,7 +63,7 @@ export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 
 ## Looking at what runs inside
 
-**How:** `m` → **Open a port in the browser…**, or `conch sandbox -provider P url ID PORT -open`. Anyone with the link reaches that port until it expires. The server must listen on `0.0.0.0`, not `127.0.0.1`.
+**How:** `m` → **Open a port in the browser…**, or `conch sandbox -provider P url ID PORT -open`. The link works for anyone until it expires. The server must listen on `0.0.0.0`, not `127.0.0.1`.
 
 ## Keeping one to make others from
 
@@ -69,13 +71,13 @@ export TENSORLAKE_API_KEY=tl_…   # Tensorlake
 
 ## What one has cost
 
-The tree shows how long each sandbox has been up and what the provider billed: `4h 12m · $0.03` (`~` marks conch's estimate).
+The tree shows each sandbox's uptime and what was billed: `4h 12m · $0.03` (`~` marks conch's estimate).
 
 **How:** set **Price an hour** in Settings → **Sandboxes** → the provider. `m` → **What it has cost…** or `conch sandbox -provider P usage ID` shows each billed stretch.
 
 ## Stopping one nobody is using
 
-conch stops a sandbox when no agent is working or waiting and no pane has printed for **30 minutes**. Its files are kept.
+conch stops a sandbox when no agent is working or waiting and nothing has printed for **30 minutes**; files are kept.
 
 **How:** Settings → **Sandboxes** → the provider → **Stop when idle** (15, 30, 60, 120 or never), or `idle_stop`. conch never starts a stopped sandbox by itself.
 
@@ -124,7 +126,7 @@ herdr and Orca use [conch-sandbox](/docs/sandbox-tools).
 
 ## A provider conch doesn't know
 
-An agent reads the provider's API docs and writes a provider file; conch shows each call it will make and checks it before you save. The provider needs ssh.
+An agent writes a provider file from its API docs; conch shows each call and checks it before you save. It needs ssh.
 
 **How:** `M` → **New sandbox…** → **+ Add a provider conch doesn't know…**, or:
 
