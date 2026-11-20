@@ -147,10 +147,15 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     /// The agent account it was started on (agent.accounts.v1); nil or
     /// empty for the agent's own.
     public var account: String?
+    /// The account its agent was moved off, so the move back can be
+    /// offered, and the pane it took the place of (agent.move.v1).
+    public var movedFrom: String?
+    public var replaces: String?
     public var listening: [Int]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team, account
+        case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team, account, replaces
+        case movedFrom = "moved_from"
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

@@ -75,6 +75,16 @@ final class Store: ObservableObject {
     /// Each machine's usage by account, with its hours and days
     /// (usage.history.accounts.v1), for the usage panel and Settings.
     @Published var accountUsage: [String: UsageHistory] = [:]
+    /// Moves the servers have scheduled (agent.moving), by pane key, until
+    /// they happen or are called off.
+    @Published var movingAgents: [String: AgentMoving] = [:]
+    /// Each machine's agents' accounts ranked for a move (account.suggest),
+    /// by "machine|agent".
+    @Published var accountRanks: [String: [AccountRank]] = [:]
+    /// The move asked for by hand, while its sheet is up.
+    @Published var moveAsk: MoveAsk?
+    /// Move-back offers put off with Later, by pane key, for this session.
+    @Published var backLater: Set<String> = []
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
     /// Counts the autopilot's notes from each machine, so a feed showing
@@ -1945,7 +1955,14 @@ final class Store: ObservableObject {
             if machine == "local", let l = try? dec.decode(PlanLimits.self, from: data) {
                 limits.removeAll { $0.usageKey == l.usageKey }
                 limits.append(l)
+                loadRanks(on: machine, agent: l.agent)
             }
+            return
+        case "agent.moving":
+            if let m = try? dec.decode(AgentMoving.self, from: data) { agentMoving(m, on: machine) }
+            return
+        case "agent.moved":
+            if let m = try? dec.decode(AgentMoved.self, from: data) { agentMoved(m, on: machine) }
             return
         default:
             return
@@ -2804,6 +2821,13 @@ final class Store: ObservableObject {
                            offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [],
                            teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true,
                            integrations: conns[m]?.hello?.capabilities?.contains("integration.detect.v1") == true)
+        // An agent's Switch Account ▸, where its server can move it.
+        if case .agent(let k) = node.kind, let p = pane(k), p.agent?.name == "claude", p.running, canMoveAgents(on: m) {
+            let ranks = accountRanks[m + "|claude"] ?? []
+            if ranks.isEmpty { loadRanks(on: m, agent: "claude") }
+            let at = (items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" }).map { $0 + 1 } ?? items.count
+            items.insert(switchAccountMenu(pane: k, on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
+        }
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2888,6 +2912,7 @@ final class Store: ObservableObject {
         case .open, .divider: activate(node)
         case .rename(let k): renamePane(k)
         case .setTeam(let k, let t): setTeam(k, t)
+        case .moveAgent(let k, let acct): askMove(k, to: acct)
         case .newTeam(let k): newTeam(k)
         case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)

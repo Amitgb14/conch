@@ -20,17 +20,20 @@ import (
 // machine the agents run on — which is why these go through it, -m and
 // all, rather than writing a file here.
 
-const accountUsage = "usage: conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME | pin [PATH] NAME | unpin [PATH] | failover PERCENT|off|default [-agent AGENT]"
+const accountUsage = "usage: conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME | pin [PATH] NAME | unpin [PATH] | failover PERCENT|off|default [-agent AGENT] | suggest [AGENT]"
 
 // agentAccountCommands are the subcommands of conch account that are about
 // agent accounts; conch account on its own is Conch Cloud's.
-var agentAccountCommands = map[string]bool{"list": true, "ls": true, "add": true, "remove": true, "rm": true, "pin": true, "unpin": true, "failover": true}
+var agentAccountCommands = map[string]bool{"list": true, "ls": true, "add": true, "remove": true, "rm": true, "pin": true, "unpin": true, "failover": true, "suggest": true}
 
 func runAgentAccount(args []string) error {
 	if len(args) == 0 || !agentAccountCommands[args[0]] {
 		return errors.New(accountUsage)
 	}
 	sub, rest := args[0], args[1:]
+	if sub == "suggest" {
+		return accountSuggest(rest)
+	}
 	var params any
 	var method string
 	perAgent := false
