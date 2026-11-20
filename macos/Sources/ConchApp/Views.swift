@@ -895,18 +895,24 @@ struct Sidebar: View {
                     // card, answered from here, above the tree.
                     let needs = store.needsYou
                     let moving = store.movingAgents.sorted { $0.key < $1.key }
-                    let backs = store.moveBackOffers
+                    let backs = store.moveBackGroups
                     if !needs.isEmpty || !moving.isEmpty || !backs.isEmpty {
                         HStack {
                             SectionHeading(text: "NEEDS YOU")
                             Spacer()
-                            Text("\(needs.count + moving.count + backs.count)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Text("\(needs.count + moving.count + backs.reduce(0) { $0 + $1.offers.count })").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         }
                         .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 2)
                         // Agents being moved to another account, and ones
                         // that can go back to theirs (AccountMoveViews.swift).
                         ForEach(moving, id: \.key) { m in MovingCard(store: store, key: m.key, moving: m.value) }
-                        ForEach(backs, id: \.key) { b in MoveBackCard(store: store, key: b.key, pane: b.pane, to: b.to) }
+                        ForEach(backs, id: \.to) { g in
+                            if g.offers.count > 1 {
+                                MoveBackAllCard(store: store, to: g.to, machine: g.machine, offers: g.offers)
+                            } else if let o = g.offers.first {
+                                MoveBackCard(store: store, key: o.key, pane: o.pane, to: o.to)
+                            }
+                        }
                         ForEach(needs, id: \.key) { n in
                             NeedsYouCard(store: store, key: n.key, pane: n.pane, machine: n.machine)
                         }

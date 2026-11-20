@@ -319,3 +319,114 @@ func TestNoMoveWhenTurnedOff(t *testing.T) {
 		t.Errorf("started again: %q", b)
 	}
 }
+
+// TestAtTheLineOnlyAnAgentInUseMoves: with move_at_line, an agent past the
+// failover line that sits idle stays; once it has done a turn, it moves as
+// that turn ends.
+func TestAtTheLineOnlyAnAgentInUseMoves(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 200*time.Millisecond))
+	home, log := limitHome(t)
+	// No limit message this time: the agent is only past the line.
+	script := "#!/bin/sh\nprintf '%s|%s\\n' \"$CLAUDE_CONFIG_DIR\" \"$*\" >> " + log + "\nexec " + filepath.Join(home, "real", "claude") + "\n"
+	if err := os.WriteFile(filepath.Join(home, ".local", "bin", "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c, dir := startServer(t)
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nmove_at_line = true\n"), 0o600)
+	ctx := t.Context()
+	if err := c.Call(ctx, proto.MethodAccountFailover, proto.AccountFailoverParams{At: 70}, nil); err != nil {
+		t.Fatal(err)
+	}
+	p := startAtLimit(t, c, home, dir) // done, its conversation known, its account at 100%
+	if err := c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "StatusLine",
+		Limits: &proto.PlanLimits{FiveHour: &proto.LimitWindow{UsedPct: 80, ResetsAt: time.Now().Add(2 * time.Hour)}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second) // many looks
+	if _, ok := panesNow(t, c)[p.ID]; !ok {
+		t.Fatal("an idle agent past the line was moved")
+	}
+
+	// A turn: it starts work and finishes.
+	conv := filepath.Join(home, ".claude", "projects", "-src", "1b2c3d4e-0000-4000-8000-000000000002.jsonl")
+	for _, ev := range []string{"UserPromptSubmit", "Stop"} {
+		if err := c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: ev, TranscriptPath: conv}, nil); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	var moved proto.AgentMoved
+	waitEvent(t, c, func(m proto.Message) bool {
+		return m.Event == proto.EventAgentMoved && json.Unmarshal(m.Data, &moved) == nil && moved.Replaces == p.ID
+	})
+	if moved.To != "work" || moved.Reason != "line" {
+		t.Errorf("moved: %+v", moved)
+	}
+	if second := launches(t, log, 2)[1]; !strings.HasPrefix(second, filepath.Join(dir, "accounts", "claude", "work")+"|") {
+		t.Errorf("resumed as %q", second)
+	}
+}
+
+// TestAMovedAgentBringsBackNoProject: an agent running in a repository
+// whose project was removed is moved without adding that project again.
+func TestAMovedAgentBringsBackNoProject(t *testing.T) {
+	home, _ := moveHome(t)
+	c, dir := startServer(t)
+	ctx := t.Context()
+	if err := c.Call(ctx, proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "work"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "accounts", "claude", "work", ".claude.json"), []byte(`{"oauthAccount":{"accountUuid":"u"}}`), 0o600)
+	repo := filepath.Join(dir, "removed-repo")
+	os.MkdirAll(repo, 0o755)
+	git(t, repo, "init", "-q")
+
+	var p proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", Cwd: repo, NoProject: true, Cols: 80, Rows: 20}, &p); err != nil {
+		t.Fatal(err)
+	}
+	conv := filepath.Join(home, ".claude", "projects", "-repo", "1b2c3d4e-0000-4000-8000-000000000003.jsonl")
+	os.MkdirAll(filepath.Dir(conv), 0o700)
+	os.WriteFile(conv, []byte("{}\n"), 0o600)
+	if err := c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "Stop", TranscriptPath: conv}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var nw proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodAgentMove, proto.AgentMoveParams{ID: p.ID, Account: "work"}, &nw); err != nil {
+		t.Fatal(err)
+	}
+	if nw.ProjectID != "" {
+		t.Errorf("the moved agent joined project %q", nw.ProjectID)
+	}
+	var l proto.ProjectList
+	if err := c.Call(ctx, proto.MethodProjectList, nil, &l); err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range l.Projects {
+		if pr.Path == repo {
+			t.Errorf("the removed project came back: %+v", pr)
+		}
+	}
+}
+
+// TestLimitWordsOnScreenAloneMoveNothing: an agent whose screen ends on the
+// limit message while its account's plan is far from full — it printed the
+// words itself — stays where it is.
+func TestLimitWordsOnScreenAloneMoveNothing(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 200*time.Millisecond))
+	home, log := limitHome(t)
+	c, dir := startServer(t)
+	p := startAtLimit(t, c, home, dir)
+	// The plan as it really is: 3% of five hours.
+	if err := c.Call(t.Context(), proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "StatusLine",
+		Limits: &proto.PlanLimits{FiveHour: &proto.LimitWindow{UsedPct: 3, ResetsAt: time.Now().Add(2 * time.Hour)}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, ok := panesNow(t, c)[p.ID]; !ok {
+		t.Fatal("moved on the words alone")
+	}
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
+		t.Errorf("started again: %q", b)
+	}
+}

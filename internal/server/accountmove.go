@@ -46,10 +46,25 @@ type mover struct {
 	mu      sync.Mutex
 	pending map[string]proto.AgentMoving
 	held    map[string]bool
+	// turns is each agent's count of turns at the last look, so a move at
+	// the failover line follows a turn just finished and never an agent
+	// left idle.
+	turns map[string]int
+}
+
+// finishedTurn says whether the agent has finished a turn since the last
+// look, counting turns now; the first look at an agent says no, so one
+// found idle (a server just started, a reload) is not moved for it.
+func (m *mover) finishedTurn(pane string, turns int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen, ok := m.turns[pane]
+	m.turns[pane] = turns
+	return ok && turns > seen
 }
 
 func newMover() *mover {
-	return &mover{tick: moveTick, delay: moveDelay, pending: map[string]proto.AgentMoving{}, held: map[string]bool{}}
+	return &mover{tick: moveTick, delay: moveDelay, pending: map[string]proto.AgentMoving{}, held: map[string]bool{}, turns: map[string]int{}}
 }
 
 // rankAccounts is agent's accounts other than exclude ("" its own; "-"
@@ -280,12 +295,16 @@ func (s *Server) moveAgent(p proto.AgentMoveParams) (proto.PaneInfo, *proto.Erro
 	if cerr := s.close(p.ID); cerr != nil {
 		return proto.PaneInfo{}, cerr
 	}
+	// Outside any project it stays outside: creating a pane in a folder
+	// adds that folder's project, which brought back projects people had
+	// removed while their agents ran on.
+	noProject := info.ProjectID == ""
 	nw, perr := s.create(proto.PaneCreateParams{Agent: agent, Account: accounts.Label(to), AgentArgs: ad.ResumeArgs(id),
-		Cwd: e.dir, Name: name, Cols: info.Cols, Rows: info.Rows})
+		Cwd: e.dir, Name: name, Cols: info.Cols, Rows: info.Rows, NoProject: noProject})
 	if perr != nil {
 		// Back where it was, so the conversation is not left without a pane.
 		if back, berr := s.create(proto.PaneCreateParams{Agent: agent, Account: accounts.Label(from), AgentArgs: ad.ResumeArgs(id),
-			Cwd: e.dir, Name: name, Cols: info.Cols, Rows: info.Rows}); berr == nil {
+			Cwd: e.dir, Name: name, Cols: info.Cols, Rows: info.Rows, NoProject: noProject}); berr == nil {
 			log.Printf("accounts: moving %s to %s failed (%s); resumed on %s in %s", p.ID, accounts.Label(to), perr.Message, accounts.Label(from), back.ID)
 		}
 		return proto.PaneInfo{}, perr
@@ -470,18 +489,33 @@ func (s *Server) lookForMoves(now time.Time) {
 	for _, e := range entries {
 		info := e.info()
 		if info.Agent == nil || info.Agent.Name != "claude" || info.State != proto.PaneRunning {
-			s.mover.forget(info.ID)
+			s.mover.drop(info.ID)
 			continue
 		}
 		if info.Agent.State == proto.AgentWorking {
 			// Working again: a move called off may be scheduled anew.
 			s.mover.release(info.ID)
 		}
+		// At the failover line only an agent in use moves, as its turn ends:
+		// one that finished a turn since the last look (or whose move is
+		// already set). One sitting idle stays where it is.
+		idle := info.Agent.State == proto.AgentIdle || info.Agent.State == proto.AgentDone
+		finished := false
+		if idle {
+			e.mu.Lock()
+			turns := e.turns
+			e.mu.Unlock()
+			finished = s.mover.finishedTurn(info.ID, turns)
+		}
+		pendingLine := false
+		if m, ok := s.mover.get(info.ID); ok && m.Reason == "line" {
+			pendingLine = true
+		}
 		reason := ""
 		switch {
-		case byLimit && atLimit(info, e.p.PlainLines()):
+		case byLimit && atLimit(info, e.p.PlainLines()) && s.limitReached("claude", info.Account, now):
 			reason = "limit"
-		case byLine && (info.Agent.State == proto.AgentIdle || info.Agent.State == proto.AgentDone) && s.pastLine("claude", info.Account, now):
+		case byLine && idle && (finished || pendingLine) && s.pastLine("claude", info.Account, now):
 			reason = "line"
 		}
 		if reason == "" {
@@ -516,6 +550,19 @@ func (s *Server) lookForMoves(now time.Time) {
 		log.Printf("accounts: %s will move from %s to %s in %v (%s)", info.ID, m.From, m.To, s.mover.delay, reason)
 		s.broadcast(proto.EventAgentMoving, m)
 	}
+}
+
+// limitReached says whether the account's own plan report has a window
+// full. The screen alone is not enough: an agent can print Claude Code's
+// words itself — this one did, while writing the tests for them, and was
+// moved off an account at 3% of its five hours.
+func (s *Server) limitReached(agent, account string, now time.Time) bool {
+	l, ok := s.limitsOf(agent, account)
+	if !ok {
+		return false
+	}
+	used, _ := fullestWindow(l, now)
+	return used >= 100
 }
 
 // pastLine says whether an agent's account is past its failover line.
@@ -563,6 +610,16 @@ func (m *mover) forget(pane string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.pending, pane)
+}
+
+// drop forgets everything about a pane that is no longer a running Claude
+// agent.
+func (m *mover) drop(pane string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.pending, pane)
+	delete(m.held, pane)
+	delete(m.turns, pane)
 }
 
 func (m *mover) hold(pane string) {

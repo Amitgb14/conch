@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -106,5 +107,57 @@ func TestMoveOnAnOlderServer(t *testing.T) {
 		if _, ok := seen.Get()[m]; ok {
 			t.Errorf("%s sent to a server without agent.move.v1", m)
 		}
+	}
+}
+
+// TestAccountBack: every running agent moved off the account goes back,
+// others are left; an account with no room refuses them all, moving none.
+func TestAccountBack(t *testing.T) {
+	srv, seen := accountServer(t)
+	var moves []string
+	room := true
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		m := seen.Get()
+		m[msg.Method] = msg.Params
+		seen.Set(m)
+		switch msg.Method {
+		case proto.MethodPaneList:
+			return proto.PaneList{Panes: []proto.PaneInfo{
+				{ID: "p12", State: proto.PaneRunning, Account: "backup2", MovedFrom: "default", Agent: &proto.AgentStatus{Name: "claude"}},
+				{ID: "p13", State: proto.PaneRunning, Account: "backup2"}, // started there
+				{ID: "p14", State: proto.PaneExited, Account: "backup2", MovedFrom: "default"},
+				{ID: "p15", State: proto.PaneRunning, Account: "backup2", MovedFrom: "default", Agent: &proto.AgentStatus{Name: "claude"}},
+			}}, nil
+		case proto.MethodAccountSuggest:
+			return proto.AccountSuggestion{Agent: "claude", Accounts: []proto.AccountRank{{Account: "", Usable: room, Why: map[bool]string{true: "80% room", false: "full · resets in 2h 10m"}[room]}}}, nil
+		case proto.MethodAgentMove:
+			var p proto.AgentMoveParams
+			json.Unmarshal(msg.Params, &p)
+			moves = append(moves, p.ID+"→"+p.Account+"/"+p.Reason)
+			return proto.PaneInfo{ID: "n" + p.ID}, nil
+		}
+		return nil, nil
+	})
+	out, _, err := a4Out(t, func() error { return runAccount([]string{"back"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(moves, ",") != "p12→default/back,p15→default/back" {
+		t.Errorf("moved %v", moves)
+	}
+	if !strings.Contains(out, "p12: back on default as np12") {
+		t.Errorf("said %q", out)
+	}
+	moves, room = nil, false
+	if _, _, err := a4Out(t, func() error { return runAccount([]string{"back", "default"}) }); err == nil || !strings.Contains(err.Error(), "no room yet") {
+		t.Errorf("no room: %v", err)
+	}
+	if len(moves) != 0 {
+		t.Errorf("moved with no room: %v", moves)
+	}
+	// Nobody moved off another account: said, nothing done.
+	out, _, err = a4Out(t, func() error { return runAccount([]string{"back", "work"}) })
+	if err != nil || !strings.Contains(out, "No agent was moved off work") {
+		t.Errorf("none: %q %v", out, err)
 	}
 }

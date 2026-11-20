@@ -101,3 +101,70 @@ func printSuggestion(sg proto.AccountSuggestion, now time.Time) {
 		fmt.Println(strings.TrimSpace(fmt.Sprintf("No %s account has room for a move.", sg.Agent)))
 	}
 }
+
+// accountBack is conch account back [ACCOUNT]: every agent moved off the
+// account (default: the agent's own) moved back to it, once it has room.
+func accountBack(args []string) error {
+	if len(args) > 1 {
+		return errors.New("usage: conch account back [ACCOUNT]")
+	}
+	to := "default"
+	if len(args) == 1 {
+		to = args[0]
+	}
+	c, err := connect(false)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if len(c.MissingCapabilities([]string{proto.CapAgentMove})) > 0 {
+		return errors.New("the conch server there cannot move agents between accounts; reload it with `conch server reload`")
+	}
+	var list proto.PaneList
+	if err := call(c, proto.MethodPaneList, nil, &list); err != nil {
+		return err
+	}
+	var moved []proto.PaneInfo
+	for _, p := range list.Panes {
+		if p.State == proto.PaneRunning && p.MovedFrom == to {
+			moved = append(moved, p)
+		}
+	}
+	if len(moved) == 0 {
+		fmt.Printf("No agent was moved off %s.\n", to)
+		return nil
+	}
+	// Room is the agent's own question: each agent's accounts are ranked
+	// apart, so ask for the first's and refuse them all if there is none.
+	agent := "claude"
+	if moved[0].Agent != nil && moved[0].Agent.Name != "" {
+		agent = moved[0].Agent.Name
+	}
+	var sg proto.AccountSuggestion
+	if err := call(c, proto.MethodAccountSuggest, proto.AccountSuggestParams{Agent: agent}, &sg); err != nil {
+		return err
+	}
+	for _, a := range sg.Accounts {
+		name := a.Account
+		if name == "" {
+			name = "default"
+		}
+		if name == to && !a.Usable {
+			return fmt.Errorf("%s has no room yet (%s): its %d agent(s) stay where they are", to, a.Why, len(moved))
+		}
+	}
+	failed := 0
+	for _, p := range moved {
+		var nw proto.PaneInfo
+		if err := call(c, proto.MethodAgentMove, proto.AgentMoveParams{ID: p.ID, Account: to, Reason: "back"}, &nw); err != nil {
+			fmt.Printf("%s: %v\n", p.ID, err)
+			failed++
+			continue
+		}
+		fmt.Printf("%s: back on %s as %s\n", p.ID, to, nw.ID)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d agents did not move back (one mid-turn moves when its turn ends: try again then)", failed, len(moved))
+	}
+	return nil
+}
