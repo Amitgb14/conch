@@ -1353,6 +1353,9 @@ final class Store: ObservableObject {
     func connect() {
         guard !windowClosed else { return }
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json"))
+        // Every installed provider's machines are sandboxes, InstaBox's too.
+        MachineEntry.sandboxProviders = MachineEntry.builtInSandboxProviders
+            .union(installedSandboxProviders(dir: (conchDir as NSString).appendingPathComponent("providers")))
         catalog = MachineEntry.all(machinesJSON: data)
         if let a = addingMachine {
             // An install is watched in a terminal and may take minutes;
