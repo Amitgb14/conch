@@ -111,6 +111,9 @@ public enum RowAction: Equatable, Sendable {
     case deleteBranch(project: String, branch: String)
     /// A pane's alert when it goes quiet (quiet) or prints, turned on or off.
     case monitor(pane: String, quiet: Bool)
+    /// An agent carried to another of its accounts (agent.move.v1): account
+    /// nil lets conch choose, "default" is the agent's own.
+    case moveAgent(pane: String, account: String?)
     /// One message to the running panes of a row (the TUI's broadcast).
     case broadcast(BroadcastScope)
     /// A custom action from config.toml, by its name.

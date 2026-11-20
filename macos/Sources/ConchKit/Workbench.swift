@@ -297,7 +297,8 @@ extension Layout {
     }
 
     /// One leaf put in another's place: a workbench's terminal once its
-    /// shell has started.
+    /// shell has started, or an agent moved to another account in the pane
+    /// that took over from its old one.
     public mutating func replace(_ old: String, with new: String) {
         guard let i = tab(showing: old) else { return }
         if let j = tab(showing: new), j != i { close(new) }
@@ -308,6 +309,7 @@ extension Layout {
         tabs[k].weights = w
         if hid { tabs[k].hidden.remove(old); tabs[k].hidden.insert(new) }
         if tabs[k].focused == old { tabs[k].focused = new }
+        if tabs[k].benchAgent == old { tabs[k].benchAgent = new }
     }
 }
 

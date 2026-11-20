@@ -112,6 +112,9 @@ Usage:
                                 starts on the agent's next account; running agents never move.
                                 -agent gives one agent (claude, codex) its own line; default
                                 puts it back on every agent's
+  conch account suggest [AGENT]
+                                the agent's accounts ranked as a move would weigh them: signed
+                                in, the most room, the fewest agents; the pick first
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID
@@ -128,6 +131,11 @@ Usage:
   conch agent team ID [TEAM | - | -clear]
                                 which team an agent is in, or put it in one: - keeps it out of
                                 every team, -clear leaves it to [[teams]]' rules in config.toml
+  conch agent move [-account NAME] [-continue] ID
+                                carry an agent's conversation to another of its accounts and
+                                resume it there (Claude Code), in a pane that replaces its own;
+                                no -account: the one with most room. At its limit an agent moves
+                                by itself unless [agents] no_move_at_limit
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;

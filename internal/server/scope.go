@@ -106,7 +106,9 @@ var scoped = map[string]scopeKind{
 	proto.MethodPaneClose: scopePane, proto.MethodPaneSendText: scopePane, proto.MethodPaneSendKeys: scopePane,
 	proto.MethodPaneSendMouse: scopePane, proto.MethodPaneResize: scopePane, proto.MethodPaneRename: scopePane, proto.MethodPaneTeam: scopePane,
 	proto.MethodPaneMarkSeen: scopePane, proto.MethodPaneMonitor: scopePane, proto.MethodAgentReport: scopePane,
-	proto.MethodAgentPrompt:    scopePane,
+	proto.MethodAgentPrompt: scopePane,
+	// Moving an agent to another account restarts it: changing that pane.
+	proto.MethodAgentMove: scopePane, proto.MethodAgentMoveCancel: scopePane,
 	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
 	// Ending what an agent left running is changing that pane.
 	proto.MethodAgentBackgroundStop: scopePane,
@@ -431,7 +433,7 @@ var verbs = map[string]string{
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename", proto.MethodPaneTeam: "put in a team",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
-	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
+	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentMove: "move to another account", proto.MethodAgentMoveCancel: "call off the move of", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
