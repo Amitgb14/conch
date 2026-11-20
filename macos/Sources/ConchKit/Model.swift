@@ -1302,6 +1302,16 @@ public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase:
     return out
 }
 
+/// Whether a pane whose terminal view has ended — `conch attach` exits on
+/// any key once the program is over ("· any key closes") — should now be
+/// closed: its program has exited, so the key was the person closing it.
+/// A pane still running had only its view end (a reload, a dropped
+/// connection), and gets a fresh view instead.
+public func closesWhenViewEnds(_ p: PaneInfo?) -> Bool {
+    guard let p else { return false }
+    return !p.running && p.state == "exited"
+}
+
 /// A pane row's badge when it is not an agent at work (the TUI's
 /// paneGlyph): how it ended — exited, or exit N and failed in red — or a
 /// terminal's activity or silence alert; nil leaves the state pill.

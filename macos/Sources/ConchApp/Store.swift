@@ -2316,7 +2316,21 @@ final class Store: ObservableObject {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.terminals[k]?.ended != nil else { return }
-            if self.pane(k)?.running == true { self.restartTerminal(k) } else { self.restartOnConnect.insert(k) }
+            if self.pane(k)?.running == true {
+                self.restartTerminal(k)
+            } else if closesWhenViewEnds(self.pane(k)), PaneTerminal.holds(self.binary), let c = self.conns[machine] {
+                // Only an attach that holds (-hold) waits for a key; an
+                // older one ends with the program, before anyone read it.
+                // Over, and a key was pressed under "any key closes": a
+                // failed sandbox setup or an early failure, kept open to be
+                // read and now read.
+                let id = unkey(k).id
+                self.terminals.removeValue(forKey: k)?.stop()
+                self.layout.close(k)
+                Task { try? await c.call("pane.close", PaneRefParams(id: id)) }
+            } else {
+                self.restartOnConnect.insert(k)
+            }
         }
     }
 
