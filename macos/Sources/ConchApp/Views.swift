@@ -1754,8 +1754,8 @@ struct TabBar: View {
             Button("New Terminal Tab") { store.newTerminal(split: nil) }.keyboardShortcut("t", modifiers: .command)
             Button("New Browser Tab") { store.openBrowser(nil) }.keyboardShortcut("b", modifiers: [.command, .shift])
             Divider()
-            Button("Split Right with Browser") { store.openBrowser(nil, split: .horizontal) }
-            Button("Split Down with Browser") { store.openBrowser(nil, split: .vertical) }
+            Button("Split Right with Browser") { store.openBrowser(nil, split: .horizontal) }.keyboardShortcut("d", modifiers: [.command, .option])
+            Button("Split Down with Browser") { store.openBrowser(nil, split: .vertical) }.keyboardShortcut("d", modifiers: [.command, .option, .shift])
         } label: {
             Text("+").font(.ui(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
         }
@@ -1955,6 +1955,10 @@ struct TabButton: View {
                         Button(tabLabel(j)) { store.joinTab(index, into: j, .vertical) }
                     }
                 }
+            }
+            if tab.bench == nil, tab.root.panes.count > 1 {
+                // The focused split back out, keeping its page (#323).
+                Button("Move Split to Its Own Tab") { store.detachSplit(tab.focused) }
             }
             if let ref = store.paneRef(key: tab.focused) {
                 Divider()
@@ -2206,6 +2210,9 @@ struct PaneCard: View {
             .font(.ui(size: store.appLook.compact ? 11 : 12))
             .background(Theme.ink ? Theme.window : Theme.paneHeader.opacity(max(Theme.scene.paneOpacity, 0.8)))
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
+            .contentShape(Rectangle())
+            .contextMenu { SplitMenu(store: store, pane: pane) }
+            .modifier(TabDrop(store: store, pane: pane))
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
@@ -3161,5 +3168,60 @@ struct UpdatesSheet: View {
         .onAppear {
             if !seeded { picked = Set(list.map(\.machine)); seeded = true }
         }
+    }
+}
+
+/// A split's own menu, on its header (a terminal's right-click is the
+/// program's): what a new split beside it holds — a terminal, a browser,
+/// an agent (#323) — and taking it out to a tab of its own.
+struct SplitMenu: View {
+    @ObservedObject var store: Store
+    let pane: String
+
+    var body: some View {
+        ForEach(splitCommands, id: \.id) { c in
+            Button(c.title) {
+                store.focus(pane)
+                store.command(c.id)
+            }
+        }
+        if let t = store.layout.tab(showing: pane), store.layout.tabs[t].bench == nil, store.layout.tabs[t].root.panes.count > 1 {
+            Divider()
+            Button("Move to Its Own Tab") { store.detachSplit(pane) }
+            Button("Close Split") {
+                store.focus(pane)
+                store.closeSplit()
+            }
+        }
+    }
+}
+
+/// A tab dragged onto a split's header goes beside it, on the side it was
+/// dropped: the left half ahead of it, the right after. Only the header
+/// takes the drop: a terminal and a page take what is dragged onto them
+/// as text of their own.
+struct TabDrop: ViewModifier {
+    @ObservedObject var store: Store
+    let pane: String
+    @State private var width: CGFloat = 0
+    @State private var over = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(GeometryReader { g in Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { _, w in width = w } })
+            .overlay { if over { RoundedRectangle(cornerRadius: 4).stroke(Theme.accent, lineWidth: 2) } }
+            .onDrop(of: [.text], isTargeted: $over) { items, at in
+                guard let item = items.first else { return false }
+                let before = width > 0 && at.x < width / 2
+                _ = item.loadObject(ofClass: NSString.self) { obj, _ in
+                    guard let id = obj as? String else { return }
+                    DispatchQueue.main.async {
+                        if let from = store.layout.tabs.firstIndex(where: { $0.id.uuidString == id }) {
+                            store.moveTab(from, beside: pane, .horizontal, before: before)
+                        }
+                    }
+                }
+                return true
+            }
     }
 }
