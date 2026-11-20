@@ -108,9 +108,10 @@ struct LevelBar: View {
     }
 }
 
-/// A plan window as a ring: used, the failover line as a tick, the share in
-/// the middle, and what that means in words under it.
-struct PlanRing: View {
+/// A plan window as the panel has always drawn one: its name, a bar with
+/// the failover line as a tick, the share used, and when it resets — with
+/// the level in words once it is near.
+struct PlanBar: View {
     @Environment(\.conchTheme) private var look
     let label: String
     let pct: Double
@@ -120,35 +121,21 @@ struct PlanRing: View {
     var body: some View {
         let _ = look
         let level = usageLevel(pct, line: line)
-        VStack(spacing: 3) {
-            ZStack {
-                Circle().stroke(Theme.line2, lineWidth: 7)
-                Circle().trim(from: 0, to: min(max(pct, 0.6), 100) / 100)
-                    .stroke(levelColor(level), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                if line > 0 {
-                    Capsule().fill(Theme.text2).frame(width: 1.5, height: 11)
-                        .offset(y: -31).rotationEffect(.degrees(Double(line) * 3.6))
-                }
-                Text("\(Int(pct.rounded()))%").font(.ui(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text)
-            }
-            .frame(width: 66, height: 66).padding(4)
-            Text(label).font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.text2)
-            HStack(spacing: 3) {
-                if level != .room { Image(systemName: level == .limit ? "xmark.octagon.fill" : "exclamationmark.triangle.fill").font(.system(size: 9)) }
-                Text(level.words)
-            }
-            .font(.ui(size: 10.5, weight: level == .room ? .regular : .semibold))
-            .foregroundStyle(level == .room ? Theme.muted : levelColor(level))
-            if let r = resets, r.timeIntervalSince1970 > 0 {
+        HStack(spacing: 8) {
+            Text(label).foregroundStyle(Theme.text2).frame(width: 96, alignment: .leading).lineLimit(1)
+            LevelBar(pct: pct, line: line, color: levelColor(level), width: 170, height: 7)
+            Text("\(Int(pct.rounded()))%").monospacedDigit().frame(width: 38, alignment: .trailing)
+                .foregroundStyle(level == .room ? Theme.text : levelColor(level))
+            if level != .room {
+                Text(level.words).font(.ui(size: 11, weight: .semibold)).foregroundStyle(levelColor(level)).lineLimit(1)
+            } else if let r = resets, r.timeIntervalSince1970 > 0 {
                 TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").font(.ui(size: 10.5)).foregroundStyle(Theme.muted)
+                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.raise2))
-        .help("\(label): \(Int(pct.rounded()))% used\(line > 0 ? ". Failover at \(line)%." : "")")
+        .font(.ui(size: 12))
+        .help("\(label): \(Int(pct.rounded()))% used · \(level.words)\(line > 0 ? " · failover at \(line)%" : "")\(resets.map { $0 > Date() ? " · resets in \(elapsed(Date(), $0))" : "" } ?? "")")
     }
 }
 
@@ -310,6 +297,40 @@ struct KindLabel: View {
     }
 }
 
+/// Each model's tokens over the span, most first, its colour matching the
+/// chart's (grey for one the chart adds up as Other).
+struct ModelTable: View {
+    @Environment(\.conchTheme) private var look
+    let models: [ModelUsage]
+    let shown: [String]
+
+    var body: some View {
+        let _ = look
+        let colors = modelColors(shown.count)
+        if !models.isEmpty {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Model").foregroundStyle(Theme.muted)
+                    Spacer()
+                    Text("Tokens").foregroundStyle(Theme.muted)
+                }
+                .font(.ui(size: 11)).padding(.vertical, 4)
+                ForEach(models, id: \.model) { m in
+                    Divider()
+                    HStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 2).fill(shown.firstIndex(of: m.model).map { colors[$0] } ?? Theme.muted).frame(width: 8, height: 8)
+                        Text(m.model).font(.ui(size: 11.5, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Text(humanCount(m.tokens.total)).font(.ui(size: 11.5)).monospacedDigit()
+                    }
+                    .padding(.vertical, 5)
+                    .help("\(m.model): \(usageLine(m.tokens)) · \(m.tokens.messages) responses")
+                }
+            }
+        }
+    }
+}
+
 /// The span picker: Day, Week, Month.
 struct SpanPicker: View {
     @Binding var span: UsageSpan
@@ -318,7 +339,7 @@ struct SpanPicker: View {
         Picker("", selection: $span) {
             ForEach(UsageSpan.allCases, id: \.self) { Text($0.title).tag($0) }
         }
-        .pickerStyle(.segmented).labelsHidden().frame(width: 170)
+        .pickerStyle(.segmented).labelsHidden().frame(width: 170).focusEffectDisabled()
     }
 }
 
@@ -333,11 +354,11 @@ struct AccountUsageDetail: View {
         let _ = look
         let line = failoverLine(store.agentAccounts["local"], agent: account.agent)
         VStack(alignment: .leading, spacing: 16) {
-            section("Plan", line > 0 ? "failover at \(line)% · the tick on each ring" : "failover off") {
+            section("Plan", line > 0 ? "failover at \(line)% · the tick on each bar" : "failover off") {
                 if let l = account.limits, l.reportsUse {
-                    HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 7) {
                         ForEach(l.allWindows, id: \.key) { w in
-                            PlanRing(label: PlanLimits.label(w.key), pct: w.usedPct, resets: w.resetsAt, line: line)
+                            PlanBar(label: PlanLimits.label(w.key), pct: w.usedPct, resets: w.resetsAt, line: line)
                         }
                     }
                 } else {
@@ -350,14 +371,15 @@ struct AccountUsageDetail: View {
                     .font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
             } else {
                 let total = spanTotal(account.usage, span)
-                section("Tokens", nil, trailing: AnyView(SpanPicker(span: $span))) {
+                section("Usage", nil, trailing: AnyView(SpanPicker(span: $span))) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(humanCount(total?.tokens.total ?? 0)).font(.ui(size: 19, weight: .semibold)).monospacedDigit()
-                        Text("\(span.phrase) · \(total?.tokens.messages ?? 0) responses").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+                        Text(humanCount(total?.tokens.total ?? 0)).font(.ui(size: 22, weight: .semibold)).monospacedDigit()
+                        Text("tokens \(span.phrase) · \(total?.tokens.messages ?? 0) responses").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                     }
                     TokenChart(buckets: spanBuckets(account.usage, span), span: span)
+                    ModelTable(models: total?.models ?? [], shown: chartModels(spanBuckets(account.usage, span)))
                 }
-                section("Kinds", nil) { TokenKinds(tokens: total?.tokens ?? UsageTokens()) }
+                section("Token kinds", nil) { TokenKinds(tokens: total?.tokens ?? UsageTokens()) }
             }
             if let d = account.info?.dir, !d.isEmpty {
                 Text(d).font(.ui(size: 10.5, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
@@ -411,7 +433,8 @@ struct UsagePanel: View {
                 Text("No agent has reported its plan or saved a conversation yet.").font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(14)
             }
         }
-        .frame(width: 500)
+        .frame(width: 520)
+        .focusEffectDisabled()
         .onAppear { store.refreshAccountUsage() }
     }
 
@@ -467,17 +490,18 @@ struct UsageWindow: View {
                             let line = failoverLine(store.agentAccounts["local"], agent: a.agent)
                             let f = a.limits?.allWindows.map(\.usedPct).max()
                             return (f.map { "\(Int($0.rounded()))%" } ?? "—",
-                                    AnyView(LevelBar(pct: f ?? 0, line: line, color: f.map { levelColor(usageLevel($0, line: line)) } ?? Theme.line2, width: 170, height: 9)))
+                                    AnyView(LevelBar(pct: f ?? 0, line: line, color: f.map { levelColor(usageLevel($0, line: line)) } ?? Theme.line2, width: 130, height: 8)))
                         }
                         let most = max(accounts.map { spanTotal($0.usage, span)?.tokens.total ?? 0 }.max() ?? 0, 1)
                         compare("Tokens \(span.phrase)", accounts) { a in
                             let n = spanTotal(a.usage, span)?.tokens.total ?? 0
-                            return (humanCount(n), AnyView(LevelBar(pct: Double(n) / Double(most) * 100, line: 0, color: Theme.accent.opacity(0.7), width: 170, height: 9)))
+                            return (humanCount(n), AnyView(LevelBar(pct: Double(n) / Double(most) * 100, line: 0, color: Theme.accent.opacity(0.7), width: 130, height: 8)))
                         }
                     }
                     .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(width: 340)
+                .frame(width: 360)
                 Divider()
                 ScrollView {
                     if let a = current {
@@ -494,6 +518,7 @@ struct UsageWindow: View {
             }
         }
         .frame(minWidth: 860, minHeight: 600)
+        .focusEffectDisabled()
         .onAppear { store.refreshAccountUsage() }
     }
 
@@ -505,7 +530,7 @@ struct UsageWindow: View {
                 Button { chosen = a.id } label: {
                     HStack(spacing: 8) {
                         Mark(agent: a.agent).frame(width: 14)
-                        Text(a.tabLabel).lineLimit(1).frame(width: 90, alignment: .leading)
+                        Text(a.tabLabel).lineLimit(1).truncationMode(.tail).frame(width: 96, alignment: .leading)
                         bar
                         Text(value).monospacedDigit().frame(width: 44, alignment: .trailing)
                     }
