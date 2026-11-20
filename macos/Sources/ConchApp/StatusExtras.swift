@@ -17,6 +17,7 @@ struct StatusExtras: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            SandboxSetupChip(store: store)
             Button { store.askOpen.toggle() } label: {
                 Text("✦ Ask").font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent)
             }

@@ -3290,6 +3290,11 @@ final class Store: ObservableObject {
 
     /// New Sandbox…, the sheet that makes one (NewSandboxSheet).
     @Published var newSandboxOpen = false
+    /// Sandboxes being set up from New Sandbox… (SandboxSetup+Store.swift),
+    /// and the one its sheet shows; nil shows the form.
+    @Published var sandboxSetups: [SandboxSetupRun] = []
+    @Published var sandboxSheetRun: UUID?
+    var setupTimer: Timer?
 
     /// conch run with args in a terminal of its own on this Mac, opened in
     /// a tab, so what it does — an install, a sandbox being made — is

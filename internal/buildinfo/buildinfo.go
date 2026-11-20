@@ -27,6 +27,13 @@ var (
 // hash differs from it, but they are the same build.
 var SourceBuild string
 
+// Commit is the git commit this conch was built from, set with -ldflags
+// -X by `make build` and macos/bundle.sh. Building conch for another
+// machine reads it: a source tree that has since moved to another commit
+// (or was left behind on an older one) is built at this commit instead,
+// so the machine gets this conch, not the tree's. "" when unknown.
+var Commit string
+
 // Build is a short hash of the running executable; "" if it can't be read.
 // Rebuilding changes it even when the version string doesn't. Call it early:
 // it hashes the file as it is on disk at the first call.

@@ -29,11 +29,14 @@ bin=$(swift build -c release --package-path "$here" --show-bin-path)
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin/Conch" "$app/Contents/MacOS/Conch"
+# The commit it is built from, so that building conch for a machine later
+# builds this commit even after the checkout here moves on (buildinfo.Commit).
+commit=$(cd "$root" && git rev-parse HEAD 2>/dev/null || true)
 if [ -n "${CONCH_VERSION:-}" ]; then
-	(cd "$root" && go build -trimpath -ldflags "-s -w -X github.com/Amitgb14/conch/internal/proto.Version=${CONCH_VERSION#v}" \
+	(cd "$root" && go build -trimpath -ldflags "-s -w -X github.com/Amitgb14/conch/internal/proto.Version=${CONCH_VERSION#v} -X github.com/Amitgb14/conch/internal/buildinfo.Commit=$commit" \
 		-o "$app/Contents/Resources/conch" ./cmd/conch)
 else
-	(cd "$root" && go build -o "$app/Contents/Resources/conch" ./cmd/conch)
+	(cd "$root" && go build -ldflags "-X github.com/Amitgb14/conch/internal/buildinfo.Commit=$commit" -o "$app/Contents/Resources/conch" ./cmd/conch)
 fi
 
 # The icon from conch's own 512px PNG, as `conch app install` makes it;

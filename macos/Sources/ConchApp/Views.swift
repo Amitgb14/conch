@@ -777,7 +777,7 @@ struct MainView: View {
         .sheet(isPresented: $store.welcomeOpen) { WelcomeSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
-        .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
+        .sheet(isPresented: $store.newSandboxOpen, onDismiss: { store.sandboxSheetClosed() }) { NewSandboxSheet(store: store) }
         // [app] background: the scene behind everything, up under the
         // title bar too (SceneView.swift).
         .background {

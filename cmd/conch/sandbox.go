@@ -202,28 +202,40 @@ func sandboxCreate(args []string) error {
 	memory := fs.Int("memory", 0, "memory in GiB")
 	disk := fs.Int("disk", 0, "disk in GiB")
 	yes := fs.Bool("yes", false, "delete the sandbox without asking if setting it up fails")
+	keep := fs.Bool("keep", false, "keep the sandbox without asking if setting it up fails")
+	progressFile := fs.String("progress", "", "also write each step to this file, a JSON object a line (for Conch.app)")
 	var env names
 	fs.Var(&env, "env", "pass this environment variable in (repeat for more)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("usage: conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]")
+		return errors.New("usage: conch sandbox -provider P create [-label L] [-snapshot S] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes | -keep] [-progress FILE]")
 	}
 	if *cpu < 0 || *memory < 0 || *disk < 0 {
 		return errors.New("-cpu, -memory and -disk can't be negative")
 	}
+	if *yes && *keep {
+		return errors.New("give -yes or -keep, not both: one deletes a sandbox that fails, the other keeps it")
+	}
+	pl, err := openProgress(*progressFile)
+	if err != nil {
+		return err
+	}
+	stepLog = pl
+	defer func() { stepLog = nil; pl.close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 	defer cancel()
 	if *image != "" && *snapshot != "" && *image != *snapshot {
 		return errors.New("give -image or -snapshot, not both: they are the same")
 	}
 	saved, sb, c, err := makeSandbox(ctx, *label, sandbox.Spec{Snapshot: firstSetStr(*image, *snapshot), Region: *region, Size: *size, Template: *template,
-		CPU: *cpu, Memory: *memory, Disk: *disk}, env, *yes)
+		CPU: *cpu, Memory: *memory, Disk: *disk}, env, *yes, *keep)
 	if err != nil {
 		return err
 	}
 	defer c.Close()
+	stepLog.ready(saved.ID, saved.Label)
 	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, sb.ID, c.Server.PID, c.Server.Hostname)
 	return nil
 }
@@ -232,37 +244,47 @@ func sandboxCreate(args []string) error {
 // installs conch there and saves it as a machine, returning a connection to
 // its server that lives as long as ctx. A sandbox whose setting up fails is
 // offered for deletion (or deleted, with yes): it costs while it runs.
-func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []string, yes bool) (remote.Machine, sandbox.Sandbox, *client.Client, error) {
+func makeSandbox(ctx context.Context, label string, spec sandbox.Spec, env []string, yes, keep bool) (remote.Machine, sandbox.Sandbox, *client.Client, error) {
+	fail := func(sb sandbox.Sandbox, err error, kept bool) (remote.Machine, sandbox.Sandbox, *client.Client, error) {
+		stepLog.failed(err, kept)
+		return remote.Machine{}, sb, nil, err
+	}
 	cfg, err := config.Load()
 	if err != nil {
-		return remote.Machine{}, sandbox.Sandbox{}, nil, err
+		return fail(sandbox.Sandbox{}, err, false)
 	}
 	pc := cfg.Sandbox.Of(sandboxProvider)
 	vars, err := sandbox.EnvFrom(append(append([]string{}, pc.Env...), env...))
 	if err != nil {
-		return remote.Machine{}, sandbox.Sandbox{}, nil, err
+		return fail(sandbox.Sandbox{}, err, false)
 	}
 	p, err := openSandboxes()
 	if err != nil {
-		return remote.Machine{}, sandbox.Sandbox{}, nil, err
+		return fail(sandbox.Sandbox{}, err, false)
 	}
-	fmt.Fprintln(os.Stderr, "Creating a "+sandbox.ProviderLabel(sandboxProvider)+" sandbox…")
+	what := "Creating a " + sandbox.ProviderLabel(sandboxProvider) + " sandbox"
+	fmt.Fprintln(os.Stderr, what+"…")
+	stepLog.begin(stepCreate, what)
 	spec.Env, spec.AutoStop = vars, pc.AutoStop
 	sb, err := p.Create(ctx, spec)
 	if err != nil {
+		kept := false
 		if sb.ID != "" {
-			abandonSandbox(p, sb.ID, err, yes)
+			stepLog.sandbox(sb.ID)
+			kept = !abandonSandbox(p, sb.ID, err, yes, keep)
 		}
-		return remote.Machine{}, sb, nil, err
+		return fail(sb, err, kept)
 	}
 	fmt.Fprintf(os.Stderr, "  sandbox %s started\n", sb.ID)
+	stepLog.sandbox(sb.ID)
 	saved, c, err := setUpSandboxMachine(ctx, label, sb.ID)
 	if err != nil {
 		err = refusedKey(p, err)
+		kept := true
 		if c == nil { // setting up failed, not saving
-			abandonSandbox(p, sb.ID, err, yes)
+			kept = !abandonSandbox(p, sb.ID, err, yes, keep)
 		}
-		return remote.Machine{}, sb, nil, err
+		return fail(sb, err, kept)
 	}
 	return saved, sb, c, nil
 }
@@ -298,52 +320,64 @@ func setUpSandboxMachine(ctx context.Context, label, id string) (remote.Machine,
 func sandboxAdd(args []string) error {
 	fs := flag.NewFlagSet("sandbox add", flag.ContinueOnError)
 	label := fs.String("label", "", "name shown in the sidebar (default: sandbox-ID)")
+	progressFile := fs.String("progress", "", "also write each step to this file, a JSON object a line (for Conch.app)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: conch sandbox -provider P add [-label L] ID")
+		return errors.New("usage: conch sandbox -provider P add [-label L] [-progress FILE] ID")
 	}
+	pl, err := openProgress(*progressFile)
+	if err != nil {
+		return err
+	}
+	stepLog = pl
+	defer func() { stepLog = nil; pl.close() }()
+	// Nothing is deleted here, so a failure always leaves it as it was.
+	fail := func(err error) error { stepLog.failed(err, true); return err }
 	m, id, err := resolveSandbox(fs.Arg(0))
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	if m != nil {
-		return fmt.Errorf("%s is already machine %s (%s)", id, m.ID, m.Label)
+		return fail(fmt.Errorf("%s is already machine %s (%s)", id, m.ID, m.Label))
 	}
+	stepLog.sandbox(id)
 	p, err := openSandboxes()
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sandboxWait)
 	defer cancel()
 	boxes, err := p.List(ctx)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	listed := false
 	for _, b := range boxes {
 		listed = listed || b.ID == id
 	}
 	if !listed {
-		return fmt.Errorf("%s is no %s sandbox conch lists; %s shows the ones it can add",
-			id, sandbox.ProviderLabel(sandboxProvider), sandboxCmd(sandboxProvider, "ls"))
+		return fail(fmt.Errorf("%s is no %s sandbox conch lists; %s shows the ones it can add",
+			id, sandbox.ProviderLabel(sandboxProvider), sandboxCmd(sandboxProvider, "ls")))
 	}
 	// Start returns at once for one already running, and knows what else
 	// a provider needs — an archived Devin session reports running.
 	fmt.Fprintf(os.Stderr, "Starting %s…\n", id)
+	stepLog.begin(stepCreate, "Starting "+id)
 	if _, err := p.Start(ctx, id); err != nil {
-		return err
+		return fail(err)
 	}
 	saved, c, err := setUpSandboxMachine(ctx, *label, id)
 	if err != nil {
 		err = refusedKey(p, err)
 		if c == nil {
-			return fmt.Errorf("%w (sandbox %s is left as it was)", err, id)
+			return fail(fmt.Errorf("%w (sandbox %s is left as it was)", err, id))
 		}
-		return err
+		return fail(err)
 	}
 	defer c.Close()
+	stepLog.ready(saved.ID, saved.Label)
 	fmt.Printf("added %s (%s): %s sandbox %s, server pid %d on %s\n", saved.ID, saved.Label, sandboxProvider, id, c.Server.PID, c.Server.Hostname)
 	// A sandbox is given its variables and idle timer when it is made, so
 	// one conch did not make has neither — and conch cannot tell which.
@@ -378,22 +412,25 @@ func refusedKey(p sandbox.Provider, err error) error {
 // Why it failed is said first: asked before the reason, somebody answers
 // without it, and the reason came after — in Conch.app, in a tab that
 // closed as the command ended, so it was never seen at all.
-func abandonSandbox(p sandbox.Provider, id string, why error, yes bool) {
+// It reports whether the sandbox is gone. keep leaves it without asking:
+// Conch.app asks itself, after showing why.
+func abandonSandbox(p sandbox.Provider, id string, why error, yes, keep bool) bool {
 	if why != nil {
 		fmt.Fprintf(os.Stderr, "  failed: %v\n", why)
 	}
-	if !yes && !confirm(fmt.Sprintf("  Setting up sandbox %s failed. Delete it? [Y/n] ", id), true) {
+	if keep || (!yes && !confirm(fmt.Sprintf("  Setting up sandbox %s failed. Delete it? [Y/n] ", id), true)) {
 		fmt.Fprintf(os.Stderr, "  kept it; delete it with: %s\n", sandboxCmd(p.Name(), "rm "+id))
-		return
+		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	if err := p.Delete(ctx, id); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
 		fmt.Fprintf(os.Stderr, "  couldn't delete it (%v); try: %s\n", err, sandboxCmd(p.Name(), "rm "+id))
-		return
+		return false
 	}
 	noteDeletedSandbox(p.Name(), id, time.Now())
 	fmt.Fprintf(os.Stderr, "  deleted sandbox %s\n", id)
+	return true
 }
 
 func sandboxList() error {

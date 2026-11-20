@@ -244,7 +244,7 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes | -keep] [-progress FILE]
                                 make a sandbox with an installed provider (each is a provider file:
                                 conch sandbox provider install daytona, boat, tensorlake, …; its key
                                 in its variable, e.g. $DAYTONA_API_KEY, or Settings → Sandboxes)
@@ -252,7 +252,7 @@ Usage:
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
                                 provider is refused
-  conch sandbox -provider P add [-label L] ID
+  conch sandbox -provider P add [-label L] [-progress FILE] ID
                                 make a sandbox ls shows with no machine one of conch's machines:
                                 one whose machine was removed, or on boat.dev one made in its own
                                 interface. Started if stopped and conch installed; never deleted

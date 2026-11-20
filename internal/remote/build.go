@@ -131,7 +131,63 @@ func sourceStamp(src string) string {
 // stampCache records what the cached binary for a platform was made
 // against, so that the next install knows whether to make it again.
 func stampCache(out, src string) {
-	_ = os.WriteFile(out+".client-build", []byte(cacheKey(src)+"\n"), 0o600)
+	stampCacheKey(out, cacheKey(src))
+}
+
+func stampCacheKey(out, key string) {
+	_ = os.WriteFile(out+".client-build", []byte(key+"\n"), 0o600)
+}
+
+// atCommit says whether conch for another machine is built from this
+// conch's own commit rather than the tree at src: when this conch knows
+// its commit (buildinfo.Commit), src is a git checkout on another one, and
+// the repository has it. A tree on the same commit is built as it is,
+// uncommitted changes and all, as before.
+func atCommit(ctx context.Context, src, commit string) (head string, ok bool) {
+	if src == "" || commit == "" {
+		return "", false
+	}
+	out, err := exec.CommandContext(ctx, "git", "-C", src, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", false
+	}
+	head = strings.TrimSpace(string(out))
+	if head == "" || head == commit {
+		return head, false
+	}
+	if exec.CommandContext(ctx, "git", "-C", src, "cat-file", "-e", commit+"^{commit}").Run() != nil {
+		return head, false
+	}
+	return head, true
+}
+
+// exportCommit writes the files of commit in the repository at src into a
+// new directory, touching nothing in the checkout: no worktree is added and
+// nothing is checked out. The caller removes the directory.
+func exportCommit(ctx context.Context, src, commit string) (string, error) {
+	dir, err := os.MkdirTemp("", "conch-src-")
+	if err != nil {
+		return "", err
+	}
+	tarball := filepath.Join(dir, ".src.tar")
+	arch := exec.CommandContext(ctx, "git", "-C", src, "archive", "--format=tar", "-o", tarball, commit)
+	if out, err := arch.CombinedOutput(); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("git archive %s: %v: %s", short(commit), err, strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.CommandContext(ctx, "tar", "-xf", tarball, "-C", dir).CombinedOutput(); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", fmt.Errorf("unpack %s: %v: %s", short(commit), err, strings.TrimSpace(string(out)))
+	}
+	_ = os.Remove(tarball)
+	return dir, nil
+}
+
+func short(commit string) string {
+	if len(commit) > 12 {
+		return commit[:12]
+	}
+	return commit
 }
 
 // crossBuild builds conch for platform from the source tree, unless the
@@ -146,7 +202,17 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 	src := SourceDir()
 	out := cachedBinary(platform)
 	stamp := out + ".client-build"
-	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) == cacheKey(src) && exists(out) {
+	// The tree to build, and what the cache is keyed on: src as it is, or
+	// this conch's own commit when src has moved off it. A checkout left
+	// behind once (an app built in a worktree, CONCH_SOURCE still naming
+	// it) installed an older conch on every new machine, and only the
+	// check after the copy noticed.
+	key, from := cacheKey(src), src
+	head, pinned := atCommit(ctx, src, buildinfo.Commit)
+	if pinned {
+		key = buildinfo.Build() + " commit " + buildinfo.Commit
+	}
+	if b, err := os.ReadFile(stamp); err == nil && strings.TrimSpace(string(b)) == key && exists(out) {
 		return out, nil
 	}
 
@@ -181,14 +247,27 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 		return "", err
 	}
 
-	say(fmt.Sprintf("building conch for %s from %s", platform, src))
-	tmp := out + ".tmp"
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	if pinned {
+		dir, err := exportCommit(ctx, src, buildinfo.Commit)
+		if err != nil {
+			return "", err
+		}
+		defer os.RemoveAll(dir)
+		from = dir
+		say(fmt.Sprintf("building conch for %s from commit %s (this conch's; %s is on %s)", platform, short(buildinfo.Commit), src, short(head)))
+	} else {
+		say(fmt.Sprintf("building conch for %s from %s", platform, src))
+	}
+	tmp := out + ".tmp"
 	ldflags := "-X " + modulePath + "/internal/proto.Version=" + proto.Version +
 		" -X " + modulePath + "/internal/buildinfo.SourceBuild=" + buildinfo.ID()
+	if buildinfo.Commit != "" {
+		ldflags += " -X " + modulePath + "/internal/buildinfo.Commit=" + buildinfo.Commit
+	}
 	cmd := exec.CommandContext(ctx, goBin, "build", "-trimpath", "-ldflags", ldflags, "-o", tmp, "./cmd/conch")
-	cmd.Dir = src
+	cmd.Dir = from
 	cmd.Env = config.MergeEnv(os.Environ(), "CGO_ENABLED=0", "GOOS="+osName, "GOARCH="+arch)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -199,7 +278,7 @@ func crossBuild(ctx context.Context, platform string, say func(string)) (string,
 	if err := os.Rename(tmp, out); err != nil {
 		return "", err
 	}
-	stampCache(out, src)
+	stampCacheKey(out, key)
 	return out, nil
 }
 
