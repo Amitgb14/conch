@@ -29,11 +29,22 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = true
         config.mediaTypesRequiringUserActionForPlayback = []
-        web = WKWebView(frame: .zero, configuration: config)
+        let w = FocusingWebView(frame: .zero, configuration: config)
+        web = w
         web.allowsBackForwardNavigationGestures = true
         web.allowsMagnification = true
         web.isInspectable = true // Develop ▸ Inspect, as in Safari
         super.init()
+        // Clicked into in a split beside an agent: the split has the
+        // keyboard now, not the terminal it was taken from.
+        w.focused = { [weak self] in
+            // After the click is done with, not while a view is drawn.
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.store.terminalHasKeyboard = false
+                self.store.focus(self.key)
+            }
+        }
         web.navigationDelegate = self
         web.uiDelegate = self
         watching = [
@@ -115,6 +126,16 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     }
 }
 
+/// A web view that says when it takes the keyboard.
+final class FocusingWebView: WKWebView {
+    var focused: (() -> Void)?
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { focused?() }
+        return ok
+    }
+}
+
 struct BrowserView: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var model: BrowserModel
@@ -141,6 +162,10 @@ struct BrowserView: View {
                 button("safari", "Open in your browser", enabled: !model.address.isEmpty) { model.openOutside() }
             }
             .padding(.horizontal, 10).frame(height: 38)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { model.store.focus(model.key) })
+            .contextMenu { SplitMenu(store: model.store, pane: model.key) }
+            .modifier(TabDrop(store: model.store, pane: model.key))
             ZStack(alignment: .top) {
                 Rectangle().fill(Theme.line).frame(height: 1)
                 if model.loading {
@@ -169,7 +194,12 @@ struct BrowserView: View {
         }
         .onAppear {
             typed = model.address
-            if model.address.isEmpty { DispatchQueue.main.async { editing = true } }
+            if model.address.isEmpty {
+                DispatchQueue.main.async {
+                    editing = true
+                    model.store.terminalHasKeyboard = false
+                }
+            }
         }
         .onChange(of: model.address) { _, a in if !editing { typed = a } }
     }

@@ -2573,11 +2573,36 @@ final class Store: ObservableObject {
         if layout.focused != k { layout.focus(k) }
     }
 
+    /// The keyboard to the focused split: its terminal, or — a browser
+    /// beside an agent — its page, which takes it from the terminal, so a
+    /// key typed after moving between splits goes where the eye is.
     func focusTerminal() {
         guard let p = layout.focused else { return }
+        if !leafHasTerminal(p) { terminalHasKeyboard = false }
         DispatchQueue.main.async {
             if let v = self.terminals[p]?.view, v.window?.makeFirstResponder(v) == true { self.terminalHasKeyboard = true }
+            if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w {
+                win.makeFirstResponder(w)
+            }
         }
+    }
+
+    /// A split taken out to a tab of its own, keeping what it shows.
+    func detachSplit(_ k: String) {
+        layout.detach(k)
+        focusTerminal()
+    }
+
+    /// Tab i put beside pane: one pane alone goes into a split next to
+    /// that pane; a tab of splits joins the pane's tab whole.
+    func moveTab(_ i: Int, beside pane: String, _ axis: SplitNode.Axis = .horizontal, before: Bool = false) {
+        guard layout.tabs.indices.contains(i) else { return }
+        if case .leaf = layout.tabs[i].root {
+            layout.moveTab(i, beside: pane, axis, before: before)
+        } else if let into = layout.tab(showing: pane), layout.canJoin(i, into: into) {
+            layout.join(i, into: into, axis)
+        }
+        focusTerminal()
     }
 
     /// A new shell where the focused pane is — its machine and its folder,
@@ -2775,6 +2800,8 @@ final class Store: ObservableObject {
         case "splitDown": newTerminal(split: .vertical)
         case "splitRightBrowser": openBrowser(nil, split: .horizontal)
         case "splitDownBrowser": openBrowser(nil, split: .vertical)
+        case "splitRightAgent": startAgentHere(split: .horizontal)
+        case "splitDownAgent": startAgentHere(split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
         case "find": if let f = focusedFiles { f.findInFile(replace: false) } else { openFind() }
@@ -3373,7 +3400,7 @@ final class Store: ObservableObject {
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
     /// of its own, as the TUI's c and n do.
     func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?, prompt: String? = nil,
-                 started: ((PaneInfo) -> Void)? = nil) {
+                 split: SplitNode.Axis? = nil, started: ((PaneInfo) -> Void)? = nil) {
         guard let c = conns[machine] else { return }
         struct Create: Encodable {
             var agent: String?
@@ -3384,6 +3411,7 @@ final class Store: ObservableObject {
             var rows: Int?
         }
         let size = newPaneSize()
+        let beside = layout.focused // asked from here, though an install may take a while
         Task {
             if let agent, !(await readyAgent(agent, on: machine)) { return }
             do {
@@ -3391,7 +3419,7 @@ final class Store: ObservableObject {
                                                                cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
-                layout.open(key(machine, p.id))
+                if let split { layout.split(split, with: key(machine, p.id), beside: beside) } else { layout.open(key(machine, p.id)) }
                 focusTerminal()
                 started?(p)
             } catch {
@@ -3525,12 +3553,12 @@ final class Store: ObservableObject {
 
     /// Starts the machine's first agent where the focused pane is (its
     /// folder, in its project), else in this computer's home.
-    func startAgentHere() {
+    func startAgentHere(split: SplitNode.Axis? = nil) {
         if let f = layout.focused, let p = pane(f) {
             let m = unkey(f).machine
-            newPane(machine: m, cwd: p.cwd, inProject: p.projectID != nil, agent: startable(on: m).first?.name)
+            newPane(machine: m, cwd: p.cwd, inProject: p.projectID != nil, agent: startable(on: m).first?.name, split: split)
         } else {
-            newPane(machine: "local", cwd: nil, inProject: false, agent: startable(on: "local").first?.name)
+            newPane(machine: "local", cwd: nil, inProject: false, agent: startable(on: "local").first?.name, split: split)
         }
     }
 

@@ -18,16 +18,27 @@ public indirect enum SplitNode: Equatable, Sendable {
     /// The node with pane `at` split along axis, `new` after it. Splitting
     /// the same way as the split it is in adds a sibling rather than a
     /// split of one.
-    func splitting(_ at: String, _ axis: Axis, _ new: String) -> SplitNode {
+    /// With before, `new` goes ahead of it: a tab dropped on a pane's
+    /// left or top edge.
+    func splitting(_ at: String, _ axis: Axis, _ new: String, before: Bool = false) -> SplitNode {
         switch self {
         case .leaf(let id):
-            return id == at ? .split(axis, [.leaf(id), .leaf(new)]) : self
+            guard id == at else { return self }
+            return .split(axis, before ? [.leaf(new), .leaf(id)] : [.leaf(id), .leaf(new)])
         case .split(let a, var kids):
             if a == axis, let i = kids.firstIndex(of: .leaf(at)) {
-                kids.insert(.leaf(new), at: i + 1)
+                kids.insert(.leaf(new), at: before ? i : i + 1)
                 return .split(a, kids)
             }
-            return .split(a, kids.map { $0.splitting(at, axis, new) })
+            return .split(a, kids.map { $0.splitting(at, axis, new, before: before) })
+        }
+    }
+
+    /// The node with leaves renamed by names; the rest as they are.
+    func renaming(_ names: [String: String]) -> SplitNode {
+        switch self {
+        case .leaf(let id): return .leaf(names[id] ?? id)
+        case .split(let a, let kids): return .split(a, kids.map { $0.renaming(names) })
         }
     }
 
@@ -196,18 +207,28 @@ public struct Layout: Equatable, Sendable {
         active = tabs.count - 1
     }
 
-    /// Puts a new pane beside the focused one. With no tab yet it is a tab.
-    public mutating func split(_ axis: SplitNode.Axis, with new: String) {
-        guard let t = current else {
+    /// Puts a pane beside another — the focused one unless beside names
+    /// one — taking it from wherever it was shown, since a pane is in one
+    /// place: a new terminal, a port's page beside its agent, a browser tab
+    /// moved into a split. With no tab yet, or beside shown nowhere, it is
+    /// a tab of its own. A pane beside itself stays where it is.
+    public mutating func split(_ axis: SplitNode.Axis, with new: String, beside: String? = nil, before: Bool = false) {
+        guard let at = beside ?? current?.focused, let ti = tab(showing: at) else {
             open(new)
             return
         }
+        if at == new {
+            focus(new)
+            return
+        }
+        let id = tabs[ti].id
         if let old = tab(showing: new) { remove(new, from: old) }
-        guard let i = tabs.firstIndex(where: { $0.id == t.id }) else {
+        guard let i = tabs.firstIndex(where: { $0.id == id }) else {
             open(new)
             return
         }
-        tabs[i].root = tabs[i].root.splitting(t.focused, axis, new)
+        tabs[i].root = tabs[i].root.splitting(at, axis, new, before: before)
+        tabs[i].hidden.remove(new)
         tabs[i].focused = new
         active = i
     }
@@ -235,6 +256,48 @@ public struct Layout: Equatable, Sendable {
         let keep = tabs[into].id
         tabs.remove(at: from)
         active = tabs.firstIndex { $0.id == keep } ?? 0
+    }
+
+    /// A split taken out of its tab into a tab of its own, just after it,
+    /// keeping its key — so a browser keeps its page. Nothing for a pane
+    /// alone in its tab already, or shown nowhere.
+    public mutating func detach(_ pane: String) {
+        guard let i = tab(showing: pane), tabs[i].root.panes.count > 1 else { return }
+        remove(pane, from: i)
+        tabs.insert(Tab(pane: pane), at: i + 1)
+        active = i + 1
+    }
+
+    /// Tab i, when it is one pane alone, put in a split beside pane: the
+    /// "Move to Split Beside" of a browser tab, or a tab dragged onto a
+    /// pane's edge. Nothing for a tab of splits, or onto itself.
+    public mutating func moveTab(_ i: Int, beside pane: String, _ axis: SplitNode.Axis = .horizontal, before: Bool = false) {
+        guard tabs.indices.contains(i), tabs[i].bench == nil, case .leaf(let k) = tabs[i].root, k != pane,
+              let into = tab(showing: pane), into != i, tabs[into].bench == nil else { return }
+        split(axis, with: k, beside: pane, before: before)
+    }
+
+    /// Renames leaves (a browser's key to the page it is on now) wherever
+    /// they are named: the tree, the focus, what is hidden. A name another
+    /// leaf already has is left alone, since a pane is in one place.
+    public mutating func rename(leaves names: [String: String]) {
+        let have = Set(tabs.flatMap(\.root.panes))
+        var ok: [String: String] = [:]
+        var taken = have
+        for (from, to) in names.sorted(by: { $0.key < $1.key }) where from != to && have.contains(from) && !taken.contains(to) {
+            ok[from] = to
+            taken.insert(to)
+        }
+        guard !ok.isEmpty else { return }
+        for i in tabs.indices {
+            let weights = tabs[i].weights, zoomed = tabs[i].zoomed
+            tabs[i].root = tabs[i].root.renaming(ok)
+            tabs[i].weights = weights
+            tabs[i].zoomed = zoomed
+            tabs[i].focused = ok[tabs[i].focused] ?? tabs[i].focused
+            tabs[i].hidden = Set(tabs[i].hidden.map { ok[$0] ?? $0 })
+            if let a = tabs[i].benchAgent { tabs[i].benchAgent = ok[a] ?? a }
+        }
     }
 
     /// Takes a pane out of the window — closed, or gone from the server.
@@ -419,6 +482,13 @@ public func isPaneKey(_ k: String) -> Bool {
     parseChatKey(k) == nil && parseBenchShellKey(k) == nil && parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil && parseMobileKey(k) == nil
 }
 
+/// Whether a layout leaf is drawn by a terminal of its own — a pane, a
+/// workbench's shell — and so takes the keyboard as one; a browser, a
+/// branch's changes or a project's files take it as a view does.
+public func leafHasTerminal(_ k: String) -> Bool {
+    isPaneKey(k) || parseBenchShellKey(k) != nil
+}
+
 /// How long to wait before trying this computer's server again, the nth
 /// time in a row (from 1): soon, since a reload is back within a second or
 /// two, and less often after, never more than 15s.
@@ -453,3 +523,22 @@ public func fullTabSize(_ layout: Layout, size: (String) -> (cols: Int, rows: In
     }
     return nil
 }
+
+/// A command the window offers by its id (Store.command), its title and
+/// its keys: what a split's header menu lists.
+public struct WindowCommand: Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var keys: String
+}
+
+/// What a new split can hold, right or down: a terminal as before, a
+/// browser beside an agent, another agent.
+public let splitCommands: [WindowCommand] = [
+    WindowCommand(id: "splitRight", title: "Split Right", keys: "⌘D"),
+    WindowCommand(id: "splitDown", title: "Split Down", keys: "⇧⌘D"),
+    WindowCommand(id: "splitRightBrowser", title: "Split Right with Browser", keys: "⌥⌘D"),
+    WindowCommand(id: "splitDownBrowser", title: "Split Down with Browser", keys: "⌥⇧⌘D"),
+    WindowCommand(id: "splitRightAgent", title: "Split Right with Agent", keys: ""),
+    WindowCommand(id: "splitDownAgent", title: "Split Down with Agent", keys: ""),
+]

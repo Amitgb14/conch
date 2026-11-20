@@ -117,7 +117,7 @@ extension Store {
 
     /// This window as saved, to open again when the app does.
     func saved(frame: String?) -> SavedWindow {
-        SavedWindow(id: windowID, workspace: homeWs?.id ?? "first", project: projectScope, frame: frame, layout: SavedLayout(layout))
+        SavedWindow(id: windowID, workspace: homeWs?.id ?? "first", project: projectScope, frame: frame, layout: SavedLayout(layout, addresses: browserViews.mapValues(\.address)))
     }
 
     /// A window closed for good: its connections and the bridges behind

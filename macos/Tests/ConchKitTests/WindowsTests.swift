@@ -47,10 +47,10 @@ import Testing
 }
 
 @Test func savedLayoutDropsWhatCannotComeBack() {
-    // A browser's page and a workbench's own shell live in the app alone:
-    // gone with it, so their splits are not brought back empty.
+    // A workbench's own shell lives in the app alone: gone with it, so its
+    // split is not brought back empty; so is a browser never given a page.
     var l = Layout()
-    l.open(browserKey("http://localhost:3000"))
+    l.open(browserKey("about:blank#1"))
     l.open(key("local", "p1"))
     l.split(.horizontal, with: benchShellKey(key("local", "p1")))
     l.select(1)
@@ -61,8 +61,40 @@ import Testing
     #expect(r.active == 0, "the active tab is found again after one before it went")
     #expect(SavedLayout(Layout()).layout() == Layout())
     var only = Layout()
-    only.open(browserKey("http://x"))
+    only.open(browserKey("about:blank#3"))
     #expect(SavedLayout(only).layout().tabs.isEmpty)
+}
+
+// #323: a browser comes back through a relaunch, in a tab or a split, at
+// the page it is on rather than the one it opened at.
+@Test func savedLayoutKeepsBrowsers() {
+    let agent = key("local", "p1")
+    let first = browserKey("http://localhost:3000")
+    var l = Layout()
+    l.open(agent)
+    l.split(.horizontal, with: first)
+    l.tabs[0].resize("", n: 2, after: 0, by: 0.2)
+    l.open(browserKey("https://example.com"))
+    l.select(0)
+    let saved = SavedLayout(l, addresses: [first: "http://localhost:3000/login", browserKey("https://example.com"): ""])
+    let back = try! JSONDecoder().decode(SavedLayout.self, from: try! JSONEncoder().encode(saved)).layout()
+    let now = browserKey("http://localhost:3000/login")
+    #expect(back.tabs.count == 2)
+    #expect(back.tabs[0].root == .split(.horizontal, [.leaf(agent), .leaf(now)]), "the split's browser at its page now")
+    #expect(back.tabs[0].focused == now)
+    #expect(back.tabs[0].weights == l.tabs[0].weights, "its share kept")
+    #expect(back.tabs[1].root == .leaf(browserKey("https://example.com")), "no address known: the page it opened at")
+    // A blank browser that was given a page comes back at it.
+    var blank = Layout()
+    blank.open(browserKey("about:blank#2"))
+    let r = SavedLayout(blank, addresses: [browserKey("about:blank#2"): "https://go.dev/"]).layout()
+    #expect(r.tabs.map(\.root) == [.leaf(browserKey("https://go.dev/"))])
+    // Two browsers on one page: the second keeps its own key, never a pane in two places.
+    var two = Layout()
+    two.open(browserKey("http://a"))
+    two.split(.horizontal, with: browserKey("http://b"))
+    let t = SavedLayout(two, addresses: [browserKey("http://a"): "http://b"]).layout()
+    #expect(t.tabs[0].root.panes == [browserKey("http://a"), browserKey("http://b")])
 }
 
 @Test func savedWindowsLoadTolerantly() {
