@@ -3876,3 +3876,12 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     #expect(!chip.contains("p.kind == .local ? Color.clear"), "this Mac's chip drawn bare on the toolbar")
     #expect(!chip.contains("p.kind == .local ? Theme.muted : Theme.text2"), "this Mac's name in the muted colour")
 }
+
+@Test func anEndedPaneClosesWhenItsViewEnds() {
+    #expect(!closesWhenViewEnds(nil), "a pane already gone")
+    #expect(!closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh")), "still running: only the view ended")
+    #expect(closesWhenViewEnds(PaneInfo(id: "p1", name: "sandbox create · instabox", state: "exited")),
+            "a failed setup kept open to be read, then a key pressed")
+    #expect(closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh", state: "exited")))
+    #expect(!closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh", state: "starting")))
+}
