@@ -4,10 +4,13 @@ import path from "node:path"
 
 // The conch version shown on the site, resolved at build time: the newest
 // v* release tag, or else the version in internal/proto (e.g. 0.1.5-dev).
+// A prerelease tag (v0.2.2-beta.1) is skipped: the site offers releases,
+// and git describe would otherwise pick a beta tagged on master after the
+// release it precedes.
 export function conchVersion(): string {
   if (process.env.CONCH_VERSION) return process.env.CONCH_VERSION.replace(/^v/, "")
   try {
-    const tag = execFileSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v*"], {
+    const tag = execFileSync("git", ["describe", "--tags", "--abbrev=0", "--match", "v*", "--exclude", "v*-*"], {
       stdio: ["ignore", "pipe", "ignore"],
     })
       .toString()
