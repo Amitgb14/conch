@@ -133,8 +133,8 @@ func (m *Model) syncView() tea.Cmd {
 		if !shown || v.Kind != kindPane || mach == nil || mach.c == nil {
 			continue
 		}
-		if m.isOwnPane(v.Machine, v.PaneID) {
-			continue // ours: never resized, never subscribed to
+		if m.isOwnPane(v.Machine, v.PaneID) || strings.HasPrefix(v.PaneID, endedPrefix) {
+			continue // ours, or an ended agent's record: never resized, never subscribed to
 		}
 		key := paneKey(v.Machine, v.PaneID)
 		want[key] = true

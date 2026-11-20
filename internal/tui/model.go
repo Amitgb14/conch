@@ -656,6 +656,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actionStartedMsg:
 		return m, m.receiveActionStarted(msg)
 
+	case endedMsg:
+		if mach := m.machine(msg.machine); mach != nil && msg.gen == mach.gen {
+			mach.ended = msg.ended
+			return m, m.rebuild()
+		}
+		return m, nil
+
+	case endedResumedMsg:
+		// The server's gone event may have put it there already.
+		m.replacePane(msg.machine, msg.pane, msg.info.ID)
+		return m.Update(createdMsg{machine: msg.machine, info: msg.info})
+
 	case createdMsg:
 		msg.info = printablePane(msg.info)
 		if mach := m.machine(msg.machine); mach != nil && mach.paneIndex(msg.info.ID) < 0 {
@@ -1122,7 +1134,11 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			// for as long as conch is up. An action's terminal is kept
 			// whatever it came to, unless its action said not to.
 			keptCheck := wasCheck && info.ExitCode != 0
-			if installed == nil && !launchFailed(info) && !keptCheck && !wasAction {
+			// An agent that ended without being closed is kept on its
+			// last screen, for resuming where it is (ended.go): the
+			// server said so just before it said the pane exited.
+			keptEnded := m.endedFor(mach.id, info.ID) != nil
+			if installed == nil && !launchFailed(info) && !keptCheck && !wasAction && !keptEnded {
 				// Exited on its own (a shell's exit, an agent's /exit or
 				// ctrl+c): close it, as tmux does. Only a pane that failed
 				// right away stays, so its error can be read.
@@ -1143,6 +1159,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		return tea.Batch(m.rebuild(), renamed, m.notifyAttention(mach, old, info), m.notifyMonitor(mach, old, info), installed, checked,
 			m.observeAgent(mach, old, info), m.watchPrompt(mach, info, msg.Event == proto.EventPaneExited), merged)
+
+	case proto.EventPaneEnded, proto.EventPaneEndedGone:
+		return m.endedEvent(mach, msg)
 
 	case proto.EventPaneClosed:
 		var ref proto.PaneRef
@@ -1354,6 +1373,7 @@ func (m *Model) rebuild() tea.Cmd {
 		tm := treeMachine{id: mach.id, label: mach.label, panes: mach.panes, projects: mach.projects,
 			agents: mach.agents, sessions: m.hasSessions(mach.id)}
 		tm.projects, tm.panes = m.shown(mach)
+		tm.panes, tm.agents = m.withEnded(mach, tm.projects, tm.panes, tm.agents)
 		if provider, _, ok := remote.ParseSandboxTarget(mach.target); ok {
 			tm.sandbox = provider
 		}

@@ -52,6 +52,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prefixArmed = true
 		return m, nil
 	}
+	if cmd, handled := m.endedKey(r, k.String()); ok && handled {
+		return m, cmd
+	}
 	switch k.String() {
 	case "q", "ctrl+c":
 		return m, m.quitting(m.saveState())
