@@ -114,7 +114,9 @@ struct AgentAccountsCard: View {
                     Text(store.agentTitle(g.agent)).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
                     Text("\(g.accounts.count) account\(g.accounts.count == 1 ? "" : "s")").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                     Spacer()
-                    if store.failoverPerAgent(on: machine), (list.failoverAt ?? 0) > 0 || list.failoverFor?[g.agent] != nil {
+                    // Each agent's own line, whatever every agent's is: the
+                    // mock's, and found where the agent is.
+                    if store.failoverPerAgent(on: machine) {
                         agentLine(g.agent, list)
                     }
                 }
@@ -130,21 +132,23 @@ struct AgentAccountsCard: View {
     func agentLine(_ agent: String, _ list: AgentAccountList) -> some View {
         let own = list.failoverFor?[agent]
         let shared = list.failoverAt ?? 0
+        // What the menu shows: every agent's line, the agent's own, or off.
+        let choice = own == nil ? "shared" : own == 0 ? "off" : "own"
         return HStack(spacing: 8) {
-            Menu {
-                Button { store.setAccountFailover(0, agent: agent, shared: true, on: machine) } label: {
-                    if own == nil { Label("Every agent's line (\(agentAccountFailoverLabel(shared)))", systemImage: "checkmark") } else { Text("Every agent's line (\(agentAccountFailoverLabel(shared)))") }
+            Text("Failover").font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            Picker("Failover", selection: Binding(get: { choice }, set: { c in
+                switch c {
+                case "own": store.setAccountFailover(own.flatMap { $0 > 0 ? $0 : nil } ?? max(shared, 80), agent: agent, on: machine)
+                case "off": store.setAccountFailover(0, agent: agent, on: machine)
+                default: store.setAccountFailover(0, agent: agent, shared: true, on: machine)
                 }
-                Button { store.setAccountFailover(own ?? max(shared, 80), agent: agent, on: machine) } label: {
-                    if let own, own > 0 { Label("Its own line", systemImage: "checkmark") } else { Text("Its own line") }
-                }
-                Button { store.setAccountFailover(0, agent: agent, on: machine) } label: {
-                    if own == 0 { Label("Off for \(store.agentTitle(agent))", systemImage: "checkmark") } else { Text("Off for \(store.agentTitle(agent))") }
-                }
-            } label: {
-                Text(own == nil ? "Failover: every agent's" : own == 0 ? "Failover: off" : "Failover: its own").font(.ui(size: 11.5))
+            })) {
+                Text("Every agent's (\(agentAccountFailoverLabel(shared)))").tag("shared")
+                Text("Its own line").tag("own")
+                Text("Off for \(store.agentTitle(agent))").tag("off")
             }
-            .menuStyle(.borderlessButton).fixedSize()
+            .labelsHidden().pickerStyle(.menu).controlSize(.small).fixedSize()
+            .help("When a new \(store.agentTitle(agent)) agent's account is past this line, it starts on the next account; agents in use move at it when move_at_line is on")
             if let own, own > 0 {
                 let v = draggingFor[agent] ?? Double(own)
                 Slider(value: Binding(get: { v }, set: { draggingFor[agent] = $0 }), in: 50...100, step: 1) { editing in
