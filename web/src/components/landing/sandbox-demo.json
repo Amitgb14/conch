@@ -1,0 +1,52 @@
+{
+  "providers": [
+    {
+      "name": "daytona",
+      "label": "Daytona",
+      "keyEnv": "DAYTONA_API_KEY",
+      "keyHint": "dtn_…",
+      "access": "a fresh ssh token per connection",
+      "regions": ["us", "eu"],
+      "sizes": [],
+      "limits": {}
+    },
+    {
+      "name": "boat",
+      "label": "boat.dev",
+      "keyEnv": "BOAT_API_KEY",
+      "keyHint": "boat_…",
+      "access": "your public key, authorized in the sandbox",
+      "regions": [],
+      "sizes": ["small", "default", "large"],
+      "limits": {}
+    },
+    {
+      "name": "tensorlake",
+      "label": "Tensorlake",
+      "keyEnv": "TENSORLAKE_API_KEY",
+      "keyHint": "tl_…",
+      "access": "the ssh keys registered with your account",
+      "regions": [],
+      "sizes": [],
+      "limits": { "disk": [10, 100] }
+    }
+  ],
+  "agents": [
+    { "name": "claude", "label": "Claude Code", "color": "#D97757", "token": "CLAUDE_CODE_OAUTH_TOKEN" },
+    { "name": "codex", "label": "Codex", "color": "#10A37F" },
+    { "name": "gemini", "label": "Gemini CLI", "color": "#4285F4" },
+    { "name": "opencode", "label": "OpenCode", "color": "#C792EA" },
+    { "name": "devin", "label": "Devin", "color": "#E3B341" },
+    { "name": "copilot", "label": "Copilot CLI", "color": "#A371F7" },
+    { "name": "cline", "label": "Cline", "color": "#E5534B" },
+    { "name": "qwen", "label": "Qwen Code", "color": "#5B7CFF" },
+    { "name": "goose", "label": "Goose", "color": "#C8A27A" }
+  ],
+  "flags": {
+    "conch task": ["-sandbox", "-agent"],
+    "conch sandbox -provider P create": ["-label", "-region", "-size", "-cpu", "-memory", "-disk", "-env"],
+    "conch sandbox provider install": [],
+    "conch -m MACHINE COMMAND": []
+  },
+  "configKeys": ["region", "size", "cpu", "memory", "disk", "env"]
+}
