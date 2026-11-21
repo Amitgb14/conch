@@ -754,34 +754,38 @@ func adbText(s string) string {
 }
 
 // Buttons are the device buttons Button presses.
-var Buttons = []string{"home", "back"}
+var Buttons = []string{"home", "back", "lock", "side"}
 
-// Button presses home or back. An iPhone has no back button, so that one
-// is Android's alone.
+// Button presses home, back, lock or the side button. An iPhone has no
+// back button, so that one is Android's alone; on an Android phone lock
+// and side are both its power key.
 func (t *Tools) Button(ctx context.Context, d Device, name string) error {
 	if err := needBooted(d); err != nil {
 		return err
 	}
 	switch d.Platform {
 	case "android":
-		code := map[string]string{"home": "KEYCODE_HOME", "back": "KEYCODE_BACK"}[name]
+		code := map[string]string{"home": "KEYCODE_HOME", "back": "KEYCODE_BACK", "lock": "KEYCODE_POWER", "side": "KEYCODE_POWER"}[name]
 		if code == "" {
-			return fmt.Errorf("no button %q (home or back)", name)
+			return fmt.Errorf("no button %q (home, back, lock or side)", name)
 		}
 		_, err := t.Run(ctx, t.Adb, "-s", d.ID, "shell", "input", "keyevent", code)
 		return err
 	case "ios":
-		if name != "home" {
-			return fmt.Errorf("an iPhone has no %q button (home)", name)
+		// AXe's names, and idb's.
+		names := map[string][2]string{"home": {"home", "HOME"}, "lock": {"lock", "LOCK"}, "side": {"side-button", "SIDE_BUTTON"}}
+		n, ok := names[name]
+		if !ok {
+			return fmt.Errorf("an iPhone has no %q button (home, lock or side)", name)
 		}
 		if err := t.needTouch(); err != nil {
 			return err
 		}
 		if t.Axe != "" {
-			_, err := t.Run(ctx, t.Axe, "button", "home", "--udid", d.ID)
+			_, err := t.Run(ctx, t.Axe, "button", n[0], "--udid", d.ID)
 			return err
 		}
-		_, err := t.Run(ctx, t.Idb, "ui", "button", "--udid", d.ID, "HOME")
+		_, err := t.Run(ctx, t.Idb, "ui", "button", "--udid", d.ID, n[1])
 		return err
 	}
 	return fmt.Errorf("unknown platform %q", d.Platform)

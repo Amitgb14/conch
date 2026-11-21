@@ -473,7 +473,7 @@ Usage:
   conch preview shot [-device D] [-o FILE]
                                 a PNG of the running device's screen; prints its path, for an
                                 agent to look at its own work
-  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back
+  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side
                                 touch, type or press a button on it; X Y are pixels of the shot
                                 (an iOS simulator needs AXe or idb for these)
   conch preview run [-device D] [-scheme S] [DIR]

@@ -23,7 +23,7 @@ import (
 // It is this computer's alone: the phones run where Xcode and the Android
 // SDK are, and no server is asked.
 
-const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shutdown DEVICE|-all | delete DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
+const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shutdown DEVICE|-all | delete DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.

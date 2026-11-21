@@ -617,3 +617,42 @@ func TestDelete(t *testing.T) {
 		t.Errorf("no xcrun: %v", err)
 	}
 }
+
+// Lock and the side button, beside Home: AXe's and idb's names for them,
+// and Android's power key, which is both on a phone.
+func TestLockAndSideButtons(t *testing.T) {
+	ctx := context.Background()
+	ios := Device{ID: "U", Platform: "ios", State: "booted"}
+	and := Device{ID: "E", Platform: "android", State: "booted"}
+	f := &fake{}
+	tl := f.tools("xcrun", "adb", "", "idb")
+	tl.Axe = "axe"
+	for _, b := range []string{"lock", "side"} {
+		if err := tl.Button(ctx, ios, b); err != nil {
+			t.Fatal(b, err)
+		}
+		if err := tl.Button(ctx, and, b); err != nil {
+			t.Fatal(b, err)
+		}
+	}
+	g := &fake{}
+	idb := g.tools("xcrun", "", "", "idb")
+	for _, b := range []string{"lock", "side"} {
+		if err := idb.Button(ctx, ios, b); err != nil {
+			t.Fatal(b, err)
+		}
+	}
+	want := []string{
+		"axe button lock --udid U", "adb -s E shell input keyevent KEYCODE_POWER",
+		"axe button side-button --udid U", "adb -s E shell input keyevent KEYCODE_POWER",
+	}
+	if !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if want := []string{"idb ui button --udid U LOCK", "idb ui button --udid U SIDE_BUTTON"}; !reflect.DeepEqual(g.ran, want) {
+		t.Errorf("idb ran %q, want %q", g.ran, want)
+	}
+	if err := tl.Button(ctx, ios, "siri"); err == nil || !strings.Contains(err.Error(), "home, lock or side") {
+		t.Errorf("unknown iOS button: %v", err)
+	}
+}
