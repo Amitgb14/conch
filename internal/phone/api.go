@@ -28,6 +28,7 @@ const (
 	FeatureGitReview    = "git.review"    // changes, diff, stage, review/note, commit, push, pr
 	FeatureArtifacts    = "artifacts"     // GET /api/artifacts?pane=
 	FeatureArtifactsAll = "artifacts.all" // GET /api/artifacts with no pane: every session's
+	FeatureLimits       = "limits"        // GET /api/limits
 )
 
 // featureRoutes is which routes each feature stands for, sorted by name.
@@ -37,6 +38,7 @@ var featureRoutes = map[string][]string{
 	FeatureAttach:       {"POST /api/attach"},
 	FeatureGitReview: {"GET /api/changes", "GET /api/diff", "POST /api/stage", "POST /api/review/note",
 		"POST /api/commit", "POST /api/push", "POST /api/pr"},
+	FeatureLimits:    {"GET /api/limits"},
 	FeatureProject:   {"GET /api/project"},
 	FeatureResources: {"GET /api/resources"},
 }
