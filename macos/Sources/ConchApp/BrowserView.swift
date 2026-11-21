@@ -474,6 +474,7 @@ struct BrowserTabStrip: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var model: BrowserModel
     @State private var dragging: Int?
+    @State private var memoryTip: [Int: String] = [:]
 
     var body: some View {
         let _ = look
@@ -529,7 +530,10 @@ struct BrowserTabStrip: View {
         .contentShape(Rectangle())
         .onTapGesture { model.select(t.id) }
         .overlay(MiddleClick { model.close(t.id) })
-        .help(tabHelp(t))
+        .help(tabTooltip(label: t.label, address: t.address, memory: memoryTip[t.id]))
+        // Its memory read as the pointer comes onto it, for the tooltip:
+        // nothing is read while nobody looks.
+        .onHover { on in if on { memoryTip[t.id] = model.store.browserMemory(pane: model.key, tab: t.id) } }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
         .contextMenu {
@@ -547,9 +551,6 @@ struct BrowserTabStrip: View {
         .onDrop(of: [.text], delegate: TabReorder(model: model, target: t.id, dragging: $dragging))
     }
 
-    func tabHelp(_ t: BrowserTab) -> String {
-        t.address.isEmpty ? t.label : t.label + "\n" + t.address
-    }
 }
 
 /// What a browser tab being dragged carries: its pane and its id, so a
@@ -603,6 +604,7 @@ struct BrowserPageView: View {
     @State private var typed = ""
     @FocusState private var editing: Bool
     @FocusState private var findFocus: Bool
+    @State private var memoryShown = false
 
     var address: String { model.tabs.tab(page.id)?.address ?? "" }
     var zoom: Double { model.tabs.tab(page.id)?.zoom ?? 1 }
@@ -652,6 +654,7 @@ struct BrowserPageView: View {
         .onChange(of: editing) { _, e in model.chromeEditing = e || findFocus }
         .onChange(of: findFocus) { _, f in model.chromeEditing = f || editing }
         .onChange(of: model.finding) { _, f in if f { DispatchQueue.main.async { findFocus = true } } }
+        .sheet(isPresented: $memoryShown) { BrowserMemoryView(store: model.store) { memoryShown = false } }
     }
 
     func askAddress() {
@@ -719,6 +722,7 @@ struct BrowserPageView: View {
             Button("Actual Size") { model.zoom(1) }
         }
         Button("Web Inspector") { model.inspect() }
+        Button("Browser Memory…") { memoryShown = true }
         Divider()
         Button("Open in Your Browser") { model.openOutside() }.disabled(address.isEmpty)
         Button("Copy Address") {
