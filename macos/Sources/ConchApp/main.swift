@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var keyStore: Store { AppWindows.shared.keyStore ?? store }
     /// Where the windows are kept when the app quits, to open again.
     static let windowsKey = "conch.windows"
+    static let browsersKey = "conch.mainBrowsers"
     /// Under Quit: how many panes go on running without the app.
     let runOnItem: NSMenuItem = {
         let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -124,12 +125,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings.show(section: page)
             if UserDefaults.standard.bool(forKey: "background") { settings.window?.orderBack(nil) }
         }
+        // The first window's own tabs are the TUI's, given by the server;
+        // its browsers are the app's alone, so they are kept here.
+        if let d = UserDefaults.standard.data(forKey: Self.browsersKey), let b = try? JSONDecoder().decode(SavedLayout.self, from: d) {
+            store.restoreBrowsers(b)
+        }
         store.connect()
         // Conch.app's own updates: once for the app, not for each window.
         AppUpdater.shared.start()
         // The windows open when the app last quit, behind the first.
         for saved in loadSavedWindows(UserDefaults.standard.data(forKey: Self.windowsKey)) {
             let s = Store(windowID: saved.id, workspace: saved.workspace, project: saved.project, layout: saved.layout.layout())
+            s.savedBrowsers = saved.layout.browsers ?? [:]
             let w = AppWindow(store: s, app: self, frame: saved.frame)
             windows.append(w)
             w.window.orderBack(nil)
@@ -224,6 +231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let saved = windows.dropFirst().filter { $0.window.isVisible || $0.window.isMiniaturized }
             .map { $0.store.saved(frame: $0.window.frameDescriptor) }
         UserDefaults.standard.set(encodeSavedWindows(Array(saved)), forKey: Self.windowsKey)
+        let browsers = SavedLayout(store.layout, browsers: store.browserTabs).onlyBrowsers
+        UserDefaults.standard.set(try? JSONEncoder().encode(browsers), forKey: Self.browsersKey)
     }
 
     /// ⌘` and ⇧⌘`: the next window, round the end (nextWindow).

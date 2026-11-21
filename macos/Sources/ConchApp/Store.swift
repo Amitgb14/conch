@@ -313,6 +313,7 @@ final class Store: ObservableObject {
         watchConfig()
         watchQuestions()
         watchTreeKeys()
+        watchBrowserKeys()
         watchAppearance()
     }
 
@@ -1298,6 +1299,27 @@ final class Store: ObservableObject {
             v = view.superview
         }
         return false
+    }
+
+    /// A browser's keys (⌘T, ⌘W, ⌘L, ⌃Tab…) while one has the keyboard —
+    /// its page, its address or find field — ahead of the menus, where ⌘T
+    /// and ⌘W are a terminal's. A key without ⌘ or ⌃ is never taken: what
+    /// is typed into a page is the page's.
+    private func watchBrowserKeys() {
+        eventMonitors += [NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let f = e.modifierFlags
+            guard let a = browserKeyAction(characters: e.charactersIgnoringModifiers ?? "", keyCode: e.keyCode,
+                                           command: f.contains(.command), shift: f.contains(.shift),
+                                           option: f.contains(.option), control: f.contains(.control)) else { return e }
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard let self, !self.terminalHasKeyboard, !self.paletteOpen,
+                      let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
+                      let k = self.layout.focused, parseBrowserKey(k) != nil, let m = self.browserViews[k],
+                      m.hasKeyboard(win.firstResponder) else { return false }
+                return m.perform(a)
+            }
+            return taken ? nil : e
+        }]
     }
 
     var treeNav: TreeNav { TreeNav(tree, isOpen: { self.isOpen($0) }) }
@@ -2455,12 +2477,35 @@ final class Store: ObservableObject {
 
     private(set) var browserViews: [String: BrowserModel] = [:]
     private var blankBrowsers = 0
+    /// Browser panes' tabs as saved, by pane, taken by each pane the first
+    /// time it is shown.
+    var savedBrowsers: [String: SavedBrowser] = [:]
 
     func browser(for k: String) -> BrowserModel {
         if let m = browserViews[k] { return m }
-        let m = BrowserModel(key: k, store: self)
+        let m = BrowserModel(key: k, store: self, saved: savedBrowsers.removeValue(forKey: k))
         browserViews[k] = m
         return m
+    }
+
+    /// Every browser pane's tabs, for saving.
+    var browserTabs: [String: BrowserTabs] { browserViews.mapValues(\.tabs) }
+
+    /// A browser tab moved out to a pane of its own beside its browser —
+    /// a tab of its own in a workbench, which has one browser — with its
+    /// page and history.
+    func browserTabToOwnPane(from k: String, tab: BrowserTab, page: BrowserPage?) {
+        blankBrowsers += 1
+        let n = browserKey("about:blank#\(blankBrowsers)")
+        let m = BrowserModel(key: n, store: self, moving: tab, page: page)
+        browserViews[n] = m
+        if let i = layout.tab(showing: k), layout.tabs[i].benchAgent == nil {
+            layout.focus(k)
+            layout.split(.horizontal, with: n)
+        } else {
+            layout.open(n)
+        }
+        m.showActive()
     }
 
     /// A page in a tab of its own beside the agents; nil for an empty one
@@ -2512,7 +2557,7 @@ final class Store: ObservableObject {
         } else {
             layout.close(k)
         }
-        browserViews.removeValue(forKey: k)
+        browserViews.removeValue(forKey: k)?.shutdown()
     }
 
     /// A browser out of a workbench or split, in a tab of its own.
@@ -2638,7 +2683,8 @@ final class Store: ObservableObject {
         if !leafHasTerminal(p) { terminalHasKeyboard = false }
         DispatchQueue.main.async {
             if let v = self.terminals[p]?.view, v.window?.makeFirstResponder(v) == true { self.terminalHasKeyboard = true }
-            if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w {
+            if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w,
+               self.browserViews[p]?.chromeEditing != true {
                 win.makeFirstResponder(w)
             }
         }
@@ -2699,7 +2745,7 @@ final class Store: ObservableObject {
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
-        if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
+        browserViews.removeValue(forKey: p)?.shutdown() // its pages go quiet
         focusTerminal()
     }
 
