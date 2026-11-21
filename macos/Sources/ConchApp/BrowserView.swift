@@ -24,6 +24,9 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     @Published var canForward = false
     /// Said in the page's place: a dev server not up yet, a typo.
     @Published var failed = ""
+    /// A certificate the system did not trust: the load stopped, and only
+    /// Visit Anyway goes on to this address.
+    @Published var certificate: (host: String, url: URL, why: String)?
     private var watching: [NSKeyValueObservation] = []
 
     init(id: Int, owner: BrowserModel, configuration: WKWebViewConfiguration) {
@@ -51,9 +54,13 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         ]
     }
 
-    /// The settings every tab's page starts with.
-    static func configuration() -> WKWebViewConfiguration {
+    /// The settings every tab's page starts with: one persistent store
+    /// for normal tabs, one that keeps nothing for a private tab. No
+    /// script message handler and no user script: nothing of conch is in
+    /// the page (see BrowserSecurity.swift in ConchKit).
+    static func configuration(private p: Bool) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = BrowserShared.shared.dataStore(private: p)
         config.preferences.isElementFullscreenEnabled = true
         // A window opened by a page only from a click: never from a script
         // on its own (pop-unders, a page opening tabs as it loads).
@@ -72,14 +79,24 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         owner?.busyChanged(id, l)
     }
 
-    /// An address, loaded; a file's page may read the folder it is in.
+    /// An address, loaded. A file:// page may read that file and no other.
     func open(_ u: URL) {
         failed = ""
-        if u.isFileURL { web.loadFileURL(u, allowingReadAccessTo: u.deletingLastPathComponent()) } else { web.load(URLRequest(url: u)) }
+        certificate = nil
+        if u.isFileURL { web.loadFileURL(u, allowingReadAccessTo: fileReadAccess(for: u)) } else { web.load(URLRequest(url: u)) }
+    }
+
+    /// Visit Anyway: this host's certificate accepted until the app quits,
+    /// and the page it stopped at loaded again.
+    func visitAnyway() {
+        guard let c = certificate else { return }
+        BrowserShared.shared.acceptCertificate(host: c.host)
+        open(c.url)
     }
 
     func reload() {
         failed = ""
+        if let c = certificate { open(c.url); return }
         if loading { web.stopLoading() } else if web.url == nil, let a = owner?.tabs.tab(id)?.address, let u = URL(string: a) { open(u) } else { _ = web.reload() }
     }
 
@@ -100,7 +117,25 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     }
 
     nonisolated func webView(_ w: WKWebView, didStartProvisionalNavigation n: WKNavigation!) {
-        MainActor.assumeIsolated { failed = "" }
+        MainActor.assumeIsolated {
+            failed = ""
+            certificate = nil
+        }
+    }
+
+    /// A server's certificate: the system's check, unless Visit Anyway
+    /// accepted this host's this session.
+    nonisolated func webView(_ w: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                             completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        MainActor.assumeIsolated {
+            let space = challenge.protectionSpace
+            if space.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = space.serverTrust,
+               BrowserShared.shared.certs.allows(space.host) {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+            } else {
+                completionHandler(.performDefaultHandling, nil)
+            }
+        }
     }
 
     nonisolated func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
@@ -117,6 +152,10 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         let ns = e as NSError
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return } // the next load began
         if ns.domain == "WebKitErrorDomain" && ns.code == 102 { return } // a download took it, or a frame load was replaced
+        if isCertificateError(domain: ns.domain, code: ns.code), let u = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL, let h = u.host {
+            certificate = (h, u, ns.localizedDescription)
+            return
+        }
         failed = ns.localizedDescription
     }
 
@@ -131,7 +170,40 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
                 decisionHandler(.cancel)
                 return
             }
-            decisionHandler(.allow)
+            decisionHandler(action.shouldPerformDownload ? .download : .allow)
+        }
+    }
+
+    /// What the page cannot show (an archive, a binary) or is sent as an
+    /// attachment is downloaded rather than shown.
+    nonisolated func webView(_ w: WKWebView, decidePolicyFor r: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
+        MainActor.assumeIsolated {
+            let attachment = ((r.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().hasPrefix("attachment")
+            decisionHandler(r.isForMainFrame && (attachment || !r.canShowMIMEType) ? .download : .allow)
+        }
+    }
+
+    nonisolated func webView(_ w: WKWebView, navigationAction: WKNavigationAction, didBecome d: WKDownload) {
+        MainActor.assumeIsolated { BrowserShared.shared.track(d) }
+    }
+
+    nonisolated func webView(_ w: WKWebView, navigationResponse: WKNavigationResponse, didBecome d: WKDownload) {
+        MainActor.assumeIsolated { BrowserShared.shared.track(d) }
+    }
+
+    /// The camera or microphone: asked per site, denied unless allowed.
+    nonisolated func webView(_ w: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
+                             type: WKMediaCaptureType, decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void) {
+        MainActor.assumeIsolated {
+            let o = URL(string: "\(origin.protocol)://\(origin.host)" + (origin.port == 0 ? "" : ":\(origin.port)")).flatMap(permissionOrigin)
+            let kinds: [BrowserPermission]
+            switch type {
+            case .camera: kinds = [.camera]
+            case .microphone: kinds = [.microphone]
+            case .cameraAndMicrophone: kinds = [.camera, .microphone]
+            @unknown default: kinds = []
+            }
+            decisionHandler(BrowserShared.shared.decideMedia(origin: o, kinds: kinds) ? .grant : .deny)
         }
     }
 
@@ -201,7 +273,7 @@ final class BrowserModel: ObservableObject {
 
     func page(_ id: Int) -> BrowserPage {
         if let p = pages[id] { return p }
-        let p = BrowserPage(id: id, owner: self, configuration: BrowserPage.configuration())
+        let p = BrowserPage(id: id, owner: self, configuration: BrowserPage.configuration(private: tabs.tab(id)?.isPrivate ?? false))
         pages[id] = p
         if let t = tabs.tab(id) {
             p.web.pageZoom = t.zoom
@@ -217,14 +289,22 @@ final class BrowserModel: ObservableObject {
         showActive(address: true)
     }
 
+    /// ⇧⌘N: a tab that keeps nothing — no cookies past its life, never
+    /// saved, never reopened.
+    func newPrivateTab() {
+        tabs.open("", isPrivate: true)
+        showActive(address: true)
+    }
+
+    /// A tab a page opened is private when that page was.
     func openTab(_ address: String, after: Int? = nil, select: Bool = true) {
-        let id = tabs.open(address, after: after, select: select)
+        let id = tabs.open(address, after: after, select: select, isPrivate: after.flatMap { tabs.tab($0)?.isPrivate } ?? false)
         if select { showActive() } else { _ = page(id) } // a background tab loads now, as browsers do
     }
 
     /// A tab for a window the page asked for, with WebKit's configuration.
     func openWindow(configuration c: WKWebViewConfiguration, from: Int, request: URLRequest, select: Bool) -> BrowserPage? {
-        let id = tabs.open(request.url?.absoluteString ?? "", after: from, select: select)
+        let id = tabs.open(request.url?.absoluteString ?? "", after: from, select: select, isPrivate: tabs.tab(from)?.isPrivate ?? false)
         let p = BrowserPage(id: id, owner: self, configuration: c)
         pages[id] = p
         if select { showActive() }
@@ -263,6 +343,9 @@ final class BrowserModel: ObservableObject {
     }
 
     func move(_ id: Int, to place: Int) { tabs.move(id, to: place) }
+
+    /// Clear Browsing Data: closed tabs are history too.
+    func forgetClosed() { tabs.forgetClosed() }
 
     /// A tab out into a pane of its own, beside this one, its page and
     /// history going with it.
@@ -318,7 +401,7 @@ final class BrowserModel: ObservableObject {
         case .newTab: newTab()
         case .closeTab: if let t = tabs.active { close(t.id) }
         case .reopenTab: reopen()
-        case .privateTab: return false
+        case .privateTab: newPrivateTab()
         case .address: addressAsked += 1
         case .reload: current?.reload()
         case .back: web?.goBack()
@@ -605,6 +688,8 @@ struct BrowserPageView: View {
     @FocusState private var editing: Bool
     @FocusState private var findFocus: Bool
     @State private var memoryShown = false
+    @State private var downloadsShown = false
+    @ObservedObject private var shared = BrowserShared.shared
 
     var address: String { model.tabs.tab(page.id)?.address ?? "" }
     var zoom: Double { model.tabs.tab(page.id)?.zoom ?? 1 }
@@ -623,7 +708,9 @@ struct BrowserPageView: View {
             }.frame(height: 2)
             ZStack(alignment: .top) {
                 WebHost(web: page.web)
-                if !page.failed.isEmpty {
+                if let c = page.certificate {
+                    certificatePage(c)
+                } else if !page.failed.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "wifi.exclamationmark").font(.system(size: 26)).foregroundStyle(Theme.muted)
                         Text(page.failed).foregroundStyle(Theme.text).multilineTextAlignment(.center)
@@ -657,6 +744,50 @@ struct BrowserPageView: View {
         .sheet(isPresented: $memoryShown) { BrowserMemoryView(store: model.store) { memoryShown = false } }
     }
 
+    /// A certificate error never goes on by itself: Go Back, or an explicit
+    /// Visit Anyway for that host, for this session.
+    func certificatePage(_ c: (host: String, url: URL, why: String)) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.lock.fill").font(.system(size: 30)).foregroundStyle(Theme.warn)
+            Text("This connection is not private").font(.ui(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+            Text("\(c.host)’s certificate is not trusted: \(c.why) Someone may be pretending to be it.")
+                .font(.ui(size: 12.5)).foregroundStyle(Theme.text2).multilineTextAlignment(.center).frame(maxWidth: 440)
+            HStack(spacing: 10) {
+                Button("Go Back") { if page.canBack { page.web.goBack() } else { page.certificate = nil; page.failed = "Stopped: \(c.host)’s certificate is not trusted." } }
+                    .keyboardShortcut(.defaultAction)
+                Button("Visit Anyway") { page.visitAnyway() }
+                    .help("Trust \(c.host)’s certificate until Conch quits")
+            }
+        }
+        .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.window)
+    }
+
+    var security: AddressSecurity {
+        let host = URL(string: address)?.host ?? ""
+        return addressSecurity(address, bypassed: shared.certs.allows(host))
+    }
+
+    /// The lock, Not Secure, a laptop for this machine — before the address.
+    @ViewBuilder var securityMark: some View {
+        let s = security
+        let isPrivate = model.tabs.tab(page.id)?.isPrivate == true
+        HStack(spacing: 4) {
+            if isPrivate { Image(systemName: "eyeglasses").help("Private tab: keeps nothing") }
+            switch s {
+            case .secure: Image(systemName: "lock.fill").help("Secure connection (https)")
+            case .bypassed: Image(systemName: "lock.slash.fill").foregroundStyle(Theme.warn).help("Certificate not trusted: visited anyway this session")
+            case .notSecure: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn).help("Not secure: plain http to another machine")
+            case .local: Image(systemName: "laptopcomputer").help("This Mac (http to localhost)")
+            case .file: Image(systemName: "doc").help("A file on this Mac: it can read itself only")
+            case .none: EmptyView()
+            }
+            if let l = s.label { Text(l).font(.ui(size: 11)).foregroundStyle(Theme.warn) }
+        }
+        .font(.system(size: 10.5)).foregroundStyle(Theme.text2)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(s.label ?? (s == .secure ? "Secure" : ""))
+    }
+
     func askAddress() {
         DispatchQueue.main.async {
             editing = true
@@ -669,27 +800,33 @@ struct BrowserPageView: View {
             button("chevron.left", "Back (⌘[)", enabled: page.canBack) { page.web.goBack() }
             button("chevron.right", "Forward (⌘])", enabled: page.canForward) { page.web.goForward() }
             button(page.loading ? "xmark" : "arrow.clockwise", page.loading ? "Stop" : "Reload (⌘R)") { page.reload() }
-            TextField("Address — localhost:3000, a site, a file:// path", text: $typed)
-                .textFieldStyle(.plain)
-                .font(.ui(size: 12.5, design: .monospaced))
-                .foregroundStyle(Theme.text)
-                .focused($editing)
-                .onSubmit {
-                    model.go(typed)
-                    editing = false
-                    model.showActive()
-                }
-                .onExitCommand { typed = address; editing = false }
-                .padding(.horizontal, 9).frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(editing ? Theme.accent : Theme.line))
-                .accessibilityLabel("Address")
+            HStack(spacing: 6) {
+                if !editing { securityMark }
+                TextField("Address — localhost:3000, a site, a file:// path", text: $typed)
+                    .textFieldStyle(.plain)
+                    .font(.ui(size: 12.5, design: .monospaced))
+                    .foregroundStyle(Theme.text)
+                    .focused($editing)
+                    .onSubmit {
+                        model.go(typed)
+                        editing = false
+                        model.showActive()
+                    }
+                    .onExitCommand { typed = address; editing = false }
+                    .accessibilityLabel("Address")
+            }
+            .padding(.horizontal, 9).frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(editing ? Theme.accent : Theme.line))
             if abs(zoom - 1) > 0.001 {
                 Button(BrowserZoom.label(zoom)) { model.zoom(1) }
                     .buttonStyle(.plain).font(.ui(size: 11)).foregroundStyle(Theme.text2)
                     .help("Zoom — click for actual size (⌘0)")
             }
-            menu
+            if !shared.downloads.isEmpty {
+                button(shared.downloads.contains { !$0.done } ? "arrow.down.circle.fill" : "arrow.down.circle", "Downloads") { downloadsShown.toggle() }
+            }
+            menu.popover(isPresented: $downloadsShown, arrowEdge: .bottom) { DownloadsList() }
             if let close { button("xmark.circle", "Close the browser") { close() } }
         }
         .padding(.horizontal, 10).frame(height: 38)
@@ -712,6 +849,7 @@ struct BrowserPageView: View {
 
     @ViewBuilder var items: some View {
         Button("New Tab") { model.newTab() }
+        Button("New Private Tab") { model.newPrivateTab() }
         Button("Reopen Closed Tab") { model.reopen() }.disabled(model.tabs.closed.isEmpty)
         Divider()
         Button("Reload") { page.reload() }
@@ -723,6 +861,7 @@ struct BrowserPageView: View {
         }
         Button("Web Inspector") { model.inspect() }
         Button("Browser Memory…") { memoryShown = true }
+        Button("Downloads…") { downloadsShown = true }
         Divider()
         Button("Open in Your Browser") { model.openOutside() }.disabled(address.isEmpty)
         Button("Copy Address") {

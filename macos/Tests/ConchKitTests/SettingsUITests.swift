@@ -93,11 +93,11 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
     #expect(!side.contains("verify")) // on Git's page
     let g = SettingsNav.grouped(side)
     #expect(g.map(\.0) == ["General", "Agents", "Workspace", "Machines"])
-    #expect(g[0].1 == ["ui", "app", "keys", "notify", "update"])
+    #expect(g[0].1 == ["ui", "app", "browser", "keys", "notify", "update"]) // Browser, the app's own, after the Mac app
     #expect(g[1].1 == ["agents", "skills", "permissions", "brain"])
     #expect(g[2].1 == ["git", "shell", "actions"])
     #expect(g[3].1 == ["remote", "sandbox", "web"])
-    #expect(g.flatMap(\.1).count == ids.count) // every section once: Skills & MCP added, Checks on Git's page
+    #expect(g.flatMap(\.1).count == ids.count + 1) // every section once: Skills & MCP and Browser added, Checks on Git's page
     // Without a Git, Checks & autopilot keeps a row of its own.
     #expect(SettingsNav.sidebar(["ui", "verify"]) == ["ui", "verify", "skills"])
     #expect(SettingsNav.grouped(["verify"]).map(\.0) == ["Workspace"])

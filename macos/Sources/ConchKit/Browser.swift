@@ -119,6 +119,9 @@ public struct BrowserTabs: Equatable, Sendable {
         return t.id
     }
 
+    /// Clear Browsing Data: no closed tab to bring back.
+    public mutating func forgetClosed() { closed = [] }
+
     /// Every tab but this one closed (each can come back with ⌘⇧T).
     public mutating func closeOthers(_ id: Int) {
         guard index(id) != nil else { return }
@@ -288,6 +291,7 @@ public func browserKeyAction(characters: String, keyCode: UInt16, command: Bool,
 public let browserKeysHelp: [(keys: String, what: String)] = [
     ("⌘T  ⌘W", "new tab, close tab"),
     ("⇧⌘T", "reopen the tab closed last"),
+    ("⇧⌘N", "new private tab: keeps nothing"),
     ("⌘L  ⌘R", "address bar, reload"),
     ("⌘[  ⌘]", "back, forward"),
     ("⌃Tab  ⌃⇧Tab", "next, previous tab"),
