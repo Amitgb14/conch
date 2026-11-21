@@ -60,6 +60,12 @@ struct ShortcutsSheet: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: 3) {
+                        // Ahead of the menus while a browser has the keyboard;
+                        // a terminal keeps ⌘T and ⌘W.
+                        Text("IN A BROWSER").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                        ForEach(browserKeysHelp, id: \.keys) { k, what in line(k, what) }
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
                         Text("PANES AND THE MOUSE").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
                         ForEach(Self.others, id: \.0) { k, what in line(k, what) }
                     }

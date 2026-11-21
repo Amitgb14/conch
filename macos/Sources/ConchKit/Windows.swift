@@ -93,27 +93,46 @@ public struct SavedTab: Codable, Equatable, Sendable {
 public struct SavedLayout: Codable, Equatable, Sendable {
     public var tabs: [SavedTab]
     public var active: Int
+    /// Each browser pane's tabs, by the pane's saved key; nil from a build
+    /// before a browser had tabs, whose panes open at their own address.
+    public var browsers: [String: SavedBrowser]?
 
     /// What can come back of a layout: everything but a workbench's own
     /// shell, which lives in the app alone and goes with it. A browser, in
     /// a tab or a split, comes back at the page it is on (addresses, by
     /// its key; else the page it opened at); an empty one that was never
     /// given an address does not.
-    public init(_ l: Layout, addresses: [String: String] = [:]) {
+    /// A browser pane's tabs (`browsers`) are kept under its saved key, and
+    /// the pane named for the page in front.
+    public init(_ l: Layout, addresses: [String: String] = [:], browsers: [String: BrowserTabs] = [:]) {
         var l = l
+        var addresses = addresses
+        for (k, b) in browsers { addresses[k] = b.savedAddress ?? "" }
         var names: [String: String] = [:]
         for (k, a) in addresses where parseBrowserKey(k) != nil && !a.isEmpty && !a.hasPrefix("about:") { names[k] = browserKey(a) }
+        let before = Set(l.tabs.flatMap(\.root.panes))
         l.rename(leaves: names)
-        for k in l.tabs.flatMap(\.root.panes) where parseBenchShellKey(k) != nil || parseBrowserKey(k)?.hasPrefix("about:") == true { l.close(k) }
+        // A pane whose new name another pane had keeps its old one.
+        let after = Set(l.tabs.flatMap(\.root.panes))
+        var kept: [String: SavedBrowser] = [:]
+        for (k, b) in browsers {
+            guard before.contains(k), let s = b.saved else { continue }
+            let now = after.contains(k) ? k : names[k] ?? k
+            kept[now] = s
+        }
+        for k in l.tabs.flatMap(\.root.panes) where parseBenchShellKey(k) != nil || (parseBrowserKey(k)?.hasPrefix("about:") == true && kept[k] == nil) { l.close(k) }
         tabs = l.tabs.map { t in
             SavedTab(root: SavedNode(t.root), focused: t.focused, name: t.name,
                      weights: t.weights.isEmpty ? nil : t.weights, zoomed: t.zoomed ? true : nil,
                      hidden: t.hidden.isEmpty ? nil : t.hidden.sorted(), bench: t.bench?.rawValue, benchAgent: t.benchAgent)
         }
         active = l.active
+        let left = Set(l.tabs.flatMap(\.root.panes))
+        let b = kept.filter { left.contains($0.key) }
+        self.browsers = b.isEmpty ? nil : b
     }
 
-    private enum Keys: String, CodingKey { case tabs, active }
+    private enum Keys: String, CodingKey { case tabs, active, browsers }
 
     /// A tab saved by a later build in a shape this one does not know is
     /// left out, rather than the whole window.
@@ -125,6 +144,31 @@ public struct SavedLayout: Codable, Equatable, Sendable {
         let c = try d.container(keyedBy: Keys.self)
         tabs = (try c.decodeIfPresent([Maybe].self, forKey: .tabs) ?? []).compactMap(\.tab)
         active = try c.decodeIfPresent(Int.self, forKey: .active) ?? 0
+        // A pane's tabs that do not read: that pane opens at its address.
+        struct MaybeBrowser: Decodable {
+            var b: SavedBrowser?
+            init(from d: Decoder) throws { b = try? SavedBrowser(from: d) }
+        }
+        let b = (try? c.decodeIfPresent([String: MaybeBrowser].self, forKey: .browsers))??.compactMapValues(\.b)
+        browsers = (b?.isEmpty ?? true) ? nil : b
+    }
+
+    /// Only the browsers of it, in the splits and tabs they were in, each
+    /// split of other panes closed around them: the first window's tabs
+    /// are the TUI's, kept by the server, and its browsers are not.
+    public var onlyBrowsers: SavedLayout {
+        var l = layout()
+        for k in l.tabs.flatMap(\.root.panes) where parseBrowserKey(k) == nil { l.close(k) }
+        for i in l.tabs.indices {
+            l.tabs[i].bench = nil
+            l.tabs[i].benchAgent = nil
+            l.tabs[i].hidden = []
+        }
+        var s = SavedLayout(l)
+        let left = Set(l.tabs.flatMap(\.root.panes))
+        let b = (browsers ?? [:]).filter { left.contains($0.key) }
+        s.browsers = b.isEmpty ? nil : b
+        return s
     }
 
     /// The layout again. Panes that have since gone are the caller's to

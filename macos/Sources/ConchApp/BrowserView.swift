@@ -3,102 +3,94 @@ import ConchKit
 import SwiftUI
 import WebKit
 
-// A web page in a tab beside the agents: what a dev server on a port
-// serves, a page a file links to, docs. WebKit's own view, with an
-// address bar, back, forward and reload, and a way out to the browser
-// you use — for what wants your extensions, sign-ins or devtools.
+// A browser beside the agents: what a dev server on a port serves, a page
+// a file links to, docs. One browser pane holds tabs of its own, as any
+// browser does — a strip of pages with +, ×, drag to reorder — each its
+// own WebKit view. Which tab is in front, where a new one goes and what is
+// saved for a relaunch is ConchKit's BrowserTabs; this is WebKit and the
+// views around it.
 
+/// One tab's page: its WKWebView and what the chrome shows of it.
 @MainActor
-final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
-    let key: String
-    unowned let store: Store
-    let web: WKWebView
-    /// What the address bar holds: the page's address, or what is typed.
-    @Published var address = ""
-    @Published var title = ""
+final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
+    /// Its tab, and the pane it is in: both change when a tab moves to a
+    /// pane of its own, page and history with it.
+    var id: Int
+    weak var owner: BrowserModel?
+    let web: FocusingWebView
     @Published var loading = false
     @Published var progress = 0.0
     @Published var canBack = false
     @Published var canForward = false
+    /// Said in the page's place: a dev server not up yet, a typo.
     @Published var failed = ""
     private var watching: [NSKeyValueObservation] = []
 
-    init(key: String, store: Store) {
-        self.key = key
-        self.store = store
-        let config = WKWebViewConfiguration()
-        config.preferences.isElementFullscreenEnabled = true
-        config.mediaTypesRequiringUserActionForPlayback = []
-        let w = FocusingWebView(frame: .zero, configuration: config)
-        web = w
+    init(id: Int, owner: BrowserModel, configuration: WKWebViewConfiguration) {
+        self.id = id
+        self.owner = owner
+        web = FocusingWebView(frame: .zero, configuration: configuration)
         web.allowsBackForwardNavigationGestures = true
         web.allowsMagnification = true
         web.isInspectable = true // Develop ▸ Inspect, as in Safari
         super.init()
         // Clicked into in a split beside an agent: the split has the
         // keyboard now, not the terminal it was taken from.
-        w.focused = { [weak self] in
-            // After the click is done with, not while a view is drawn.
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.store.terminalHasKeyboard = false
-                self.store.focus(self.key)
-            }
+        web.focused = { [weak self] in
+            DispatchQueue.main.async { self?.owner?.tookKeyboard() }
         }
         web.navigationDelegate = self
         web.uiDelegate = self
         watching = [
-            web.observe(\.title) { [weak self] w, _ in MainActor.assumeIsolated { self?.titled(w.title ?? "") } },
+            web.observe(\.title) { [weak self] w, _ in MainActor.assumeIsolated { self?.owner?.pageTitled(self?.id, w.title ?? "") } },
             web.observe(\.url) { [weak self] w, _ in MainActor.assumeIsolated { self?.moved(w.url) } },
-            web.observe(\.isLoading) { [weak self] w, _ in MainActor.assumeIsolated { self?.loading = w.isLoading } },
+            web.observe(\.isLoading) { [weak self] w, _ in MainActor.assumeIsolated { self?.loadingChanged(w.isLoading) } },
             web.observe(\.estimatedProgress) { [weak self] w, _ in MainActor.assumeIsolated { self?.progress = w.estimatedProgress } },
             web.observe(\.canGoBack) { [weak self] w, _ in MainActor.assumeIsolated { self?.canBack = w.canGoBack } },
             web.observe(\.canGoForward) { [weak self] w, _ in MainActor.assumeIsolated { self?.canForward = w.canGoForward } },
         ]
-        if let first = parseBrowserKey(key), !first.hasPrefix("about:blank"), let u = URL(string: first) {
-            address = first
-            open(u)
-        }
     }
 
-    private func titled(_ t: String) {
-        title = t
-        store.objectWillChange.send() // the tab is named by it
+    /// The settings every tab's page starts with.
+    static func configuration() -> WKWebViewConfiguration {
+        let config = WKWebViewConfiguration()
+        config.preferences.isElementFullscreenEnabled = true
+        // A window opened by a page only from a click: never from a script
+        // on its own (pop-unders, a page opening tabs as it loads).
+        config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        config.mediaTypesRequiringUserActionForPlayback = []
+        return config
     }
 
     private func moved(_ u: URL?) {
         guard let u, !u.absoluteString.hasPrefix("about:") else { return }
-        address = u.absoluteString
+        owner?.pageMoved(id, u.absoluteString)
     }
 
-    /// What was typed, loaded; said so when it is no address.
-    func go(_ typed: String) {
-        guard let u = browserURL(typed) else {
-            failed = "“\(typed)” is not an address"
-            return
-        }
+    private func loadingChanged(_ l: Bool) {
+        loading = l
+        owner?.busyChanged(id, l)
+    }
+
+    /// An address, loaded; a file's page may read the folder it is in.
+    func open(_ u: URL) {
         failed = ""
-        address = u.absoluteString
-        open(u)
-    }
-
-    /// A file's page may read the folder it is in (its CSS, its pictures).
-    private func open(_ u: URL) {
         if u.isFileURL { web.loadFileURL(u, allowingReadAccessTo: u.deletingLastPathComponent()) } else { web.load(URLRequest(url: u)) }
     }
 
     func reload() {
         failed = ""
-        if loading { web.stopLoading() } else { _ = web.reload() }
+        if loading { web.stopLoading() } else if web.url == nil, let a = owner?.tabs.tab(id)?.address, let u = URL(string: a) { open(u) } else { _ = web.reload() }
     }
 
-    /// The page in the browser you use.
-    func openOutside() {
-        if let u = web.url ?? URL(string: address), !u.absoluteString.hasPrefix("about:") { NSWorkspace.shared.open(u) }
+    /// The page goes quiet: a tab closed is not left playing.
+    func stop() {
+        web.stopLoading()
+        web.loadHTMLString("", baseURL: nil)
     }
 
-    // A dev server not up yet, a typo: said in the page's place, and kept
-    // until the next load.
+    // MARK: navigation
+
     nonisolated func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) {
         MainActor.assumeIsolated { fail(e) }
     }
@@ -111,19 +103,337 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         MainActor.assumeIsolated { failed = "" }
     }
 
+    nonisolated func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
+        MainActor.assumeIsolated { owner?.fetchIcon(id) }
+    }
+
+    /// The page's web process died (out of memory, a crash): said, with
+    /// Reload to start it again, rather than a blank page.
+    nonisolated func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
+        MainActor.assumeIsolated { failed = "This page’s web process ended. Reload to open it again." }
+    }
+
     private func fail(_ e: Error) {
         let ns = e as NSError
         if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled { return } // the next load began
+        if ns.domain == "WebKitErrorDomain" && ns.code == 102 { return } // a download took it, or a frame load was replaced
         failed = ns.localizedDescription
     }
 
-    // A link that opens a window opens here instead, in the same tab.
+    /// ⌘-click or a middle click on a link: a new tab behind this one
+    /// (⇧ too: in front), as browsers do, rather than this page leaving.
+    nonisolated func webView(_ w: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        MainActor.assumeIsolated {
+            let flags = action.modifierFlags
+            if action.navigationType == .linkActivated, flags.contains(.command) || action.buttonNumber == 2,
+               let u = action.request.url, !u.absoluteString.hasPrefix("javascript:") {
+                owner?.openTab(u.absoluteString, after: id, select: flags.contains(.shift))
+                decisionHandler(.cancel)
+                return
+            }
+            decisionHandler(.allow)
+        }
+    }
+
+    /// A link with target=_blank, or window.open from a click: a new tab
+    /// here, with the configuration WebKit asks for so the page that
+    /// opened it can still talk to it (a sign-in window does).
     nonisolated func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         MainActor.assumeIsolated {
-            if action.targetFrame == nil, let u = action.request.url { w.load(URLRequest(url: u)) }
+            owner?.openWindow(configuration: c, from: id, request: action.request, select: !action.modifierFlags.contains(.command))?.web
         }
-        return nil
     }
+
+    /// window.close() from the page: its tab closes.
+    nonisolated func webViewDidClose(_ w: WKWebView) {
+        MainActor.assumeIsolated { owner?.close(id) }
+    }
+}
+
+/// A browser pane: its tabs and each one's page.
+@MainActor
+final class BrowserModel: ObservableObject {
+    let key: String
+    unowned let store: Store
+    @Published private(set) var tabs: BrowserTabs
+    /// Pages are made when a tab is first shown, so a pane of twenty saved
+    /// tabs does not load twenty pages at launch.
+    private(set) var pages: [Int: BrowserPage] = [:]
+    @Published private(set) var busy: Set<Int> = []
+    @Published private(set) var icons: [Int: NSImage] = [:]
+    /// Bumped to put the cursor in the address bar (⌘L, ⌘T).
+    @Published var addressAsked = 0
+    @Published var finding = false
+    @Published var findText = ""
+    @Published var findMissed = false
+    @Published var notice = ""
+    /// The address bar or the find field has the keyboard, so ⌘-keys are
+    /// the browser's there too.
+    var chromeEditing = false
+
+    init(key: String, store: Store, saved: SavedBrowser? = nil) {
+        self.key = key
+        self.store = store
+        tabs = BrowserTabs(saved: saved, address: parseBrowserKey(key) ?? "")
+    }
+
+    /// A pane made around a tab moved out of another, keeping its page.
+    init(key: String, store: Store, moving tab: BrowserTab, page: BrowserPage?) {
+        self.key = key
+        self.store = store
+        var t = BrowserTabs(address: "")
+        let id = t.tabs[0].id
+        t.update(id, address: tab.address, title: tab.title)
+        t.setZoom(id, tab.zoom)
+        tabs = t
+        if let page {
+            page.id = id
+            page.owner = self
+            pages[id] = page
+        }
+    }
+
+    // What the window's tab and the rest of the app read.
+    var current: BrowserPage? { tabs.active.map { page($0.id) } }
+    var web: WKWebView? { current?.web }
+    var address: String { tabs.active?.address ?? "" }
+    var title: String { tabs.active?.title ?? "" }
+
+    func page(_ id: Int) -> BrowserPage {
+        if let p = pages[id] { return p }
+        let p = BrowserPage(id: id, owner: self, configuration: BrowserPage.configuration())
+        pages[id] = p
+        if let t = tabs.tab(id) {
+            p.web.pageZoom = t.zoom
+            if !t.address.isEmpty, let u = URL(string: t.address) { p.open(u) }
+        }
+        return p
+    }
+
+    // MARK: tabs
+
+    func newTab() {
+        tabs.open("")
+        showActive(address: true)
+    }
+
+    func openTab(_ address: String, after: Int? = nil, select: Bool = true) {
+        let id = tabs.open(address, after: after, select: select)
+        if select { showActive() } else { _ = page(id) } // a background tab loads now, as browsers do
+    }
+
+    /// A tab for a window the page asked for, with WebKit's configuration.
+    func openWindow(configuration c: WKWebViewConfiguration, from: Int, request: URLRequest, select: Bool) -> BrowserPage? {
+        let id = tabs.open(request.url?.absoluteString ?? "", after: from, select: select)
+        let p = BrowserPage(id: id, owner: self, configuration: c)
+        pages[id] = p
+        if select { showActive() }
+        return p
+    }
+
+    func select(_ id: Int) {
+        tabs.select(id)
+        showActive()
+    }
+
+    /// Closes a tab; the last one closes the browser.
+    func close(_ id: Int) {
+        pages.removeValue(forKey: id)?.stop()
+        busy.remove(id)
+        icons.removeValue(forKey: id)
+        if tabs.close(id) {
+            store.closeBrowser(key)
+        } else {
+            showActive()
+        }
+    }
+
+    func closeOthers(_ id: Int) {
+        for t in tabs.tabs where t.id != id { pages.removeValue(forKey: t.id)?.stop() }
+        tabs.closeOthers(id)
+        showActive()
+    }
+
+    func reopen() {
+        if tabs.reopen() != nil { showActive() }
+    }
+
+    func duplicate(_ id: Int) {
+        if tabs.duplicate(id) != nil { showActive() }
+    }
+
+    func move(_ id: Int, to place: Int) { tabs.move(id, to: place) }
+
+    /// A tab out into a pane of its own, beside this one, its page and
+    /// history going with it.
+    func moveToOwnPane(_ id: Int) {
+        let page = pages.removeValue(forKey: id)
+        guard let t = tabs.take(id) else {
+            if let page { pages[id] = page }
+            return
+        }
+        busy.remove(id)
+        icons.removeValue(forKey: id)
+        store.browserTabToOwnPane(from: key, tab: t, page: page)
+        showActive()
+    }
+
+    func reload(_ id: Int) { page(id).reload() }
+
+    /// What was typed, loaded in the tab in front; said so when it is no
+    /// address.
+    func go(_ typed: String) {
+        guard let t = tabs.active else { return }
+        guard let u = browserURL(typed) else {
+            page(t.id).failed = "“\(typed)” is not an address"
+            return
+        }
+        tabs.update(t.id, address: u.absoluteString)
+        page(t.id).open(u)
+    }
+
+    /// The page in the browser you use.
+    func openOutside() {
+        if let u = web?.url ?? URL(string: address), !u.absoluteString.hasPrefix("about:") { NSWorkspace.shared.open(u) }
+    }
+
+    func zoom(_ z: Double) {
+        guard let t = tabs.active else { return }
+        tabs.setZoom(t.id, z)
+        page(t.id).web.pageZoom = tabs.tab(t.id)?.zoom ?? 1
+    }
+
+    func find(back: Bool = false) {
+        guard let w = web, !findText.isEmpty else { return }
+        let c = WKFindConfiguration()
+        c.backwards = back
+        c.wraps = true
+        w.find(findText, configuration: c) { [weak self] r in self?.findMissed = !r.matchFound }
+    }
+
+    /// A key typed while the browser has the keyboard; false leaves it to
+    /// whatever else takes it.
+    func perform(_ k: BrowserKey) -> Bool {
+        switch k {
+        case .newTab: newTab()
+        case .closeTab: if let t = tabs.active { close(t.id) }
+        case .reopenTab: reopen()
+        case .privateTab: return false
+        case .address: addressAsked += 1
+        case .reload: current?.reload()
+        case .back: web?.goBack()
+        case .forward: web?.goForward()
+        case .nextTab: tabs.next(); showActive()
+        case .previousTab: tabs.previous(); showActive()
+        case .tab(let n): tabs.select(number: n); showActive()
+        case .find: finding = true
+        case .findNext: if finding { find() } else { finding = true }
+        case .findPrevious: if finding { find(back: true) } else { finding = true }
+        case .zoomIn: zoom(BrowserZoom.bigger(tabs.active?.zoom ?? 1))
+        case .zoomOut: zoom(BrowserZoom.smaller(tabs.active?.zoom ?? 1))
+        case .zoomReset: zoom(1)
+        case .inspector: inspect()
+        }
+        return true
+    }
+
+    func inspect() {
+        guard let w = web else { return }
+        if !showWebInspector(w) { say("Right-click the page → Inspect Element") }
+    }
+
+    func say(_ s: String) {
+        notice = s
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.notice == s { self?.notice = "" } }
+    }
+
+    /// Whether the keyboard is in this browser: one of its pages, or its
+    /// address or find field.
+    func hasKeyboard(_ r: NSResponder?) -> Bool {
+        if chromeEditing { return true }
+        var v = r as? NSView
+        while let view = v {
+            if let w = view as? WKWebView { return pages.values.contains { $0.web === w } }
+            v = view.superview
+        }
+        return false
+    }
+
+    /// The tab in front shown, its page given the keyboard — or, a new
+    /// tab, the address bar.
+    func showActive(address: Bool = false) {
+        guard let t = tabs.active else { return }
+        let p = page(t.id)
+        store.focus(key)
+        store.terminalHasKeyboard = false
+        if address || t.address.isEmpty {
+            addressAsked += 1
+        } else {
+            DispatchQueue.main.async { if let win = p.web.window, win.firstResponder !== p.web { win.makeFirstResponder(p.web) } }
+        }
+        store.objectWillChange.send() // the window's tab is named by it
+    }
+
+    // MARK: from the pages
+
+    func tookKeyboard() {
+        store.terminalHasKeyboard = false
+        store.focus(key)
+    }
+
+    func pageTitled(_ id: Int?, _ t: String) {
+        guard let id else { return }
+        tabs.update(id, title: t)
+        if id == tabs.activeID { store.objectWillChange.send() }
+    }
+
+    func pageMoved(_ id: Int, _ address: String) {
+        tabs.update(id, address: address)
+        if id == tabs.activeID { store.objectWillChange.send() }
+    }
+
+    func busyChanged(_ id: Int, _ on: Bool) {
+        if on { busy.insert(id) } else { busy.remove(id) }
+    }
+
+    /// The page's icon: what its <link rel=icon> names, else /favicon.ico.
+    /// Read in WebKit's own client world, so nothing of conch is put in the
+    /// page; fetched without cookies, at most 256 KB.
+    func fetchIcon(_ id: Int) {
+        guard let p = pages[id], let base = p.web.url, base.scheme == "http" || base.scheme == "https" else { return }
+        let js = "(() => { const l = document.querySelector('link[rel~=\"icon\"]'); return l ? l.href : '' })()"
+        p.web.evaluateJavaScript(js, in: nil, in: .defaultClient) { [weak self] r in
+            var href = (try? r.get()) as? String ?? ""
+            if href.isEmpty { href = URL(string: "/favicon.ico", relativeTo: base)?.absoluteString ?? "" }
+            guard let u = URL(string: href), u.scheme == "http" || u.scheme == "https" else { return }
+            Task { @MainActor in
+                guard let (data, _) = try? await URLSession(configuration: .ephemeral).data(from: u), data.count < 256 << 10,
+                      let img = NSImage(data: data) else { return }
+                self?.icons[id] = img
+            }
+        }
+    }
+
+    /// Every page closed: the browser is going.
+    func shutdown() {
+        for p in pages.values { p.stop() }
+        pages = [:]
+    }
+}
+
+/// Opens Web Inspector on a page. WebKit has no public call for it —
+/// `isInspectable` only lets Safari's Develop menu and the page's own
+/// Inspect Element reach it — so this is the private `_inspector`'s
+/// `show`, and false when a WebKit no longer has them: the caller says
+/// how to open it by hand instead.
+@MainActor
+func showWebInspector(_ w: WKWebView) -> Bool {
+    let get = NSSelectorFromString("_inspector")
+    guard w.responds(to: get), let i = w.perform(get)?.takeUnretainedValue() as? NSObject else { return false }
+    let show = NSSelectorFromString("show")
+    guard i.responds(to: show) else { return false }
+    i.perform(show)
+    return true
 }
 
 /// A web view that says when it takes the keyboard.
@@ -136,6 +446,8 @@ final class FocusingWebView: WKWebView {
     }
 }
 
+// MARK: the views
+
 struct BrowserView: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var model: BrowserModel
@@ -144,83 +456,306 @@ struct BrowserView: View {
     /// Moves it out of a workbench or split into a tab of its own; nil when
     /// it is a tab of its own already.
     var ownTab: (() -> Void)? = nil
-    @State private var typed = ""
-    @FocusState private var editing: Bool
 
     var body: some View {
         let _ = look
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                button("chevron.left", "Back", enabled: model.canBack) { model.web.goBack() }
-                button("chevron.right", "Forward", enabled: model.canForward) { model.web.goForward() }
-                button(model.loading ? "xmark" : "arrow.clockwise", model.loading ? "Stop" : "Reload") { model.reload() }
-                TextField("Address — localhost:3000, a site, a file:// path", text: $typed)
-                    .textFieldStyle(.plain)
-                    .font(.ui(size: 12.5, design: .monospaced))
-                    .foregroundStyle(Theme.text)
-                    .focused($editing)
-                    .onSubmit { model.go(typed); editing = false }
-                    .padding(.horizontal, 9).frame(height: 26)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(editing ? Theme.accent : Theme.line))
-                    .accessibilityLabel("Address")
-                button("safari", "Open in your browser", enabled: !model.address.isEmpty) { model.openOutside() }
-                if let close { button("xmark.circle", "Close the browser") { close() } }
+            BrowserTabStrip(model: model)
+            if let p = model.current {
+                BrowserPageView(model: model, page: p, close: close, ownTab: ownTab).id(p.id)
             }
-            .padding(.horizontal, 10).frame(height: 38)
-            // The page takes its own right-clicks, so the bar holds the
-            // browser's: a workbench's browser had none, and no way to close.
-            .contentShape(Rectangle())
-            .contextMenu {
-                Button("Reload") { model.reload() }
-                Button("Open in Your Browser") { model.openOutside() }.disabled(model.address.isEmpty)
-                Button("Copy Address") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(model.address, forType: .string)
-                }.disabled(model.address.isEmpty)
-                if let ownTab { Divider(); Button("Move to Its Own Tab") { ownTab() } }
-                if let close { Divider(); Button("Close Browser") { close() } }
+        }
+    }
+}
+
+/// The tabs along the top: each a favicon, title, spinner and ×; + for a
+/// new one. Drag to reorder, middle-click to close, right-click for more.
+struct BrowserTabStrip: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: BrowserModel
+    @State private var dragging: Int?
+
+    var body: some View {
+        let _ = look
+        return HStack(spacing: 2) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(model.tabs.tabs) { t in chip(t) }
+                }
+                .padding(.leading, 6)
             }
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded { model.store.focus(model.key) })
-            .contextMenu { SplitMenu(store: model.store, pane: model.key) }
-            .modifier(TabDrop(store: model.store, pane: model.key))
+            Button { model.newTab() } label: {
+                Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text2)
+                    .frame(width: 26, height: 26).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("New Tab (⌘T)").accessibilityLabel("New Tab")
+            .padding(.trailing, 6)
+        }
+        .frame(height: 32)
+        .background(Theme.well.opacity(0.6))
+    }
+
+    func chip(_ t: BrowserTab) -> some View {
+        let on = t.id == model.tabs.activeID
+        return HStack(spacing: 6) {
+            Group {
+                if model.busy.contains(t.id) {
+                    ProgressView().controlSize(.mini).scaleEffect(0.7)
+                } else if let img = model.icons[t.id] {
+                    Image(nsImage: img).resizable().interpolation(.high)
+                } else {
+                    // The site's first letter, as the mock draws one.
+                    let letter = (URL(string: t.address)?.host?.first).map { String($0).uppercased() } ?? "+"
+                    Text(letter).font(.system(size: 8.5, weight: .bold)).foregroundStyle(.white)
+                        .frame(width: 14, height: 14).background(RoundedRectangle(cornerRadius: 3).fill(Theme.muted))
+                }
+            }
+            .frame(width: 14, height: 14)
+            if t.isPrivate { Image(systemName: "eyeglasses").font(.system(size: 10)).foregroundStyle(Theme.muted) }
+            Text(t.label).font(.ui(size: 12, weight: on ? .semibold : .regular)).foregroundStyle(Theme.text)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button { model.close(t.id) } label: {
+                Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.muted)
+                    .frame(width: 16, height: 16).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).help("Close Tab (⌘W)").accessibilityLabel("Close \(t.label)")
+        }
+        .padding(.leading, 9).padding(.trailing, 4)
+        .frame(minWidth: 90, idealWidth: 180, maxWidth: 190, minHeight: 26, maxHeight: 26)
+        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.window : Color.clear))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Theme.line : Color.clear))
+        .opacity(dragging == t.id ? 0.5 : 1)
+        .contentShape(Rectangle())
+        .onTapGesture { model.select(t.id) }
+        .overlay(MiddleClick { model.close(t.id) })
+        .help(tabHelp(t))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+        .contextMenu {
+            Button("Reload") { model.reload(t.id) }
+            Button("Duplicate") { model.duplicate(t.id) }
+            Button("Move to Its Own Pane") { model.moveToOwnPane(t.id) }.disabled(model.tabs.tabs.count < 2)
+            Divider()
+            Button("Close Tab") { model.close(t.id) }
+            Button("Close Other Tabs") { model.closeOthers(t.id) }.disabled(model.tabs.tabs.count < 2)
+        }
+        .onDrag {
+            dragging = t.id
+            return NSItemProvider(object: browserTabDrag(model.key, t.id) as NSString)
+        }
+        .onDrop(of: [.text], delegate: TabReorder(model: model, target: t.id, dragging: $dragging))
+    }
+
+    func tabHelp(_ t: BrowserTab) -> String {
+        t.address.isEmpty ? t.label : t.label + "\n" + t.address
+    }
+}
+
+/// What a browser tab being dragged carries: its pane and its id, so a
+/// drop elsewhere (a terminal, another browser) is told apart.
+func browserTabDrag(_ pane: String, _ id: Int) -> String { "conch-browser-tab \(id) \(pane)" }
+
+/// A tab dragged over another takes its place in the strip.
+struct TabReorder: DropDelegate {
+    let model: BrowserModel
+    let target: Int
+    @Binding var dragging: Int?
+
+    func dropEntered(info: DropInfo) {
+        guard let d = dragging, d != target, let to = model.tabs.tabs.firstIndex(where: { $0.id == target }) else { return }
+        withAnimation(.easeOut(duration: 0.12)) { model.move(d, to: to) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let was = dragging
+        dragging = nil
+        return was != nil
+    }
+}
+
+/// A middle click on what it covers; every other click goes through.
+struct MiddleClick: NSViewRepresentable {
+    let action: () -> Void
+    final class V: NSView {
+        var action: () -> Void = {}
+        override func hitTest(_ p: NSPoint) -> NSView? {
+            switch NSApp.currentEvent?.type {
+            case .otherMouseDown, .otherMouseUp: return super.hitTest(p)
+            default: return nil
+            }
+        }
+        override func otherMouseUp(with e: NSEvent) { if e.buttonNumber == 2 { action() } }
+    }
+    func makeNSView(context: Context) -> V { V() }
+    func updateNSView(_ v: V, context: Context) { v.action = action }
+}
+
+/// The tab in front: its address bar, the page, find.
+struct BrowserPageView: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: BrowserModel
+    @ObservedObject var page: BrowserPage
+    var close: (() -> Void)?
+    var ownTab: (() -> Void)?
+    @State private var typed = ""
+    @FocusState private var editing: Bool
+    @FocusState private var findFocus: Bool
+
+    var address: String { model.tabs.tab(page.id)?.address ?? "" }
+    var zoom: Double { model.tabs.tab(page.id)?.zoom ?? 1 }
+
+    var body: some View {
+        let _ = look
+        return VStack(spacing: 0) {
+            bar
             ZStack(alignment: .top) {
                 Rectangle().fill(Theme.line).frame(height: 1)
-                if model.loading {
+                if page.loading {
                     GeometryReader { g in
-                        Rectangle().fill(Theme.accent).frame(width: g.size.width * max(0.05, model.progress), height: 2)
+                        Rectangle().fill(Theme.accent).frame(width: g.size.width * max(0.05, page.progress), height: 2)
                     }.frame(height: 2)
                 }
             }.frame(height: 2)
-            ZStack {
-                WebHost(web: model.web)
-                if !model.failed.isEmpty {
+            ZStack(alignment: .top) {
+                WebHost(web: page.web)
+                if !page.failed.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "wifi.exclamationmark").font(.system(size: 26)).foregroundStyle(Theme.muted)
-                        Text(model.failed).foregroundStyle(Theme.text).multilineTextAlignment(.center)
-                        Button("Try Again") { model.go(model.address) }.disabled(model.address.isEmpty)
+                        Text(page.failed).foregroundStyle(Theme.text).multilineTextAlignment(.center)
+                        Button("Try Again") { model.go(address) }.disabled(address.isEmpty)
                     }
                     .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.window)
-                } else if model.address.isEmpty && !model.loading {
+                } else if address.isEmpty && !page.loading {
                     VStack(spacing: 8) {
                         Image(systemName: "globe").font(.system(size: 28)).foregroundStyle(Theme.muted)
                         Text("Type an address above — a port like localhost:3000 opens over http.").foregroundStyle(Theme.muted)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.window)
                 }
-            }
-        }
-        .onAppear {
-            typed = model.address
-            if model.address.isEmpty {
-                DispatchQueue.main.async {
-                    editing = true
-                    model.store.terminalHasKeyboard = false
+                if !model.notice.isEmpty {
+                    Text(model.notice).font(.ui(size: 12)).foregroundStyle(Theme.text)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(Theme.window).shadow(radius: 4)).padding(.top, 10)
                 }
             }
+            if model.finding { findBar }
         }
-        .onChange(of: model.address) { _, a in if !editing { typed = a } }
+        .onAppear {
+            typed = address
+            if address.isEmpty { askAddress() }
+        }
+        .onChange(of: address) { _, a in if !editing { typed = a } }
+        .onChange(of: model.addressAsked) { _, _ in askAddress() }
+        .onChange(of: editing) { _, e in model.chromeEditing = e || findFocus }
+        .onChange(of: findFocus) { _, f in model.chromeEditing = f || editing }
+        .onChange(of: model.finding) { _, f in if f { DispatchQueue.main.async { findFocus = true } } }
+    }
+
+    func askAddress() {
+        DispatchQueue.main.async {
+            editing = true
+            model.store.terminalHasKeyboard = false
+        }
+    }
+
+    var bar: some View {
+        HStack(spacing: 6) {
+            button("chevron.left", "Back (⌘[)", enabled: page.canBack) { page.web.goBack() }
+            button("chevron.right", "Forward (⌘])", enabled: page.canForward) { page.web.goForward() }
+            button(page.loading ? "xmark" : "arrow.clockwise", page.loading ? "Stop" : "Reload (⌘R)") { page.reload() }
+            TextField("Address — localhost:3000, a site, a file:// path", text: $typed)
+                .textFieldStyle(.plain)
+                .font(.ui(size: 12.5, design: .monospaced))
+                .foregroundStyle(Theme.text)
+                .focused($editing)
+                .onSubmit {
+                    model.go(typed)
+                    editing = false
+                    model.showActive()
+                }
+                .onExitCommand { typed = address; editing = false }
+                .padding(.horizontal, 9).frame(height: 26)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(editing ? Theme.accent : Theme.line))
+                .accessibilityLabel("Address")
+            if abs(zoom - 1) > 0.001 {
+                Button(BrowserZoom.label(zoom)) { model.zoom(1) }
+                    .buttonStyle(.plain).font(.ui(size: 11)).foregroundStyle(Theme.text2)
+                    .help("Zoom — click for actual size (⌘0)")
+            }
+            menu
+            if let close { button("xmark.circle", "Close the browser") { close() } }
+        }
+        .padding(.horizontal, 10).frame(height: 38)
+        // The page takes its own right-clicks, so the bar holds the
+        // browser's: a workbench's browser had none, and no way to close.
+        .contentShape(Rectangle())
+        .contextMenu { items }
+        .simultaneousGesture(TapGesture().onEnded { model.store.focus(model.key) })
+        .modifier(TabDrop(store: model.store, pane: model.key))
+    }
+
+    var menu: some View {
+        Menu { items } label: {
+            Image(systemName: "ellipsis").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text)
+                .frame(width: 26, height: 26).contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("More").accessibilityLabel("More")
+    }
+
+    @ViewBuilder var items: some View {
+        Button("New Tab") { model.newTab() }
+        Button("Reopen Closed Tab") { model.reopen() }.disabled(model.tabs.closed.isEmpty)
+        Divider()
+        Button("Reload") { page.reload() }
+        Button("Find in Page…") { model.finding = true }
+        Menu("Zoom") {
+            Button("Zoom In") { model.zoom(BrowserZoom.bigger(zoom)) }
+            Button("Zoom Out") { model.zoom(BrowserZoom.smaller(zoom)) }
+            Button("Actual Size") { model.zoom(1) }
+        }
+        Button("Web Inspector") { model.inspect() }
+        Divider()
+        Button("Open in Your Browser") { model.openOutside() }.disabled(address.isEmpty)
+        Button("Copy Address") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(address, forType: .string)
+        }.disabled(address.isEmpty)
+        if let ownTab { Divider(); Button("Move to Its Own Tab") { ownTab() } }
+        if let close { Divider(); Button("Close Browser") { close() } }
+    }
+
+    var findBar: some View {
+        HStack(spacing: 8) {
+            Text("Find").font(.ui(size: 12)).foregroundStyle(Theme.text2)
+            TextField("", text: $model.findText)
+                .textFieldStyle(.plain).font(.ui(size: 12, design: .monospaced))
+                .focused($findFocus)
+                .onSubmit { model.find() }
+                .onExitCommand { endFind() }
+                .onChange(of: model.findText) { _, _ in model.find() }
+                .padding(.horizontal, 8).frame(width: 240, height: 24)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(findFocus ? Theme.accent : Theme.line))
+                .accessibilityLabel("Find in page")
+            if model.findMissed && !model.findText.isEmpty { Text("Not found").font(.ui(size: 12)).foregroundStyle(Theme.muted) }
+            button("chevron.left", "Previous Match (⇧⌘G)") { model.find(back: true) }
+            button("chevron.right", "Next Match (⌘G)") { model.find() }
+            Spacer()
+            Button("Done") { endFind() }.buttonStyle(.plain).font(.ui(size: 12)).foregroundStyle(Theme.text2)
+        }
+        .padding(.horizontal, 12).frame(height: 36)
+        .overlay(Rectangle().fill(Theme.line).frame(height: 1), alignment: .top)
+    }
+
+    func endFind() {
+        model.finding = false
+        model.findMissed = false
+        model.showActive()
     }
 
     func button(_ symbol: String, _ help: String, enabled: Bool = true, _ action: @escaping () -> Void) -> some View {
@@ -233,7 +768,7 @@ struct BrowserView: View {
     }
 }
 
-/// The tab's WKWebView, kept by its model so switching tabs keeps the page.
+/// A tab's WKWebView, kept by its page so switching tabs keeps the page.
 struct WebHost: NSViewRepresentable {
     let web: WKWebView
     func makeNSView(context: Context) -> WKWebView { web }
