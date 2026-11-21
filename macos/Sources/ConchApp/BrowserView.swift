@@ -27,16 +27,30 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// A certificate the system did not trust: the load stopped, and only
     /// Visit Anyway goes on to this address.
     @Published var certificate: (host: String, url: URL, why: String)?
+    /// What went wrong on the page since it last started loading: the
+    /// errors chip.
+    @Published var issues = PageIssues()
+    private var mixedSaid = false
+    private let sink = BrowserIssueSink()
     private var watching: [NSKeyValueObservation] = []
 
-    init(id: Int, owner: BrowserModel, configuration: WKWebViewConfiguration) {
+    /// A tab's page; `configuration` is WebKit's for a window a page
+    /// opened, else the tab's own is made.
+    init(id: Int, owner: BrowserModel, configuration given: WKWebViewConfiguration? = nil, private p: Bool, develop: BrowserDevelop) {
         self.id = id
         self.owner = owner
+        let configuration = given ?? Self.configuration(private: p)
+        prepareContent(configuration, private: p, sink: sink, noImages: develop.disableImages)
         web = FocusingWebView(frame: .zero, configuration: configuration)
+        web.customUserAgent = develop.responsive?.userAgent
         web.allowsBackForwardNavigationGestures = true
         web.allowsMagnification = true
         web.isInspectable = true // Develop ▸ Inspect, as in Safari
         super.init()
+        sink.page = self
+        if develop.disableImages && BrowserNoImages.rules == nil {
+            BrowserNoImages.set(true, in: web) { [weak self] in self?.reload() }
+        }
         // Clicked into in a split beside an agent: the split has the
         // keyboard now, not the terminal it was taken from.
         web.focused = { [weak self] in
@@ -51,13 +65,14 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             web.observe(\.estimatedProgress) { [weak self] w, _ in MainActor.assumeIsolated { self?.progress = w.estimatedProgress } },
             web.observe(\.canGoBack) { [weak self] w, _ in MainActor.assumeIsolated { self?.canBack = w.canGoBack } },
             web.observe(\.canGoForward) { [weak self] w, _ in MainActor.assumeIsolated { self?.canForward = w.canGoForward } },
+            web.observe(\.hasOnlySecureContent) { [weak self] w, _ in MainActor.assumeIsolated { self?.secureContentChanged(w) } },
         ]
     }
 
     /// The settings every tab's page starts with: one persistent store
-    /// for normal tabs, one that keeps nothing for a private tab. No
-    /// script message handler and no user script: nothing of conch is in
-    /// the page (see BrowserSecurity.swift in ConchKit).
+    /// for normal tabs, one that keeps nothing for a private tab. Its
+    /// content controller is BrowserContent.swift's: nothing of conch is
+    /// in the page (see BrowserSecurity.swift in ConchKit).
     static func configuration(private p: Bool) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = BrowserShared.shared.dataStore(private: p)
@@ -73,6 +88,16 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         guard let u, !u.absoluteString.hasPrefix("about:") else { return }
         owner?.pageMoved(id, u.absoluteString)
     }
+
+    /// An https page that loaded something over http: said once a load.
+    private func secureContentChanged(_ w: WKWebView) {
+        guard !w.hasOnlySecureContent, !mixedSaid, w.url?.scheme?.lowercased() == "https" else { return }
+        mixedSaid = true
+        issues.add(PageIssue(.mixed, "This https page loaded something over plain http", source: w.url?.absoluteString ?? ""))
+    }
+
+    private var isSource: Bool { isViewSource(owner?.tabs.tab(id)?.address ?? "") }
+    private var develop: BrowserDevelop { owner?.tabs.tab(id)?.develop ?? BrowserDevelop() }
 
     private func loadingChanged(_ l: Bool) {
         loading = l
@@ -96,8 +121,25 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
 
     func reload() {
         failed = ""
+        if isSource { return } // its text is all there is
         if let c = certificate { open(c.url); return }
-        if loading { web.stopLoading() } else if web.url == nil, let a = owner?.tabs.tab(id)?.address, let u = URL(string: a) { open(u) } else { _ = web.reload() }
+        if loading {
+            web.stopLoading()
+        } else if web.url == nil, let a = owner?.tabs.tab(id)?.address, let u = URL(string: a) {
+            open(u)
+        } else if develop.disableCache {
+            _ = web.reloadFromOrigin()
+        } else {
+            _ = web.reload()
+        }
+    }
+
+    /// ⇧⌘R: the page and everything on it from the server, not the cache.
+    func hardReload() {
+        failed = ""
+        if isSource { return }
+        if let c = certificate { open(c.url); return }
+        _ = web.url == nil ? web.reload() : web.reloadFromOrigin()
     }
 
     /// The page goes quiet: a tab closed is not left playing.
@@ -120,6 +162,8 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         MainActor.assumeIsolated {
             failed = ""
             certificate = nil
+            issues.clear()
+            mixedSaid = false
         }
     }
 
@@ -157,20 +201,36 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
             return
         }
         failed = ns.localizedDescription
+        issues.add(PageIssue(.network, ns.localizedDescription, source: (ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString ?? ""))
     }
 
     /// ⌘-click or a middle click on a link: a new tab behind this one
     /// (⇧ too: in front), as browsers do, rather than this page leaving.
-    nonisolated func webView(_ w: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+    /// The tab's Develop settings apply to each load: JavaScript off, and
+    /// with the cache disabled this site's cache is cleared first.
+    nonisolated func webView(_ w: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences,
+                             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
         MainActor.assumeIsolated {
             let flags = action.modifierFlags
             if action.navigationType == .linkActivated, flags.contains(.command) || action.buttonNumber == 2,
                let u = action.request.url, !u.absoluteString.hasPrefix("javascript:") {
                 owner?.openTab(u.absoluteString, after: id, select: flags.contains(.shift))
-                decisionHandler(.cancel)
+                decisionHandler(.cancel, preferences)
                 return
             }
-            decisionHandler(action.shouldPerformDownload ? .download : .allow)
+            let d = develop
+            preferences.allowsContentJavaScript = !d.disableJavaScript
+            let policy: WKNavigationActionPolicy = action.shouldPerformDownload ? .download : .allow
+            guard d.disableCache, action.targetFrame?.isMainFrame == true, let host = action.request.url?.host, !host.isEmpty else {
+                decisionHandler(policy, preferences)
+                return
+            }
+            let store = w.configuration.websiteDataStore
+            let kinds: Set<String> = [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache]
+            store.fetchDataRecords(ofTypes: kinds) { records in
+                let mine = records.filter { siteDataMatches(displayName: $0.displayName, host: host) }
+                store.removeData(ofTypes: kinds, for: mine) { decisionHandler(policy, preferences) }
+            }
         }
     }
 
@@ -178,6 +238,10 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// attachment is downloaded rather than shown.
     nonisolated func webView(_ w: WKWebView, decidePolicyFor r: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
         MainActor.assumeIsolated {
+            if let h = r.response as? HTTPURLResponse,
+               let i = PageIssue.http(status: h.statusCode, url: h.url?.absoluteString ?? "", mainFrame: r.isForMainFrame) {
+                issues.add(i)
+            }
             let attachment = ((r.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().hasPrefix("attachment")
             decisionHandler(r.isForMainFrame && (attachment || !r.canShowMIMEType) ? .download : .allow)
         }
@@ -227,10 +291,10 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
 final class BrowserModel: ObservableObject {
     let key: String
     unowned let store: Store
-    @Published private(set) var tabs: BrowserTabs
+    @Published var tabs: BrowserTabs
     /// Pages are made when a tab is first shown, so a pane of twenty saved
     /// tabs does not load twenty pages at launch.
-    private(set) var pages: [Int: BrowserPage] = [:]
+    var pages: [Int: BrowserPage] = [:]
     @Published private(set) var busy: Set<Int> = []
     @Published private(set) var icons: [Int: NSImage] = [:]
     /// Bumped to put the cursor in the address bar (⌘L, ⌘T).
@@ -239,6 +303,8 @@ final class BrowserModel: ObservableObject {
     @Published var findText = ""
     @Published var findMissed = false
     @Published var notice = ""
+    /// About Browser, asked for from ⋯ or the menu bar.
+    @Published var aboutShown = false
     /// The address bar or the find field has the keyboard, so ⌘-keys are
     /// the browser's there too.
     var chromeEditing = false
@@ -273,11 +339,12 @@ final class BrowserModel: ObservableObject {
 
     func page(_ id: Int) -> BrowserPage {
         if let p = pages[id] { return p }
-        let p = BrowserPage(id: id, owner: self, configuration: BrowserPage.configuration(private: tabs.tab(id)?.isPrivate ?? false))
+        let t = tabs.tab(id)
+        let p = BrowserPage(id: id, owner: self, private: t?.isPrivate ?? false, develop: t?.develop ?? BrowserDevelop())
         pages[id] = p
-        if let t = tabs.tab(id) {
+        if let t {
             p.web.pageZoom = t.zoom
-            if !t.address.isEmpty, let u = URL(string: t.address) { p.open(u) }
+            if !t.address.isEmpty, !isViewSource(t.address), let u = URL(string: t.address) { p.open(u) }
         }
         return p
     }
@@ -305,7 +372,7 @@ final class BrowserModel: ObservableObject {
     /// A tab for a window the page asked for, with WebKit's configuration.
     func openWindow(configuration c: WKWebViewConfiguration, from: Int, request: URLRequest, select: Bool) -> BrowserPage? {
         let id = tabs.open(request.url?.absoluteString ?? "", after: from, select: select, isPrivate: tabs.tab(from)?.isPrivate ?? false)
-        let p = BrowserPage(id: id, owner: self, configuration: c)
+        let p = BrowserPage(id: id, owner: self, configuration: c, private: tabs.tab(id)?.isPrivate ?? false, develop: BrowserDevelop())
         pages[id] = p
         if select { showActive() }
         return p
@@ -416,6 +483,9 @@ final class BrowserModel: ObservableObject {
         case .zoomOut: zoom(BrowserZoom.smaller(tabs.active?.zoom ?? 1))
         case .zoomReset: zoom(1)
         case .inspector: inspect()
+        case .viewSource: viewSource()
+        case .hardReload: hardReload()
+        case .responsive: toggleResponsive()
         }
         return true
     }
@@ -706,8 +776,11 @@ struct BrowserPageView: View {
                     }.frame(height: 2)
                 }
             }.frame(height: 2)
+            if let t = model.tabs.tab(page.id), let r = t.develop.responsive {
+                ResponsiveBar(model: model, tab: t.id, mode: r)
+            }
             ZStack(alignment: .top) {
-                WebHost(web: page.web)
+                pageHost
                 if let c = page.certificate {
                     certificatePage(c)
                 } else if !page.failed.isEmpty {
@@ -742,6 +815,24 @@ struct BrowserPageView: View {
         .onChange(of: findFocus) { _, f in model.chromeEditing = f || editing }
         .onChange(of: model.finding) { _, f in if f { DispatchQueue.main.async { findFocus = true } } }
         .sheet(isPresented: $memoryShown) { BrowserMemoryView(store: model.store) { memoryShown = false } }
+        .sheet(isPresented: $model.aboutShown) { BrowserAboutView(model: model, page: page) { model.aboutShown = false } }
+    }
+
+    /// The page: filling the pane, or at a device's size in Responsive
+    /// Design Mode, scrolling when the pane is smaller.
+    @ViewBuilder var pageHost: some View {
+        if let r = model.tabs.tab(page.id)?.develop.responsive {
+            ScrollView([.horizontal, .vertical]) {
+                WebHost(web: page.web)
+                    .frame(width: CGFloat(r.size.width), height: CGFloat(r.size.height))
+                    .overlay(Rectangle().stroke(Theme.line))
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
+            }
+            .background(Theme.well)
+        } else {
+            WebHost(web: page.web)
+        }
     }
 
     /// A certificate error never goes on by itself: Go Back, or an explicit
@@ -818,6 +909,7 @@ struct BrowserPageView: View {
             .padding(.horizontal, 9).frame(height: 26)
             .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(editing ? Theme.accent : Theme.line))
+            BrowserErrorsChip(model: model, page: page)
             if abs(zoom - 1) > 0.001 {
                 Button(BrowserZoom.label(zoom)) { model.zoom(1) }
                     .buttonStyle(.plain).font(.ui(size: 11)).foregroundStyle(Theme.text2)
@@ -859,7 +951,7 @@ struct BrowserPageView: View {
             Button("Zoom Out") { model.zoom(BrowserZoom.smaller(zoom)) }
             Button("Actual Size") { model.zoom(1) }
         }
-        Button("Web Inspector") { model.inspect() }
+        BrowserDevelopMenu(model: model)
         Button("Browser Memory…") { memoryShown = true }
         Button("Downloads…") { downloadsShown = true }
         Divider()
@@ -868,6 +960,8 @@ struct BrowserPageView: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(address, forType: .string)
         }.disabled(address.isEmpty)
+        Divider()
+        Button("About Browser…") { model.aboutShown = true }
         if let ownTab { Divider(); Button("Move to Its Own Tab") { ownTab() } }
         if let close { Divider(); Button("Close Browser") { close() } }
     }
