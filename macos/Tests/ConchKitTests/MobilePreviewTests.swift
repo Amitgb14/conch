@@ -239,3 +239,11 @@ import Testing
     #expect(previewRunCommand(kind: "", device: d) == nil)
     #expect(previewRunCommand(kind: "android", device: d) == nil)
 }
+
+// The buttons beside the phone are conch preview button's names, which
+// the command refuses otherwise; back is Android's and not shown.
+@Test func previewHardwareButtons() {
+    #expect(previewButtons.map(\.name) == ["home", "lock", "side"])
+    #expect(Set(previewButtons.map(\.symbol)).count == 3)
+    #expect(previewButtons.allSatisfy { !$0.help.isEmpty })
+}

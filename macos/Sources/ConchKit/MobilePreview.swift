@@ -176,6 +176,20 @@ public func previewAgents(_ snapshot: Snapshot, project: String, preferred: Stri
 /// started while the last is still being taken).
 public let previewRefreshInterval: Double = 0.35
 
+/// The hardware buttons beside the phone: `conch preview button`'s
+/// names, the SF Symbol each is drawn with, and what it does.
+public struct PreviewButton: Sendable, Equatable {
+    public var name: String
+    public var symbol: String
+    public var help: String
+}
+
+public let previewButtons = [
+    PreviewButton(name: "home", symbol: "circle", help: "Home"),
+    PreviewButton(name: "lock", symbol: "lock", help: "Lock the screen"),
+    PreviewButton(name: "side", symbol: "button.vertical.right.press", help: "Side button"),
+]
+
 /// The `conch preview` arguments for a device, by its ID.
 public func previewArgs(_ verb: String, device: String, _ rest: [String] = []) -> [String] {
     ["preview", verb, "-device", device] + rest

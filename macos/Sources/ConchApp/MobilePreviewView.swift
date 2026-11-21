@@ -351,8 +351,11 @@ struct MobilePreviewView: View {
                 .help("Put the app on this phone: \(cmd)")
             }
             if model.device?.booted == true {
-                Button { model.button("home") } label: { LucideIcon("circle", size: 12) }
-                    .buttonStyle(.plain).help("Home")
+                ForEach(previewButtons, id: \.name) { b in
+                    Button { model.button(b.name) } label: { Image(systemName: b.symbol).font(.system(size: 11)) }
+                        .buttonStyle(.plain).foregroundStyle(Theme.text2)
+                        .accessibilityLabel(b.help).help(b.help)
+                }
                 let agents = model.agents
                 Menu {
                     ForEach(agents) { a in
@@ -417,6 +420,11 @@ struct MobilePreviewView: View {
                     } else {
                         Text("\(d.title) is \(d.state).").foregroundStyle(Theme.text2)
                         if d.state == "shutdown" { Button("Start \(d.name)") { model.boot() }.controlSize(.large) }
+                        // ▶ Run starts it too, and puts the app on it.
+                        if let cmd = model.runCommand {
+                            Button { model.run() } label: { Label("Run \(model.projectName) on it", systemImage: "play.fill") }
+                                .controlSize(.large).help(cmd)
+                        }
                     }
                 } else {
                     Text("No iOS simulator on this Mac.").foregroundStyle(Theme.text2)
