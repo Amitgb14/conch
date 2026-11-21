@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import Combine
 import ConchKit
 import Foundation
@@ -1277,12 +1278,26 @@ final class Store: ObservableObject {
                 // screen (Cel hides it behind its column of projects).
                 guard let self, !self.terminalHasKeyboard, !self.paletteOpen, self.taskDraft == nil, self.sidebarVisible,
                       let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
-                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField) else { return false }
+                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField),
+                      !Self.typingInWebPage(win.firstResponder) else { return false }
                 self.treeKey(k)
                 return true
             }
             return taken ? nil : e
         }]
+    }
+
+    /// Whether the keyboard is in a web page — a browser tab's page, its
+    /// fields included, which are views inside the WKWebView rather than
+    /// NSText. The tree's one-letter keys took them: `t` typed into a
+    /// page's search box opened New Task.
+    static func typingInWebPage(_ r: NSResponder?) -> Bool {
+        var v = r as? NSView
+        while let view = v {
+            if view is WKWebView { return true }
+            v = view.superview
+        }
+        return false
     }
 
     var treeNav: TreeNav { TreeNav(tree, isOpen: { self.isOpen($0) }) }
