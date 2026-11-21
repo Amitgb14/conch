@@ -19,13 +19,17 @@ public struct BrowserTab: Codable, Equatable, Sendable, Identifiable {
     /// A private tab keeps nothing: no cookies past its life, never saved,
     /// never reopened.
     public var isPrivate: Bool
+    /// Its Develop menu's settings: the cache, JavaScript, images,
+    /// Responsive Design Mode.
+    public var develop: BrowserDevelop
 
-    public init(id: Int, address: String, title: String = "", zoom: Double = 1, isPrivate: Bool = false) {
+    public init(id: Int, address: String, title: String = "", zoom: Double = 1, isPrivate: Bool = false, develop: BrowserDevelop = BrowserDevelop()) {
         self.id = id
         self.address = address
         self.title = title
         self.zoom = BrowserZoom.clamped(zoom)
         self.isPrivate = isPrivate
+        self.develop = develop
     }
 
     /// What the tab strip says: the page's title, else its host, else
@@ -71,7 +75,7 @@ public struct BrowserTabs: Equatable, Sendable {
             return
         }
         self.init()
-        for s in kept { open(s.address, title: s.title ?? "", zoom: s.zoom ?? 1, select: false) }
+        for s in kept { open(s.address, title: s.title ?? "", zoom: s.zoom ?? 1, select: false, develop: s.develop ?? BrowserDevelop()) }
         let a = min(max(saved?.active ?? 0, 0), tabs.count - 1)
         activeID = tabs[a].id
     }
@@ -84,8 +88,9 @@ public struct BrowserTabs: Equatable, Sendable {
     /// A new tab: at the end (⌘T), or right after `after` — the page a link
     /// opened it from — and in front unless `select` is false (⌘-click).
     @discardableResult
-    public mutating func open(_ address: String, title: String = "", zoom: Double = 1, after: Int? = nil, select: Bool = true, isPrivate: Bool = false) -> Int {
-        let t = BrowserTab(id: nextID, address: address, title: title, zoom: zoom, isPrivate: isPrivate)
+    public mutating func open(_ address: String, title: String = "", zoom: Double = 1, after: Int? = nil, select: Bool = true, isPrivate: Bool = false,
+                              develop: BrowserDevelop = BrowserDevelop()) -> Int {
+        let t = BrowserTab(id: nextID, address: address, title: title, zoom: zoom, isPrivate: isPrivate, develop: develop)
         nextID += 1
         if let after, let i = index(after) { tabs.insert(t, at: i + 1) } else { tabs.append(t) }
         if select || tabs.count == 1 { activeID = t.id }
@@ -133,7 +138,7 @@ public struct BrowserTabs: Equatable, Sendable {
     @discardableResult
     public mutating func duplicate(_ id: Int) -> Int? {
         guard let t = tab(id) else { return nil }
-        return open(t.address, title: t.title, zoom: t.zoom, after: id, isPrivate: t.isPrivate)
+        return open(t.address, title: t.title, zoom: t.zoom, after: id, isPrivate: t.isPrivate, develop: t.develop)
     }
 
     /// Takes a tab out to go somewhere else (its own pane): not closed, so
@@ -182,17 +187,24 @@ public struct BrowserTabs: Equatable, Sendable {
         tabs[i].zoom = BrowserZoom.clamped(z)
     }
 
+    public mutating func setDevelop(_ id: Int, _ d: BrowserDevelop) {
+        guard let i = index(id) else { return }
+        tabs[i].develop = d
+    }
+
     // MARK: saved
 
     /// What a relaunch brings back: the tabs with a page, never a private
-    /// one; nil when there are none.
+    /// one or a page's source (its text is not kept); nil when there are
+    /// none.
     public var saved: SavedBrowser? {
-        let kept = tabs.filter { !$0.isPrivate && !$0.address.isEmpty && !$0.address.hasPrefix("about:") }
+        let kept = tabs.filter { !$0.isPrivate && !$0.address.isEmpty && !$0.address.hasPrefix("about:") && !isViewSource($0.address) }
         guard !kept.isEmpty else { return nil }
         // The tab in front, or the nearest kept one before it.
         let before = tabs.prefix(activeIndex + 1).filter { t in kept.contains { $0.id == t.id } }
         let active = before.last.flatMap { a in kept.firstIndex { $0.id == a.id } } ?? 0
-        return SavedBrowser(tabs: kept.map { SavedBrowserTab(address: $0.address, title: $0.title.isEmpty ? nil : $0.title, zoom: $0.zoom == 1 ? nil : $0.zoom) },
+        return SavedBrowser(tabs: kept.map { SavedBrowserTab(address: $0.address, title: $0.title.isEmpty ? nil : $0.title, zoom: $0.zoom == 1 ? nil : $0.zoom,
+                                                         develop: $0.develop.isDefault ? nil : $0.develop) },
                             active: active)
     }
 
@@ -217,11 +229,13 @@ public struct SavedBrowserTab: Codable, Equatable, Sendable {
     public var address: String
     public var title: String?
     public var zoom: Double?
+    public var develop: BrowserDevelop?
 
-    public init(address: String, title: String? = nil, zoom: Double? = nil) {
+    public init(address: String, title: String? = nil, zoom: Double? = nil, develop: BrowserDevelop? = nil) {
         self.address = address
         self.title = title
         self.zoom = zoom
+        self.develop = develop
     }
 }
 
@@ -250,7 +264,7 @@ public enum BrowserKey: Equatable, Sendable {
     case nextTab, previousTab, tab(Int)
     case find, findNext, findPrevious
     case zoomIn, zoomOut, zoomReset
-    case inspector
+    case inspector, viewSource, hardReload, responsive
 }
 
 /// The browser's keys, from a key-down: `characters` is what AppKit gives
@@ -259,14 +273,23 @@ public enum BrowserKey: Equatable, Sendable {
 /// not name stay conch's (⌘D, ⌘K, ⇧⌘], ⌥⌘1…).
 public func browserKeyAction(characters: String, keyCode: UInt16, command: Bool, shift: Bool, option: Bool, control: Bool) -> BrowserKey? {
     if control && !command && !option && keyCode == 48 { return shift ? .previousTab : .nextTab } // ⌃Tab
-    guard command, !control else { return nil }
     let c = characters.lowercased()
-    if option { return !shift && c == "i" ? .inspector : nil }
+    if control && command && !option && !shift { return c == "r" ? .responsive : nil } // ⌃⌘R
+    guard command, !control else { return nil }
+    if option {
+        guard !shift else { return nil }
+        switch c {
+        case "i": return .inspector
+        case "u": return .viewSource
+        default: return nil
+        }
+    }
     if shift {
         switch c {
         case "t": return .reopenTab
         case "n": return .privateTab
         case "g": return .findPrevious
+        case "r": return .hardReload
         default: return nil
         }
     }
@@ -298,5 +321,7 @@ public let browserKeysHelp: [(keys: String, what: String)] = [
     ("⌘1 … ⌘8  ⌘9", "that tab, the last tab"),
     ("⌘F  ⌘G  ⇧⌘G", "find in page, next, previous"),
     ("⌘+  ⌘−  ⌘0", "zoom in, out, actual size"),
-    ("⌥⌘I", "Web Inspector"),
+    ("⌥⌘I  ⌥⌘U", "Web Inspector, page source"),
+    ("⇧⌘R", "reload from the server, not the cache"),
+    ("⌃⌘R", "Responsive Design Mode: the page at a phone's size"),
 ]
