@@ -30,6 +30,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 		"DELETE /api/push/subscribe view",
 		"GET /api/agents view",
 		"GET /api/artifacts view",
+		"GET /api/ask view",
 		"GET /api/changes view",
 		"GET /api/diff view",
 		"GET /api/hello view",
@@ -1068,7 +1069,7 @@ func TestHelloNamesItsFeatures(t *testing.T) {
 	if status := p.get("/api/hello", &h); status != 200 {
 		t.Fatal(status)
 	}
-	want := []string{"artifacts", "artifacts.all", "attach", "git.review", "limits", "project", "resources"}
+	want := []string{"artifacts", "artifacts.all", "ask", "attach", "git.review", "limits", "project", "resources"}
 	if strings.Join(h.Features, " ") != strings.Join(want, " ") {
 		t.Fatalf("features %v, want %v", h.Features, want)
 	}
