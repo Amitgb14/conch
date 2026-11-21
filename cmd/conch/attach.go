@@ -232,6 +232,9 @@ type attachSession struct {
 	// hold keeps an ended pane's screen; over is why it ended, once it has.
 	hold bool
 	over string
+	// controlFrom is when a control paste still coming was first waited
+	// on at a flush (zero: none is).
+	controlFrom time.Time
 }
 
 // attachLoop runs an attached pane until the pane ends, the input ends
@@ -305,6 +308,9 @@ func attachLoopHold(c *client.Client, id string, in io.Reader, out io.Writer, si
 			}
 		case <-flush.C:
 			held = s.input(held, true)
+			if len(held) > 0 { // a control paste still coming
+				flush.Reset(attachFlush)
+			}
 		case <-winch:
 			s.resize(size)
 		case <-quit:
@@ -406,6 +412,13 @@ func markMatches(line string, spans [][2]int, w int) string {
 		line = ansi.Cut(line, 0, from) + attachMatch + ansi.Cut(plain, from, to) + "\x1b[0m" + ansi.Cut(line, to, w)
 	}
 	return line
+}
+
+// ownsPaste says whether b is the start of a bracketed control paste
+// from the app: the mark is all there, which nobody types.
+func (s *attachSession) ownsPaste(b []byte) bool {
+	body, ok := bytes.CutPrefix(b, []byte("\x1b[200~"))
+	return ok && s.control != "" && bytes.HasPrefix(body, []byte(attachControlMark))
 }
 
 // controlled handles a paste that is a control from the app, and says
@@ -562,11 +575,25 @@ func (s *attachSession) input(b []byte, final bool) []byte {
 		case n == 0 && !final:
 			send()
 			return b // the rest of it has not arrived yet
+		case n == 0 && s.ownsPaste(b):
+			// A control paste of the app's the flush came in the middle
+			// of: waited for, not typed into the pane, and dropped if
+			// it never finishes.
+			send()
+			if s.controlFrom.IsZero() {
+				s.controlFrom = time.Now()
+			}
+			if time.Since(s.controlFrom) < attachControlWait {
+				return b
+			}
+			s.controlFrom = time.Time{}
+			return nil
 		case n == 0:
 			text = append(text, b...)
 			b = nil
 			continue
 		}
+		s.controlFrom = time.Time{}
 		seq := b[:n]
 		b = b[n:]
 		switch kind {
