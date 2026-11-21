@@ -550,3 +550,70 @@ func TestFindAXe(t *testing.T) {
 		t.Errorf("axe in ~/.local/bin: %q", got)
 	}
 }
+
+// A simulator left running after its preview closed is stopped from the
+// tab's list: simctl for iOS, the emulator's console for Android.
+func TestShutdown(t *testing.T) {
+	f := &fake{fails: map[string]string{"xcrun simctl shutdown B": "simctl: Unable to shutdown device in current state: Shutdown"}}
+	tl := f.tools("xcrun", "adb", "emulator", "")
+	ctx := context.Background()
+	if err := tl.Shutdown(ctx, Device{ID: "A", Platform: "ios", State: "booted"}); err != nil {
+		t.Fatal(err)
+	}
+	// Shut down meanwhile: not an error.
+	if err := tl.Shutdown(ctx, Device{ID: "B", Platform: "ios", State: "booted"}); err != nil {
+		t.Errorf("already shut down: %v", err)
+	}
+	// Not running: nothing to do, nothing run.
+	if err := tl.Shutdown(ctx, Device{ID: "C", Platform: "ios", State: "shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Shutdown(ctx, Device{ID: "emulator-5554", Platform: "android", Kind: "emulator", State: "booted"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"xcrun simctl shutdown A", "xcrun simctl shutdown B", "adb -s emulator-5554 emu kill"}
+	if !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if err := tl.Shutdown(ctx, Device{ID: "R5", Name: "Pixel 8", Platform: "android", Kind: "device", State: "booted"}); err == nil || !strings.Contains(err.Error(), "on the phone") {
+		t.Errorf("a real phone: %v", err)
+	}
+	if err := (&fake{}).tools("", "", "", "").Shutdown(ctx, Device{ID: "A", Platform: "ios", State: "booted"}); err == nil || !strings.Contains(err.Error(), "Xcode") {
+		t.Errorf("no xcrun: %v", err)
+	}
+	if err := (&fake{}).tools("", "", "", "").Shutdown(ctx, Device{ID: "emulator-1", Platform: "android", Kind: "emulator", State: "booted"}); err == nil || !strings.Contains(err.Error(), "adb") {
+		t.Errorf("no adb: %v", err)
+	}
+	if err := tl.Shutdown(ctx, Device{ID: "X", Platform: "tv", State: "booted"}); err == nil {
+		t.Error("unknown platform shut down")
+	}
+}
+
+// Deleting a simulator that is running stops it first, since simctl
+// will not delete a booted one; an Android emulator is Android Studio's.
+func TestDelete(t *testing.T) {
+	f := &fake{}
+	tl := f.tools("xcrun", "adb", "emulator", "")
+	ctx := context.Background()
+	if err := tl.Delete(ctx, Device{ID: "A", Platform: "ios", Kind: "simulator", State: "booted"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Delete(ctx, Device{ID: "B", Platform: "ios", Kind: "simulator", State: "shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"xcrun simctl shutdown A", "xcrun simctl delete A", "xcrun simctl delete B"}
+	if !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if err := tl.Delete(ctx, Device{ID: "avd:Pixel_9", Name: "Pixel 9", Platform: "android", Kind: "emulator", State: "shutdown"}); err == nil || !strings.Contains(err.Error(), "Android Studio") {
+		t.Errorf("android: %v", err)
+	}
+	// A shutdown that fails is not followed by a delete.
+	g := &fake{fails: map[string]string{"xcrun simctl shutdown A": "simctl: busy"}}
+	if err := g.tools("xcrun", "", "", "").Delete(ctx, Device{ID: "A", Platform: "ios", Kind: "simulator", State: "booted"}); err == nil || len(g.ran) != 1 {
+		t.Errorf("failed shutdown: %v, ran %q", err, g.ran)
+	}
+	if err := (&fake{}).tools("", "", "", "").Delete(ctx, Device{ID: "A", Platform: "ios", Kind: "simulator", State: "shutdown"}); err == nil || !strings.Contains(err.Error(), "Xcode") {
+		t.Errorf("no xcrun: %v", err)
+	}
+}

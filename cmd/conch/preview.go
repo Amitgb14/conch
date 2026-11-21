@@ -23,7 +23,7 @@ import (
 // It is this computer's alone: the phones run where Xcode and the Android
 // SDK are, and no server is asked.
 
-const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
+const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shutdown DEVICE|-all | delete DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.
@@ -90,6 +90,56 @@ func runPreview(args []string) error {
 			return err
 		}
 		fmt.Fprintf(previewOut, "%s is starting\n", d.Name)
+		return nil
+	case "shutdown", "stop":
+		if len(rest) != 1 {
+			return errors.New("usage: conch preview shutdown DEVICE|-all")
+		}
+		if rest[0] == "-all" {
+			t := previewTools()
+			devs, _, err := t.Devices(ctx)
+			if err != nil {
+				return err
+			}
+			var errs []error
+			for _, d := range devs {
+				if !d.Booted() || d.Kind == "device" {
+					continue
+				}
+				if err := t.Shutdown(ctx, d); err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				fmt.Fprintf(previewOut, "%s is shut down\n", d.Name)
+			}
+			return errors.Join(errs...)
+		}
+		t, d, err := previewDevice(ctx, rest[0], true)
+		if err != nil {
+			return err
+		}
+		if err := t.Shutdown(ctx, d); err != nil {
+			return err
+		}
+		fmt.Fprintf(previewOut, "%s is shut down\n", d.Name)
+		return nil
+	case "delete", "rm":
+		if len(rest) != 1 {
+			return errors.New("usage: conch preview delete DEVICE")
+		}
+		t := previewTools()
+		devs, _, err := t.Devices(ctx)
+		if err != nil {
+			return err
+		}
+		d, err := previewOnly(devs, rest[0])
+		if err != nil {
+			return err
+		}
+		if err := t.Delete(ctx, d); err != nil {
+			return err
+		}
+		fmt.Fprintf(previewOut, "%s is deleted\n", d.Name)
 		return nil
 	case "shot", "screenshot":
 		fs := flag.NewFlagSet("preview shot", flag.ContinueOnError)
@@ -229,6 +279,32 @@ func previewDevice(ctx context.Context, want string, named bool) (*preview.Tools
 		err = fmt.Errorf("%w (%s)", err, strings.Join(notes, "; "))
 	}
 	return t, d, err
+}
+
+// previewOnly is the one device want names, for what cannot be undone:
+// by ID, or by a name no other device has — Pick would take the running
+// one of several, which is a guess nobody should have deleted for them.
+func previewOnly(devs []preview.Device, want string) (preview.Device, error) {
+	var found []preview.Device
+	for _, d := range devs {
+		if d.ID == want {
+			return d, nil
+		}
+		if strings.EqualFold(d.Name, want) {
+			found = append(found, d)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return preview.Device{}, fmt.Errorf("no device %q (conch preview devices lists them)", want)
+	case 1:
+		return found[0], nil
+	}
+	ids := make([]string, len(found))
+	for i, d := range found {
+		ids[i] = d.ID + " (" + d.OS + ")"
+	}
+	return preview.Device{}, fmt.Errorf("%d devices are named %q; name one by its ID: %s", len(found), want, strings.Join(ids, ", "))
 }
 
 func previewDevices(ctx context.Context, args []string) error {

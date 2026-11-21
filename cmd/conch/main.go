@@ -467,6 +467,9 @@ Usage:
   conch preview devices [-json]
                                 the iOS simulators and Android emulators and phones on this computer
   conch preview boot DEVICE     start one (by name or ID), in the background
+  conch preview shutdown DEVICE|-all
+                                stop one, or every running simulator and emulator
+  conch preview delete DEVICE   delete an iOS simulator for good (by ID, or a name only it has)
   conch preview shot [-device D] [-o FILE]
                                 a PNG of the running device's screen; prints its path, for an
                                 agent to look at its own work

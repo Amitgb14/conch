@@ -497,6 +497,53 @@ func (t *Tools) Boot(ctx context.Context, d Device) error {
 	return fmt.Errorf("unknown platform %q", d.Platform)
 }
 
+// Shutdown stops a running device: a simulator nobody is looking at
+// keeps running, memory and all, until somebody stops it. An emulator is
+// told through its console; a phone plugged in is the phone's to turn off.
+func (t *Tools) Shutdown(ctx context.Context, d Device) error {
+	if !d.Booted() {
+		return nil
+	}
+	switch d.Platform {
+	case "ios":
+		if t.Xcrun == "" {
+			return errors.New("xcrun not found: install Xcode")
+		}
+		_, err := t.Run(ctx, t.Xcrun, "simctl", "shutdown", d.ID)
+		if err != nil && strings.Contains(err.Error(), "current state: Shutdown") {
+			return nil
+		}
+		return err
+	case "android":
+		if d.Kind != "emulator" {
+			return fmt.Errorf("%s is a phone: it is turned off on the phone", d.Name)
+		}
+		if t.Adb == "" {
+			return errors.New("adb not found: install it with Android Studio's SDK Manager")
+		}
+		_, err := t.Run(ctx, t.Adb, "-s", d.ID, "emu", "kill")
+		return err
+	}
+	return fmt.Errorf("unknown platform %q", d.Platform)
+}
+
+// Delete removes an iOS simulator for good, stopping it first, since
+// simctl will not delete one that is running. An Android emulator's
+// image is Android Studio's to delete, with its own Device Manager.
+func (t *Tools) Delete(ctx context.Context, d Device) error {
+	if d.Platform != "ios" || d.Kind != "simulator" {
+		return fmt.Errorf("%s is not an iOS simulator: delete an Android emulator in Android Studio's Device Manager", d.Name)
+	}
+	if t.Xcrun == "" {
+		return errors.New("xcrun not found: install Xcode")
+	}
+	if err := t.Shutdown(ctx, d); err != nil {
+		return err
+	}
+	_, err := t.Run(ctx, t.Xcrun, "simctl", "delete", d.ID)
+	return err
+}
+
 // Shot writes a PNG of the device's screen to path, at its full pixels.
 func (t *Tools) Shot(ctx context.Context, d Device, path string) error {
 	if err := needBooted(d); err != nil {

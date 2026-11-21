@@ -289,3 +289,70 @@ func TestPreviewDetectMany(t *testing.T) {
 		}
 	}
 }
+
+func TestPreviewShutdownAndDelete(t *testing.T) {
+	sims := `{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-18-2":[
+ {"udid":"A1","name":"iPhone 16 Pro","state":"Booted","isAvailable":true},
+ {"udid":"A2","name":"iPhone SE","state":"Shutdown","isAvailable":true},
+ {"udid":"A3","name":"iPhone 16","state":"Booted","isAvailable":true}],
+ "com.apple.CoreSimulator.SimRuntime.iOS-17-0":[
+ {"udid":"B1","name":"iPhone 16 Pro","state":"Shutdown","isAvailable":true}]}}`
+	ran, out := fakePreview(t, map[string]string{"xcrun simctl list devices available -j": sims})
+	if err := runPreview([]string{"shutdown", "A1"}); err != nil {
+		t.Fatal(err)
+	}
+	if last := (*ran)[len(*ran)-1]; last != "xcrun simctl shutdown A1" {
+		t.Errorf("shutdown ran %q", last)
+	}
+	if !strings.Contains(out.String(), "iPhone 16 Pro is shut down") {
+		t.Errorf("said %q", out.String())
+	}
+	// Every running one, and only those.
+	*ran = nil
+	if err := runPreview([]string{"shutdown", "-all"}); err != nil {
+		t.Fatal(err)
+	}
+	var stopped []string
+	for _, l := range *ran {
+		if strings.Contains(l, " shutdown ") {
+			stopped = append(stopped, l)
+		}
+	}
+	if want := []string{"xcrun simctl shutdown A1", "xcrun simctl shutdown A3"}; strings.Join(stopped, ",") != strings.Join(want, ",") {
+		t.Errorf("shutdown -all ran %q", stopped)
+	}
+	*ran = nil
+	out.Reset()
+	if err := runPreview([]string{"delete", "A2"}); err != nil {
+		t.Fatal(err)
+	}
+	if last := (*ran)[len(*ran)-1]; last != "xcrun simctl delete A2" || !strings.Contains(out.String(), "iPhone SE is deleted") {
+		t.Errorf("delete ran %q, said %q", last, out.String())
+	}
+	// A name two simulators share is not enough to delete one: that
+	// cannot be undone.
+	*ran = nil
+	if err := runPreview([]string{"delete", "iPhone 16 Pro"}); err == nil || !strings.Contains(err.Error(), "A1") || !strings.Contains(err.Error(), "B1") {
+		t.Errorf("ambiguous delete: %v", err)
+	}
+	for _, l := range *ran {
+		if strings.Contains(l, " delete ") {
+			t.Errorf("deleted on an ambiguous name: %q", l)
+		}
+	}
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"shutdown"}, "usage"},
+		{[]string{"shutdown", "-all", "A1"}, "usage"},
+		{[]string{"delete"}, "usage"},
+		{[]string{"delete", "A1", "A2"}, "usage"},
+		{[]string{"delete", "Galaxy"}, `no device "Galaxy"`},
+		{[]string{"shutdown", "Galaxy"}, `no device "Galaxy"`},
+	} {
+		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%q: %v, want %q", c.args, err, c.err)
+		}
+	}
+}
