@@ -48,6 +48,42 @@ import Testing
     #expect(previewChoice([], chosen: "A") == nil)
 }
 
+// ▶ Run (Expo, or a build) started a simulator other than the one the
+// tab was showing: the tab goes to it, or the app is never seen.
+@Test func previewFollowsASimulatorThatStarted() {
+    func d(_ id: String, _ state: String) -> MobileDevice { MobileDevice(id: id, name: id, platform: "ios", state: state) }
+    let before = [d("A", "shutdown"), d("B", "shutdown"), d("C", "booted")]
+    // Picked A (shut down); B starts: shown.
+    #expect(previewFollow(old: before, new: [d("A", "shutdown"), d("B", "booted"), d("C", "booted")], chosen: "A") == "B")
+    // Showing C (running); B starts: shown too — it is where the app went.
+    #expect(previewFollow(old: before, new: [d("A", "shutdown"), d("B", "booted"), d("C", "booted")], chosen: nil) == "B")
+    // Nothing started: the pick stands, whatever it is.
+    #expect(previewFollow(old: before, new: before, chosen: "A") == "A")
+    #expect(previewFollow(old: before, new: before, chosen: nil) == nil)
+    // The one picked is the one that started: nothing changes.
+    #expect(previewFollow(old: before, new: [d("A", "booted"), d("B", "shutdown"), d("C", "booted")], chosen: "A") == "A")
+    // C shut down: not a start, the pick stands.
+    #expect(previewFollow(old: before, new: [d("A", "shutdown"), d("B", "shutdown"), d("C", "shutdown")], chosen: "C") == "C")
+    // The first listing is not a start: everything running was before.
+    #expect(previewFollow(old: [], new: before, chosen: "A") == "A")
+    // A simulator new to the list and running (made by a build) counts.
+    #expect(previewFollow(old: before, new: before + [d("N", "booted")], chosen: "A") == "N")
+    // Two start at once: the first listed.
+    #expect(previewFollow(old: before, new: [d("A", "booted"), d("B", "booted"), d("C", "booted")], chosen: "C") == "A")
+}
+
+/// The list beside the phone: running ones, then the rest, and how many
+/// are running, for "Shut Down All".
+@Test func previewListGroups() {
+    let a = MobileDevice(id: "A", name: "iPhone SE", platform: "ios", os: "iOS 18.2", state: "shutdown")
+    let b = MobileDevice(id: "B", name: "iPhone 16", platform: "ios", os: "iOS 18.2", state: "booted")
+    let c = MobileDevice(id: "C", name: "iPad", platform: "ios", os: "iOS 17.0", state: "creating")
+    let g = previewListGroups([a, b, c])
+    #expect(g.running.map(\.id) == ["B"])
+    #expect(g.other.map(\.id) == ["A", "C"])
+    #expect(previewListGroups([]).running.isEmpty && previewListGroups([]).other.isEmpty)
+}
+
 @Test func aspectFitLetterboxes() {
     // A tall phone in a wide box: bars left and right.
     let r = aspectFit(CGSize(width: 1000, height: 2000), in: CGSize(width: 400, height: 400))

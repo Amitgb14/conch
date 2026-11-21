@@ -71,6 +71,24 @@ public func previewChoice(_ devices: [MobileDevice], chosen: String?) -> MobileD
     return devices.first(where: \.booted) ?? devices.first
 }
 
+/// The device a tab shows once the list is read again: one that has
+/// started since the last listing — ▶ Run's Expo or build booting a
+/// simulator of its own choosing, or one started in Xcode — is followed,
+/// since that is where the app is; else the pick stands. The first
+/// listing (`old` empty) starts nothing: all of it was running before.
+public func previewFollow(old: [MobileDevice], new: [MobileDevice], chosen: String?) -> String? {
+    guard !old.isEmpty else { return chosen }
+    let wasBooted = Set(old.filter(\.booted).map(\.id))
+    guard let started = new.first(where: { $0.booted && !wasBooted.contains($0.id) }) else { return chosen }
+    return started.id
+}
+
+/// The tab's list of simulators: running ones (which keep running after
+/// the tab is closed, until somebody shuts them down), then the rest.
+public func previewListGroups(_ devices: [MobileDevice]) -> (running: [MobileDevice], other: [MobileDevice]) {
+    (devices.filter(\.booted), devices.filter { !$0.booted })
+}
+
 /// Where a picture of `image` size sits drawn to fit inside `box`,
 /// centred, with its proportions kept.
 public func aspectFit(_ image: CGSize, in box: CGSize) -> CGRect {

@@ -10,7 +10,13 @@ Your app on a real iOS simulator, beside the agent writing it — the iPhone's o
 
 They are offered only for a mobile app: Expo, React Native, Flutter, Xcode or Android, in the project's folder or any of its checkouts, so an app an agent is still making on its branch counts. conch looks again as files are written.
 
-Pick the simulator from the tab's menu; **Start** boots one that is shut down.
+Pick the simulator from the tab's menu; **Start** boots one that is shut down. A simulator that starts while the tab is open — **▶ Run** booting one of its own, or one started in Xcode — is shown, since that is where the app went.
+
+## Simulators
+
+A simulator keeps running after its preview is closed, until something shuts it down.
+
+The sidebar button at the right of the tab's bar lists every simulator beside the phone, running ones first: click one to show it, ⏹ shuts it down, 🗑 deletes it for good (asked first), **Shut Down All** stops them all. From a shell: [`conch preview shutdown` and `delete`](/docs/cli#preview).
 
 ## Use it
 

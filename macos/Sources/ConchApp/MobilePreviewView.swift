@@ -63,7 +63,10 @@ final class MobilePreviewModel: ObservableObject {
         Task {
             do {
                 let l = previewShown(try JSONDecoder().decode(MobileDeviceList.self, from: try await conch(["preview", "devices", "-json"])))
+                // A simulator that started meanwhile (▶ Run's) is shown.
+                let follow = previewFollow(old: devices, new: l.devices, chosen: chosen)
                 devices = l.devices
+                if follow != chosen { choose(follow) }
                 notes = l.notes ?? []
                 if device?.booted == true { booting = false }
             } catch {
@@ -114,7 +117,7 @@ final class MobilePreviewModel: ObservableObject {
         }
     }
 
-    func choose(_ id: String) {
+    func choose(_ id: String?) {
         chosen = id
         image = nil
         error = ""
@@ -126,12 +129,17 @@ final class MobilePreviewModel: ObservableObject {
     func start() {
         guard loop == nil else { return }
         loop = Task { [weak self] in
-            var idle = 0
+            var idle = 0, shots = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 if let d = self.device, d.booted {
                     idle = 0
                     await self.shoot(d)
+                    // The list again now and then, so a simulator that
+                    // ▶ Run started elsewhere is followed, and the list
+                    // beside the phone says what is running.
+                    shots += 1
+                    if shots % 10 == 0 { self.reload() }
                     try? await Task.sleep(for: .seconds(previewRefreshInterval))
                 } else {
                     // Waiting on a boot, or on nothing: ask again now and
@@ -177,6 +185,33 @@ final class MobilePreviewModel: ObservableObject {
                 booting = false
                 self.error = "\(error)"
             }
+            reload()
+        }
+    }
+
+    /// Stops a simulator: one left running after its preview was closed
+    /// keeps its memory until something stops it.
+    func shutdown(_ d: MobileDevice) {
+        manage(["preview", "shutdown", d.id], "\(d.name) is shut down")
+    }
+
+    func shutdownAll() {
+        manage(["preview", "shutdown", "-all"], "Every simulator is shut down")
+    }
+
+    /// Deletes a simulator for good (asked first, by the view).
+    func delete(_ d: MobileDevice) {
+        if chosen == d.id { choose(nil) }
+        manage(["preview", "delete", d.id], "\(d.name) is deleted")
+    }
+
+    private func manage(_ args: [String], _ done: String) {
+        Task {
+            do {
+                _ = try await conch(args)
+                store.say(done)
+                error = ""
+            } catch { self.error = "\(error)" }
             reload()
         }
     }
@@ -235,12 +270,21 @@ struct MobilePreviewView: View {
     @ObservedObject var model: MobilePreviewModel
     @ObservedObject var store: Store
     @State private var typed = ""
+    /// The list of simulators beside the phone, open or not.
+    @AppStorage("mobilePreviewList") private var showList = false
+    @State private var deleting: MobileDevice?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Theme.line).frame(height: 1)
-            screen.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.well)
+            HStack(spacing: 0) {
+                screen.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.well)
+                if showList {
+                    Rectangle().fill(Theme.line).frame(width: 1)
+                    deviceList.frame(width: 220)
+                }
+            }
             Rectangle().fill(Theme.line).frame(height: 1)
             footer
         }
@@ -250,6 +294,13 @@ struct MobilePreviewView: View {
         .frame(minWidth: 0, maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: CGFloat(Theme.style.corner)))
         .modifier(CardFrame(focused: store.layout.focused == model.key))
+        .confirmationDialog("Delete \(deleting?.title ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            if let d = deleting {
+                Button("Delete", role: .destructive) { model.delete(d) }
+            }
+        } message: {
+            Text("The simulator and everything installed on it are deleted for good. Xcode can make it again.")
+        }
         .onAppear { model.start() }
         .onDisappear { model.stop() }
     }
@@ -316,6 +367,12 @@ struct MobilePreviewView: View {
                 .disabled(agents.isEmpty)
                 .help(agents.isEmpty ? "No agent is running in \(model.projectName)" : "Put a screenshot in an agent's prompt")
             }
+            Button { showList.toggle() } label: {
+                Image(systemName: "sidebar.right").font(.system(size: 12))
+            }
+            .buttonStyle(.plain).foregroundStyle(showList ? Theme.accent : Theme.muted)
+            .accessibilityLabel("Simulators")
+            .help(showList ? "Hide the simulators" : "Every simulator, to shut down or delete")
         }
         .padding(.horizontal, 10).frame(height: 30)
         .background(Theme.paneHeader)
@@ -373,6 +430,69 @@ struct MobilePreviewView: View {
             }
             .padding(24)
         }
+    }
+
+    /// Every simulator, the running ones first: a simulator keeps running
+    /// after its preview is closed, so this is where it is stopped — or
+    /// deleted, which is asked first.
+    private var deviceList: some View {
+        let g = previewListGroups(model.devices)
+        return VStack(spacing: 0) {
+            HStack {
+                Text("Simulators").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.text2)
+                Spacer()
+                Button { model.reload() } label: { Image(systemName: "arrow.clockwise").font(.system(size: 11)) }
+                    .buttonStyle(.plain).foregroundStyle(Theme.muted).help("List the simulators again")
+            }
+            .padding(.horizontal, 10).frame(height: 26)
+            Rectangle().fill(Theme.line).frame(height: 1)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    section("Running · \(g.running.count)", g.running)
+                    section("Shut down · \(g.other.count)", g.other)
+                }
+            }
+            if !g.running.isEmpty {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                Button("Shut Down All") { model.shutdownAll() }
+                    .controlSize(.small).padding(6)
+                    .help("Stop every running simulator")
+            }
+        }
+        .background(Theme.window)
+    }
+
+    @ViewBuilder private func section(_ title: String, _ devices: [MobileDevice]) -> some View {
+        if !devices.isEmpty {
+            Text(title.uppercased()).font(.ui(size: 10, weight: .semibold)).foregroundStyle(Theme.muted)
+                .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 3)
+            ForEach(devices) { d in deviceRow(d) }
+        }
+    }
+
+    private func deviceRow(_ d: MobileDevice) -> some View {
+        let shown = model.device?.id == d.id
+        return HStack(spacing: 6) {
+            Circle().fill(d.booted ? Theme.ok : Theme.line).frame(width: 6, height: 6)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(d.name).font(.ui(size: 11.5, weight: shown ? .semibold : .regular)).foregroundStyle(Theme.text).lineLimit(1)
+                Text(d.os ?? d.kind).font(.ui(size: 10)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            Spacer(minLength: 2)
+            if d.booted {
+                Button { model.shutdown(d) } label: { Image(systemName: "stop.circle").font(.system(size: 12)) }
+                    .buttonStyle(.plain).foregroundStyle(Theme.muted)
+                    .accessibilityLabel("Shut down \(d.name)").help("Shut down \(d.name)")
+            }
+            Button { deleting = d } label: { Image(systemName: "trash").font(.system(size: 11)) }
+                .buttonStyle(.plain).foregroundStyle(Theme.muted)
+                .accessibilityLabel("Delete \(d.name)").help("Delete \(d.name)")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(shown ? Theme.accent.opacity(0.12) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { model.choose(d.id) }
+        .help(d.title)
     }
 
     private var footer: some View {
