@@ -56,6 +56,23 @@ func (rw rewrite) onto() string {
 	return rw.Base
 }
 
+// resolveWait is how long a rebase that stopped is left be while nothing
+// it depends on has changed here: the branch is at the same commit and,
+// for a conflict, no agent is free to take it. The base is fetched again
+// after it, and only a base that moved is rebased onto again.
+const resolveWait = 5 * time.Minute
+
+// stoppedRebase is a rebase onto the base that stopped, with the branch at
+// head. files is what it conflicted in, none when it failed otherwise;
+// left is one that could not be undone.
+type stoppedRebase struct {
+	head  string
+	onto  string
+	files []string
+	left  bool
+	at    time.Time
+}
+
 // autopilotResolves looks at every conflicting pull request the server
 // is minding.
 func (s *Server) autopilotResolves() {
@@ -112,9 +129,28 @@ func (s *Server) autopilotResolve(key string) {
 	}
 	head := branchHead(p, branch)
 	a.mu.Lock()
+	at, minded := a.saved.Conflicted[key]
+	last, stopped := a.stopped[key]
+	a.mu.Unlock()
+	if !minded || at == conflictUnwatched || at == head || head == "" {
+		return
+	}
+	// Before the fetch and before anything is saved: this is every tick's.
+	if s.midway(wt.Path) {
+		if stopped && last.left {
+			return // conch's own, said when it could not be undone
+		}
+		s.resolveNote(key, branch+" conflicts with "+p.snapshot().Base+", and a rebase or merge is already under way there; finish it and it goes out", false)
+		return
+	}
+	stopped = stopped && last.head == head
+	if stopped && time.Since(last.at) < resolveWait && (len(last.files) == 0 || s.freeAgent(projectID, branch) == nil) {
+		return
+	}
+	a.mu.Lock()
 	// Still minded: the pull request may have stopped conflicting since
 	// the pass began, and a mark written back now would rebase it anyway.
-	at, minded := a.saved.Conflicted[key]
+	at, minded = a.saved.Conflicted[key]
 	if a.resolving[key] || !minded || at == conflictUnwatched || at == head || head == "" {
 		a.mu.Unlock()
 		return
@@ -138,11 +174,6 @@ func (s *Server) autopilotResolve(key string) {
 		s.resolveLater(key)
 		return
 	}
-	if gitx.InProgress(ctx, wt.Path) != "" {
-		note(branch+" conflicts with "+base+", and a rebase or merge is already under way there; finish it and it goes out", false)
-		s.resolveLater(key)
-		return
-	}
 	lease := gitx.PushedHead(ctx, wt.Path, branch)
 	before, err := gitx.Deleted(ctx, wt.Path, base)
 	if err != nil {
@@ -151,8 +182,22 @@ func (s *Server) autopilotResolve(key string) {
 		return
 	}
 	rw := rewrite{Base: base, At: gitx.CommitOf(ctx, wt.Path, base), Lease: lease, Deleted: before}
+	if stopped && len(last.files) > 0 && last.onto == rw.onto() {
+		// The same commits conflict in the same files: nothing to learn
+		// from rebasing again, only somebody to give them to.
+		s.rebaseStopped(key, last)
+		if err := gitx.ReadyToRebase(ctx, wt.Path, branch); err != nil {
+			note(fmt.Sprintf("%s conflicts with %s, and cannot be rebased yet: %v", branch, base, err), true)
+			s.resolveLater(key)
+			return
+		}
+		s.askToResolve(p, branch, rw, last.files)
+		return
+	}
 	moved, err := gitx.RebaseOnto(ctx, wt.Path, branch, rw.onto())
 	var conflict *gitx.OntoConflictError
+	var failed *gitx.RebaseFailedError
+	var left *gitx.RebaseLeftError
 	switch {
 	case err == nil && !moved:
 		return // on top of it already: the push that says so is shipping's
@@ -165,11 +210,29 @@ func (s *Server) autopilotResolve(key string) {
 		note(fmt.Sprintf("rebased %s onto %s, which it conflicted with; checking it before it goes out", branch, base), false)
 		s.autopilotRewritten(projectID, branch)
 	case errors.As(err, &conflict):
+		s.rebaseStopped(key, stoppedRebase{head: head, onto: rw.onto(), files: conflict.Files})
 		s.askToResolve(p, branch, rw, conflict.Files)
+	case errors.As(err, &left):
+		s.rebaseStopped(key, stoppedRebase{head: head, left: true})
+		note(fmt.Sprintf("%s conflicts with %s, and %v", branch, base, left), true)
+		s.resolveLater(key)
+	case errors.As(err, &failed):
+		s.rebaseStopped(key, stoppedRebase{head: head})
+		note(fmt.Sprintf("%s conflicts with %s, and rebasing it failed: %v", branch, base, err), true)
+		s.resolveLater(key)
 	default:
 		note(fmt.Sprintf("%s conflicts with %s, and rebasing it failed: %v", branch, base, err), true)
 		s.resolveLater(key)
 	}
+}
+
+// rebaseStopped remembers a rebase of a branch that stopped, as of now.
+func (s *Server) rebaseStopped(key string, r stoppedRebase) {
+	a := s.autopilot
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	r.at = time.Now()
+	a.stopped[key] = r
 }
 
 // resolveLater undoes the mark that says a conflict was dealt with at
