@@ -64,6 +64,10 @@ type reloadPane struct {
 	// Team the pane was put in by hand (pane.team); absent from older
 	// state files, from before teams.
 	Team string `json:"team,omitempty"`
+	// MovedFrom is the account its agent was moved off (accountmove.go),
+	// so the offer to move it back outlives a reload; absent from older
+	// state files.
+	MovedFrom string `json:"moved_from,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -152,6 +156,7 @@ func (s *Server) reload(bin string) {
 		rp.MonitorArmed = e.monitor.armed
 		rp.CreatedBy = e.lineage
 		rp.Account = e.account
+		rp.MovedFrom = e.movedFrom
 		rp.Team = e.team
 		rp.Subagents, rp.SubagentSession = e.subagents.list, e.subagents.session
 		e.mu.Unlock()
@@ -227,6 +232,7 @@ func (s *Server) adopt(st *reloadState) {
 		e.monitor.alert, e.monitor.armed, e.monitor.lastOut = rp.Alert, rp.MonitorArmed, time.Now()
 		e.lineage = rp.CreatedBy
 		e.account = rp.Account
+		e.movedFrom = rp.MovedFrom
 		e.team = rp.Team
 		e.subagents = subagents{list: rp.Subagents, session: rp.SubagentSession}
 		if rp.Transcript != "" {

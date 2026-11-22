@@ -178,6 +178,13 @@ func TestExecThroughTheRelay(t *testing.T) {
 	if !strings.Contains(res.out, "30 100") || !strings.Contains(res.out, "onatty") || res.exit != 0 {
 		t.Fatalf("tty: %+v", res)
 	}
+	// The size in the first message is the terminal's from the start: a
+	// script that asks at once must not see 80×24 because a resize sent
+	// after it had not arrived yet.
+	res = runExec(t, s, `{"script":"stty size","tty":true,"cols":91,"rows":17}`)
+	if !strings.Contains(res.out, "17 91") || res.exit != 0 {
+		t.Fatalf("tty sized at start: %+v", res)
+	}
 	// A killed script says so the way a shell does.
 	res = runExec(t, s, `{"script":"kill -9 $$","tty":false}`)
 	if res.exit != 137 {

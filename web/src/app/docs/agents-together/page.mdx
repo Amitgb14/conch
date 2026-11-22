@@ -2,7 +2,7 @@ export const metadata = { title: "Agents working together", description: "Let on
 
 # Agents working together
 
-How an agent in conch starts other agents — a reviewer, a tester, a second opinion — prompts them, waits and reads their answers, each helper in its own pane and branch.
+How an agent starts other agents — a reviewer, a tester — prompts them and reads their answers, each in its own pane and branch.
 
 <FeatureGrid>
   <Feature icon="agents" title="conch" href="#asking-an-agent-for-a-second-opinion">Start a helper on its own branch, prompt it, wait, read its answer.</Feature>
@@ -35,6 +35,21 @@ Start an agent (`c`) and ask in plain words. It starts a helper as a task on its
 
 **How:** _"Get a second opinion on the change on this branch from another agent, and tell me what it found."_
 
+## Messaging an agent that's already running
+
+Every agent has an ID (`p12`, from `conch status`). Ask in plain words, or:
+
+**How:** _"Send p12: review conch/grok-bot and tell me what it says."_
+
+```sh
+conch agent prompt p12 "Review the diff on conch/grok-bot"
+conch agent prompt -wait p12 "Run the tests and say what failed"
+conch agent prompt -at +30m p12 "Check CI"   # later, once it is free
+conch read p12                               # its answer
+```
+
+An agent reaches only the panes it started and its own project's.
+
 ## A team, a review loop, a factory
 
 Ask for the other skills the same way, or by name as a command in Claude Code.
@@ -49,7 +64,7 @@ Ask for the other skills the same way, or by name as a command in Claude Code.
 
 <AutopilotLoop />
 
-Every stage is an agent spending your usage, so ask for the team size you want.
+Every stage spends your usage: ask for the team size you want.
 
 ## Who started what
 
@@ -72,7 +87,7 @@ Claude Code's own subagents are listed under it too, with their task and kind, w
 
 ## Giving helpers files that aren't committed
 
-A helper's worktree holds only committed files. Add a [local files](/docs/tasks#local-files-in-worktrees) pattern so conch copies yours in, or name the file's absolute path in the prompt.
+A helper's worktree holds only committed files: add a [local files](/docs/tasks#local-files-in-worktrees) pattern, or give the file's absolute path.
 
 ## Doing it yourself
 

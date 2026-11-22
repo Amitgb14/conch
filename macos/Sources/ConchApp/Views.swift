@@ -769,6 +769,7 @@ struct MainView: View {
         }
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
+        .sheet(item: $store.moveAsk) { a in MoveAgentSheet(store: store, ask: a) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id, cloud: t.cloud) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id, cloud: t.cloud, pick: t.pick) }
@@ -776,7 +777,7 @@ struct MainView: View {
         .sheet(isPresented: $store.welcomeOpen) { WelcomeSheet(store: store) }
         .sheet(isPresented: $store.doctorOpen) { DoctorSheet(store: store) }
         .sheet(isPresented: $store.updatesOpen) { UpdatesSheet(store: store) }
-        .sheet(isPresented: $store.newSandboxOpen) { NewSandboxSheet(store: store) }
+        .sheet(isPresented: $store.newSandboxOpen, onDismiss: { store.sandboxSheetClosed() }) { NewSandboxSheet(store: store) }
         // [app] background: the scene behind everything, up under the
         // title bar too (SceneView.swift).
         .background {
@@ -893,13 +894,25 @@ struct Sidebar: View {
                     // Direction C's "Needs you": every waiting agent as a
                     // card, answered from here, above the tree.
                     let needs = store.needsYou
-                    if !needs.isEmpty {
+                    let moving = store.movingAgents.sorted { $0.key < $1.key }
+                    let backs = store.moveBackGroups
+                    if !needs.isEmpty || !moving.isEmpty || !backs.isEmpty {
                         HStack {
                             SectionHeading(text: "NEEDS YOU")
                             Spacer()
-                            Text("\(needs.count)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                            Text("\(needs.count + moving.count + backs.reduce(0) { $0 + $1.offers.count })").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                         }
                         .padding(.horizontal, 8).padding(.top, 10).padding(.bottom, 2)
+                        // Agents being moved to another account, and ones
+                        // that can go back to theirs (AccountMoveViews.swift).
+                        ForEach(moving, id: \.key) { m in MovingCard(store: store, key: m.key, moving: m.value) }
+                        ForEach(backs, id: \.to) { g in
+                            if g.offers.count > 1 {
+                                MoveBackAllCard(store: store, to: g.to, machine: g.machine, offers: g.offers)
+                            } else if let o = g.offers.first {
+                                MoveBackCard(store: store, key: o.key, pane: o.pane, to: o.to)
+                            }
+                        }
                         ForEach(needs, id: \.key) { n in
                             NeedsYouCard(store: store, key: n.key, pane: n.pane, machine: n.machine)
                         }
@@ -1643,6 +1656,9 @@ struct NeedsYouCard: View {
 
     var body: some View {
         let q = store.questions[key]
+        // Its text stays the question's while an answer is on its way,
+        // rather than falling back to the agent's message for a moment.
+        let shown = q ?? store.answered.question(key)
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Mark(agent: pane.agent?.name)
@@ -1650,7 +1666,7 @@ struct NeedsYouCard: View {
                 Spacer(minLength: 4)
                 Pill(text: questionKind(pane.agent?.message), fg: Theme.onWarn, bg: Theme.warn)
             }
-            let text = cardText(q?.text.isEmpty == false ? q!.text : (pane.agent?.message ?? ""), choices: q?.choices ?? [])
+            let text = cardText(shown?.text.isEmpty == false ? shown!.text : (pane.agent?.message ?? ""), choices: shown?.choices ?? [])
             if !text.isEmpty {
                 Text(text).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2).lineLimit(2)
             }
@@ -1661,6 +1677,9 @@ struct NeedsYouCard: View {
             }
             if let q, !q.choices.isEmpty {
                 ChoiceButtons(store: store, pane: key, question: q)
+            } else if store.answered.answering(key) {
+                // Answered from here; the card goes once the agent moves on.
+                Text("Sending your answer…").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
             } else {
                 Button("Open to Answer") { store.open(key) }.buttonStyle(.plain)
                     .font(.ui(size: 11.5, weight: .medium)).foregroundStyle(Theme.accent)
@@ -1730,10 +1749,18 @@ struct TabBar: View {
     }
 
     var plus: some View {
-        Button { store.newTerminal(split: nil) } label: {
+        // A terminal, a browser, or a browser beside what is in front.
+        Menu {
+            Button("New Terminal Tab") { store.newTerminal(split: nil) }.keyboardShortcut("t", modifiers: .command)
+            Button("New Browser Tab") { store.openBrowser(nil) }.keyboardShortcut("b", modifiers: [.command, .shift])
+            Divider()
+            Button("Split Right with Browser") { store.openBrowser(nil, split: .horizontal) }.keyboardShortcut("d", modifiers: [.command, .option])
+            Button("Split Down with Browser") { store.openBrowser(nil, split: .vertical) }.keyboardShortcut("d", modifiers: [.command, .option, .shift])
+        } label: {
             Text("+").font(.ui(size: 15)).foregroundStyle(Theme.muted).frame(width: 26, height: 30)
         }
-        .buttonStyle(.plain).focusable(false).help("New terminal tab (⌘T)")
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .focusable(false).help("New terminal or browser tab (⌘T, ⇧⌘B), or a browser in a split")
     }
 
     var body: some View {
@@ -1811,6 +1838,13 @@ struct TabButton: View {
             return a.isEmpty || a.hasPrefix("about:") ? "New Tab" : (URL(string: a)?.host.map { h in URL(string: a)?.port.map { "\(h):\($0)" } ?? h } ?? a)
         }
         return p?.displayName ?? tab.focused
+    }
+
+    /// Another tab as its menu names it: its number and its title.
+    func tabLabel(_ j: Int) -> String {
+        let t = store.layout.tabs[j]
+        let other = TabButton(store: store, index: j, tab: t)
+        return "\(j + 1)  " + other.title(changes: parseChangesKey(t.focused), pane: store.pane(t.benchAgent ?? t.focused))
     }
 
     var body: some View {
@@ -1908,6 +1942,24 @@ struct TabButton: View {
         .contextMenu {
             Button("Rename Tab…") { store.renameTab(index) }
             if tab.name != nil { Button("Name It by Its Pane") { store.layout.rename(index, to: "") } }
+            let others = store.layout.tabs.indices.filter { store.layout.canJoin(index, into: $0) }
+            if !others.isEmpty {
+                Divider()
+                Menu("Move Beside") {
+                    ForEach(others, id: \.self) { j in
+                        Button(tabLabel(j)) { store.joinTab(index, into: j, .horizontal) }
+                    }
+                }
+                Menu("Move Below") {
+                    ForEach(others, id: \.self) { j in
+                        Button(tabLabel(j)) { store.joinTab(index, into: j, .vertical) }
+                    }
+                }
+            }
+            if tab.bench == nil, tab.root.panes.count > 1 {
+                // The focused split back out, keeping its page (#323).
+                Button("Move Split to Its Own Tab") { store.detachSplit(tab.focused) }
+            }
             if let ref = store.paneRef(key: tab.focused) {
                 Divider()
                 Button("Copy Pane ID (\(ref))") { store.copyPaneRef(ref) }
@@ -1974,7 +2026,10 @@ struct SplitArea: View {
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
-                BrowserView(model: store.browser(for: id)).id(id)
+                BrowserView(model: store.browser(for: id),
+                            close: { store.closeBrowser(id) },
+                            ownTab: (store.layout.tab(showing: id).map { store.layout.tabs[$0].root.panes.count > 1 } ?? false)
+                                ? { store.browserToItsOwnTab(id) } : nil).id(id)
             } else if parseMobileKey(id) != nil {
                 MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
             } else if parseTaskKey(id) != nil {
@@ -2116,7 +2171,7 @@ struct PaneCard: View {
                 if store.appLook.ports, let ports = p?.listening, !ports.isEmpty {
                     // What its programs listen on, a click away (pane.listening.v1).
                     ForEach(ports.prefix(3), id: \.self) { port in
-                        ListeningPort(store: store, port: port, machine: unkey(pane).machine)
+                        ListeningPort(store: store, port: port, machine: unkey(pane).machine, pane: pane)
                     }
                 } else if let p, p.agent == nil, let port = store.port(of: pane) {
                     PortLink(port: port, local: unkey(pane).machine == "local")
@@ -2158,6 +2213,9 @@ struct PaneCard: View {
             .font(.ui(size: store.appLook.compact ? 11 : 12))
             .background(Theme.ink ? Theme.window : Theme.paneHeader.opacity(max(Theme.scene.paneOpacity, 0.8)))
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.ink ? Theme.inkLine : Theme.line).frame(height: Theme.ink ? 2 : 1) }
+            .contentShape(Rectangle())
+            .contextMenu { SplitMenu(store: store, pane: pane) }
+            .modifier(TabDrop(store: store, pane: pane))
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
@@ -2277,6 +2335,8 @@ struct ListeningPort: View {
     @ObservedObject var store: Store
     let port: Int
     let machine: String
+    /// The pane listening on it, so its page opens beside it.
+    var pane: String? = nil
 
     var body: some View {
         let _ = look
@@ -2286,9 +2346,13 @@ struct ListeningPort: View {
             .padding(.horizontal, 6).padding(.vertical, 1)
             .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent.opacity(0.14)))
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.35)))
-            .help(local ? "Listening on \(port) — click to open it in a tab, ⌥-click in your browser"
+            .help(local ? "Listening on \(port) — click to open it beside this pane, ⌘-click in a tab of its own, ⌥-click in your browser"
                         : "Listening on \(port) on \(store.label(machine)) — click to copy an ssh tunnel to it")
-            .onTapGesture { store.openPort(port, machine: machine, outside: NSEvent.modifierFlags.contains(.option)) }
+            .onTapGesture {
+                let mods = NSEvent.modifierFlags
+                store.openPort(port, machine: machine, outside: mods.contains(.option),
+                               beside: mods.contains(.command) ? nil : pane)
+            }
     }
 }
 
@@ -2342,6 +2406,8 @@ struct AnswerStrip: View {
 struct StatusBar: View {
     @ObservedObject var store: Store
     @State private var showLimits = false
+    /// The machine whose usage window is open.
+    @State private var usageWindowOf: String?
     @State private var showMonitor = false
     @State private var monitorHover = false
 
@@ -2405,25 +2471,23 @@ struct StatusBar: View {
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;
             // a click lists every window, as the TUI's limits view does.
-            if store.limits.contains(where: { $0.fiveHour != nil }) {
-                Button { showLimits.toggle() } label: {
-                    HStack(spacing: 8) {
-                        ForEach(store.limits.filter { $0.fiveHour != nil }, id: \.agent) { l in
-                            UsageChip(limits: l)
-                        }
+            let usageOn = store.machineInView
+            if !chipMarks(store.accountsWithUsage(on: usageOn)).isEmpty {
+                // One chip for every account: a mark each, and the account
+                // in view's windows; a click opens a tab per account
+                // (UsagePanel.swift), which maximizes into a window.
+                Button { showLimits.toggle() } label: { AccountUsageChip(store: store, machine: usageOn).contentShape(Rectangle()) }
+                    .buttonStyle(.plain).focusEffectDisabled()
+                    .help("Click for each account's usage")
+                    .barPopover(isPresented: $showLimits) {
+                        UsagePanel(store: store, machine: usageOn) { showLimits = false; usageWindowOf = usageOn }
                     }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for every window")
-                .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
-                .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
             } else if store.connected {
                 // No plan reported yet: what was used is still a click away.
                 Button { showLimits.toggle() } label: { Text("Usage").foregroundStyle(Theme.muted) }
                     .buttonStyle(.plain).help("Tokens used in the last day, week and month, by model")
-                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
-                    .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
+                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store, machine: usageOn) }
+                    .onChange(of: showLimits) { if $0 { store.refreshLimits(on: usageOn); store.refreshUsageHistory() } }
             }
             // ✦ Ask, report a problem and pair a phone, as the TUI's bar has.
             StatusExtras(store: store)
@@ -2476,6 +2540,11 @@ struct StatusBar: View {
             .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store, close: { showMonitor = false }) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
+        // On the bar, not the chip: the chip goes when the machine in view
+        // has no plan, and would take the window with it.
+        .sheet(isPresented: Binding(get: { usageWindowOf != nil }, set: { if !$0 { usageWindowOf = nil } })) {
+            UsageWindow(store: store, machine: usageWindowOf ?? "local")
+        }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
         .background { ZStack { Frost(color: Theme.side); if Theme.ink { Screentone() } } }
@@ -2495,14 +2564,17 @@ struct StatusBar: View {
 /// limits view.
 struct LimitsPopover: View {
     @ObservedObject var store: Store
+    let machine: String
 
     var body: some View {
+        let limits = store.plans.on(machine)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Plan limits").font(.ui(size: 13, weight: .semibold))
-            if store.limits.isEmpty {
-                Text("No agent has reported its plan yet.").foregroundStyle(.secondary)
+            Text("Plan limits · \(store.usageName(machine))").font(.ui(size: 13, weight: .semibold))
+            if limits.isEmpty {
+                Text(store.usageGap(on: machine, needs: agentLimitsCapability) ?? "No agent has reported its plan yet.")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(store.limits, id: \.agent) { l in
+            ForEach(limits, id: \.usageKey) { l in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Mark(agent: l.agent)
@@ -2515,13 +2587,14 @@ struct LimitsPopover: View {
                         }
                     }
                     ForEach(l.allWindows, id: \.key) { w in
-                        HStack(spacing: 8) {
-                            Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
-                            Meter(fraction: w.usedPct / 100)
-                            Text("\(Int(w.usedPct.rounded()))%").frame(width: 38, alignment: .trailing).monospacedDigit()
-                            if let r = w.resetsAt, r.timeIntervalSince1970 > 0 {
-                                TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
+                        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                            let live = windowLive(w.resetsAt, now: ctx.date)
+                            HStack(spacing: 8) {
+                                Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
+                                Meter(fraction: live ? w.usedPct / 100 : 0)
+                                Text(live ? "\(Int(w.usedPct.rounded()))%" : "—").frame(width: 38, alignment: .trailing).monospacedDigit()
+                                if let r = w.resetsAt {
+                                    Text(live ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -2739,9 +2812,14 @@ struct UsageChip: View {
         let _ = look
         HStack(spacing: 8) {
             Mark(agent: limits.agent)
-            window("5h", limits.fiveHour?.usedPct)
+            if let a = limits.account, !a.isEmpty {
+                Text(a).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+            }
+            if let w = limits.fiveHour {
+                window("5h", w.usedPct)
+            }
             if let w = limits.week {
-                Rectangle().fill(Theme.line).frame(width: 1, height: 10)
+                if limits.fiveHour != nil { Rectangle().fill(Theme.line).frame(width: 1, height: 10) }
                 window("7d", w.usedPct)
             }
         }
@@ -2763,11 +2841,12 @@ struct UsageChip: View {
 @MainActor func usageColor(_ pct: Double) -> Color { pct >= 100 ? Theme.err : pct >= 80 ? Theme.warn : Theme.text2 }
 
 /// An agent's windows and when each resets, for the chip's tooltip.
-@MainActor func usageHelp(_ l: PlanLimits) -> String {
-    let name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
+@MainActor func usageHelp(_ l: PlanLimits, now: Date) -> String {
+    var name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
+    if let a = l.account, !a.isEmpty { name += " (\(a))" }
     let parts = l.allWindows.map { w -> String in
-        var s = "\(PlanLimits.label(w.key)) \(Int(w.usedPct.rounded()))%"
-        if let r = w.resetsAt, r > Date() { s += ", resets in \(elapsed(Date(), r))" }
+        var s = planWindowText(w, now: now)
+        if let r = w.resetsAt, r > now { s += ", resets in \(elapsed(now, r))" }
         return s
     }
     return "\(name): " + parts.joined(separator: " · ")
@@ -3102,5 +3181,60 @@ struct UpdatesSheet: View {
         .onAppear {
             if !seeded { picked = Set(list.map(\.machine)); seeded = true }
         }
+    }
+}
+
+/// A split's own menu, on its header (a terminal's right-click is the
+/// program's): what a new split beside it holds — a terminal, a browser,
+/// an agent (#323) — and taking it out to a tab of its own.
+struct SplitMenu: View {
+    @ObservedObject var store: Store
+    let pane: String
+
+    var body: some View {
+        ForEach(splitCommands, id: \.id) { c in
+            Button(c.title) {
+                store.focus(pane)
+                store.command(c.id)
+            }
+        }
+        if let t = store.layout.tab(showing: pane), store.layout.tabs[t].bench == nil, store.layout.tabs[t].root.panes.count > 1 {
+            Divider()
+            Button("Move to Its Own Tab") { store.detachSplit(pane) }
+            Button("Close Split") {
+                store.focus(pane)
+                store.closeSplit()
+            }
+        }
+    }
+}
+
+/// A tab dragged onto a split's header goes beside it, on the side it was
+/// dropped: the left half ahead of it, the right after. Only the header
+/// takes the drop: a terminal and a page take what is dragged onto them
+/// as text of their own.
+struct TabDrop: ViewModifier {
+    @ObservedObject var store: Store
+    let pane: String
+    @State private var width: CGFloat = 0
+    @State private var over = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(GeometryReader { g in Color.clear.onAppear { width = g.size.width }.onChange(of: g.size.width) { _, w in width = w } })
+            .overlay { if over { RoundedRectangle(cornerRadius: 4).stroke(Theme.accent, lineWidth: 2) } }
+            .onDrop(of: [.text], isTargeted: $over) { items, at in
+                guard let item = items.first else { return false }
+                let before = width > 0 && at.x < width / 2
+                _ = item.loadObject(ofClass: NSString.self) { obj, _ in
+                    guard let id = obj as? String else { return }
+                    DispatchQueue.main.async {
+                        if let from = store.layout.tabs.firstIndex(where: { $0.id.uuidString == id }) {
+                            store.moveTab(from, beside: pane, .horizontal, before: before)
+                        }
+                    }
+                }
+                return true
+            }
     }
 }

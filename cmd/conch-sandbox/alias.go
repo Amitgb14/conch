@@ -1,0 +1,481 @@
+package main
+
+import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/Amitgb14/conch/internal/config"
+)
+
+// The aliases live in a file of their own, not in ssh/config beside it:
+// conch writes that one whole at every start (internal/remote), and it
+// includes ~/.ssh/config, so pointing ~/.ssh/config back at it would make
+// each include the other.
+
+// aliasFile is conch-sandbox's ssh aliases.
+func aliasFile() string { return sshPath("sandboxes") }
+
+// knownHostsFile keeps the sandboxes' host keys apart from the person's:
+// a provider hands a deleted sandbox's address to the next, and a host key
+// remembered under the address would then refuse it.
+func knownHostsFile() string { return sshPath("sandboxes_known_hosts") }
+
+// sshPath is name in conch's ssh folder, made absolute: ssh reads a
+// relative path in an Include against ~/.ssh, and a relative CONCH_HOME
+// would otherwise give one.
+func sshPath(name string) string {
+	p := filepath.Join(config.Dir(), "ssh", name)
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return p
+}
+
+// aliasName is the ssh alias of provider's sandbox id.
+func aliasName(provider, id string) string { return "conch-" + provider + "-" + id }
+
+const (
+	aliasHeader = "# ssh aliases for conch's sandboxes, written by conch-sandbox. Each block between\n" +
+		"# its >>> and <<< lines is conch-sandbox's to rewrite; anything else here is left as it is.\n"
+	beginMark = "# >>> conch-sandbox "
+	endMark   = "# <<< conch-sandbox "
+)
+
+// alias is one Host block.
+type alias struct {
+	Provider, ID string
+	Host         string
+	Port         int
+	User         string
+	Identity     string // the private key, for the key kind
+	Token        bool   // User is a token, a secret
+	Expires      *time.Time
+	// Root is the checkout in the sandbox, or its home; kept so start can
+	// say it again (Orca's projectRoot).
+	Root string
+	// Tool is who it was made for (tools): orphans compares a tool's
+	// machines with its own sandboxes alone.
+	Tool string
+}
+
+// tools are who a sandbox can be made for: herdr's pick, the herdr app's
+// mod (create --tool herdr-app), Orca's recipes, and a person (cli).
+var tools = []string{"herdr", "herdr-app", "orca", "cli"}
+
+// metaMark starts the line in each block that says whose it is, so a
+// caller that knows only the alias — the herdr app, a herdr workspace —
+// gets the provider and id back without guessing where a name with - in
+// it ends and an id with - in it begins.
+const metaMark = "# conch-sandbox "
+
+func (al alias) meta() string {
+	m := metaMark + "provider=" + al.Provider + " id=" + al.ID
+	if al.Root != "" {
+		m += " root=" + url.QueryEscape(al.Root)
+	}
+	if al.Tool != "" {
+		m += " tool=" + url.QueryEscape(al.Tool)
+	}
+	return m
+}
+
+// parseMeta reads a meta line; ok is false for any other line. A block
+// written before tool= was is nobody's but the person's: cli.
+func parseMeta(line string) (o owner, ok bool) {
+	rest, found := strings.CutPrefix(line, metaMark)
+	if !found {
+		return owner{}, false
+	}
+	for _, f := range strings.Fields(rest) {
+		k, v, _ := strings.Cut(f, "=")
+		switch k {
+		case "provider":
+			o.Provider = v
+		case "id":
+			o.ID = v
+		case "root":
+			o.Root, _ = url.QueryUnescape(v)
+		case "tool":
+			o.Tool, _ = url.QueryUnescape(v)
+		}
+	}
+	if o.Tool == "" {
+		o.Tool = "cli"
+	}
+	return o, o.Provider != "" && o.ID != ""
+}
+
+// owner is the sandbox behind one of conch-sandbox's aliases, and the
+// tool it was made for.
+type owner struct{ Provider, ID, Root, Tool string }
+
+// aliasOwner is the sandbox name is the alias of, read from its block's
+// meta line. A name with no block of conch-sandbox's — or one whose meta
+// line does not name it back — is not conch-sandbox's to act on.
+func aliasOwner(name string) (owner, error) {
+	if o, ok := blockOwner(name); ok && aliasName(o.Provider, o.ID) == name {
+		return o, nil
+	}
+	return owner{}, fmt.Errorf("%s is not one of conch-sandbox's ssh aliases (%s)", name, aliasFile())
+}
+
+func (al alias) name() string { return aliasName(al.Provider, al.ID) }
+
+// blockOwner is the sandbox the meta line in name's block names,
+// whichever alias that makes.
+func blockOwner(name string) (owner, bool) {
+	lines, err := readAliases()
+	if err != nil {
+		return owner{}, false
+	}
+	for i, l := range lines {
+		if l != beginMark+name {
+			continue
+		}
+		for _, m := range lines[i+1:] {
+			if m == endMark+name || strings.HasPrefix(m, beginMark) {
+				break
+			}
+			if o, ok := parseMeta(m); ok {
+				return o, true
+			}
+		}
+	}
+	return owner{}, false
+}
+
+// readAlias is name's block read back: what create or start last wrote
+// for it, for get to say without asking the provider for a new token.
+func readAlias(name string) (alias, bool) {
+	o, ok := blockOwner(name)
+	if !ok || aliasName(o.Provider, o.ID) != name {
+		return alias{}, false
+	}
+	al := alias{Provider: o.Provider, ID: o.ID, Root: o.Root, Tool: o.Tool, Port: 22}
+	lines, _ := readAliases()
+	in := false
+	for _, l := range lines {
+		switch {
+		case l == beginMark+name:
+			in = true
+			continue
+		case !in:
+			continue
+		case l == endMark+name || strings.HasPrefix(l, beginMark):
+			return al, al.Host != ""
+		}
+		key, val, _ := strings.Cut(strings.TrimSpace(l), " ")
+		val = strings.Trim(strings.TrimSpace(val), `"`)
+		switch key {
+		case "HostName":
+			al.Host = val
+		case "Port":
+			al.Port, _ = strconv.Atoi(val)
+		case "User":
+			al.User = val
+		case "IdentityFile":
+			al.Identity = val
+		case "#":
+			if rest, ok := strings.CutPrefix(val, "the user is a token"); ok {
+				al.Token = true
+				// ", until 2026-11-20T12:00:00Z: conch-sandbox start…": the
+				// time's own colons are never followed by a space.
+				if when, ok := strings.CutPrefix(rest, ", until "); ok {
+					when, _, _ = strings.Cut(when, ": ")
+					if t, err := time.Parse(time.RFC3339, when); err == nil {
+						al.Expires = &t
+					}
+				}
+			}
+		}
+	}
+	return al, al.Host != ""
+}
+
+// sshOf is what a result says of how to reach al, a token struck out.
+func sshOf(al alias) *sshJSON {
+	s := &sshJSON{Alias: al.name(), Kind: "key", Host: al.Host, Port: al.Port, User: al.User, Expires: al.Expires, IdentityFile: al.Identity}
+	if al.Token {
+		s.Kind, s.User = "token", struck
+	}
+	return s
+}
+
+// configValue is v as one ssh_config argument. A value with a newline or a
+// quote in it — from a provider's reply — could add lines of its own to
+// the file, so it is refused rather than escaped. So is one with a % token
+// or a ${VAR} in it, which ssh would expand into something else: which
+// keys it expands in depends on its version (User only since 10.0), so an
+// escape one ssh undoes another would send as it is.
+func configValue(what, v string) (string, error) {
+	if v == "" {
+		return "", fmt.Errorf("no ssh %s", what)
+	}
+	if err := sshLiteral(what, v); err != nil {
+		return "", err
+	}
+	if strings.ContainsAny(v, " \t") {
+		return `"` + v + `"`, nil
+	}
+	return v, nil
+}
+
+// sshLiteral refuses what ssh_config would not read as it is written.
+func sshLiteral(what, v string) error {
+	for _, r := range v {
+		if r == '"' || unicode.IsControl(r) {
+			return fmt.Errorf("the ssh %s %s cannot go in an ssh config: it has a quote or a control character in it", what, safeShow(what, v))
+		}
+	}
+	if strings.Contains(v, "%") || strings.Contains(v, "${") {
+		return fmt.Errorf("the ssh %s %s cannot go in an ssh config: ssh would read %% or ${…} in it as something else", what, safeShow(what, v))
+	}
+	return nil
+}
+
+// safeShow is v for a message, unless it may be a secret.
+func safeShow(what, v string) string {
+	if what == "user" {
+		return ""
+	}
+	return strconv.Quote(v)
+}
+
+// block is al's text, between its marks.
+func (al alias) block() (string, error) {
+	host, err := configValue("host", al.Host)
+	if err != nil {
+		return "", err
+	}
+	user, err := configValue("user", al.User)
+	if err != nil {
+		return "", err
+	}
+	known, err := configValue("known hosts file", knownHostsFile())
+	if err != nil {
+		return "", err
+	}
+	port := al.Port
+	if port == 0 {
+		port = 22
+	}
+	if port < 1 || port > 65535 {
+		return "", fmt.Errorf("ssh port %d", port)
+	}
+	var b strings.Builder
+	b.WriteString(beginMark + al.name() + "\n")
+	b.WriteString(al.meta() + "\n")
+	fmt.Fprintf(&b, "Host %s\n  HostName %s\n  Port %d\n  User %s\n", al.name(), host, port, user)
+	b.WriteString("  StrictHostKeyChecking accept-new\n")
+	// Debian's and Ubuntu's ssh_config hash host names, which leaves a
+	// deleted sandbox's key behind for its alias's next owner to trip on.
+	b.WriteString("  HashKnownHosts no\n")
+	fmt.Fprintf(&b, "  HostKeyAlias %s\n  UserKnownHostsFile %s\n", al.name(), known)
+	if al.Identity != "" {
+		id, err := configValue("key", al.Identity)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  IdentityFile %s\n  IdentitiesOnly yes\n", id)
+	}
+	switch {
+	case al.Token && al.Expires != nil:
+		fmt.Fprintf(&b, "  # the user is a token, until %s: conch-sandbox start writes a new one\n", al.Expires.UTC().Format(time.RFC3339))
+	case al.Token:
+		b.WriteString("  # the user is a token: conch-sandbox start writes a new one\n")
+	}
+	b.WriteString(endMark + al.name() + "\n")
+	return b.String(), nil
+}
+
+// readAliases is the file's lines; a missing file has none.
+func readAliases() ([]string, error) {
+	b, err := os.ReadFile(aliasFile())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(strings.TrimRight(string(b), "\n"), "\n"), nil
+}
+
+// without is lines with name's block taken out, and whether it was there.
+// A block whose end mark was lost runs to the next block or the end.
+func without(lines []string, name string) ([]string, bool) {
+	var out []string
+	found := false
+	for i := 0; i < len(lines); i++ {
+		if lines[i] != beginMark+name {
+			out = append(out, lines[i])
+			continue
+		}
+		found = true
+		for i+1 < len(lines) && lines[i] != endMark+name && !strings.HasPrefix(lines[i+1], beginMark) {
+			i++
+		}
+	}
+	return out, found
+}
+
+// hasAlias says whether name's block is in the file.
+func hasAlias(name string) bool {
+	lines, err := readAliases()
+	if err != nil {
+		return false
+	}
+	_, found := without(lines, name)
+	return found
+}
+
+func writeAliases(lines []string) error {
+	if err := os.MkdirAll(filepath.Dir(aliasFile()), 0o700); err != nil {
+		return err
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	text := strings.Join(lines, "\n") + "\n"
+	if len(lines) == 0 {
+		text = aliasHeader
+	}
+	return config.WriteFileAtomic(aliasFile(), []byte(text), 0o600)
+}
+
+// setAlias writes al's block, in place of one of the same name — never
+// one whose meta line names another sandbox: conch-a-b-c is provider a's
+// sandbox b-c, and provider a-b's sandbox c, alike.
+func setAlias(al alias) error {
+	if o, ok := blockOwner(al.name()); ok && (o.Provider != al.Provider || o.ID != al.ID) {
+		return fmt.Errorf("ssh alias %s is %s's sandbox %s already; remove it first (conch-sandbox ssh-alias --remove --machine %s)", al.name(), o.Provider, o.ID, al.name())
+	}
+	block, err := al.block()
+	if err != nil {
+		return err
+	}
+	if al.Root == "" || al.Tool == "" {
+		// A rewrite with a fresh token keeps the checkout it was made
+		// with, and the tool it was made for.
+		if o, err := aliasOwner(al.name()); err == nil {
+			al.Root = firstOf(al.Root, o.Root)
+			al.Tool = firstOf(al.Tool, o.Tool)
+			if block, err = al.block(); err != nil {
+				return err
+			}
+		}
+	}
+	lines, err := readAliases()
+	if err != nil {
+		return err
+	}
+	lines, _ = without(lines, al.name())
+	if len(lines) == 0 {
+		lines = strings.Split(strings.TrimRight(aliasHeader, "\n"), "\n")
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	lines = append(lines, "")
+	lines = append(lines, strings.Split(strings.TrimRight(block, "\n"), "\n")...)
+	return writeAliases(lines)
+}
+
+// removeAlias takes name's block out, and the host keys kept for it, and
+// says whether it was there. The file stays, header and all, so the
+// Include in ~/.ssh/config still names a file. Only provider's sandbox
+// id's block goes: one whose meta line names another sandbox — the same
+// alias, since conch-a-b-c is a's b-c and a-b's c alike — is that one's,
+// and is left with its host keys. A block with no meta line is taken.
+func removeAlias(provider, id string) (bool, error) {
+	name := aliasName(provider, id)
+	if o, ok := blockOwner(name); ok && (o.Provider != provider || o.ID != id) {
+		return false, nil
+	}
+	lines, err := readAliases()
+	if err != nil {
+		return false, err
+	}
+	lines, found := without(lines, name)
+	if found {
+		// A blank line was put before the block; leave no run of them.
+		var out []string
+		for i, l := range lines {
+			if strings.TrimSpace(l) == "" && i > 0 && strings.TrimSpace(lines[i-1]) == "" {
+				continue
+			}
+			out = append(out, l)
+		}
+		if err := writeAliases(out); err != nil {
+			return true, err
+		}
+	}
+	return found, forgetHostKeys(name)
+}
+
+// forgetHostKeys drops the host keys remembered for alias: the next
+// sandbox to be given its name is a different machine.
+func forgetHostKeys(alias string) error {
+	b, err := os.ReadFile(knownHostsFile())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var keep []string
+	changed := false
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		if hostsName(line, alias) {
+			changed = true
+			continue
+		}
+		keep = append(keep, line)
+	}
+	if !changed {
+		return nil
+	}
+	text := strings.Join(keep, "\n")
+	if text != "" {
+		text += "\n"
+	}
+	return config.WriteFileAtomic(knownHostsFile(), []byte(text), 0o600)
+}
+
+// hostsName says whether a known_hosts line is for alias, plain or with a
+// port ([alias]:2222), or hashed (|1|salt|hash, HashKnownHosts: ssh looks
+// a HostKeyAlias up as it is, so the alias alone is hashed).
+func hostsName(line, alias string) bool {
+	f := strings.Fields(line)
+	if len(f) == 0 {
+		return false
+	}
+	if rest, ok := strings.CutPrefix(f[0], "|1|"); ok {
+		salt64, hash64, _ := strings.Cut(rest, "|")
+		salt, err1 := base64.StdEncoding.DecodeString(salt64)
+		hash, err2 := base64.StdEncoding.DecodeString(hash64)
+		if err1 != nil || err2 != nil {
+			return false
+		}
+		m := hmac.New(sha1.New, salt)
+		m.Write([]byte(alias))
+		return hmac.Equal(m.Sum(nil), hash)
+	}
+	for _, h := range strings.Split(f[0], ",") {
+		if h == alias || strings.HasPrefix(h, "["+alias+"]:") {
+			if _, err := strconv.Atoi(strings.TrimPrefix(h, "["+alias+"]:")); h == alias || err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}

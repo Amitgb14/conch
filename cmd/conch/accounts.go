@@ -20,19 +20,26 @@ import (
 // machine the agents run on — which is why these go through it, -m and
 // all, rather than writing a file here.
 
-const accountUsage = "usage: conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME | pin [PATH] NAME | unpin [PATH] | failover PERCENT|off"
+const accountUsage = "usage: conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME | pin [PATH] NAME | unpin [PATH] | failover PERCENT|off|default [-agent AGENT] | suggest [AGENT] | back [ACCOUNT]"
 
 // agentAccountCommands are the subcommands of conch account that are about
 // agent accounts; conch account on its own is Conch Cloud's.
-var agentAccountCommands = map[string]bool{"list": true, "ls": true, "add": true, "remove": true, "rm": true, "pin": true, "unpin": true, "failover": true}
+var agentAccountCommands = map[string]bool{"list": true, "ls": true, "add": true, "remove": true, "rm": true, "pin": true, "unpin": true, "failover": true, "suggest": true, "back": true}
 
 func runAgentAccount(args []string) error {
 	if len(args) == 0 || !agentAccountCommands[args[0]] {
 		return errors.New(accountUsage)
 	}
 	sub, rest := args[0], args[1:]
+	if sub == "suggest" {
+		return accountSuggest(rest)
+	}
+	if sub == "back" {
+		return accountBack(rest)
+	}
 	var params any
 	var method string
+	perAgent := false
 	switch sub {
 	case "list", "ls":
 		if len(rest) > 0 {
@@ -75,18 +82,33 @@ func runAgentAccount(args []string) error {
 		}
 		method, params = proto.MethodAccountPin, proto.AccountPinParams{Path: path, Account: name}
 	case "failover":
-		if len(rest) != 1 {
-			return errors.New("usage: conch account failover PERCENT|off")
+		fs := flag.NewFlagSet("account failover", flag.ContinueOnError)
+		agent := fs.String("agent", "", "set this agent's own line (claude, codex); default: every agent's")
+		words, err := parseInterspersed(fs, rest)
+		if err != nil {
+			return err
 		}
-		at := 0
-		if v := strings.TrimSuffix(rest[0], "%"); v != "off" {
+		if len(words) != 1 {
+			return errors.New("usage: conch account failover PERCENT|off|default [-agent AGENT]")
+		}
+		p := proto.AccountFailoverParams{Agent: *agent}
+		switch v := strings.TrimSuffix(words[0], "%"); v {
+		case "off":
+		case "default":
+			// The agent's own line taken away: it follows every agent's.
+			if *agent == "" {
+				return errors.New("default is for an agent's own line: conch account failover default -agent claude")
+			}
+			p.Shared = true
+		default:
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 || n > 100 {
-				return fmt.Errorf("failover takes a percentage from 0 to 100, or off: %q", rest[0])
+				return fmt.Errorf("failover takes a percentage from 0 to 100, off, or default with -agent: %q", words[0])
 			}
-			at = n
+			p.At = n
 		}
-		method, params = proto.MethodAccountFailover, proto.AccountFailoverParams{At: at}
+		method, params = proto.MethodAccountFailover, p
+		perAgent = *agent != ""
 	}
 
 	c, err := connect(true)
@@ -96,6 +118,10 @@ func runAgentAccount(args []string) error {
 	defer c.Close()
 	if err := needAccounts(c); err != nil {
 		return err
+	}
+	// An older server would take an agent's line as every agent's.
+	if perAgent && len(c.MissingCapabilities([]string{proto.CapAccountFailoverAgent})) > 0 {
+		return errors.New("the conch server there keeps one failover line for every agent; reload it with `conch server reload` to give one agent its own")
 	}
 	switch method {
 	case proto.MethodAccountList:
@@ -174,6 +200,18 @@ func printAccounts(l proto.AccountList, now time.Time) {
 		fmt.Printf("Failover at %d%%: a new agent whose account is past it starts on the next one\n", l.FailoverAt)
 	} else {
 		fmt.Println("Failover off: conch account failover 90 moves new agents off an account at 90%")
+	}
+	// An agent with a line of its own, in the order the agents are listed.
+	for _, agent := range l.Agents {
+		at, ok := l.FailoverFor[agent]
+		if !ok {
+			continue
+		}
+		if at > 0 {
+			fmt.Printf("  %s's own: at %d%%\n", agent, at)
+		} else {
+			fmt.Printf("  %s's own: off\n", agent)
+		}
 	}
 }
 

@@ -10,6 +10,15 @@ import (
 // pollEvery is how often a wait asks for the sandbox's state; tests shorten it.
 var pollEvery = 2 * time.Second
 
+// PollFaster shortens the wait between polls to d until the test ends,
+// for the tests of a program built on this package: a fake provider
+// answers at once, and two seconds a poll adds up across a suite.
+func PollFaster(t interface{ Cleanup(func()) }, d time.Duration) {
+	old := pollEvery
+	pollEvery = d
+	t.Cleanup(func() { pollEvery = old })
+}
+
 // maxBody bounds a reply read from the API.
 const maxBody = 4 << 20
 

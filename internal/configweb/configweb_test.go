@@ -950,3 +950,17 @@ func TestSchemaBackgroundOffersScenes(t *testing.T) {
 		t.Fatalf("config.BuiltInScenes %v", config.BuiltInScenes)
 	}
 }
+
+// The phone's section is named for what it is, like its neighbours, not
+// for the command that serves it.
+func TestPhoneSectionTitle(t *testing.T) {
+	for _, s := range Schema(Choices{}) {
+		if s.ID == "web" {
+			if s.Title != "Phone" {
+				t.Fatalf("the phone's section is %q, want Phone", s.Title)
+			}
+			return
+		}
+	}
+	t.Fatal("no phone section")
+}

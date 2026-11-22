@@ -21,12 +21,12 @@ curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | 
 Add a version to install that release, including an older one:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh -s -- 0.2.0
+curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh -s -- 0.2.1
 ```
 
 | Variable | Effect |
 | --- | --- |
-| `CONCH_VERSION=0.2.0` | install that release |
+| `CONCH_VERSION=0.2.1` | install that release |
 | `CONCH_INSTALL_DIR` | install into another directory |
 | `CONCH_RELEASE_URL` | download from a mirror |
 | `CONCH_APP=no` | don't add conch to the applications |
@@ -82,5 +82,5 @@ When a newer build or release is out, the version in the status bar shows `⬆`.
 ```sh
 conch update list        # every release, newest first
 conch update rollback    # back to the version before the last update
-conch update 0.2.0       # or a version you name
+conch update 0.2.1       # or a version you name
 ```

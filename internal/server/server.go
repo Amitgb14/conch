@@ -89,6 +89,10 @@ type Server struct {
 	files    fileStates  // git status of checkouts being browsed
 	lineIdx  lineIndexes // where the lines of big files being read start
 
+	// mover holds the agent moves scheduled between accounts
+	// (accountmove.go).
+	mover *mover
+
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent and account (limitKey)
 
@@ -144,6 +148,7 @@ func New(sockPath, configDir string) *Server {
 	// ago" from the moment it started (R63).
 	now := time.Now()
 	s := &Server{
+		mover:     newMover(),
 		usage:     usage.NewHistory(),
 		system:    sysstat.New(systemSource()),
 		sockPath:  sockPath,
@@ -252,6 +257,7 @@ func (s *Server) Run() error {
 	s.keep("intake", func() { s.runIntake(s.quit) })
 	s.keep("listening ports", func() { s.runListening(s.quit) })
 	s.keep("shell theme", func() { s.runShellTheme(s.quit) })
+	s.keep("account moves", s.watchMoves)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -1286,7 +1292,17 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodUsageHistory:
 		var others []usage.Root
 		for _, a := range s.accountBook().Accounts {
-			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir})
+			others = append(others, usage.Root{Agent: a.Agent, Dir: a.Dir, Name: a.Name})
+		}
+		// Older clients send nothing: one entry per agent, as before.
+		var hp proto.UsageHistoryParams
+		if len(msg.Params) > 0 {
+			if err := json.Unmarshal(msg.Params, &hp); err != nil {
+				return nil, proto.Errorf(proto.ErrBadRequest, "usage.history: %v", err)
+			}
+		}
+		if hp.ByAccount {
+			return s.usage.ByAccount(os.Getenv("HOME"), os.Getenv, time.Now(), time.Local, others...), nil
 		}
 		return s.usage.Summary(os.Getenv("HOME"), os.Getenv, time.Now(), others...), nil
 
@@ -1341,6 +1357,27 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.broadcastMessage(bp)
+
+	case proto.MethodAgentMove:
+		mp, perr := decode[proto.AgentMoveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.moveAgent(mp)
+
+	case proto.MethodAgentMoveCancel:
+		cp, perr := decode[proto.AgentMoveCancelParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.cancelMove(cp)
+
+	case proto.MethodAccountSuggest:
+		sp, perr := decode[proto.AccountSuggestParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.suggestAccount(sp)
 
 	case proto.MethodAgentPrompt:
 		pp, perr := decode[proto.AgentPromptParams](msg)

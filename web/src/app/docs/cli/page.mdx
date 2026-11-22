@@ -80,7 +80,10 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch new -agent claude [-account NAME] [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking; `-account` starts it on another of its [accounts](/docs/agents#several-accounts) |
 | `conch account list \| add AGENT NAME [-dir DIR] \| remove AGENT NAME` | an agent's other [accounts](/docs/agents#several-accounts) (Claude Code, Codex), each with its plan usage and agents |
 | `conch account pin [PATH] NAME \| unpin [PATH]` | agents started in a project, worktree or task folder use that account |
-| `conch account failover PERCENT\|off` | a new agent whose account is past PERCENT of a plan window starts on the agent's next account |
+| `conch account failover PERCENT\|off\|default [-agent AGENT]` | a new agent whose account is past PERCENT of a plan window starts on the agent's next account; `-agent` sets one agent's own line, `default` puts it back on every agent's |
+| `conch account suggest [AGENT]` | the agent's accounts ranked for a move: signed in, the most room, the fewest agents |
+| `conch agent move [-account NAME] ID` | carry an agent's conversation to another account and resume it there |
+| `conch account back [ACCOUNT]` | every agent moved off the account moved back, once it has room |
 | `conch ssh TARGET [SSH OPTION...]` | a terminal on this computer logged in to a host with ssh, outside every project — the session the TUI's `H` opens, built the same way (conch's ssh config, a connection of its own), so the tree, the files view and `-ssh` on `upload` and `download` know it as one; options after the target are ssh's (`-p 2222`, `-o Setting=value`); prints its pane ID. Not with `-m`: the session starts here |
 | `conch ssh -copy-key TARGET [SSH OPTION...]` | a terminal that puts this computer's public key on the host (making `~/.ssh/id_ed25519` first when there is none), so later logins need no password — the TUI's `K`. ssh asks for the host's password in that terminal, once; prints the pane's ID |
 | `conch ssh -check-key TARGET [SSH OPTION...]` | whether the host takes this computer's key, by one batch-mode login that never asks: prints `key`, `password` (every key refused) or `unreachable`, the last two with what ssh said, and exits 0 for all three |
@@ -307,9 +310,9 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | `conch sandbox providers [-json]` | the providers conch can make a sandbox with, whether each has its API key here (and if not, what to set), the sizes or place it takes instead of a snapshot, and what it says before one is made. Conch.app's **New Sandbox…** reads it; no provider needed |
 | `conch sandbox stats [-provider P]` | every provider's sandboxes in one table, and a line per provider: how many, in which states, what is running; no provider needed |
 | `conch sandbox -provider P …` | whose sandboxes the command means — an installed provider: daytona, boat, tensorlake or any other file, in front of any subcommand below. Required for all of them — there is no default, and a sandbox named under another provider is refused |
-| `conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes]` | make a sandbox with an installed provider (its key in the variable its file names, e.g. `$DAYTONA_API_KEY`), install conch there and add it as a machine; it runs until stopped. Template, region, image and size are what the provider's file offers, defaulting to Settings'. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails |
+| `conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes \| -keep] [-progress FILE]` | make a sandbox with an installed provider (its key in the variable its file names, e.g. `$DAYTONA_API_KEY`), install conch there and add it as a machine; it runs until stopped. Template, region, image and size are what the provider's file offers, defaulting to Settings'. `-env` passes a variable from your environment; `-yes` deletes the sandbox without asking if setting it up fails, `-keep` keeps it; `-progress FILE` writes each step as a JSON line (what Conch.app's sheet reads) |
 | `conch sandbox -provider P settings [-json]` | what the provider's file lets you choose — a region, a default image, a size — with its choices, and what `config.toml` chose |
-| `conch sandbox -provider P add [-label L] ID` | make a sandbox `ls` shows with no machine — one whose machine was removed, or on boat.dev one made in its own interface — one of conch's machines: started if stopped, conch installed, and added. Never deleted if that fails |
+| `conch sandbox -provider P add [-label L] [-progress FILE] ID` | make a sandbox `ls` shows with no machine — one whose machine was removed, or on boat.dev one made in its own interface — one of conch's machines: started if stopped, conch installed, and added. Never deleted if that fails |
 | `conch sandbox -provider P ls` | conch's sandboxes, their state and size, including ones no longer added as machines (also plain `conch sandbox -provider P`) |
 | `conch sandbox -provider P ssh [-t] ID [COMMAND...]` | a shell in a running sandbox, or `COMMAND` run there (`-t` gives it a terminal); exits with its status |
 | `conch sandbox -provider P start ID` | start a stopped sandbox |
@@ -476,11 +479,11 @@ conch doctor -json    # the same checks, for a script
 The first thing to run when something does not work. Each line is one thing conch relies on, and anything wrong comes with the command that puts it right:
 
 ```
-✓ conch     0.2.0 · darwin/arm64
+✓ conch     0.2.1 · darwin/arm64
 ✓ config    /Users/you/.config/conch/config.toml
 ✓ keys      ctrl+b, then 46 keys
 ✓ socket    /Users/you/.config/conch/conch.sock
-! server    pid 28356, up 6d, on another build (0.1.10) than this conch (0.2.0)
+! server    pid 28356, up 6d, on another build (0.2.0) than this conch (0.2.1)
             → conch server reload -binary /Users/you/.local/bin/conch  (panes and agents keep running)
 ✓ agents    claude 2.1.3 · codex 0.46.0  (not installed: gemini, opencode, devin)
 ✓ git       2.49.0, committing as You
@@ -701,6 +704,8 @@ Once signed in, the account's machines are in conch's machines (`conch machine l
 
 An account is a configuration folder of the agent's own: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex. Its sign-in, settings and conversations live there, so each account is signed in once and keeps its own history. Gemini CLI, OpenCode and Devin keep one account each: conch knows no clean way to give them a second.
 
+<AccountFlow />
+
 ```sh
 conch account add claude work                  # a folder of conch's for it
 conch account add claude home -dir ~/.claude-home
@@ -714,9 +719,17 @@ An agent starts on the account it is asked for (`-account`, `default` for the ag
 
 A pin names an account by name: a project pinned to `work` uses Claude's `work` and Codex's `work`, and an agent with none by that name keeps its own.
 
-**Plan limits are per account.** The status bar shows the account of the agent in view (`Claude work 5h 88%`), the limits window lists every account, and an alert says which account passed the line. **Settings → Agents → Agent accounts…** lists each machine's accounts with their usage and how many agents run on each.
+**Plan limits are per account.** The status bar shows the account of the agent in view, on whichever machine it runs (`✳✳ work 5h 88%`), its panel has a tab per account with the tokens each used by day and model, and an alert says which account passed the line. **Settings → Agents → Agent accounts…** in the TUI lists each machine's accounts with their usage and how many agents run on each; Conch.app's **Settings → Agents → Agent accounts** also adds and removes them, starts one to sign in, pins folders and sets failover. A window whose reset has passed shows no percentage until the agent reports again.
 
-**Failover.** With `conch account failover 90` (or the Failover row in Settings), a new agent whose account is past 90% of a plan window starts on the agent's next account: its own first, then the others in the order added. A running agent is never moved, since its conversation lives in its account's folder.
+**Failover.** With `conch account failover 90` (or the Failover row in Settings), a new agent whose account is past 90% of a plan window starts on the agent's next account: its own first, then the others in the order added. A running agent is never moved, since its conversation lives in its account's folder. Failover never crosses agents: Claude's accounts for Claude, Codex's for Codex. `conch account failover 95 -agent codex` gives Codex a line of its own (`off` for none); `conch account failover default -agent codex` puts it back on every agent's.
+
+**Moving a running agent.** A Claude Code agent whose plan runs out moves by itself to the account with the most room and carries on: conch stops it, copies its conversation into that account's folder, resumes it there in a pane that takes the old one's place, and sends "continue". A card counts down a few seconds first, with **Move Now**, **Choose…** and **Keep on default**. `[agents] no_move_at_limit = true` turns it off; `move_at_line = true` moves agents past the failover line too, when their turn ends. An agent sitting idle never moves; at the line, only one in use moves, as its turn ends. By hand: **Switch Account ▸** on an agent's menu, or `conch agent move p12 [-account NAME]`; once the account it came off has room again, **Move Back** is offered, for all of them at once with **Move All Back** or `conch account back default`. conch picks among signed-in accounts the one with the most room, then the fewest agents (`conch account suggest` shows its ranking). Never mid-turn, and never with background commands it started still running: those stop with it and the resumed agent cannot reach them, so an automatic move waits up to ten minutes for them, then says which will stop; by hand it is refused without `-force`. Start a dev server in a terminal of its own and a move leaves it running. Claude Code only for now.
+
+```sh
+conch account suggest            # the ranking, conch's pick first
+conch agent move p12             # to the account with most room
+conch agent move p12 -account default   # back
+```
 
 **Sessions** are read from every account's folder, say which account they belong to, and resume on that account whatever the folder is pinned to now.
 

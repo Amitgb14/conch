@@ -30,8 +30,10 @@ public enum SettingsNav {
         // A section shown on another's page has no row of its own, when
         // that page is there to show it.
         let schema = schema.filter { id in mergedInto[id].map { !schema.contains($0) } ?? true }
-        if schema.contains(skills) { return schema }
         var out = schema
+        // The browser's page beside the Mac app's own.
+        if !out.contains(browser), let i = out.firstIndex(of: "app") { out.insert(browser, at: i + 1) }
+        if out.contains(skills) { return out }
         if let i = out.firstIndex(of: "agents") {
             out.insert(skills, at: i + 1)
         } else {

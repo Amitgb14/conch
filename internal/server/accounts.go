@@ -2,6 +2,7 @@ package server
 
 import (
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -104,6 +105,16 @@ func (s *Server) chooseAccount(agent, asked, dir string) (accounts.Choice, *prot
 		return ch, proto.Errorf(proto.ErrBadRequest, "%v", err)
 	}
 	if ch.PassedOver != "" {
+		// The best of the rest by room, not the next in the order added:
+		// signed in, with the most room, the fewest agents on it.
+		if ranked := s.rankAccounts(agent, accountName(ch.PassedOver)); len(ranked) > 0 && ranked[0].Usable {
+			best := ranked[0].Account
+			dir := ""
+			if a, ok := s.accountBook().Get(agent, best); ok {
+				dir = a.Dir
+			}
+			ch.Account, ch.Dir = best, dir
+		}
 		log.Printf("accounts: %s's %s account is past its failover line; starting on %s", agent, ch.PassedOver, accounts.Label(ch.Account))
 	}
 	return ch, nil
@@ -132,12 +143,16 @@ func (s *Server) listAccounts() proto.AccountList {
 			running[limitKey(agent, info.Account)]++
 		}
 	}
-	out := proto.AccountList{Accounts: []proto.AccountInfo{}, FailoverAt: b.FailoverAt, Agents: accounts.Agents()}
+	out := proto.AccountList{Accounts: []proto.AccountInfo{}, FailoverAt: b.FailoverAt, Agents: accounts.Agents(), FailoverFor: b.FailoverFor}
+	home, _ := os.UserHomeDir()
 	add := func(a proto.AccountInfo) {
 		if l, ok := s.limitsOf(a.Agent, a.Name); ok {
 			a.Limits = &l
 		}
 		a.Agents = running[limitKey(a.Agent, a.Name)]
+		if in, known := accounts.SignedIn(a.Agent, a.Dir, home, os.Getenv); known {
+			a.SignedIn = &in
+		}
 		out.Accounts = append(out.Accounts, a)
 	}
 	for _, agent := range accounts.Agents() {
@@ -179,8 +194,14 @@ func (s *Server) pinAccount(p proto.AccountPinParams) *proto.Error {
 }
 
 func (s *Server) setFailover(p proto.AccountFailoverParams) *proto.Error {
-	if p.At < 0 || p.At > 100 {
+	if p.Shared && p.Agent == "" {
+		return proto.Errorf(proto.ErrBadRequest, "shared is for an agent's own line: name the agent")
+	}
+	if !p.Shared && (p.At < 0 || p.At > 100) {
 		return proto.Errorf(proto.ErrBadRequest, "failover is a percentage, 0 (off) to 100: %d", p.At)
+	}
+	if p.Agent != "" {
+		return s.changeAccounts(func(b *accounts.Book) error { return b.SetLine(p.Agent, p.At, !p.Shared) })
 	}
 	return s.changeAccounts(func(b *accounts.Book) error { b.FailoverAt = p.At; return nil })
 }

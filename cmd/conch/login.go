@@ -178,7 +178,10 @@ type accountJSON struct {
 func runAccount(args []string) error {
 	// Its subcommands are agent accounts (accounts.go); on its own it is
 	// the Conch Cloud account this device signed in to.
-	if len(args) > 0 && agentAccountCommands[args[0]] {
+	if !cloudAccount(args) {
+		if len(args) == 0 {
+			args = []string{"list"} // Cloud hidden: the accounts there are
+		}
 		return runAgentAccount(args)
 	}
 	fs := flag.NewFlagSet("account", flag.ContinueOnError)

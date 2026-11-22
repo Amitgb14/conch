@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import Combine
 import ConchKit
 import Foundation
@@ -69,6 +70,22 @@ final class Store: ObservableObject {
     @Published var agentStatus: [String: [AgentAvailability]] = [:]
     /// The agents whose installer is running, key(machine, agent).
     @Published var installingAgents: Set<String> = []
+    /// Each machine's agent accounts (account.list), for Settings →
+    /// Agents; nil for a machine not asked yet or that could not say.
+    @Published var agentAccounts: [String: AgentAccountList] = [:]
+    /// Each machine's usage by account, with its hours and days
+    /// (usage.history.accounts.v1), for the usage panel and Settings.
+    @Published var accountUsage: [String: UsageHistory] = [:]
+    /// Moves the servers have scheduled (agent.moving), by pane key, until
+    /// they happen or are called off.
+    @Published var movingAgents: [String: AgentMoving] = [:]
+    /// Each machine's agents' accounts ranked for a move (account.suggest),
+    /// by "machine|agent".
+    @Published var accountRanks: [String: [AccountRank]] = [:]
+    /// The move asked for by hand, while its sheet is up.
+    @Published var moveAsk: MoveAsk?
+    /// Move-back offers put off with Later, by pane key, for this session.
+    @Published var backLater: Set<String> = []
     /// The task being written, while its sheet is up.
     @Published var taskDraft: TaskDraft?
     /// Counts the autopilot's notes from each machine, so a feed showing
@@ -121,7 +138,8 @@ final class Store: ObservableObject {
     @Published var keyLogin: [String: Bool] = [:]
     var keyAsked: Set<String> = []
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
-    @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
+    /// Each machine's plans, as its own server heard them (agent.limits).
+    @Published var plans = MachinePlans() { didSet { alertLimits() } }
     /// Plan limit alerts already raised (limitCrossings), kept with the
     /// app's preferences so a restart does not raise them again.
     private var limitSeen: [String: Int] = (UserDefaults.standard.dictionary(forKey: "conch.limitSeen") as? [String: Int]) ?? [:]
@@ -233,6 +251,9 @@ final class Store: ObservableObject {
     private(set) var sessionViews: [String: SessionsModel] = [:]
     private(set) var commitViews: [String: CommitsModel] = [:]
     private var asking: Set<String> = []
+    /// Questions just answered from here, not shown again while the agent
+    /// takes the answer (AnsweredQuestions).
+    private(set) var answered = AnsweredQuestions()
 
     /// Which window this store is (Windows+Store.swift): "main" for the
     /// first, which also says what is said once for every window — a
@@ -274,11 +295,26 @@ final class Store: ObservableObject {
         Theme.style = style
         if style.roster { sidebarVisible = false }
         watchChanges()
+        // A new Conch.app starts white (firstLaunchTOML): written before
+        // the first theme is read, so the window never shows dark first.
+        // New is an app that has kept no preference yet — not merely one
+        // that has not seen this welcome, which a Conch.app from before
+        // the welcome hasn't either.
+        if primary {
+            let kept = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:]
+            let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
+            let next = firstLaunchTOML(toml, newInstall: kept.isEmpty)
+            if next != toml {
+                try? FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
+                try? next.write(toFile: configFile, atomically: true, encoding: .utf8)
+            }
+        }
         loadTheme()
         watchClicks()
         watchConfig()
         watchQuestions()
         watchTreeKeys()
+        watchBrowserKeys()
         watchAppearance()
     }
 
@@ -750,8 +786,6 @@ final class Store: ObservableObject {
 
     // MARK: the status bar's own: limits, settings, what conch uses
 
-    /// Asks again what each agent's plan has used, as the limits popover
-    /// opens: a report from minutes ago is not what anyone opened it for.
     /// What the agents on each machine used over the last day, week and
     /// month (usage.history.v1), in the sidebar's order of machines; asked
     /// when the usage popover opens.
@@ -777,10 +811,19 @@ final class Store: ObservableObject {
         }
     }
 
-    func refreshLimits() {
-        guard let c = conns["local"] else { return }
+    /// Asks machine again what each agent's plan has used, as it connects
+    /// and as its usage opens: a report from minutes ago is not what anyone
+    /// opened it for.
+    func refreshLimits(on machine: String) {
+        guard let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains(agentLimitsCapability) == true else {
+            plans.set([], on: machine) // not what a newer server there once said
+            return
+        }
         Task {
-            if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
+            guard let l = try? await c.call("agent.limits", as: AgentLimitsResult.self),
+                  conns[machine] === c else { return } // a connection since let go
+            plans.set(l.limits ?? [], on: machine)
         }
     }
 
@@ -1139,17 +1182,39 @@ final class Store: ObservableObject {
     /// A TUI open meanwhile holds its own copy of the file; the settings
     /// page is the way to change it there.
     private func setAppSetting(_ key: String, _ value: String?) {
+        changeConfig(key) { settingTOML($0, section: "app", key: key, value: value) }
+    }
+
+    /// config.toml changed by edit, the rest of the file kept, then read
+    /// back so the window takes it; what names the setting if it fails.
+    private func changeConfig(_ what: String, _ edit: (String) -> String) {
         let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
-        let next = settingTOML(toml, section: "app", key: key, value: value)
+        let next = edit(toml)
         guard next != toml else { return }
         do {
             try FileManager.default.createDirectory(atPath: conchDir, withIntermediateDirectories: true)
             try next.write(toFile: configFile, atomically: true, encoding: .utf8)
         } catch {
-            say("Could not save \(key): \(error.localizedDescription)", .err)
+            say("Could not save \(what): \(error.localizedDescription)", .err)
             return
         }
         loadTheme()
+    }
+
+    /// The look the welcome asked for, written to config.toml's [ui] so the
+    /// TUI and every terminal take it too. A theme pinned for this window
+    /// (View → Theme) would hide it, so the pin goes.
+    func chooseLook(_ id: WelcomeLookID) {
+        changeConfig("the theme") { welcomeLookTOML($0, id) }
+        if !themeChoice.isEmpty { chooseTheme("") }
+        lookChosen = welcomeLook(in: try? String(contentsOfFile: configFile, encoding: .utf8))
+    }
+
+    /// The welcome's look as config.toml has it, for its tick.
+    @Published var lookChosen: WelcomeLookID? = nil
+
+    func readLook() {
+        lookChosen = welcomeLook(in: try? String(contentsOfFile: configFile, encoding: .utf8))
     }
 
     /// ⌘+ / ⌘−: the terminal's font a point bigger or smaller; nil, the default.
@@ -1222,9 +1287,44 @@ final class Store: ObservableObject {
                 // screen (Cel hides it behind its column of projects).
                 guard let self, !self.terminalHasKeyboard, !self.paletteOpen, self.taskDraft == nil, self.sidebarVisible,
                       let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
-                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField) else { return false }
+                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField),
+                      !Self.typingInWebPage(win.firstResponder) else { return false }
                 self.treeKey(k)
                 return true
+            }
+            return taken ? nil : e
+        }]
+    }
+
+    /// Whether the keyboard is in a web page — a browser tab's page, its
+    /// fields included, which are views inside the WKWebView rather than
+    /// NSText. The tree's one-letter keys took them: `t` typed into a
+    /// page's search box opened New Task.
+    static func typingInWebPage(_ r: NSResponder?) -> Bool {
+        var v = r as? NSView
+        while let view = v {
+            if view is WKWebView { return true }
+            v = view.superview
+        }
+        return false
+    }
+
+    /// A browser's keys (⌘T, ⌘W, ⌘L, ⌃Tab…) while one has the keyboard —
+    /// its page, its address or find field — ahead of the menus, where ⌘T
+    /// and ⌘W are a terminal's. A key without ⌘ or ⌃ is never taken: what
+    /// is typed into a page is the page's.
+    private func watchBrowserKeys() {
+        eventMonitors += [NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let f = e.modifierFlags
+            guard let a = browserKeyAction(characters: e.charactersIgnoringModifiers ?? "", keyCode: e.keyCode,
+                                           command: f.contains(.command), shift: f.contains(.shift),
+                                           option: f.contains(.option), control: f.contains(.control)) else { return e }
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard let self, !self.terminalHasKeyboard, !self.paletteOpen,
+                      let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
+                      let k = self.layout.focused, parseBrowserKey(k) != nil, let m = self.browserViews[k],
+                      m.hasKeyboard(win.firstResponder) else { return false }
+                return m.perform(a)
             }
             return taken ? nil : e
         }]
@@ -1298,6 +1398,9 @@ final class Store: ObservableObject {
     func connect() {
         guard !windowClosed else { return }
         let data = FileManager.default.contents(atPath: (conchDir as NSString).appendingPathComponent("machines.json"))
+        // Every installed provider's machines are sandboxes, InstaBox's too.
+        MachineEntry.sandboxProviders = MachineEntry.builtInSandboxProviders
+            .union(installedSandboxProviders(dir: (conchDir as NSString).appendingPathComponent("providers")))
         catalog = MachineEntry.all(machinesJSON: data)
         if let a = addingMachine {
             // An install is watched in a terminal and may take minutes;
@@ -1323,6 +1426,7 @@ final class Store: ObservableObject {
             c.shutdown()
         }
         machines = next
+        plans.keep(only: kept)
         for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
         if next.contains(where: { $0.provider.map { sandboxCaps[$0] == nil } ?? false }) { loadSandboxCaps() }
     }
@@ -1394,8 +1498,8 @@ final class Store: ObservableObject {
             if machine == "local" {
                 error = nil
                 status = ""
-                if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
             }
+            refreshLimits(on: machine)
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
             if machine == "local" { detectMobile(projects.projects.flatMap(mobileDirs), force: true) }
             countSessions(machine)
@@ -1826,6 +1930,7 @@ final class Store: ObservableObject {
                 // waiting, that published a change of nothing and redrew
                 // the window past snapshotsChanged's coalescing.
                 dropValue(k, from: \Store.questions, of: self)
+                answered.clear(k)
             }
         case "pane.closed":
             // The server says only which pane ({"id": …}); read as a whole
@@ -1896,10 +2001,16 @@ final class Store: ObservableObject {
             }
             return
         case "agent.limits":
-            if machine == "local", let l = try? dec.decode(PlanLimits.self, from: data) {
-                limits.removeAll { $0.agent == l.agent }
-                limits.append(l)
+            if let l = try? dec.decode(PlanLimits.self, from: data) {
+                plans.report(l, on: machine)
+                loadRanks(on: machine, agent: l.agent)
             }
+            return
+        case "agent.moving":
+            if let m = try? dec.decode(AgentMoving.self, from: data) { agentMoving(m, on: machine) }
+            return
+        case "agent.moved":
+            if let m = try? dec.decode(AgentMoved.self, from: data) { agentMoved(m, on: machine) }
             return
         default:
             return
@@ -1936,6 +2047,9 @@ final class Store: ObservableObject {
         Task {
             defer { asking.remove(k) }
             let q = try? await readQuestion(b, pane: id, machine: m)
+            // The one just answered, still on the agent's screen: not
+            // shown again, or the card's buttons came back for a moment.
+            if answered.hides(k, q) { return }
             // Only a change is drawn again: read every tick, most reads
             // find the same question.
             if questions[k] != q { questions[k] = q }
@@ -1965,6 +2079,7 @@ final class Store: ObservableObject {
 
     func answer(_ k: String, _ q: Question, _ c: Choice) {
         guard let b = binary else { return }
+        answered.note(k, q)
         questions.removeValue(forKey: k) // answered: the buttons go at once
         let (m, id) = unkey(k)
         Task {
@@ -1972,6 +2087,7 @@ final class Store: ObservableObject {
                 try await ConchKit.answer(b, pane: id, machine: m, question: q, choice: c)
             } catch {
                 self.error = "\(error)"
+                answered.clear(k)
                 ask(k)
             }
         }
@@ -2108,7 +2224,7 @@ final class Store: ObservableObject {
         let now = Date()
         var seen = pruneLimitAlerts(limitSeen, now: now)
         var alerts: [LimitAlert] = []
-        for l in limits { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
+        for l in plans.on("local") { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
         if seen != limitSeen {
             limitSeen = seen
             UserDefaults.standard.set(seen, forKey: "conch.limitSeen")
@@ -2248,7 +2364,21 @@ final class Store: ObservableObject {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self, self.terminals[k]?.ended != nil else { return }
-            if self.pane(k)?.running == true { self.restartTerminal(k) } else { self.restartOnConnect.insert(k) }
+            if self.pane(k)?.running == true {
+                self.restartTerminal(k)
+            } else if closesWhenViewEnds(self.pane(k)), PaneTerminal.holds(self.binary), let c = self.conns[machine] {
+                // Only an attach that holds (-hold) waits for a key; an
+                // older one ends with the program, before anyone read it.
+                // Over, and a key was pressed under "any key closes": a
+                // failed sandbox setup or an early failure, kept open to be
+                // read and now read.
+                let id = unkey(k).id
+                self.terminals.removeValue(forKey: k)?.stop()
+                self.layout.close(k)
+                Task { try? await c.call("pane.close", PaneRefParams(id: id)) }
+            } else {
+                self.restartOnConnect.insert(k)
+            }
         }
     }
 
@@ -2355,17 +2485,48 @@ final class Store: ObservableObject {
 
     private(set) var browserViews: [String: BrowserModel] = [:]
     private var blankBrowsers = 0
+    /// Browser panes' tabs as saved, by pane, taken by each pane the first
+    /// time it is shown.
+    var savedBrowsers: [String: SavedBrowser] = [:]
 
     func browser(for k: String) -> BrowserModel {
         if let m = browserViews[k] { return m }
-        let m = BrowserModel(key: k, store: self)
+        let m = BrowserModel(key: k, store: self, saved: savedBrowsers.removeValue(forKey: k))
         browserViews[k] = m
         return m
     }
 
+    /// Every browser pane's tabs, for saving.
+    var browserTabs: [String: BrowserTabs] { browserViews.mapValues(\.tabs) }
+
+    /// A browser tab moved out to a pane of its own beside its browser —
+    /// a tab of its own in a workbench, which has one browser — with its
+    /// page and history.
+    func browserTabToOwnPane(from k: String, tab: BrowserTab, page: BrowserPage?) {
+        blankBrowsers += 1
+        let n = browserKey("about:blank#\(blankBrowsers)")
+        let m = BrowserModel(key: n, store: self, moving: tab, page: page)
+        browserViews[n] = m
+        if let i = layout.tab(showing: k), layout.tabs[i].benchAgent == nil {
+            layout.focus(k)
+            layout.split(.horizontal, with: n)
+        } else {
+            layout.open(n)
+        }
+        m.showActive()
+    }
+
     /// A page in a tab of its own beside the agents; nil for an empty one
     /// to type an address into. A page already open is shown, not opened twice.
-    func openBrowser(_ url: String?) {
+    /// Puts tab `from` beside (or below) tab `into`, in one tab.
+    func joinTab(_ from: Int, into: Int, _ axis: SplitNode.Axis) {
+        layout.join(from, into: into, axis)
+        if let f = layout.focused, parseBrowserKey(f) != nil { terminalHasKeyboard = false } else { focusTerminal() }
+    }
+
+    /// A browser in a tab of its own, or with `split` beside the focused
+    /// pane — an agent on one side, its page on the other.
+    func openBrowser(_ url: String?, split: SplitNode.Axis? = nil) {
         let k: String
         if let url {
             k = browserKey(url)
@@ -2373,8 +2534,50 @@ final class Store: ObservableObject {
             blankBrowsers += 1
             k = browserKey("about:blank#\(blankBrowsers)")
         }
-        layout.open(k)
+        // Into a workbench a browser goes as one of its parts — a plain
+        // split there was taken for its terminal, and could not be shown,
+        // hidden or closed from the workbench's bar.
+        if split != nil, layout.current?.benchAgent != nil, layout.addBenchBrowser(k, chat: offersChat) {
+            terminalHasKeyboard = false
+            return
+        }
+        if let split, layout.focused != k { layout.split(split, with: k) } else { layout.open(k) }
         terminalHasKeyboard = false
+    }
+
+    /// The workbench's Browser switch: shows or hides its browser, or opens
+    /// one — on the agent's dev server when it listens on a port.
+    func toggleBenchBrowser() {
+        guard let parts = layout.benchParts(layout.active) else { return }
+        if let b = parts.browser {
+            layout.toggleHidden(b)
+            return
+        }
+        let port = pane(parts.agent)?.listening?.first
+        openBrowser(port.map { "http://localhost:\($0)" }, split: .horizontal)
+    }
+
+    /// Closes a browser: out of its workbench, or its split or tab.
+    func closeBrowser(_ k: String) {
+        if let i = layout.tab(showing: k), layout.tabs[i].benchAgent != nil {
+            layout.select(i)
+            layout.removeBenchBrowser(chat: offersChat)
+        } else {
+            layout.close(k)
+        }
+        browserViews.removeValue(forKey: k)?.shutdown()
+    }
+
+    /// A browser out of a workbench or split, in a tab of its own.
+    func browserToItsOwnTab(_ k: String) {
+        guard let i = layout.tab(showing: k), layout.tabs[i].root.panes.count > 1 else { return }
+        if layout.tabs[i].benchAgent != nil {
+            layout.select(i)
+            layout.removeBenchBrowser(chat: offersChat)
+        } else {
+            layout.close(k)
+        }
+        layout.open(k)
     }
 
     /// Each task's brief being edited, by machine and folder: kept here so
@@ -2480,11 +2683,37 @@ final class Store: ObservableObject {
         if layout.focused != k { layout.focus(k) }
     }
 
+    /// The keyboard to the focused split: its terminal, or — a browser
+    /// beside an agent — its page, which takes it from the terminal, so a
+    /// key typed after moving between splits goes where the eye is.
     func focusTerminal() {
         guard let p = layout.focused else { return }
+        if !leafHasTerminal(p) { terminalHasKeyboard = false }
         DispatchQueue.main.async {
             if let v = self.terminals[p]?.view, v.window?.makeFirstResponder(v) == true { self.terminalHasKeyboard = true }
+            if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w,
+               self.browserViews[p]?.chromeEditing != true {
+                win.makeFirstResponder(w)
+            }
         }
+    }
+
+    /// A split taken out to a tab of its own, keeping what it shows.
+    func detachSplit(_ k: String) {
+        layout.detach(k)
+        focusTerminal()
+    }
+
+    /// Tab i put beside pane: one pane alone goes into a split next to
+    /// that pane; a tab of splits joins the pane's tab whole.
+    func moveTab(_ i: Int, beside pane: String, _ axis: SplitNode.Axis = .horizontal, before: Bool = false) {
+        guard layout.tabs.indices.contains(i) else { return }
+        if case .leaf = layout.tabs[i].root {
+            layout.moveTab(i, beside: pane, axis, before: before)
+        } else if let into = layout.tab(showing: pane), layout.canJoin(i, into: into) {
+            layout.join(i, into: into, axis)
+        }
+        focusTerminal()
     }
 
     /// A new shell where the focused pane is — its machine and its folder,
@@ -2524,7 +2753,7 @@ final class Store: ObservableObject {
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
-        if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
+        browserViews.removeValue(forKey: p)?.shutdown() // its pages go quiet
         focusTerminal()
     }
 
@@ -2666,6 +2895,7 @@ final class Store: ObservableObject {
 
     func command(_ id: String) {
         switch id {
+        case let b where b.hasPrefix("browser:"): browserCommand(String(b.dropFirst("browser:".count)))
         case "focusSidebar": focusSidebar()
         case "settings": openSettings()
         case "systemMonitor": openSystemMonitor()
@@ -2680,6 +2910,10 @@ final class Store: ObservableObject {
         case "newTab": newTerminal(split: nil)
         case "splitRight": newTerminal(split: .horizontal)
         case "splitDown": newTerminal(split: .vertical)
+        case "splitRightBrowser": openBrowser(nil, split: .horizontal)
+        case "splitDownBrowser": openBrowser(nil, split: .vertical)
+        case "splitRightAgent": startAgentHere(split: .horizontal)
+        case "splitDownAgent": startAgentHere(split: .vertical)
         case "closeSplit": closeSplit()
         case "nextWaiting": nextWaiting()
         case "find": if let f = focusedFiles { f.findInFile(replace: false) } else { openFind() }
@@ -2753,6 +2987,13 @@ final class Store: ObservableObject {
                            offerCloud: offersCloud, mobile: m == "local" ? mobileProjectIDs : [],
                            teams: teams, canTeam: conns[m]?.hello?.capabilities?.contains("pane.team.v1") == true,
                            integrations: conns[m]?.hello?.capabilities?.contains("integration.detect.v1") == true)
+        // An agent's Switch Account ▸, where its server can move it.
+        if case .agent(let k) = node.kind, let p = pane(k), p.agent?.name == "claude", p.running, canMoveAgents(on: m) {
+            let ranks = accountRanks[m + "|claude"] ?? []
+            if ranks.isEmpty { loadRanks(on: m, agent: "claude") }
+            let at = (items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" }).map { $0 + 1 } ?? items.count
+            items.insert(switchAccountMenu(pane: k, on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
+        }
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -2837,6 +3078,7 @@ final class Store: ObservableObject {
         case .open, .divider: activate(node)
         case .rename(let k): renamePane(k)
         case .setTeam(let k, let t): setTeam(k, t)
+        case .moveAgent(let k, let acct): askMove(k, to: acct)
         case .newTeam(let k): newTeam(k)
         case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)
@@ -3190,6 +3432,11 @@ final class Store: ObservableObject {
 
     /// New Sandbox…, the sheet that makes one (NewSandboxSheet).
     @Published var newSandboxOpen = false
+    /// Sandboxes being set up from New Sandbox… (SandboxSetup+Store.swift),
+    /// and the one its sheet shows; nil shows the form.
+    @Published var sandboxSetups: [SandboxSetupRun] = []
+    @Published var sandboxSheetRun: UUID?
+    var setupTimer: Timer?
 
     /// conch run with args in a terminal of its own on this Mac, opened in
     /// a tab, so what it does — an install, a sandbox being made — is
@@ -3265,7 +3512,7 @@ final class Store: ObservableObject {
     /// Starts an agent (or, without one, a terminal) and shows it in a tab
     /// of its own, as the TUI's c and n do.
     func newPane(machine: String, cwd: String?, inProject: Bool, agent: String?, prompt: String? = nil,
-                 started: ((PaneInfo) -> Void)? = nil) {
+                 split: SplitNode.Axis? = nil, started: ((PaneInfo) -> Void)? = nil) {
         guard let c = conns[machine] else { return }
         struct Create: Encodable {
             var agent: String?
@@ -3276,6 +3523,7 @@ final class Store: ObservableObject {
             var rows: Int?
         }
         let size = newPaneSize()
+        let beside = layout.focused // asked from here, though an install may take a while
         Task {
             if let agent, !(await readyAgent(agent, on: machine)) { return }
             do {
@@ -3283,7 +3531,7 @@ final class Store: ObservableObject {
                                                                cols: size?.cols, rows: size?.rows), as: PaneInfo.self)
                 snapshots[machine, default: Snapshot()].upsert(p)
                 joinWorkspace(machine: machine, pane: p)
-                layout.open(key(machine, p.id))
+                if let split { layout.split(split, with: key(machine, p.id), beside: beside) } else { layout.open(key(machine, p.id)) }
                 focusTerminal()
                 started?(p)
             } catch {
@@ -3417,12 +3665,12 @@ final class Store: ObservableObject {
 
     /// Starts the machine's first agent where the focused pane is (its
     /// folder, in its project), else in this computer's home.
-    func startAgentHere() {
+    func startAgentHere(split: SplitNode.Axis? = nil) {
         if let f = layout.focused, let p = pane(f) {
             let m = unkey(f).machine
-            newPane(machine: m, cwd: p.cwd, inProject: p.projectID != nil, agent: startable(on: m).first?.name)
+            newPane(machine: m, cwd: p.cwd, inProject: p.projectID != nil, agent: startable(on: m).first?.name, split: split)
         } else {
-            newPane(machine: "local", cwd: nil, inProject: false, agent: startable(on: "local").first?.name)
+            newPane(machine: "local", cwd: nil, inProject: false, agent: startable(on: "local").first?.name, split: split)
         }
     }
 

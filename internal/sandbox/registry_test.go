@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/Amitgb14/conch/internal/integration"
 	"net/http"
 	"net/http/httptest"
@@ -272,5 +273,95 @@ func TestRegistryFileAndInstall(t *testing.T) {
 	InstallProviderFile("acme", data)
 	if good, bad := CustomProviders(); len(good) != 1 || len(bad) != 0 {
 		t.Fatalf("providers %v %v", good, bad)
+	}
+}
+
+// FetchSignedIndex reads only an index whose signature a known key
+// checks: unsigned, signed by another key, or with no key known, it is
+// refused and nothing in it is read.
+func TestFetchSignedIndex(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	r := newFakeRegistry(t)
+	r.publish("acme", registryFile("acme"))
+	data, _ := json.Marshal(r.index)
+	r.raw = data
+	priv, pub, _ := integration.NewKey()
+	otherPriv, _, _ := integration.NewKey()
+	ctx := context.Background()
+
+	// No key known (conch's own registry today): FetchIndex reads it,
+	// FetchSignedIndex does not.
+	t.Setenv("CONCH_PROVIDERS_KEY", "")
+	if ix, err := FetchIndex(ctx); err != nil || len(ix.Providers) != 1 {
+		t.Fatalf("FetchIndex: %v", err)
+	}
+	r.mu.Lock()
+	before := r.hits["index.json"]
+	r.mu.Unlock()
+	if _, err := FetchSignedIndex(ctx); !errors.Is(err, ErrUnsigned) {
+		t.Fatalf("no key: %v", err)
+	}
+	// Known before any request: nothing is asked of the registry.
+	r.mu.Lock()
+	if r.hits["index.json"] != before || r.hits["index.json.sig"] != 0 {
+		t.Fatalf("asked with no key known: %v", r.hits)
+	}
+	r.mu.Unlock()
+	// A key known and no signature, or another key's: refused by both.
+	t.Setenv("CONCH_PROVIDERS_KEY", pub)
+	if _, err := FetchSignedIndex(ctx); err == nil || !strings.Contains(err.Error(), "not signed") {
+		t.Fatalf("unsigned: %v", err)
+	}
+	sig, _ := integration.Sign(otherPriv, data)
+	r.mu.Lock()
+	r.files["index.json.sig"] = []byte(sig)
+	r.mu.Unlock()
+	if _, err := FetchSignedIndex(ctx); err == nil || !strings.Contains(err.Error(), "signature does not match") {
+		t.Fatalf("another key's: %v", err)
+	}
+	// Signed by the key: read.
+	sig, _ = integration.Sign(priv, data)
+	r.mu.Lock()
+	r.files["index.json.sig"] = []byte(sig)
+	r.mu.Unlock()
+	if ix, err := FetchSignedIndex(ctx); err != nil || len(ix.Providers) != 1 || ix.Providers[0].Name != "acme" {
+		t.Fatalf("signed: %+v %v", ix, err)
+	}
+	// Outside a test binary the key is the compiled-in one alone: an index
+	// rightly signed by a key from $CONCH_PROVIDERS_KEY is anybody's, and
+	// is refused before it is asked for. conch's own FetchIndex still
+	// reads it, as it shows the hosts and asks.
+	t.Run("only the compiled-in key", func(t *testing.T) {
+		OnlyCompiledKey(t)
+		r.mu.Lock()
+		before := r.hits["index.json"]
+		r.mu.Unlock()
+		if _, err := FetchSignedIndex(ctx); !errors.Is(err, ErrUnsigned) {
+			t.Fatalf("self-signed: %v", err)
+		}
+		r.mu.Lock()
+		if r.hits["index.json"] != before {
+			t.Fatalf("asked: %v", r.hits)
+		}
+		r.mu.Unlock()
+		if ix, err := FetchIndex(ctx); err != nil || len(ix.Providers) != 1 {
+			t.Fatalf("conch's FetchIndex: %v", err)
+		}
+	})
+	// One byte changed after signing: refused.
+	r.mu.Lock()
+	r.raw = append(append([]byte{}, data...), ' ')
+	r.mu.Unlock()
+	if _, err := FetchSignedIndex(ctx); err == nil {
+		t.Fatal("a changed index was read")
+	}
+	// Too new a format is its own error, for a caller to say in its words.
+	r.mu.Lock()
+	r.raw = []byte(`{"format": 9, "entries": []}`)
+	sig, _ = integration.Sign(priv, r.raw)
+	r.files["index.json.sig"] = []byte(sig)
+	r.mu.Unlock()
+	if _, err := FetchSignedIndex(ctx); !errors.Is(err, ErrIndexTooNew) {
+		t.Fatalf("too new: %v", err)
 	}
 }

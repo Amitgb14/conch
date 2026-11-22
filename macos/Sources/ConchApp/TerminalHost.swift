@@ -301,12 +301,7 @@ struct TerminalHost: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let box = DropBox()
-        box.onDrop = { [weak terminal] urls in
-            guard let t = terminal else { return false }
-            return t.dropped(urls)
-        }
-        box.place = { [weak terminal] fill in terminal?.place(in: fill) ?? fill }
-        box.onTake = { [weak terminal] in terminal?.take() }
+        wire(box)
         box.wantsLayer = true
         box.layer?.masksToBounds = true
         box.layer?.backgroundColor = Theme.paneTerminal.cgColor
@@ -317,11 +312,27 @@ struct TerminalHost: NSViewRepresentable {
 
     func updateNSView(_ box: NSView, context: Context) {
         let _ = look
+        if let b = box as? DropBox { wire(b) }
         if terminal.view.superview !== box { mount(in: box) }
         terminal.paneSize = paneSize
         // The box's colours, dots or not, are set where it is laid out,
         // which knows whether the terminal fills it.
         box.needsLayout = true
+    }
+
+    /// Points the box's drop, layout and click at this pane — again on
+    /// every update, since SwiftUI reuses the box for another pane when
+    /// the same place shows it (switching between single-pane tabs). Set
+    /// once, they stayed with the first pane: a file dropped on the second
+    /// was pasted into the first agent, and the room the second had was
+    /// told to the first.
+    private func wire(_ box: DropBox) {
+        box.onDrop = { [weak terminal] urls in
+            guard let t = terminal else { return false }
+            return t.dropped(urls)
+        }
+        box.place = { [weak terminal] fill in terminal?.place(in: fill) ?? fill }
+        box.onTake = { [weak terminal] in terminal?.take() }
     }
 
     /// Puts this pane's terminal in the box, and takes out whichever was

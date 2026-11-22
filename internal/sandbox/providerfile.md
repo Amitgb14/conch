@@ -198,6 +198,13 @@ And beside what earlier formats have:
   reply, used instead of `host` and `port` when it is there.
   `[ssh] wait_secs = 90` asks `[ssh.access]` again while it gives no
   address.
+- `[ssh] max_secs = 86400`: the longest life `[ssh.access]`'s credential
+  may be asked for, sent as `{expires_secs}` or `{expires_mins}` in its
+  call or body (`?expiresInMinutes={expires_mins}`). conch-sandbox writes
+  that credential into an ssh alias, so it asks for the whole of it;
+  conch itself, which asks again at every connection, asks for an hour at
+  most (or `max_secs`, if that is less). Without it the provider's own
+  default applies.
 - `[list] all_mine = true`: the list call asks only for conch's own (by a
   label `[create]` puts on them), so names are not checked and `{name}`
   need not be sent.

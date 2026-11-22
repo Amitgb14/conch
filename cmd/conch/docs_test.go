@@ -139,6 +139,7 @@ func TestDocsPictures(t *testing.T) {
 		"../../web/src/app/docs/why/page.mdx":    {"<FeatureGrid", "<AutopilotLoop", "<Shot"},
 		"../../web/src/app/docs/tasks/page.mdx":  {"<TaskFlow"},
 		"../../web/src/app/docs/agents/page.mdx": {"<AgentStates"},
+		"../../web/src/app/docs/cli/page.mdx":    {"<AccountFlow"},
 	} {
 		b, err := os.ReadFile(page)
 		if err != nil {
@@ -363,5 +364,18 @@ func TestDocsWhatsNew(t *testing.T) {
 	acc := string(agents)[strings.Index(string(agents), "## Several accounts"):]
 	if !regexp.MustCompile(`(?m)^1\. `).MatchString(acc) || !regexp.MustCompile(`(?m)^3\. `).MatchString(acc) {
 		t.Error("Several accounts should say how to use it in numbered steps")
+	}
+}
+
+// TestSiteVersionSkipsPrereleases: the site's version is the newest release
+// tag, so a prerelease tagged on master (v0.2.2-beta.1, after v0.2.1 and
+// before v0.2.2 was merged back) must not be what it offers.
+func TestSiteVersionSkipsPrereleases(t *testing.T) {
+	b, err := os.ReadFile("../../web/src/lib/version.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"--exclude", "v*-*"`) {
+		t.Error("web/src/lib/version.ts asks git describe for any v* tag, prereleases included")
 	}
 }

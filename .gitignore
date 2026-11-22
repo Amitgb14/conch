@@ -1,6 +1,8 @@
 /bin/
 /dist/
 /conch
+# `go build` run inside the folder leaves the program there
+/cmd/conch-sandbox/conch-sandbox
 
 # macOS leaves one in every folder it has been looked at in
 .DS_Store

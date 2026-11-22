@@ -27,6 +27,11 @@ jobs:
       # FSEvents, and so mostly poll. A mac build made on a mac (`make
       # release`) has FSEvents, and its archives differ from these.
       - run: scripts/release.sh "${GITHUB_REF_NAME}"
+      # conch-sandbox, for herdr, the herdr app and Orca: the four builds
+      # as they are, SHA256SUMS, and conch-sandbox.sh — the launcher with
+      # this version and those hashes pinned, which the plugins ship. After
+      # release.sh, which empties dist/.
+      - run: scripts/sandbox-release.sh "${GITHUB_REF_NAME}"
       # Publish, whether or not the release is already there. A tag can
       # arrive twice — moved to re-cut a version, or pushed after the
       # release was made by hand — and `gh release create` exits 1 on
@@ -41,9 +46,9 @@ jobs:
           set -eu
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "release $TAG exists: replacing its archives, keeping its notes"
-            gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt --clobber
+            gh release upload "$TAG" dist/*.tar.gz dist/checksums.txt dist/conch-sandbox-* dist/SHA256SUMS dist/conch-sandbox.sh --clobber
           else
-            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt --generate-notes
+            gh release create "$TAG" dist/*.tar.gz dist/checksums.txt dist/conch-sandbox-* dist/SHA256SUMS dist/conch-sandbox.sh --generate-notes
           fi
       # Homebrew: the formula for these archives, committed to the tap so
       # `brew install Amitgb14/conch/conch` and `brew upgrade` find it.

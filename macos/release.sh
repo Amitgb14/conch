@@ -51,7 +51,8 @@ if [ -n "$identity" ]; then
 	echo "signing with $identity"
 	# Inside out: the conch inside the bundle first, then the bundle.
 	codesign --force --options runtime --timestamp --sign "$identity" "$app/Contents/Resources/conch"
-	codesign --force --options runtime --timestamp --sign "$identity" "$app"
+	# A browser tab's page may use the camera and microphone, once allowed.
+	codesign --force --options runtime --timestamp --entitlements "$here/Conch.entitlements" --sign "$identity" "$app"
 else
 	[ -z "$profile" ] || { echo "release.sh: notarizing needs a Developer ID Application certificate, and the keychain has none" >&2; exit 1; }
 	echo "  note: no Developer ID Application certificate: signed ad hoc, and macOS will warn whoever downloads it"

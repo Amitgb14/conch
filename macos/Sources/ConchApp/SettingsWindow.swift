@@ -244,6 +244,8 @@ struct SettingsView: View {
                     banner
                     if model.section == SettingsNav.skills {
                         ScrollView { SkillsSettingsPane(store: model.store).padding(.horizontal, 34).padding(.top, 26).padding(.bottom, 90) }
+                    } else if model.section == SettingsNav.browser {
+                        ScrollView { BrowserSettingsPane(store: model.store).padding(.horizontal, 34).padding(.top, 26).padding(.bottom, 90) }
                     } else if let f = model.form, let s = f.payload.schema.first(where: { $0.id == model.section }) {
                         ScrollView { SectionForm(model: model, section: s).padding(.horizontal, 34).padding(.top, 26).padding(.bottom, 90) }
                             .id(s.id)
@@ -347,9 +349,9 @@ struct SettingsView: View {
         return Button { model.section = id } label: {
             HStack(spacing: 10) {
                 let look = model.iconLook
-                SectionIcon(icon: s?.icon ?? SettingsNav.skillsIcon, set: look.set, style: look.style,
+                SectionIcon(icon: s?.icon ?? SettingsNav.icon(of: id), set: look.set, style: look.style,
                             color: on ? Theme.accent : Theme.text2, size: 15).frame(width: 22)
-                Text(s?.title ?? SettingsNav.skillsTitle).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
+                Text(s?.title ?? SettingsNav.title(of: id)).font(.ui(size: 13)).foregroundStyle(on ? Theme.text : Theme.text2).lineLimit(1)
                 Spacer()
                 if changed > 0 {
                     Text("\(changed)").font(.ui(size: 10.5, weight: .bold)).foregroundStyle(Theme.onWarn)
@@ -620,6 +622,7 @@ struct SectionForm: View {
                 }
             case "agents":
                 card(nil, fields)
+                AgentAccountsCard(store: model.store)
                 InstalledAgentsCard(store: model.store)
                 Button { model.section = SettingsNav.skills } label: {
                     HStack(spacing: 12) {

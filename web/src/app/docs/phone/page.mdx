@@ -19,7 +19,7 @@ export const metadata = { title: "Phone", description: "See your agents from you
 
 ## Start it
 
-In the TUI, **⚙ Settings → Web**: set the address phones open, then **Start conch web**. Or from a terminal:
+In **Conch.app**, **Settings → Phone**: set the address phones open, then **Start** on the conch web card. In the TUI, **⚙ Settings → Web** and **Start conch web**. Or from a terminal:
 
 ```sh
 tailscale serve --bg http://127.0.0.1:8722
@@ -30,7 +30,9 @@ conch web -url https://laptop.tail1234.ts.net
 
 ## Pair a phone
 
-Run `conch web pair`, or click 🌐 in the status bar (`P` in the tree). Point the phone's camera at the QR code, or type the six-digit code.
+In **Conch.app**, click the phone in the status bar, or **Pair a Phone…** in Settings → Phone, and choose what it may do: Full, Reply or View. In the TUI, click 🌐 (`P` in the tree), or run `conch web pair`.
+
+Point the phone's camera at the QR code, or type the six-digit code.
 
 ```sh
 conch web pair                       # full: everything, typing into terminals included
@@ -84,7 +86,7 @@ Reach the laptop from any network through a relay you run; it carries the traffi
 conch relay -listen :8443
 ```
 
-Then point `conch web` at it in **Settings → Phone (conch web) → Relay**, or in `config.toml`:
+Then point `conch web` at it in **Settings → Phone → Relay**, or in `config.toml`:
 
 ```toml
 [web]

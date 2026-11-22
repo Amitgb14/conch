@@ -1,5 +1,6 @@
 import {
   ActivityIcon,
+  ArrowDownIcon,
   BotIcon,
   CloudIcon,
   CornerDownLeftIcon,
@@ -184,6 +185,76 @@ export function TaskFlow() {
         { icon: "sparkles", title: "Pull request, merge", sub: "by you, or by the autopilot", tone: "done" },
       ]}
     />
+  )
+}
+
+const accountSteps = [
+  { ask: "Started with -account NAME?", then: "that account", eg: "conch new -agent claude -account work", note: "default is the agent's own" },
+  { ask: "Is its folder pinned?", then: "the pin's account", eg: "conch account pin ~/src/acme work", note: "the longest pin wins" },
+  { ask: "Neither", then: "the agent's own account", eg: "~/.claude, as without conch", note: "" },
+]
+
+/** How a new agent's account is chosen: asked, else pinned, else its own; then failover. */
+export function AccountFlow() {
+  return (
+    <figure
+      className="not-prose my-6 flex flex-col gap-3 rounded-2xl border bg-card p-4 sm:p-5"
+      aria-label="A new agent's account: the one asked for with -account, else its folder's pin, else the agent's own; then, with failover on, an account past the line is passed over for the next one with room"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-brand/30 bg-brand-soft/50 text-brand">
+          <Icon name="agents" className="size-4" />
+        </span>
+        <p className="text-sm font-medium">A new agent starts</p>
+      </div>
+      <ol className="flex flex-col gap-2">
+        {accountSteps.map((s, i) => (
+          <li key={s.ask} className="grid gap-2 rounded-xl border bg-background p-3 sm:grid-cols-[1.4rem_1fr_auto_1fr] sm:items-center">
+            <span className="font-mono text-xs text-brand">{i + 1}</span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">{s.ask}</span>
+              <code className="truncate text-[0.7rem] text-muted-foreground">{s.eg}</code>
+            </span>
+            <span aria-hidden className="hidden text-muted-foreground sm:block">→</span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-sm">
+                uses <strong className="font-medium text-brand">{s.then}</strong>
+              </span>
+              {s.note && <span className="text-[0.7rem] text-muted-foreground">{s.note}</span>}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <ArrowDownIcon aria-hidden className="mx-auto size-4 text-muted-foreground" />
+      <div className="rounded-xl border border-waiting/40 bg-waiting/5 p-3">
+        <p className="text-sm font-medium">
+          Failover on, and that account past the line? <code className="text-[0.7rem] text-muted-foreground">conch account failover 90</code>
+        </p>
+        <ul className="mt-1.5 flex flex-col gap-1 text-xs leading-5 text-muted-foreground">
+          <li>
+            <strong className="text-foreground">Yes:</strong> the agent&rsquo;s next account with room, its own first, then the others in
+            the order added.
+          </li>
+          <li>
+            <strong className="text-foreground">Every one past it:</strong> it starts on the account chosen above anyway.
+          </li>
+        </ul>
+      </div>
+      <ArrowDownIcon aria-hidden className="mx-auto size-4 text-muted-foreground" />
+      <div className="flex items-start gap-2.5 rounded-xl border border-done/30 bg-done/10 p-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-done/30 bg-done/10 text-done">
+          <Icon name="accounts" className="size-4" />
+        </span>
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">The agent runs in that account&rsquo;s folder</span>
+          <span className="text-xs leading-5 text-muted-foreground">
+            <code className="text-[0.7rem]">CLAUDE_CONFIG_DIR</code> or <code className="text-[0.7rem]">CODEX_HOME</code>: its
+            sign-in, settings and conversations. It stays there until it ends, even past its limit, and its sessions resume
+            there.
+          </span>
+        </span>
+      </div>
+    </figure>
   )
 }
 

@@ -107,9 +107,17 @@ Usage:
   conch account pin [PATH] NAME | unpin [PATH]
                                 agents started in a project, worktree or task folder use that
                                 account (the longest pin wins; NAME is any agent's of that name)
-  conch account failover PERCENT|off
+  conch account failover PERCENT|off|default [-agent AGENT]
                                 a new agent whose account is past PERCENT of a plan window
-                                starts on the agent's next account; running agents never move
+                                starts on the agent's next account; running agents never move.
+                                -agent gives one agent (claude, codex) its own line; default
+                                puts it back on every agent's
+  conch account suggest [AGENT]
+                                the agent's accounts ranked as a move would weigh them: signed
+                                in, the most room, the fewest agents; the pick first
+  conch account back [ACCOUNT]
+                                every agent moved off ACCOUNT (default: the agent's own) moved
+                                back to it, once it has room
   conch ssh TARGET [SSH OPTION...]
                                 a terminal here logged in to a host with ssh, outside every
                                 project, as the TUI's H opens one; prints its pane ID
@@ -126,6 +134,12 @@ Usage:
   conch agent team ID [TEAM | - | -clear]
                                 which team an agent is in, or put it in one: - keeps it out of
                                 every team, -clear leaves it to [[teams]]' rules in config.toml
+  conch agent move [-account NAME] [-continue] [-force] ID
+                                carry an agent's conversation to another of its accounts and
+                                resume it there (Claude Code), in a pane that replaces its own;
+                                no -account: the one with most room. At its limit an agent moves
+                                by itself unless [agents] no_move_at_limit. Background commands
+                                it left running stop with it: refused unless -force
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -230,7 +244,7 @@ Usage:
   conch machine ls | rm ID | rename ID LABEL | upgrade ID | hosts
   conch machine bridge ID       conch's protocol to that machine's server, on stdin and stdout
                                 (how the Mac app reaches it); installs nothing
-  conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]...
+  conch sandbox -provider P create [-label L] [-template T] [-image I] [-region R] [-size NAME] [-cpu N] [-memory GiB] [-disk GiB] [-env NAME]... [-yes | -keep] [-progress FILE]
                                 make a sandbox with an installed provider (each is a provider file:
                                 conch sandbox provider install daytona, boat, tensorlake, …; its key
                                 in its variable, e.g. $DAYTONA_API_KEY, or Settings → Sandboxes)
@@ -238,7 +252,7 @@ Usage:
                                 going with the TUI closed. Every sandbox command but stats needs
                                 -provider: there is no default, and a sandbox named under another
                                 provider is refused
-  conch sandbox -provider P add [-label L] ID
+  conch sandbox -provider P add [-label L] [-progress FILE] ID
                                 make a sandbox ls shows with no machine one of conch's machines:
                                 one whose machine was removed, or on boat.dev one made in its own
                                 interface. Started if stopped and conch installed; never deleted

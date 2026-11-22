@@ -41,4 +41,37 @@ func TestUsageHistory(t *testing.T) {
 	if day.Hours != 24 || day.Input != 12 || day.Output != 34 || len(day.Models) != 1 || day.Models[0].Model != "claude-opus-5-5" {
 		t.Fatalf("24h %+v", day)
 	}
+
+	// By account, as Conch.app asks: the agent's own as "", with buckets;
+	// an added account with nothing saved is left out.
+	if !hasCap(c, proto.CapUsageAccounts) {
+		t.Fatal("the server does not offer usage.history.accounts.v1")
+	}
+	if err := c.Call(ctx, proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "work"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var by proto.UsageHistory
+	if err := c.Call(ctx, proto.MethodUsageHistory, proto.UsageHistoryParams{ByAccount: true}, &by); err != nil {
+		t.Fatal(err)
+	}
+	if len(by.Agents) != 1 || by.Agents[0].Account != "" || len(by.Agents[0].Hours) != 24 || len(by.Agents[0].Days) != 30 {
+		t.Fatalf("by account: %+v", by.Agents)
+	}
+	var out int
+	for _, b := range by.Agents[0].Hours {
+		out += b.Output
+	}
+	if out != 34 {
+		t.Errorf("hours add up to %d, want 34", out)
+	}
+	// Asked as before, nothing new comes back.
+	var plain proto.UsageHistory
+	if err := c.Call(ctx, proto.MethodUsageHistory, proto.UsageHistoryParams{}, &plain); err != nil || plain.Agents[0].Days != nil {
+		t.Errorf("without by_account: %+v %v", plain.Agents, err)
+	}
+	// A malformed request is said, not taken as the old one.
+	var raw any
+	if err := c.Call(ctx, proto.MethodUsageHistory, []int{1}, &raw); err == nil {
+		t.Error("a list as params was accepted")
+	}
 }

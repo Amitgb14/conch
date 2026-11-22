@@ -75,24 +75,27 @@ public func chatEnabled(toml: String?, env: [String: String]) -> Bool {
     return tomlSetting("app", "chat", in: toml) != "false"
 }
 
-/// The parts of a workbench, by their layout keys: four always, and a
-/// phone (a Mobile Preview's key) for a project on this Mac.
+/// The parts of a workbench, by their layout keys: four always, a phone
+/// (a Mobile Preview's key) for a project on this Mac, and a browser once
+/// one is opened there — a dev server's page beside the agent.
 public struct BenchParts: Equatable, Sendable {
     public var files: String
     public var shell: String
     public var chat: String
     public var agent: String
     public var phone: String?
+    public var browser: String?
 
-    public init(files: String, shell: String, chat: String, agent: String, phone: String? = nil) {
+    public init(files: String, shell: String, chat: String, agent: String, phone: String? = nil, browser: String? = nil) {
         self.files = files
         self.shell = shell
         self.chat = chat
         self.agent = agent
         self.phone = phone
+        self.browser = browser
     }
 
-    public var all: [String] { [files, shell, chat, agent] + (phone.map { [$0] } ?? []) }
+    public var all: [String] { [files, shell, chat, agent] + (phone.map { [$0] } ?? []) + (browser.map { [$0] } ?? []) }
 }
 
 /// A layout's arrangement of the parts: the split tree, each split's
@@ -100,6 +103,25 @@ public struct BenchParts: Equatable, Sendable {
 /// terminal are the same conversation, so where only one has room the other
 /// waits hidden beside it, a click away (Chat ⇄ Terminal).
 public func benchArrangement(_ l: BenchLayout, _ p: BenchParts, chat: Bool = true) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
+    var (root, weights, hidden) = withPhone(l, p, chat: chat)
+    // A browser is a column of the first row too, shown: it is there
+    // because somebody opened it.
+    guard let browser = p.browser else { return (root, weights, hidden) }
+    if case .split(.horizontal, let kids) = root {
+        root = .split(.horizontal, kids + [.leaf(browser)])
+        weights[""] = (weights[""] ?? kids.map { _ in 1 }) + [0.5]
+    } else if case .split(.vertical, var rows) = root, case .split(.horizontal, let cols) = rows[0] {
+        rows[0] = .split(.horizontal, cols + [.leaf(browser)])
+        root = .split(.vertical, rows)
+        weights["0"] = (weights["0"] ?? cols.map { _ in 1 }) + [0.5]
+    } else {
+        root = .split(.horizontal, [root, .leaf(browser)])
+        weights = ["": [0.6, 0.4]]
+    }
+    return (root, weights, hidden)
+}
+
+private func withPhone(_ l: BenchLayout, _ p: BenchParts, chat: Bool) -> (root: SplitNode, weights: [String: [Double]], hidden: Set<String>) {
     var (root, weights, hidden) = baseArrangement(l, p, chat: chat)
     guard let phone = p.phone, l != .mobile || !root.panes.contains(phone) else { return (root, weights, hidden) }
     // Every other layout keeps the phone hidden at the end of its first
@@ -254,9 +276,50 @@ extension Layout {
         let leaves = tabs[i].root.panes
         let files = leaves.first { parseFilesKey($0) != nil }
         let phone = leaves.first { parseMobileKey($0) != nil }
-        let shell = leaves.first { $0 != agent && parseChatKey($0) == nil && parseFilesKey($0) == nil && parseMobileKey($0) == nil }
+        let browser = leaves.first { parseBrowserKey($0) != nil }
+        // The terminal is what is left — never a browser, which was once
+        // read as one and took the terminal's place at the next layout.
+        let shell = leaves.first { $0 != agent && parseChatKey($0) == nil && parseFilesKey($0) == nil && parseMobileKey($0) == nil
+            && parseBrowserKey($0) == nil }
         guard let files, let shell else { return nil }
-        return BenchParts(files: files, shell: shell, chat: chatKey(agent), agent: agent, phone: phone)
+        return BenchParts(files: files, shell: shell, chat: chatKey(agent), agent: agent, phone: phone, browser: browser)
+    }
+
+    /// A browser in the workbench on screen, shown and with the keyboard:
+    /// taken from wherever else it was, and in place of a browser the
+    /// workbench had. The other parts stay shown or hidden as they were.
+    /// False when the tab on screen is no workbench.
+    @discardableResult
+    public mutating func addBenchBrowser(_ k: String, chat: Bool = true) -> Bool {
+        guard parseBrowserKey(k) != nil, tabs.indices.contains(active), let id = tabs[active].benchAgent,
+              var p = benchParts(active) else { return false }
+        if let j = tab(showing: k), tabs[j].benchAgent != id { close(k) }
+        guard let i = benchTab(of: id) else { return false }
+        p.browser = k
+        rearrange(i, p, chat: chat)
+        tabs[i].hidden.remove(k)
+        tabs[i].focused = k
+        active = i
+        return true
+    }
+
+    /// The workbench on screen without its browser.
+    public mutating func removeBenchBrowser(chat: Bool = true) {
+        guard tabs.indices.contains(active), var p = benchParts(active), p.browser != nil else { return }
+        p.browser = nil
+        rearrange(active, p, chat: chat)
+    }
+
+    /// Arranged again with these parts, in its layout, each part that was
+    /// there shown or hidden as it was.
+    private mutating func rearrange(_ i: Int, _ p: BenchParts, chat: Bool) {
+        let before = tabs[i].hidden, had = Set(tabs[i].root.panes), focused = tabs[i].focused
+        arrange(i, tabs[i].bench ?? .ide, p, chat: chat)
+        for leaf in tabs[i].root.panes where had.contains(leaf) {
+            if before.contains(leaf) { tabs[i].hidden.insert(leaf) } else { tabs[i].hidden.remove(leaf) }
+        }
+        if tabs[i].shows(focused) { tabs[i].focused = focused }
+        if !tabs[i].shows(tabs[i].focused) { tabs[i].focused = tabs[i].root.panes.first { tabs[i].shows($0) } ?? tabs[i].focused }
     }
 
     private mutating func arrange(_ i: Int, _ l: BenchLayout, _ p: BenchParts, chat: Bool) {
@@ -297,7 +360,8 @@ extension Layout {
     }
 
     /// One leaf put in another's place: a workbench's terminal once its
-    /// shell has started.
+    /// shell has started, or an agent moved to another account in the pane
+    /// that took over from its old one.
     public mutating func replace(_ old: String, with new: String) {
         guard let i = tab(showing: old) else { return }
         if let j = tab(showing: new), j != i { close(new) }
@@ -308,6 +372,7 @@ extension Layout {
         tabs[k].weights = w
         if hid { tabs[k].hidden.remove(old); tabs[k].hidden.insert(new) }
         if tabs[k].focused == old { tabs[k].focused = new }
+        if tabs[k].benchAgent == old { tabs[k].benchAgent = new }
     }
 }
 

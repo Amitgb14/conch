@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
-	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/sshkey"
 )
 
 // askpass hands a password to ssh without a terminal: ssh runs
@@ -67,19 +66,8 @@ func (a *askpass) close() { os.RemoveAll(a.dir) }
 
 // ---- key login ----
 
-// sshKeygenBinary is ssh-keygen; $CONCH_SSH_KEYGEN overrides it.
-func sshKeygenBinary() string {
-	if b := os.Getenv("CONCH_SSH_KEYGEN"); b != "" {
-		return b
-	}
-	return "ssh-keygen"
-}
-
 // conchKey is the key conch creates for machines when the user has none.
-func conchKey() string { return filepath.Join(config.Dir(), "ssh", "id_ed25519") }
-
-// defaultKeyNames are the keys ssh would try by itself, in its own order.
-var defaultKeyNames = []string{"id_ed25519", "id_ecdsa", "id_rsa"}
+func conchKey() string { return sshkey.ConchKey() }
 
 // loginKeys are the private keys ssh should offer: conch's own, then the
 // user's defaults, whichever exist. Only keys that are there are named, so
@@ -93,7 +81,7 @@ func loginKeys() []string {
 	if err != nil {
 		return keys
 	}
-	for _, name := range defaultKeyNames {
+	for _, name := range sshkey.DefaultNames {
 		if key := filepath.Join(home, ".ssh", name); exists(key) {
 			keys = append(keys, key)
 		}
@@ -104,37 +92,17 @@ func loginKeys() []string {
 // publicKey returns a public key to authorize on machines: the user's own
 // default key, else conch's, which is created when missing.
 func publicKey(ctx context.Context) (line, path string, err error) {
-	if home, err := os.UserHomeDir(); err == nil {
-		for _, name := range defaultKeyNames {
-			p := filepath.Join(home, ".ssh", name+".pub")
-			if b, err := os.ReadFile(p); err == nil && validKeyLine(string(b)) {
-				return strings.TrimSpace(string(b)), p, nil
-			}
-		}
+	k, err := sshkey.Public(ctx)
+	if err != nil {
+		return "", "", err
 	}
-	key := conchKey()
-	if !exists(key + ".pub") {
-		if err := os.MkdirAll(filepath.Dir(key), 0o700); err != nil {
-			return "", "", err
-		}
-		host, _ := os.Hostname()
-		cmd := exec.CommandContext(ctx, sshKeygenBinary(), "-q", "-t", "ed25519", "-N", "", "-C", "conch@"+host, "-f", key)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", "", fmt.Errorf("create an ssh key: %v: %s", err, strings.TrimSpace(string(out)))
-		}
+	if k.Made {
 		resetConfig() // the generated config names the new key
 	}
-	b, err := os.ReadFile(key + ".pub")
-	if err != nil || !validKeyLine(string(b)) {
-		return "", "", fmt.Errorf("no usable public key in %s", key+".pub")
-	}
-	return strings.TrimSpace(string(b)), key + ".pub", nil
+	return k.Line, k.Path, nil
 }
 
-func validKeyLine(s string) bool {
-	f := strings.Fields(s)
-	return len(f) >= 2 && (strings.HasPrefix(f[0], "ssh-") || strings.HasPrefix(f[0], "ecdsa-") || strings.HasPrefix(f[0], "sk-"))
-}
+func validKeyLine(s string) bool { return sshkey.ValidLine(s) }
 
 func resetConfig() {
 	configOnce.Lock()
