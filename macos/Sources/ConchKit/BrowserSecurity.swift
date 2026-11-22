@@ -6,11 +6,23 @@ import Foundation
 // server's, docs, any site typed in — inside the app that holds every
 // agent's terminal and talks to conch's server. What it guards against:
 //
-// - A page reaching conch. There is no bridge: no WKScriptMessageHandler,
-//   no script conch injects that a page could call, nothing of conch's
-//   tokens or socket in the page's world. The only script conch runs in a
-//   page reads its icon's link, in WebKit's own client world, which the
-//   page cannot see. A page is as walled off from conch as from Safari.
+// - A page reaching conch. There is no bridge: nothing a page can call,
+//   nothing of conch's tokens or socket in the page's world. The scripts
+//   conch runs to read a page (its icon's link, its user agent) run in
+//   WebKit's own client world, which the page cannot see. A page is as
+//   walled off from conch as from Safari.
+// - The one channel back from a page, the errors chip's watcher, is
+//   one-way and read-only: a script and a message handler in a content
+//   world of their own ("conch-errors"), which the page cannot see or
+//   post to; no reply; what arrives is checked as text, cut short and
+//   capped (PageIssue.fromScript, PageIssues); none in a private tab
+//   (BrowserContent.swift in the app, which alone may set one up).
+// - A page's words reaching an agent. Send Errors to Agent pastes what
+//   the page wrote into a prompt, so it is labelled as the page's text,
+//   stripped of every control character (an ESC could end the paste and
+//   press Enter: pasteSafe), and never sent: the person reads it and
+//   presses Return. Copy URL as curl and Copy Details carry no cookie,
+//   and Copy Details no query string, which can hold a token.
 // - A page reading the disk. A file:// page may read that file and no
 //   other — not the folder, or a page saved in Downloads could read its
 //   neighbours (fileReadAccess).

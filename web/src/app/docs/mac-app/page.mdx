@@ -89,15 +89,7 @@ Each waiting agent is a card under **Needs you**: click a choice to answer, or t
 
 ## Files and sessions
 
-**Files** edits the checkout; **Sessions** resumes saved conversations.
-
-| Keys | |
-| --- | --- |
-| `⌘S` | save |
-| `⌘P` | go to a file |
-| `⇧⌘F` | search the project |
-| `⌥⌘F` | find and replace |
-| `⌘I` | edit with an agent |
+**Files** edits the checkout (⌘P a file, ⇧⌘F search); **Sessions** resumes saved conversations.
 
 <Shot
   name="desktop-files"
@@ -117,7 +109,7 @@ An agent's files, terminal, chat and browser (🌐) in one tab.
 
 A web page in a tab, a split or a Workbench, with tabs of its own.
 
-**How:** ⇧⌘B, ⌥⌘D, or an agent's `:3000 ↗`. ⌘/ lists its keys. Right-click a tab to duplicate it or move it to its own pane; hover it, or ⋯ → **Browser Memory**, for its memory.
+**How:** ⇧⌘B, ⌥⌘D, or an agent's `:3000 ↗`. ⌘/ lists its keys. Right-click a tab for more; hover it, or ⋯ → **Browser Memory**, for its memory.
 
 <Shot
   name="desktop-browser"
@@ -125,9 +117,13 @@ A web page in a tab, a split or a Workbench, with tabs of its own.
   caption="A dev server beside its agents."
 />
 
+### Develop
+
+⋯ → **Develop**, or the menu bar's: source ⌥⌘U, hard reload ⇧⌘R, phone sizes ⌃⌘R, cache, JavaScript or images off, screenshots. ⚠ counts the page's errors; **Send Errors to Agent** pastes them, unsent. **About Browser** shows versions and the certificate.
+
 ### Privacy and security
 
-Sign-ins stay in WebKit's store, never conch's; a private tab (⇧⌘N) keeps nothing. Pages cannot reach conch, a file:// page reads only itself, pop-ups need a click. A bad certificate stops until **Visit Anyway**. **Settings → Browser** clears data and site permissions.
+Sign-ins stay in WebKit's store; a private tab (⇧⌘N) keeps nothing. Pages cannot reach conch; the error watcher only listens, and not in private tabs. A file:// page reads only itself; pop-ups need a click. A bad certificate stops until **Visit Anyway**. **Settings → Browser** clears data and permissions.
 
 ## Commits
 

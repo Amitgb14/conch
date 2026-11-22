@@ -469,6 +469,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                       item("Default Window Text", "0", [.command, .control, .shift], "defaultText")])
         updateStyleMenu()
         updateThemeMenu()
+        // The browser's Develop menu, for the browser that has the
+        // keyboard; the same items as its ⋯ → Develop.
+        var develop: [NSMenuItem] = BrowserDevelopItem.menu.map { i in
+            guard let i else { return .separator() }
+            var mods: NSEvent.ModifierFlags = []
+            if let k = i.key {
+                if k.command { mods.insert(.command) }
+                if k.shift { mods.insert(.shift) }
+                if k.option { mods.insert(.option) }
+                if k.control { mods.insert(.control) }
+            }
+            return item(i.title, i.key?.character ?? "", mods, "browser:" + i.rawValue)
+        }
+        develop += [.separator(), item("About Browser…", "", [], "browser:about")]
+        menu("Develop", develop)
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         windowMenu.addItem(.separator())
@@ -584,6 +599,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.state = id == store.themeChoice ? .on : .off
             if id.isEmpty { m.title = "Same as conch (\(store.conchTheme.label))" }
         }
+    }
+
+    /// The Develop menu's items work only while a browser has the
+    /// keyboard, so their keys stay a terminal's otherwise; its settings
+    /// show a tick when on.
+    @objc func validateMenuItem(_ m: NSMenuItem) -> Bool {
+        guard let cmd = m.representedObject as? String, cmd.hasPrefix("browser:") else { return true }
+        guard let b = keyStore.browserWithKeyboard else {
+            m.state = .off
+            return false
+        }
+        let i = BrowserDevelopItem(rawValue: String(cmd.dropFirst("browser:".count)))
+        m.state = i.map { $0.isOn(b.developSettings) } == true ? .on : .off
+        return !(i?.needsAgent == true && b.agent == nil)
     }
 
     @objc func runCommand(_ sender: NSMenuItem) {

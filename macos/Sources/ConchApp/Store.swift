@@ -2895,6 +2895,7 @@ final class Store: ObservableObject {
 
     func command(_ id: String) {
         switch id {
+        case let b where b.hasPrefix("browser:"): browserCommand(String(b.dropFirst("browser:".count)))
         case "focusSidebar": focusSidebar()
         case "settings": openSettings()
         case "systemMonitor": openSystemMonitor()
