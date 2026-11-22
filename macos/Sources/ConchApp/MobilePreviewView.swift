@@ -350,15 +350,16 @@ struct MobilePreviewView: View {
             bar { EmptyView() }
             bar(folded: true) { EmptyView() }
             bar(folded: true, named: false) { EmptyView() }
+            bar(folded: true, named: false, spacing: 3) { EmptyView() }
         }
         .padding(.horizontal, 10).frame(height: 30)
         .background(Theme.paneHeader)
     }
 
-    private func bar(folded: Bool = false, named: Bool = true, @ViewBuilder lead: () -> some View) -> some View {
-        HStack(spacing: 8) {
+    private func bar(folded: Bool = false, named: Bool = true, spacing: CGFloat = 8, @ViewBuilder lead: () -> some View) -> some View {
+        HStack(spacing: spacing) {
             lead()
-            Spacer(minLength: 4)
+            Spacer(minLength: 0)
             deviceMenu(named: named)
             if !model.checkouts.isEmpty { runButton }
             if model.device?.booted == true {
