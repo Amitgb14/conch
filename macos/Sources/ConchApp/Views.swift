@@ -2448,7 +2448,8 @@ struct StatusBar: View {
                     .lineLimit(1).truncationMode(.tail)
                     .onTapGesture { store.dismissFlash() }
                     .help(f.text)
-            } else {
+            } else if store.jobs.isEmpty {
+                // A job has the keys' place: its words can be long.
                 HStack(spacing: 12) {
                     ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { key, what in
                         HStack(spacing: 5) {
@@ -2463,9 +2464,9 @@ struct StatusBar: View {
             if let j = jobSummary(store.jobs.map(\.what)) {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text(j).foregroundStyle(Theme.text2).lineLimit(1)
+                    Text(j).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
                 }
-                .fixedSize()
+                .help(j)
             }
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;

@@ -24,6 +24,10 @@ Click the screen to tap it, type in the field below it. The buttons in the bar p
 
 **▶ Run** puts the app on the phone: `npx expo start --ios`, `react-native run-ios` or `flutter run`. For an Xcode project it is `conch preview run`, which builds the app for that simulator, installs it and opens it; press it again after a change, since an Xcode app does not reload by itself.
 
+For an Xcode project the status bar follows the run until it ends: building, installing, opening, then open on the phone, or why it failed. A new terminal whose build failed stays in the sidebar with the errors.
+
+With Expo, React Native and Flutter the status bar says where the command runs, since a dev server does not end.
+
 The line above the phone names the branch ▶ runs; click it to pick another. In a workbench it is the agent's branch. When that has no app and several others do, conch asks you to pick. Outside a workbench it is the first branch with an app.
 
 The agent's branch runs in the workbench's terminal, another in a new terminal in the sidebar.

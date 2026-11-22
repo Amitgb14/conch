@@ -29,6 +29,9 @@ final class MobilePreviewModel: ObservableObject {
     /// The checkout picked to run, by the workbench's agent ("" outside
     /// one): a pick in one agent's workbench is not another's.
     @Published private var picks: [String: String] = [:]
+    /// A ▶ Run on its way to the phone: pressed again it would be typed
+    /// into the build.
+    @Published private(set) var running = false
 
     private var loop: Task<Void, Never>?
     /// The simulators asked to show their keyboard, since they last booted.
@@ -120,27 +123,79 @@ final class MobilePreviewModel: ObservableObject {
     /// own terminal when that was started in the same checkout, else run
     /// in a new terminal there, so it has that checkout's port and branch.
     func run() {
-        guard let t = target, let cmd = runCommand, let c = store.connection(machine) else { return }
+        guard !running, let t = target, runCommand != nil else { return }
+        guard let c = store.connection(machine) else {
+            store.say("Running \(t.short) failed: conch is not connected", .err)
+            return
+        }
+        let binary = store.binary ?? "conch"
+        let status = previewReported(t.kind)
+            ? (shotPath as NSString).deletingLastPathComponent + "/run-\(UUID().uuidString.prefix(8)).json"
+            : nil
         if let tab = store.layout.previewTab(key), let i = store.layout.tabs.firstIndex(where: { $0.id == tab.id }),
            let shell = store.layout.benchParts(i)?.shell, isPaneKey(shell), let cwd = store.pane(shell)?.cwd,
            let p = store.snapshots[machine]?.project(project), checkoutHolding(cwd, mobileDirs(p)) == t.path,
-           let line = previewRunCommand(kind: t.kind, device: device, conch: store.binary ?? "conch", dir: t.path) {
+           let line = previewRunCommand(kind: t.kind, device: device, conch: binary, status: status, dir: t.path) {
             struct Send: Encodable { var id: String; var text: String }
-            Task {
-                do {
-                    try await c.call("pane.send_text", Send(id: unkey(shell).id, text: line + "\r"))
-                    store.say("Running \(t.short) in the workbench's terminal")
-                } catch { self.error = "\(error)" }
+            launch(t, status: status, place: "in the workbench's terminal") { _ in
+                try await c.call("pane.send_text", Send(id: unkey(shell).id, text: line + "\r"))
             }
             return
         }
+        guard let cmd = previewRunCommand(kind: t.kind, device: device, conch: binary, status: status) else { return }
         struct Create: Encodable { var name: String; var cwd: String; var command: [String] }
-        Task {
+        let machine = machine
+        launch(t, status: status, place: "in a new terminal, in the sidebar") { store in
+            let p = try await c.call("pane.create", Create(name: "Run · \(t.short)", cwd: t.path, command: ["/bin/sh", "-lc", cmd]), as: PaneInfo.self)
+            store.snapshots[machine, default: Snapshot()].upsert(p)
+        }
+    }
+
+    /// Starts a run, then says in the status bar how it goes until it is
+    /// over: its terminal may be out of sight, and gone once it succeeds.
+    /// The window's store says it, so closing the tab does not silence it.
+    private func launch(_ t: PreviewCheckout, status: String?, place: String,
+                        _ start: @escaping @MainActor (Store) async throws -> Void) {
+        running = true
+        let store = store
+        let job = UUID()
+        store.progress(job, "Running \(t.short)")
+        Task { [weak self] in
+            defer {
+                store.progress(job, nil)
+                self?.running = false
+            }
             do {
-                let p = try await c.call("pane.create", Create(name: "Run · \(t.short)", cwd: t.path, command: ["/bin/sh", "-lc", cmd]), as: PaneInfo.self)
-                store.snapshots[machine, default: Snapshot()].upsert(p)
-                store.say("Running \(t.short) in a new terminal, in the sidebar")
-            } catch { self.error = "\(error)" }
+                try await start(store)
+            } catch {
+                // Not only under the phone: the next screenshot clears that.
+                store.say("Running \(t.short) failed: \(error)", .err)
+                return
+            }
+            guard let status else {
+                store.say("Running \(t.short) \(place)")
+                return
+            }
+            defer { try? FileManager.default.removeItem(atPath: status) }
+            let began = Date()
+            func report() -> PreviewRunReport? {
+                FileManager.default.contents(atPath: status).flatMap { try? JSONDecoder().decode(PreviewRunReport.self, from: $0) }
+            }
+            while true {
+                var r = report()
+                let alive = r.map { $0.pid > 0 && (kill($0.pid, 0) == 0 || errno == EPERM) } ?? true
+                // Gone since it was read: what it wrote last is the word.
+                if !alive { r = report() }
+                switch previewRunSays(r, branch: t.short, alive: alive, waited: Date().timeIntervalSince(began)) {
+                case .busy(let what):
+                    store.progress(job, what)
+                case .over(let what, let tone):
+                    store.say(what, tone)
+                    self?.reload()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(400))
+            }
         }
     }
 
@@ -408,7 +463,7 @@ struct MobilePreviewView: View {
             Image(systemName: "play.fill").font(.system(size: 11))
         }
         .buttonStyle(.plain).foregroundStyle(cmd == nil ? Theme.muted : Theme.accent)
-        .disabled(cmd == nil)
+        .disabled(cmd == nil || model.running)
         .accessibilityLabel("Run")
         .help(cmd.map { "Put \(t?.branch ?? "the app") on this phone: \($0)" }
               ?? (t == nil ? "Pick the branch to run first" : "conch knows no command to run this app on a simulator"))
@@ -542,7 +597,7 @@ struct MobilePreviewView: View {
                         // ▶ Run starts it too, and puts the app on it.
                         if let cmd = model.runCommand {
                             Button { model.run() } label: { Label("Run the app on it", systemImage: "play.fill") }
-                                .controlSize(.large).help("\(model.target?.branch ?? ""): \(cmd)")
+                                .controlSize(.large).disabled(model.running).help("\(model.target?.branch ?? ""): \(cmd)")
                         }
                     }
                 } else {

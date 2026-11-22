@@ -149,13 +149,15 @@ public func phoneLayout(image: CGSize, box: CGSize, tablet: Bool = false) -> Pho
 /// An Xcode project has no dev server of its own, so conch builds,
 /// installs and opens it (`conch preview run`), named by the app's own
 /// conch so the shell's PATH does not decide which one.
-public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch") -> String? {
+public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch", status: String? = nil) -> String? {
     let id = device?.id ?? ""
     switch kind {
     case "expo": return "npx expo start --ios"
     case "react-native": return "npx react-native run-ios" + (id.isEmpty ? "" : " --udid \(id)")
     case "flutter": return "flutter run" + (id.isEmpty ? "" : " -d \(id)")
-    case "xcode": return shellQuote(conch) + " preview run" + (id.isEmpty ? "" : " -device \(shellQuote(id))")
+    case "xcode":
+        return shellQuote(conch) + " preview run" + (id.isEmpty ? "" : " -device \(shellQuote(id))")
+            + (status.map { " -status \(shellQuote($0))" } ?? "")
     default: return nil
     }
 }
@@ -165,8 +167,8 @@ public func previewRunCommand(kind: String, device: MobileDevice?, conch: String
 /// cd'd since, and the preview says which branch it runs. `conch preview
 /// run` takes the folder; the others get a sh of their own, which any
 /// login shell can start and which leaves the terminal where it was.
-public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch", dir: String) -> String? {
-    guard let cmd = previewRunCommand(kind: kind, device: device, conch: conch) else { return nil }
+public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch", status: String? = nil, dir: String) -> String? {
+    guard let cmd = previewRunCommand(kind: kind, device: device, conch: conch, status: status) else { return nil }
     if kind == "xcode" { return cmd + " " + shellQuote(dir) }
     return "/bin/sh -c " + shellQuote("cd \(shellQuote(dir)) && \(cmd)")
 }
@@ -291,4 +293,71 @@ public func parseDetected(_ data: Data) -> [String: String] {
 /// Mobile Preview, the workbench's phone and its Mobile layout.
 public func mobileProjects(_ projects: [ProjectInfo], kinds: [String: String]) -> Set<String> {
     Set(projects.filter { p in mobileDirs(p).contains { !(kinds[$0] ?? "").isEmpty } }.map(\.id))
+}
+
+/// Whether a kind's ▶ Run says how it is going (`conch preview run
+/// -status`): the others start a dev server, which never ends.
+public func previewReported(_ kind: String) -> Bool { kind == "xcode" }
+
+/// What `conch preview run -status` last wrote.
+public struct PreviewRunReport: Decodable, Equatable, Sendable {
+    public var pid: Int32
+    /// starting, building, installing, opening, then open or failed; nil
+    /// before the first.
+    public var step: String?
+    public var device: String?
+    /// The step it failed at.
+    public var failed: String?
+    public var error: String?
+
+    public init(pid: Int32, step: String? = nil, device: String? = nil, failed: String? = nil, error: String? = nil) {
+        self.pid = pid
+        self.step = step
+        self.device = device
+        self.failed = failed
+        self.error = error
+    }
+}
+
+/// What the status bar says of a run: while it goes, or once it is over.
+public enum PreviewRunSays: Equatable, Sendable {
+    case busy(String)
+    case over(String, Flash.Tone)
+}
+
+/// How long a command typed at a terminal has to start: one that has said
+/// nothing by then went to whatever was running there.
+public let previewRunStartLimit: TimeInterval = 20
+/// A little over the half hour conch preview run gives a build.
+public let previewRunLimit: TimeInterval = 32 * 60
+
+/// A run in the status bar's words. alive is whether the reporting
+/// process is still there; waited, how long since Run was pressed.
+public func previewRunSays(_ r: PreviewRunReport?, branch: String, alive: Bool, waited: TimeInterval) -> PreviewRunSays {
+    let running = "Running \(branch)"
+    guard let r else {
+        return waited < previewRunStartLimit ? .busy(running)
+            : .over("\(branch) hasn't started: its terminal may be busy", .err)
+    }
+    let phone = r.device ?? "the simulator"
+    switch r.step {
+    case "open":
+        return .over("\(branch) is open on \(phone)", .ok)
+    case "failed":
+        if r.failed == "building" { return .over("Building \(branch) failed: the errors are in its terminal", .err) }
+        // The bar is one line.
+        let why = r.error?.split(whereSeparator: \.isNewline).first.map(String.init) ?? "see its terminal"
+        return .over("\(running) failed: \(why)", .err)
+    default:
+        break
+    }
+    if !alive { return .over("\(running) stopped before it finished", .err) }
+    if waited >= previewRunLimit { return .over("\(running) is taking too long: see its terminal", .err) }
+    switch r.step {
+    case "starting": return .busy("Starting \(phone) for \(branch)")
+    case "building": return .busy("Building \(branch) for \(phone)")
+    case "installing": return .busy("Installing \(branch) on \(phone)")
+    case "opening": return .busy("Opening \(branch) on \(phone)")
+    default: return .busy(running)
+    }
 }

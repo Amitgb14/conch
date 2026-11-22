@@ -337,3 +337,55 @@ private let runKinds = ["/w/app": "", "/w/app.wt/beta": "xcode", "/w/app.wt/fix"
     #expect(previewStillBooted(["A"], []) == [])
     #expect(previewStillBooted([], [d("A", "booted")]) == [])
 }
+
+// ▶ Run's word in the status bar, from the click to how it ended.
+@Test func previewRunIsSaidUntilItEnds() {
+    func says(_ step: String?, failed: String? = nil, error: String? = nil, device: String? = "iPhone 12 mini",
+              alive: Bool = true, waited: TimeInterval = 1) -> PreviewRunSays {
+        let r = step.map { PreviewRunReport(pid: 42, step: $0, device: device, failed: failed, error: error) }
+        return previewRunSays(r, branch: "beta", alive: alive, waited: waited)
+    }
+    #expect(says(nil) == .busy("Running beta"))
+    #expect(says("") == .busy("Running beta"))
+    #expect(says("starting") == .busy("Starting iPhone 12 mini for beta"))
+    #expect(says("building", waited: 600) == .busy("Building beta for iPhone 12 mini"))
+    #expect(says("installing") == .busy("Installing beta on iPhone 12 mini"))
+    #expect(says("opening") == .busy("Opening beta on iPhone 12 mini"))
+    #expect(says("a later conch's step") == .busy("Running beta"))
+    #expect(says("building", device: nil) == .busy("Building beta for the simulator"))
+    // It writes its last word and exits, so that wins over being gone.
+    #expect(says("open", alive: false) == .over("beta is open on iPhone 12 mini", .ok))
+    #expect(says("failed", failed: "building", error: "exit status 65", alive: false)
+        == .over("Building beta failed: the errors are in its terminal", .err))
+    #expect(says("failed", failed: "installing", error: "no room\nmore lines")
+        == .over("Running beta failed: no room", .err))
+    #expect(says("failed", error: "") == .over("Running beta failed: see its terminal", .err))
+    // Ctrl-C, or its terminal closed.
+    #expect(says("building", alive: false) == .over("Running beta stopped before it finished", .err))
+    // Typed at a terminal that was busy with something else.
+    #expect(says(nil, waited: previewRunStartLimit - 0.1) == .busy("Running beta"))
+    #expect(says(nil, waited: previewRunStartLimit) == .over("beta hasn't started: its terminal may be busy", .err))
+    #expect(says("building", waited: previewRunLimit) == .over("Running beta is taking too long: see its terminal", .err))
+}
+
+@Test func previewRunReportsDecode() throws {
+    let r = try JSONDecoder().decode(PreviewRunReport.self, from: Data(#"{"pid":7,"step":"building","device":"iPhone"}"#.utf8))
+    #expect(r == PreviewRunReport(pid: 7, step: "building", device: "iPhone"))
+    let first = try JSONDecoder().decode(PreviewRunReport.self, from: Data(#"{"pid":7}"#.utf8))
+    #expect(first == PreviewRunReport(pid: 7))
+    for bad in ["", "{\"pid\":", "{}"] {
+        #expect((try? JSONDecoder().decode(PreviewRunReport.self, from: Data(bad.utf8))) == nil, "\(bad)")
+    }
+}
+
+// Only conch preview run reports: a dev server never ends.
+@Test func previewRunCommandWithStatus() {
+    let d = MobileDevice(id: "U1", name: "iPhone", platform: "ios", state: "booted")
+    #expect(previewReported("xcode"))
+    for k in ["expo", "react-native", "flutter", ""] { #expect(!previewReported(k), "\(k)") }
+    #expect(previewRunCommand(kind: "xcode", device: d, status: "/t mp/run.json")
+        == "conch preview run -device U1 -status '/t mp/run.json'")
+    #expect(previewRunCommand(kind: "xcode", device: d, status: "/r.json", dir: "/w")
+        == "conch preview run -device U1 -status /r.json /w")
+    #expect(previewRunCommand(kind: "flutter", device: d, status: "/r.json") == "flutter run -d U1")
+}
