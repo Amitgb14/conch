@@ -246,4 +246,85 @@ import Testing
     #expect(previewButtons.map(\.name) == ["home", "lock", "side"])
     #expect(Set(previewButtons.map(\.symbol)).count == 3)
     #expect(previewButtons.allSatisfy { !$0.help.isEmpty })
+    #expect(previewButtons.filter(\.folds).map(\.name) == ["lock", "side"])
+}
+
+private let runProject = ProjectInfo(id: "r1", name: "app", path: "/w/app", worktrees: [
+    WorktreeInfo(path: "/w/app", branch: "master", main: true),
+    WorktreeInfo(path: "/w/app.wt/beta", branch: "app/beta"),
+    WorktreeInfo(path: "/w/app.wt/fix", branch: "app/fix"),
+    WorktreeInfo(path: "/w/app.wt/fix-2", branch: nil),
+])
+private let runKinds = ["/w/app": "", "/w/app.wt/beta": "xcode", "/w/app.wt/fix": "expo", "/w/app.wt/fix-2": "xcode"]
+
+@Test func previewCheckoutsHoldingTheApp() {
+    let c = previewCheckouts(runProject, kinds: runKinds)
+    #expect(c.map(\.path) == ["/w/app.wt/beta", "/w/app.wt/fix", "/w/app.wt/fix-2"])
+    #expect(c.map(\.kind) == ["xcode", "expo", "xcode"])
+    // The project's own prefix says nothing in a narrow column; a detached
+    // checkout is named by its folder.
+    #expect(c.map(\.short) == ["beta", "fix", "fix-2"])
+    #expect(c.map(\.branch) == ["app/beta", "app/fix", "fix-2"])
+    #expect(previewCheckouts(runProject, kinds: [:]).isEmpty)
+    let bare = ProjectInfo(id: "r2", name: "solo", path: "/w/solo")
+    #expect(previewCheckouts(bare, kinds: ["/w/solo": "flutter"]).map(\.branch) == ["solo"])
+    let other = ProjectInfo(id: "r3", name: "app", path: "/w/o", worktrees: [WorktreeInfo(path: "/w/o", branch: "team/app/x")])
+    #expect(previewCheckouts(other, kinds: ["/w/o": "xcode"]).map(\.short) == ["team/app/x"])
+}
+
+// ▶ built the first checkout with an app whichever agent it was beside;
+// now it builds the one named, and never guesses past an agent's own.
+@Test func previewTargetIsTheBranchSaid() {
+    func target(_ picked: String?, _ agent: String?, _ kinds: [String: String] = runKinds) -> String? {
+        previewTarget(runProject, kinds: kinds, picked: picked, agentCwd: agent)?.path
+    }
+    #expect(target(nil, nil) == "/w/app.wt/beta")                        // alone: the first
+    #expect(target("/w/app.wt/fix", nil) == "/w/app.wt/fix")              // picked
+    #expect(target(nil, "/w/app.wt/fix") == "/w/app.wt/fix")              // the agent's
+    #expect(target(nil, "/w/app.wt/fix/ios/App") == "/w/app.wt/fix")      // in a folder of it
+    #expect(target(nil, "/w/app.wt/fix-2") == "/w/app.wt/fix-2")          // not fix, by prefix
+    #expect(target("/w/app.wt/beta", "/w/app.wt/fix") == "/w/app.wt/beta") // picked over the agent's
+    #expect(target(nil, "/w/app") == nil)                                // its agent has no app: asked
+    #expect(target(nil, "") == nil)                                      // an agent of no known folder
+    #expect(target(nil, "/elsewhere") == nil)
+    #expect(target("/w/app.wt/gone", nil) == nil)                        // the pick went: not another
+    #expect(target(nil, "/w/app", ["/w/app.wt/fix": "expo"]) == "/w/app.wt/fix") // only one it can be
+    #expect(target(nil, nil, [:]) == nil)
+}
+
+@Test func checkoutHoldingAFolder() {
+    let dirs = ["/w/app", "/w/app/.worktrees/x"]
+    #expect(checkoutHolding("/w/app/src", dirs) == "/w/app")
+    #expect(checkoutHolding("/w/app/.worktrees/x/src", dirs) == "/w/app/.worktrees/x")
+    #expect(checkoutHolding("/w/app", dirs) == "/w/app")
+    #expect(checkoutHolding("/w/apple", dirs) == nil)
+    #expect(checkoutHolding("", dirs) == nil)
+    #expect(checkoutHolding("/w/app", []) == nil)
+}
+
+// Typed into a terminal somebody may have cd'd elsewhere in, the command
+// names its folder itself.
+@Test func previewRunNamesItsFolder() {
+    let d = MobileDevice(id: "U-1", name: "iPhone", platform: "ios", state: "booted")
+    #expect(previewRunCommand(kind: "xcode", device: d, dir: "/w/app") == "conch preview run -device U-1 /w/app")
+    #expect(previewRunCommand(kind: "xcode", device: nil, dir: "/w/my app") == "conch preview run '/w/my app'")
+    #expect(previewRunCommand(kind: "expo", device: d, dir: "/w/app") == "/bin/sh -c 'cd /w/app && npx expo start --ios'")
+    #expect(previewRunCommand(kind: "flutter", device: nil, dir: "/w/my app") == #"/bin/sh -c 'cd '\''/w/my app'\'' && flutter run'"#)
+    #expect(previewRunCommand(kind: "", device: d, dir: "/w/app") == nil)
+}
+
+// One project's phone can be in two agents' workbenches: the one on
+// screen says whose branch it is.
+@Test func previewTabIsTheOneOnScreen() {
+    let k = mobileKey("local", "r1")
+    var l = Layout()
+    #expect(l.previewTab(k) == nil)
+    var a = Tab(pane: k), b = Tab(pane: k)
+    a.benchAgent = "local|p1"
+    b.benchAgent = "local|p2"
+    l.tabs = [a, b, Tab(pane: "local|p9")]
+    l.active = 1
+    #expect(l.previewTab(k)?.benchAgent == "local|p2")
+    l.active = 2
+    #expect(l.previewTab(k)?.benchAgent == "local|p1")
 }

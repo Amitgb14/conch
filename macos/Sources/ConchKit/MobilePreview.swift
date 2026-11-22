@@ -160,6 +160,69 @@ public func previewRunCommand(kind: String, device: MobileDevice?, conch: String
     }
 }
 
+/// The same command naming the folder the app is in, for typing into a
+/// terminal: where that was started says nothing of where somebody has
+/// cd'd since, and the preview says which branch it runs. `conch preview
+/// run` takes the folder; the others get a sh of their own, which any
+/// login shell can start and which leaves the terminal where it was.
+public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch", dir: String) -> String? {
+    guard let cmd = previewRunCommand(kind: kind, device: device, conch: conch) else { return nil }
+    if kind == "xcode" { return cmd + " " + shellQuote(dir) }
+    return "/bin/sh -c " + shellQuote("cd \(shellQuote(dir)) && \(cmd)")
+}
+
+/// A checkout of a project that holds its app: one ▶ Run can build.
+public struct PreviewCheckout: Equatable, Sendable, Identifiable {
+    public var path: String
+    /// Its branch, or its folder's name when it is on none.
+    public var branch: String
+    /// The branch without the project's own "name/" before it, which every
+    /// task's branch has and a phone's narrow column has no room for.
+    public var short: String
+    /// The app's kind, as conch preview detect names it.
+    public var kind: String
+    public var id: String { path }
+}
+
+public func previewCheckouts(_ p: ProjectInfo, kinds: [String: String]) -> [PreviewCheckout] {
+    mobileDirs(p).compactMap { dir in
+        guard let kind = kinds[dir], !kind.isEmpty else { return nil }
+        let named = p.worktrees?.first { $0.path == dir }?.branch ?? ""
+        let branch = named.isEmpty ? (dir as NSString).lastPathComponent : named
+        let prefix = p.name + "/"
+        let short = branch.hasPrefix(prefix) ? String(branch.dropFirst(prefix.count)) : branch
+        return PreviewCheckout(path: dir, branch: branch, short: short, kind: kind)
+    }
+}
+
+/// The checkout a folder is in: the longest that holds it, since a
+/// worktree can be kept inside the main checkout.
+public func checkoutHolding(_ path: String, _ dirs: [String]) -> String? {
+    dirs.filter { path == $0 || path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
+}
+
+/// What ▶ Run builds: the checkout picked; else the checkout of the agent
+/// whose workbench the phone is in (`agentCwd`, nil outside one); else,
+/// outside a workbench, the first with an app. nil is "ask": the pick is
+/// gone, or the agent's checkout has no app and several others do —
+/// another agent's branch is never built in its place unasked.
+public func previewTarget(_ p: ProjectInfo, kinds: [String: String], picked: String?, agentCwd: String?) -> PreviewCheckout? {
+    let all = previewCheckouts(p, kinds: kinds)
+    if let picked { return all.first { $0.path == picked } }
+    guard let agentCwd else { return all.first }
+    let own = checkoutHolding(agentCwd, mobileDirs(p))
+    return all.first { $0.path == own } ?? (all.count == 1 ? all.first : nil)
+}
+
+extension Layout {
+    /// The tab a preview is being looked at in: the one on screen when it
+    /// holds it — one project's phone can be in several workbenches.
+    public func previewTab(_ key: String) -> Tab? {
+        if let t = current, t.root.panes.contains(key) { return t }
+        return tab(showing: key).map { tabs[$0] }
+    }
+}
+
 /// The agents a screenshot can be handed to: running ones in the
 /// project, the one the person was last working with first.
 public func previewAgents(_ snapshot: Snapshot, project: String, preferred: String? = nil) -> [PaneInfo] {
@@ -182,12 +245,14 @@ public struct PreviewButton: Sendable, Equatable {
     public var name: String
     public var symbol: String
     public var help: String
+    /// It goes into a menu where the bar is too narrow for every button.
+    public var folds = false
 }
 
 public let previewButtons = [
     PreviewButton(name: "home", symbol: "circle", help: "Home"),
-    PreviewButton(name: "lock", symbol: "lock", help: "Lock the screen"),
-    PreviewButton(name: "side", symbol: "button.vertical.right.press", help: "Side button"),
+    PreviewButton(name: "lock", symbol: "lock", help: "Lock the screen", folds: true),
+    PreviewButton(name: "side", symbol: "button.vertical.right.press", help: "Side button", folds: true),
 ]
 
 /// The `conch preview` arguments for a device, by its ID.

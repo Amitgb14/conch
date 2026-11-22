@@ -26,8 +26,9 @@ final class MobilePreviewModel: ObservableObject {
     @Published var booting = false
     /// "Expo · React Native", from `conch preview detect`.
     @Published var kind = ""
-    /// Its kind as conch preview detect names it (expo, flutter…).
-    @Published var kindID = ""
+    /// The checkout picked to run, by the workbench's agent ("" outside
+    /// one): a pick in one agent's workbench is not another's.
+    @Published private var picks: [String: String] = [:]
 
     private var loop: Task<Void, Never>?
     private let shotPath: String
@@ -45,10 +46,26 @@ final class MobilePreviewModel: ObservableObject {
     }
 
     var device: MobileDevice? { previewChoice(devices, chosen: chosen) }
-    var projectPath: String? { store.snapshots[machine]?.project(project)?.path }
-    /// Where the app is: the project's folder, or the checkout that holds
-    /// it when only a branch does so far.
-    var appPath: String? { store.mobileDir(project: project) ?? projectPath }
+    /// The agent whose workbench the phone is seen in, nil outside one.
+    private var benchAgent: String? { store.layout.previewTab(key)?.benchAgent }
+    var checkouts: [PreviewCheckout] {
+        store.snapshots[machine]?.project(project).map { previewCheckouts($0, kinds: store.mobileKinds) } ?? []
+    }
+    /// What ▶ Run builds, said above the phone; nil until a branch is picked.
+    var target: PreviewCheckout? {
+        guard let p = store.snapshots[machine]?.project(project) else { return nil }
+        let agent = benchAgent
+        return previewTarget(p, kinds: store.mobileKinds, picked: picks[agent ?? ""],
+                             agentCwd: agent.map { store.pane($0)?.cwd ?? "" })
+    }
+
+    /// Picks the checkout to run; nil goes back to the one conch would.
+    func pick(_ path: String?) {
+        picks[benchAgent ?? ""] = path
+        detect()
+    }
+
+    var hasPick: Bool { picks[benchAgent ?? ""] != nil }
     var projectName: String { store.snapshots[machine]?.project(project)?.name ?? project }
 
     private func conch(_ args: [String]) async throws -> Data {
@@ -77,42 +94,49 @@ final class MobilePreviewModel: ObservableObject {
     }
 
     private func detect() {
-        guard let p = appPath else { return }
+        if let p = store.snapshots[machine]?.project(project) { store.detectMobile(mobileDirs(p)) }
+        guard let p = target?.path else {
+            kind = ""
+            return
+        }
         struct Detected: Decodable { var kind: String?; var label: String? }
         Task {
             if let d = try? JSONDecoder().decode(Detected.self, from: try await conch(["preview", "detect", p])) {
                 kind = d.label ?? ""
-                kindID = d.kind ?? ""
             }
         }
     }
 
-    /// What ▶ Run types for the device shown, if conch knows one.
-    var runCommand: String? { previewRunCommand(kind: kindID, device: device, conch: conchBinary() ?? "conch") }
+    /// What ▶ Run runs for the device and the checkout shown, if conch
+    /// knows how.
+    var runCommand: String? {
+        target.flatMap { previewRunCommand(kind: $0.kind, device: device, conch: store.binary ?? "conch") }
+    }
 
-    /// Puts the app on the phone: the command typed into the workbench's
-    /// own terminal when the phone is in one — the agent's checkout, so it
-    /// is that branch's app — else run in a new terminal in the project.
+    /// Puts the checkout's app on the phone: typed into the workbench's
+    /// own terminal when that was started in the same checkout, else run
+    /// in a new terminal there, so it has that checkout's port and branch.
     func run() {
-        guard let cmd = runCommand, let c = store.connection(machine) else { return }
-        let tab = store.layout.tabs.firstIndex { $0.root.panes.contains(key) }
-        if let i = tab, let shell = store.layout.benchParts(i)?.shell, isPaneKey(shell), store.pane(shell) != nil {
+        guard let t = target, let cmd = runCommand, let c = store.connection(machine) else { return }
+        if let tab = store.layout.previewTab(key), let i = store.layout.tabs.firstIndex(where: { $0.id == tab.id }),
+           let shell = store.layout.benchParts(i)?.shell, isPaneKey(shell), let cwd = store.pane(shell)?.cwd,
+           let p = store.snapshots[machine]?.project(project), checkoutHolding(cwd, mobileDirs(p)) == t.path,
+           let line = previewRunCommand(kind: t.kind, device: device, conch: store.binary ?? "conch", dir: t.path) {
             struct Send: Encodable { var id: String; var text: String }
             Task {
                 do {
-                    try await c.call("pane.send_text", Send(id: unkey(shell).id, text: cmd + "\r"))
-                    store.say("Running \(cmd) in the workbench's terminal")
+                    try await c.call("pane.send_text", Send(id: unkey(shell).id, text: line + "\r"))
+                    store.say("Running \(t.short) in the workbench's terminal")
                 } catch { self.error = "\(error)" }
             }
             return
         }
-        guard let dir = appPath else { return }
         struct Create: Encodable { var name: String; var cwd: String; var command: [String] }
         Task {
             do {
-                let p = try await c.call("pane.create", Create(name: "Run · \(projectName)", cwd: dir, command: ["/bin/sh", "-lc", cmd]), as: PaneInfo.self)
+                let p = try await c.call("pane.create", Create(name: "Run · \(t.short)", cwd: t.path, command: ["/bin/sh", "-lc", cmd]), as: PaneInfo.self)
                 store.snapshots[machine, default: Snapshot()].upsert(p)
-                store.say("Running \(cmd) in a new terminal")
+                store.say("Running \(t.short) in a new terminal, in the sidebar")
             } catch { self.error = "\(error)" }
         }
     }
@@ -270,21 +294,21 @@ struct MobilePreviewView: View {
     @ObservedObject var model: MobilePreviewModel
     @ObservedObject var store: Store
     @State private var typed = ""
-    /// The list of simulators beside the phone, open or not.
-    @AppStorage("mobilePreviewList") private var showList = false
+    /// The list of simulators over the phone. Not remembered: it covers
+    /// the phone, so it is open only while somebody is using it.
+    @State private var showList = false
     @State private var deleting: MobileDevice?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(Theme.line).frame(height: 1)
-            HStack(spacing: 0) {
-                screen.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.well)
-                if showList {
-                    Rectangle().fill(Theme.line).frame(width: 1)
-                    deviceList.frame(width: 220)
-                }
+            if !model.checkouts.isEmpty {
+                runBar
+                Rectangle().fill(Theme.line).frame(height: 1)
             }
+            screen.frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.well)
+                .overlay { if showList { floatingList } }
             Rectangle().fill(Theme.line).frame(height: 1)
             footer
         }
@@ -316,69 +340,154 @@ struct MobilePreviewView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            // In a narrow column the kind gives way first, then the title,
-            // then the icon — each whole rather than cut to a sliver — so the
-            // device and its buttons always have their room.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { icon; title; kindLabel }
-                HStack(spacing: 8) { icon; title }
-                icon
-                Color.clear.frame(width: 0, height: 0)
-            }
-            .layoutPriority(-1)
-            Spacer(minLength: 4)
-            Menu {
-                ForEach(model.devices) { d in
-                    Button { model.choose(d.id) } label: {
-                        Text((d.booted ? "● " : "") + d.title + (d.booted || d.state == "shutdown" ? "" : " (\(d.state))"))
-                    }
-                }
-                Divider()
-                Button("List Devices Again") { model.reload() }
-            } label: {
-                Text(model.device?.name ?? "No device").font(.ui(size: 11.5, design: .monospaced)).lineLimit(1)
-            }
-            .menuStyle(.borderlessButton).fixedSize()
-            .disabled(model.devices.isEmpty)
-            .help(model.device?.title ?? "The simulator shown")
-            if let cmd = model.runCommand {
-                Button { model.run() } label: {
-                    Image(systemName: "play.fill").font(.system(size: 11))
-                }
-                .buttonStyle(.plain).foregroundStyle(Theme.accent)
-                .accessibilityLabel("Run")
-                .help("Put the app on this phone: \(cmd)")
-            }
-            if model.device?.booted == true {
-                ForEach(previewButtons, id: \.name) { b in
-                    Button { model.button(b.name) } label: { Image(systemName: b.symbol).font(.system(size: 11)) }
-                        .buttonStyle(.plain).foregroundStyle(Theme.text2)
-                        .accessibilityLabel(b.help).help(b.help)
-                }
-                let agents = model.agents
-                Menu {
-                    ForEach(agents) { a in
-                        Button(a.displayName) { model.sendShot(to: a) }
-                    }
-                } label: {
-                    // A menu's label draws an SF Symbol, not a Lucide path.
-                    Image(systemName: "camera").font(.system(size: 12))
-                }
-                .accessibilityLabel("To agent")
-                .menuStyle(.borderlessButton).fixedSize()
-                .disabled(agents.isEmpty)
-                .help(agents.isEmpty ? "No agent is running in \(model.projectName)" : "Put a screenshot in an agent's prompt")
-            }
-            Button { showList.toggle() } label: {
-                Image(systemName: "sidebar.right").font(.system(size: 12))
-            }
-            .buttonStyle(.plain).foregroundStyle(showList ? Theme.accent : Theme.muted)
-            .accessibilityLabel("Simulators")
-            .help(showList ? "Hide the simulators" : "Every simulator, to shut down or delete")
+        // The first that fits the column whole: the kind gives way first,
+        // then the title and the icon, then Lock and Side fold into a menu,
+        // and last the device's name becomes a phone. Nothing is cut off.
+        ViewThatFits(in: .horizontal) {
+            bar { icon; title; kindLabel }
+            bar { icon; title }
+            bar { icon }
+            bar { EmptyView() }
+            bar(folded: true) { EmptyView() }
+            bar(folded: true, named: false) { EmptyView() }
         }
         .padding(.horizontal, 10).frame(height: 30)
         .background(Theme.paneHeader)
+    }
+
+    private func bar(folded: Bool = false, named: Bool = true, @ViewBuilder lead: () -> some View) -> some View {
+        HStack(spacing: 8) {
+            lead()
+            Spacer(minLength: 4)
+            deviceMenu(named: named)
+            if !model.checkouts.isEmpty { runButton }
+            if model.device?.booted == true {
+                hardwareButtons(folded: folded)
+                agentMenu
+            }
+            listButton
+        }
+    }
+
+    private func deviceMenu(named: Bool) -> some View {
+        Menu {
+            ForEach(model.devices) { d in
+                Button { model.choose(d.id) } label: {
+                    Text((d.booted ? "● " : "") + d.title + (d.booted || d.state == "shutdown" ? "" : " (\(d.state))"))
+                }
+            }
+            Divider()
+            Button("List Devices Again") { model.reload() }
+        } label: {
+            if named {
+                Text(model.device?.name ?? "No device").font(.ui(size: 11.5, design: .monospaced)).lineLimit(1)
+            } else {
+                Image(systemName: "iphone").font(.system(size: 12))
+            }
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .disabled(model.devices.isEmpty)
+        .accessibilityLabel(model.device?.name ?? "No device")
+        .help(model.device?.title ?? "The simulator shown")
+    }
+
+    private var runButton: some View {
+        let t = model.target
+        let cmd = model.runCommand
+        return Button { model.run() } label: {
+            Image(systemName: "play.fill").font(.system(size: 11))
+        }
+        .buttonStyle(.plain).foregroundStyle(cmd == nil ? Theme.muted : Theme.accent)
+        .disabled(cmd == nil)
+        .accessibilityLabel("Run")
+        .help(cmd.map { "Put \(t?.branch ?? "the app") on this phone: \($0)" }
+              ?? (t == nil ? "Pick the branch to run first" : "conch knows no command to run this app on a simulator"))
+    }
+
+    /// Home always; Lock and Side beside it, or in a menu where they don't fit.
+    @ViewBuilder private func hardwareButtons(folded: Bool) -> some View {
+        ForEach(previewButtons.filter { !folded || !$0.folds }, id: \.name) { b in
+            Button { model.button(b.name) } label: { Image(systemName: b.symbol).font(.system(size: 11)) }
+                .buttonStyle(.plain).foregroundStyle(Theme.text2)
+                .accessibilityLabel(b.help).help(b.help)
+        }
+        if folded {
+            Menu {
+                ForEach(previewButtons.filter(\.folds), id: \.name) { b in
+                    Button(b.help) { model.button(b.name) }
+                }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 12))
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .accessibilityLabel("More buttons").help("Lock and the side button")
+        }
+    }
+
+    @ViewBuilder private var agentMenu: some View {
+        let agents = model.agents
+        Menu {
+            ForEach(agents) { a in
+                Button(a.displayName) { model.sendShot(to: a) }
+            }
+        } label: {
+            // A menu's label draws an SF Symbol, not a Lucide path.
+            Image(systemName: "camera").font(.system(size: 12))
+        }
+        .accessibilityLabel("To agent")
+        .menuStyle(.borderlessButton).fixedSize()
+        .disabled(agents.isEmpty)
+        .help(agents.isEmpty ? "No agent is running in \(model.projectName)" : "Put a screenshot in an agent's prompt")
+    }
+
+    private var listButton: some View {
+        Button { showList.toggle() } label: {
+            Image(systemName: "sidebar.right").font(.system(size: 12))
+        }
+        .buttonStyle(.plain).foregroundStyle(showList ? Theme.accent : Theme.muted)
+        .accessibilityLabel("Simulators")
+        .help(showList ? "Hide the simulators" : "Every simulator, to shut down or delete")
+    }
+
+    /// Which branch ▶ builds, said before it is pressed, and the others
+    /// that hold an app to build instead.
+    private var runBar: some View {
+        let t = model.target
+        return HStack(spacing: 6) {
+            Text(t == nil ? "▶ needs a branch:" : t?.kind == "xcode" ? "▶ builds" : "▶ runs")
+                .font(.ui(size: 11)).foregroundStyle(t == nil ? Theme.warn : Theme.muted).fixedSize()
+            Menu {
+                ForEach(model.checkouts) { c in
+                    Button((c.path == t?.path ? "✓ " : "") + c.branch) { model.pick(c.path) }
+                }
+                if model.hasPick {
+                    Divider()
+                    Button("Choose Automatically") { model.pick(nil) }
+                }
+            } label: {
+                Text(t?.short ?? "Pick one").font(.ui(size: 11, design: .monospaced)).lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .accessibilityLabel("Branch to run")
+            .help(t.map { "\($0.branch) — \($0.path)" } ?? "This agent's checkout has no app: pick the branch to run")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).frame(height: 24)
+        .background(Theme.paneHeader)
+    }
+
+    /// The list over the phone, which keeps its size under it; a click
+    /// beside the list closes it rather than tapping the phone.
+    private var floatingList: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.clear.contentShape(Rectangle()).onTapGesture { showList = false }
+            deviceList
+                .frame(maxWidth: 240, maxHeight: 420)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line))
+                .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+                .padding(6)
+        }
     }
 
     @ViewBuilder private var screen: some View {
@@ -422,8 +531,8 @@ struct MobilePreviewView: View {
                         if d.state == "shutdown" { Button("Start \(d.name)") { model.boot() }.controlSize(.large) }
                         // ▶ Run starts it too, and puts the app on it.
                         if let cmd = model.runCommand {
-                            Button { model.run() } label: { Label("Run \(model.projectName) on it", systemImage: "play.fill") }
-                                .controlSize(.large).help(cmd)
+                            Button { model.run() } label: { Label("Run the app on it", systemImage: "play.fill") }
+                                .controlSize(.large).help("\(model.target?.branch ?? ""): \(cmd)")
                         }
                     }
                 } else {
@@ -499,7 +608,10 @@ struct MobilePreviewView: View {
         .padding(.horizontal, 10).padding(.vertical, 4)
         .background(shown ? Theme.accent.opacity(0.12) : Color.clear)
         .contentShape(Rectangle())
-        .onTapGesture { model.choose(d.id) }
+        .onTapGesture {
+            model.choose(d.id)
+            showList = false
+        }
         .help(d.title)
     }
 
