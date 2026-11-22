@@ -58,7 +58,7 @@ struct AgentAccountsCard: View {
             }
         }
         .sheet(isPresented: Binding(get: { usageOf != nil }, set: { if !$0 { usageOf = nil } })) {
-            UsageWindow(store: store, start: usageOf)
+            UsageWindow(store: store, machine: machine, start: usageOf)
         }
         .confirmationDialog(removing.map { "Remove \($0.agent)'s \($0.name) account?" } ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { a in
             Button("Remove", role: .destructive) { store.removeAccount(agent: a.agent, name: a.name, on: machine) }
@@ -72,7 +72,7 @@ struct AgentAccountsCard: View {
         store.loadAccounts(on: machine)
         store.loadAccountUsage(on: machine)
         store.loadRanks(on: machine, agent: "claude")
-        if machine == "local" { store.refreshLimits() }
+        store.refreshLimits(on: machine)
     }
 
     var header: some View {
@@ -98,10 +98,9 @@ struct AgentAccountsCard: View {
             .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
-    /// This machine's accounts with their plans and usage: the plans are
-    /// this computer's alone (agent.limits is asked of it).
+    /// This machine's accounts with their plans and usage.
     func merged(_ list: AgentAccountList) -> [UsageAccount] {
-        usageAccounts(limits: machine == "local" ? store.limits : [], history: store.accountUsage[machine], list: list)
+        usageAccounts(limits: store.plans.on(machine), history: store.accountUsage[machine], list: list)
     }
 
     @ViewBuilder func accounts(_ list: AgentAccountList) -> some View {
@@ -164,7 +163,7 @@ struct AgentAccountsCard: View {
     }
 
     func row(_ a: AgentAccount, _ u: UsageAccount?, line: Int) -> some View {
-        let inView = machine == "local" && store.agentInView.map { $0.agent == a.agent && ($0.account ?? "") == (a.isDefault == true ? "" : a.name) } == true
+        let inView = store.agentInView(on: machine).map { $0.agent == a.agent && ($0.account ?? "") == (a.isDefault == true ? "" : a.name) } == true
         return HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -185,7 +184,9 @@ struct AgentAccountsCard: View {
                     if let w = l.fiveHour { bar("5h", w.usedPct, line) }
                     if let w = l.week { bar("7d", w.usedPct, line) }
                 } else {
-                    Text(machine == "local" ? "No plan reported yet" : "Plans are shown for this Mac").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+                    let gap = store.usageGap(on: machine, needs: agentLimitsCapability)
+                    Text(gap == nil ? "No plan reported yet" : "Can't read its plan").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+                        .help(gap ?? "")
                 }
             }
             .frame(width: 190, alignment: .leading)
@@ -194,7 +195,7 @@ struct AgentAccountsCard: View {
                 Text("tokens this week").font(.ui(size: 10.5)).foregroundStyle(Theme.muted)
             }
             .frame(width: 92, alignment: .trailing)
-            .opacity(u?.usage == nil && !store.keepsAccountUsage ? 0 : 1)
+            .opacity(u?.usage == nil && store.usageGap(on: machine, needs: usageAccountsCapability) != nil ? 0 : 1)
             HStack(spacing: 6) {
                 let off = machine == "local" ? store.movedOff(a.isDefault == true ? "default" : a.name, on: machine).filter { k in store.pane(k)?.agent?.name == a.agent } : []
                 if !off.isEmpty {
@@ -208,7 +209,7 @@ struct AgentAccountsCard: View {
                         .controlSize(.small).help("Start \(store.agentTitle(a.agent)) on \(a.name) and sign in there once with /login")
                 }
                 Menu {
-                    if machine == "local" { Button("Open Usage") { usageOf = u?.id } }
+                    Button("Open Usage") { usageOf = u?.id }
                     if a.isDefault != true {
                         Button(a.signedIn == true ? "Sign In Again" : "Sign In") { store.signIn(agent: a.agent, account: a.name, on: machine) }
                         if machine == "local", let d = a.dir {
@@ -226,7 +227,7 @@ struct AgentAccountsCard: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if machine == "local" { usageOf = u?.id } }
+        .onTapGesture(count: 2) { usageOf = u?.id }
     }
 
     func badge(_ s: String, _ fg: Color, _ bg: Color) -> some View {
