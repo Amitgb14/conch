@@ -2737,12 +2737,18 @@ final class Store: ObservableObject {
     /// A new shell where the focused pane is — its machine and its folder,
     /// so its project — in a split beside it or a tab of its own.
     func newTerminal(split axis: SplitNode.Axis?) {
-        let machine = layout.focused.map { parseChangesKey($0)?.machine ?? unkey($0).machine } ?? "local"
-        guard let c = conns[machine] else { return }
-        struct Create: Encodable { var cwd: String? }
-        let cwd = layout.focused.flatMap { k in
-            pane(k)?.cwd ?? parseChangesKey(k).flatMap { c in changeViews[k]?.changes?.worktree ?? snapshots[c.machine]?.project(c.project)?.path }
+        let from = layout.focused
+        let at = terminalPlace(focused: from, tab: layout.current?.root.panes ?? [], agent: layout.current?.benchAgent, window: projectScope)
+        let machine = at.machine
+        guard let c = conns[machine] else {
+            error = "Could not open a terminal: \(label(machine)) is not connected"
+            return
         }
+        struct Create: Encodable { var cwd: String? }
+        let cwd = at.pane.flatMap { pane($0)?.cwd }
+            ?? at.dir
+            ?? from.flatMap { changeViews[$0]?.changes?.worktree } // the branch's checkout, not the project's
+            ?? at.project.flatMap { snapshots[machine]?.project($0)?.path }
         Task {
             do {
                 let p = try await c.call("pane.create", Create(cwd: cwd), as: PaneInfo.self)
