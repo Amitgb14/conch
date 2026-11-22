@@ -1,0 +1,63 @@
+export const metadata = { title: "iPhone app", description: "Set up Conch for iPhone against conch web: pairing, permissions, attachments and review." }
+
+# iPhone app
+
+**Conch for iPhone** is a native app for the same `conch web`. It is in beta and not on the App Store yet. It needs iOS 17, and conch 0.2.3 or later on the computer for the features below.
+
+## Set it up
+
+1. Install Tailscale on the computer and the iPhone, signed in to the same account.
+2. On the computer, put HTTPS in front and start conch web:
+
+   ```sh
+   tailscale serve --bg http://127.0.0.1:8722
+   conch web -url https://laptop.tail1234.ts.net
+   ```
+
+3. In another terminal on the computer, make a pairing code:
+
+   ```sh
+   conch web pair
+   ```
+
+4. In the iPhone app, tap **Scan QR code** and point it at that code. The Camera app would open the web app instead.
+
+Without the camera, tap **Enter address & code**. Type the whole address, `https://` included, and the six digits.
+
+The iPhone app does not pair through a [relay](/docs/phone#through-a-relay) yet. With a relay configured the QR code is the relay's, so use **Enter address & code** with the Tailscale address.
+
+## What each permission allows
+
+| To do this on the iPhone | Pair with |
+| --- | --- |
+| See agents, screens, projects and pull requests | `view` or more |
+| Read a branch's changes, diffs and commits | `view` or more |
+| See this computer's CPU and memory, and its agents' plan limits | `view` or more |
+| List the artifacts Claude Code published | `view` or more |
+| Reply, answer a question, leave notes on a diff and send them to the agent | `reply` or more |
+| Attach a photo, video or file | `full` |
+| Type into a terminal, start a task | `full` |
+| Stage, commit, push, open a pull request | `full` |
+
+A `view` phone sees the titles, links and folders of artifacts from every project on this computer.
+
+## Attach a file
+
+Tap the attach button beside the reply, choose the file, then send. Each file can be up to 25 MB. It is saved in `.conch/attachments/` in the agent's worktree, on the agent's machine, and git is told to ignore that folder.
+
+## Review and ship
+
+Open **Changes** and pick a branch. Tap a line to leave a note, and send the notes to the agent. With `full` you can also stage, commit, push and open a pull request. These run on the agent's machine with its own git, and a pull request needs `gh` signed in there.
+
+## What it can't do yet
+
+- **Notifications** arrive only while the app is open or was recently in the background.
+- **CPU, memory and plan limits** are this computer's only, not other machines'.
+- **Artifacts** come from `~/.claude` on this computer only. An agent on another machine, or on another [Claude Code account](/docs/agents#several-accounts), lists none.
+
+## If something is missing
+
+- **A feature says it needs a newer conch web, or fails with "no such route":** update conch, then restart the gateway with `conch web stop` and `conch web start`. A running gateway stays on the build it started with.
+- **A feature fails on one machine only:** run `conch machine upgrade` for that machine.
+- **A machine is absent:** pair with `conch web pair -machine NAME`, or allow it under [Devices](/docs/phone#devices).
+- **A button is absent:** the phone's permission is lower than the table asks. Change it with `conch web permission`.
