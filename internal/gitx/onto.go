@@ -46,12 +46,22 @@ func (e *OntoConflictError) Error() string {
 	return fmt.Sprintf("rebasing %s onto %s conflicts in %s; it was undone", e.Branch, e.Onto, strings.Join(e.Files, ", "))
 }
 
+// RebaseFailedError is a rebase that was begun and failed for something
+// other than conflicts, as against one refused before it touched anything.
+type RebaseFailedError struct {
+	Err error
+}
+
+func (e *RebaseFailedError) Error() string { return e.Err.Error() }
+func (e *RebaseFailedError) Unwrap() error { return e.Err }
+
 // RebaseOnto puts branch's own commits on top of onto, in dir where it is
 // checked out, and says whether that moved it. Uncommitted changes to
 // tracked files stop it before it starts; one that conflicts is undone and
-// comes back as an *OntoConflictError naming the files.
+// comes back as an *OntoConflictError naming the files, and one that
+// failed otherwise as a *RebaseFailedError.
 func RebaseOnto(ctx context.Context, dir, branch, onto string) (moved bool, err error) {
-	if err := readyToRebase(ctx, dir, branch); err != nil {
+	if err := ReadyToRebase(ctx, dir, branch); err != nil {
 		return false, err
 	}
 	if IsAncestor(ctx, dir, onto, "HEAD") {
@@ -60,7 +70,7 @@ func RebaseOnto(ctx context.Context, dir, branch, onto string) (moved bool, err 
 	if conflicts, err := rebaseUndoing(ctx, dir, onto); len(conflicts) > 0 {
 		return false, &OntoConflictError{Branch: branch, Onto: onto, Files: conflicts}
 	} else if err != nil {
-		return false, err
+		return false, &RebaseFailedError{Err: err}
 	}
 	return true, nil
 }
