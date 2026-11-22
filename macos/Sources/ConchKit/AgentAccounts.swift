@@ -154,7 +154,7 @@ public func agentAccountUsage(_ limits: PlanLimits?, now: Date = Date()) -> Stri
     var parts: [String] = []
     func add(_ label: String, _ w: PlanLimits.Window?) {
         guard let w else { return }
-        if let r = w.resetsAt, r <= now { return }
+        guard windowLive(w.resetsAt, now: now) else { return }
         parts.append("\(label) \(Int(w.usedPct.rounded()))%")
     }
     add("5h", l.fiveHour)
@@ -167,7 +167,7 @@ public func agentAccountUsage(_ limits: PlanLimits?, now: Date = Date()) -> Stri
 /// line. Nil when the account has reported nothing.
 public func agentAccountUsed(_ limits: PlanLimits?, now: Date = Date()) -> Double? {
     guard let l = limits else { return nil }
-    let live = l.allWindows.filter { $0.resetsAt.map { $0 > now } ?? true }
+    let live = l.allWindows.filter { windowLive($0.resetsAt, now: now) }
     return live.map(\.usedPct).max()
 }
 
