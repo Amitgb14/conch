@@ -120,14 +120,19 @@ func reviewNotes(comments []proto.ReviewComment, p proto.PaneInfo) []ReviewNote 
 		if rc.ProjectID != p.ProjectID || rc.Branch != p.Branch {
 			continue
 		}
-		n := ReviewNote{ID: rc.ID, Where: proto.ReviewWhere(rc), Note: rc.Note, By: rc.By,
-			GitHub: rc.Source == proto.ReviewGitHub, URL: rc.URL, Outdated: rc.Outdated}
-		for _, r := range rc.Replies {
-			n.Replies = append(n.Replies, ReviewReply{By: r.By, Note: r.Note})
-		}
-		out = append(out, n)
+		out = append(out, reviewNote(rc))
 	}
 	return out
+}
+
+// reviewNote is one comment as the phone shows it.
+func reviewNote(rc proto.ReviewComment) ReviewNote {
+	n := ReviewNote{ID: rc.ID, Where: proto.ReviewWhere(rc), Note: rc.Note, By: rc.By,
+		GitHub: rc.Source == proto.ReviewGitHub, URL: rc.URL, Outdated: rc.Outdated}
+	for _, r := range rc.Replies {
+		n.Replies = append(n.Replies, ReviewReply{By: r.By, Note: r.Note})
+	}
+	return n
 }
 
 // agentList is every agent, waiting first and longest wait first, as the

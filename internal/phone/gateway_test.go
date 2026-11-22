@@ -29,18 +29,31 @@ func TestRoutesAreTheContract(t *testing.T) {
 	want := []string{
 		"DELETE /api/push/subscribe view",
 		"GET /api/agents view",
+		"GET /api/artifacts view",
+		"GET /api/ask view",
+		"GET /api/changes view",
+		"GET /api/diff view",
 		"GET /api/hello view",
+		"GET /api/limits view",
 		"GET /api/machines view",
 		"GET /api/panes view",
+		"GET /api/project view",
 		"GET /api/projects view",
 		"GET /api/push/key view",
+		"GET /api/resources view",
 		"POST /api/answer reply",
+		"POST /api/attach full",
 		"POST /api/close full",
+		"POST /api/commit full",
 		"POST /api/panes full",
+		"POST /api/pr full",
+		"POST /api/push full",
 		"POST /api/push/subscribe view",
 		"POST /api/rename full",
 		"POST /api/reply reply",
+		"POST /api/review/note reply",
 		"POST /api/review/send reply",
+		"POST /api/stage full",
 		"POST /api/task full",
 	}
 	var got []string
@@ -63,7 +76,7 @@ func TestRoutesAreTheContract(t *testing.T) {
 	}
 	// Every code the contract lists has its status.
 	for code, status := range map[string]int{"bad_request": 400, "unauthorized": 401, "forbidden": 403, "not_found": 404,
-		"agent_blocked": 409, "not_waiting": 409, "question_changed": 409, "no_choices": 422, "pair_expired": 410,
+		"agent_blocked": 409, "not_waiting": 409, "question_changed": 409, "no_choices": 422, "hunk_changed": 409, "pair_expired": 410,
 		"rate_limited": 429, "server_unavailable": 503} {
 		if httpStatus[code] != status {
 			t.Errorf("%s travels with %d, want %d", code, httpStatus[code], status)
@@ -908,12 +921,13 @@ func TestServerUnavailable(t *testing.T) {
 	}
 }
 
-// A request body is a reply or a prompt, not a file.
+// A request body is a reply or a prompt, not a file: too large is 413 with
+// the bad_request code, saying the limit.
 func TestOversizedBody(t *testing.T) {
 	f := newFixture(t)
 	p := f.pair(PermReply)
 	status, e := p.post("/api/reply", ReplyRequest{Pane: "p1", Text: strings.Repeat("x", maxBody)}, nil)
-	if status != 400 || e.Code != CodeBadRequest {
+	if status != 413 || e.Code != CodeBadRequest || !strings.Contains(e.Message, "64 KB") {
 		t.Fatalf("%d %+v", status, e)
 	}
 	if status, b := p.do("POST", "/api/reply", nil); status != 400 {
@@ -1041,5 +1055,42 @@ func TestCloseWaitsForSocketsToRecordClosing(t *testing.T) {
 	}
 	if e := st.Seen[p.id]; e == nil || e.Sockets != 0 {
 		t.Fatalf("Close returned before the socket recorded closing: %+v", e)
+	}
+}
+
+// TestHelloNamesItsFeatures: routes added after APIVersion 2 are named in
+// hello, so a client can tell what this gateway answers before calling
+// (an older one answers 404 "no such route"), and each name stands for
+// routes that really are here.
+func TestHelloNamesItsFeatures(t *testing.T) {
+	f := newFixture(t)
+	p := f.pair(PermView)
+	var h Hello
+	if status := p.get("/api/hello", &h); status != 200 {
+		t.Fatal(status)
+	}
+	want := []string{"artifacts", "artifacts.all", "ask", "attach", "git.review", "limits", "project", "resources"}
+	if strings.Join(h.Features, " ") != strings.Join(want, " ") {
+		t.Fatalf("features %v, want %v", h.Features, want)
+	}
+	have := map[string]bool{}
+	for _, rt := range routes {
+		have[rt.method+" "+rt.path] = true
+	}
+	for _, name := range h.Features {
+		rs := featureRoutes[name]
+		if len(rs) == 0 {
+			t.Errorf("feature %q names no routes", name)
+		}
+		for _, r := range rs {
+			if !have[r] {
+				t.Errorf("feature %q: no route %s", name, r)
+			}
+		}
+	}
+	// The field is new; a client that predates it is not sent null.
+	_, raw := p.do("GET", "/api/hello", nil)
+	if !strings.Contains(string(raw), `"features":["artifacts",`) {
+		t.Errorf("hello %s", raw)
 	}
 }
