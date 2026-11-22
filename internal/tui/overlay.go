@@ -1443,6 +1443,7 @@ var helpGroups = []helpGroup{{
 		{keys: "click", what: "select · double-click opens · right-click is the menu · the wheel scrolls"},
 		{keys: "drag", what: "in a pane or a page, copy what you drag over", more: []string{
 			"past the edge, or with the wheel, it scrolls · a double click copies a word",
+			"sent, not copied: your terminal may ignore it — shift-drag uses its own selection",
 		}},
 		{keys: "Y", what: "an agent's conversation: scroll (g top · G bottom), drag over a part, release to copy"},
 		{keys: "alt+click", what: "open a link an agent printed (option+click, or ctrl+click)", more: []string{

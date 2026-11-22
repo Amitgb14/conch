@@ -205,6 +205,10 @@ final class GhosttyPaneView: NSView {
     private(set) var surface: ghostty_surface_t?
     var onExit: (() -> Void)?
     private var tracking: NSTrackingArea?
+    /// Whether a drag here selects though the program took the mouse: an
+    /// agent's pane.
+    var selectsOverApp: () -> Bool = { false }
+    private var dragSelect = DragSelect()
     /// Fed the program's own output (attach -raw): its history, search and
     /// scrollbar are Ghostty's.
     let raw: Bool
@@ -601,15 +605,71 @@ final class GhosttyPaneView: NSView {
 
     override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
-        button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT)
+        guard let s = surface else { return }
+        let steps = dragSelect.press(at: e.locationInWindow, clicks: e.clickCount,
+                                     modified: !e.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control]),
+                                     agent: selectsOverApp(), captured: ghostty_surface_mouse_captured(s),
+                                     cellWidth: metrics()?.cellWidth ?? 0)
+        for step in steps {
+            if step == .pass { button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT) } else { perform(step) }
+        }
     }
-    override func mouseUp(with e: NSEvent) { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) }
+    override func mouseUp(with e: NSEvent) {
+        for step in dragSelect.release(at: e.locationInWindow) {
+            if step == .pass { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT) } else { perform(step) }
+        }
+    }
     override func rightMouseDown(with e: NSEvent) { button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT) }
     override func rightMouseUp(with e: NSEvent) { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT) }
     override func otherMouseDown(with e: NSEvent) { button(e, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE) }
     override func otherMouseUp(with e: NSEvent) { button(e, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE) }
     override func mouseMoved(with e: NSEvent) { pos(e) }
-    override func mouseDragged(with e: NSEvent) { pos(e) }
+    override func mouseDragged(with e: NSEvent) {
+        for step in dragSelect.drag(to: e.locationInWindow) {
+            if step == .pass { pos(e) } else { perform(step) }
+        }
+    }
+
+    /// DragSelect's steps as Ghostty takes them. Shift is its way past a
+    /// program's hold on the mouse, but a shift-press over a selection
+    /// extends that one, so it is cleared first: a scroll of nothing does
+    /// that while the mouse is reported, and reports nothing itself.
+    private func perform(_ step: DragStep) {
+        guard let s = surface else { return }
+        let shift = GHOSTTY_MODS_SHIFT, none = GHOSTTY_MODS_NONE
+        func move(_ w: CGPoint, _ m: ghostty_input_mods_e) {
+            let p = convert(w, from: nil)
+            ghostty_surface_mouse_pos(s, p.x, frame.height - p.y, m)
+        }
+        func send(_ state: ghostty_input_mouse_state_e, _ m: ghostty_input_mods_e) {
+            _ = ghostty_surface_mouse_button(s, state, GHOSTTY_MOUSE_LEFT, m)
+        }
+        switch step {
+        case .pass:
+            break
+        case .click(let p):
+            move(p, none)
+            send(GHOSTTY_MOUSE_PRESS, none)
+            send(GHOSTTY_MOUSE_RELEASE, none)
+        case let .select(p, clicks):
+            ghostty_surface_mouse_scroll(s, 0, 0, 0)
+            move(p, none) // the pointer only moving, to a program following it
+            send(GHOSTTY_MOUSE_PRESS, shift)
+            // The first click went to the program, so Ghostty counts from
+            // this press: a word takes a second.
+            if clicks == 2 {
+                send(GHOSTTY_MOUSE_RELEASE, shift)
+                send(GHOSTTY_MOUSE_PRESS, shift)
+            }
+        case .extend(let p):
+            move(p, shift)
+        case .end(let p):
+            move(p, shift)
+            send(GHOSTTY_MOUSE_RELEASE, shift)
+        case .copy:
+            if ghostty_surface_has_selection(s) { copy(nil) }
+        }
+    }
     override func rightMouseDragged(with e: NSEvent) { pos(e) }
     override func mouseEntered(with e: NSEvent) { pos(e) }
     override func mouseExited(with e: NSEvent) {
