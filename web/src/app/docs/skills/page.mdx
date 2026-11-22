@@ -1,0 +1,146 @@
+export const metadata = { title: "Skills", description: "conch's ten skills for agents, each with a real example of it in use." }
+
+# Skills
+
+conch carries ten skills that teach an agent in a conch pane to use conch for you. Install them once per machine with `conch agent skill -apply`, start an agent, and ask in plain words; in Claude Code you can also type a skill's name, like `/conch-status`. See [agents working together](/docs/agents-together) for how helpers show in the tree.
+
+Every helper spends your usage, and nothing merges, deploys or changes your setup unless you say so.
+
+## `conch`
+
+Hand one job to another agent and read its answer.
+
+```text
+you ❯ Ask Codex whether my retry logic in client.go can loop forever.
+
+  started second-opinion (codex) on branch task/second-opinion
+  waited 4 min · read its NOTES.md
+  Codex found one case: a 429 without Retry-After retries with no limit.
+  It suggests capping at 5 tries. Closed the helper and removed its branch.
+```
+
+## `conch-team`
+
+The same task tried by several agents, or one task split between them.
+
+```text
+you ❯ Have Claude and Codex each fix the slow CSV export, and tell me which to keep.
+
+  export-claude   2.1 s for 100k rows · 140 lines changed · tests pass
+  export-codex    0.5 s for 100k rows ·  60 lines changed · tests pass
+  Keep export-codex: 4× faster and a smaller change.
+```
+
+## `conch-review`
+
+A second agent reviews, the author fixes, and the review runs again until clean.
+
+```text
+you ❯ Get this branch reviewed by Gemini and have the fixes made.
+
+  round 1: 3 comments (1 blocker: a missing auth check on /export)
+  sent to the author · 3 fixed, each answered under its line
+  round 2: clean
+```
+
+## `conch-ship`
+
+Tests, pull request, CI, and a merge when you asked for one.
+
+```text
+you ❯ Open the PR for this branch and merge it when CI is green.
+
+  make test ✓ · pushed · PR #318 opened
+  CI: lint ✗ → sent to the branch's agent → fixed → green
+  merged #318 · removed its worktree
+```
+
+## `conch-factory`
+
+A ticket all the way to a merged pull request: spec, build, review, test, CI.
+
+```text
+you ❯ /conch-factory 142
+
+  spec agreed with you: 3 acceptance criteria
+  build-142 built it test-first · review found 2 issues · fixed · clean
+  test-142: pass · PR #320 green · merged (you asked)
+  retro: the review caught a missing input check; add it to the spec template?
+```
+
+## `conch-autopilot`
+
+Sets up the project to check, review and open pull requests by itself.
+
+```text
+you ❯ Set up the autopilot for this repo, but don't auto-merge yet.
+
+  check found: make test (ran once, 2 min, green)
+  proposed: a codex reviewer, failed checks sent back, PRs opened, auto_merge = false
+  you said yes · run: conch autopilot push   (yours: conch refuses it from an agent)
+```
+
+## `conch-qa`
+
+Tests a branch the way a user would: on its own port, a phone simulator, or the deploy preview.
+
+```text
+you ❯ QA the signup branch on the iPhone simulator before I merge.
+
+  plan: 3 criteria · 11 cases · suite ✓
+  conch preview run (iPhone 16) · 9 screenshots
+  fail: BUG-1 (major) the Sign up button hides under the keyboard on iPhone SE
+        BUG-2 (minor) a double tap creates two accounts
+  both left on their lines for the author · steps in TEST-REPORT.md
+```
+
+## `conch-cicd`
+
+Red CI runs, pipelines and deploys: tells a real failure from a flake and sends it to the right agent.
+
+```text
+you ❯ CI has been red on main since this morning, what's going on?
+
+  TestUpload failed 3 of the last 5 runs; rerun once → green
+  a flake: it listens on fixed port 8080 while another test does too
+  suggested fix: listen on port 0 · not rerun until green
+```
+
+Or for a deploy: _"The Vercel preview for my branch failed."_ It reads the build log and finds `NEXT_PUBLIC_API_URL` missing. It promotes to production only when you ask.
+
+## `conch-setup`
+
+Gets a project ready for agents, and asks where they should run.
+
+```text
+you ❯ Set up conch for this repo.
+
+  ✓ conch doctor · project added · CI is GitHub Actions
+  To run (conch keeps these for you):
+    1. conch project files p2 .env config/local.yml
+    2. conch project setup p2 pnpm install
+    3. conch agent sync -from claude -apply
+    4. conch integration install vercel        ← asks for your token
+
+  Where should agents work on this project?
+    1. This computer (as now)
+    2. A machine already connected:  buildbox (ssh, conch 0.2.2)
+    3. A new sandbox:  daytona (key set)
+```
+
+A new sandbox is made only after you agree to what it costs.
+
+## `conch-status`
+
+What every agent is doing, then tidying up what you agree to.
+
+```text
+you ❯ Morning, what's going on?
+
+  Needs you   p7 build-150 asks: "Run rm -rf dist?" (yes / no)
+  Red         feature/export: CI failed, already sent to its agent
+  Done        build-142: PR #318 green, ready to merge
+  Working     build-151, 25 min, third commit
+  Later       02:00 nightly dependency update
+  Tidy up     4 finished worktrees, 2 idle helpers. Remove them? (y/n)
+```
