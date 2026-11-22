@@ -2026,10 +2026,14 @@ struct SplitArea: View {
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
-                BrowserView(model: store.browser(for: id),
-                            close: { store.closeBrowser(id) },
-                            ownTab: (store.layout.tab(showing: id).map { store.layout.tabs[$0].root.panes.count > 1 } ?? false)
-                                ? { store.browserToItsOwnTab(id) } : nil).id(id)
+                if let model = store.browser(for: id) {
+                    BrowserView(model: model,
+                                close: { store.closeBrowser(id) },
+                                ownTab: (store.layout.tab(showing: id).map { store.layout.tabs[$0].root.panes.count > 1 } ?? false)
+                                    ? { store.browserToItsOwnTab(id) } : nil).id(id)
+                } else {
+                    Color.clear // closed, and drawn once more on its way out
+                }
             } else if parseMobileKey(id) != nil {
                 MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
             } else if parseTaskKey(id) != nil {
