@@ -87,7 +87,7 @@ struct MoveAgentSheet: View {
         let ranks = store.ranks(for: ask.pane).filter { $0.label != ask.from }
         let usable = ranks.filter(\.usable)
         let target = to.isEmpty ? (ask.to ?? usable.first?.label ?? "") : to
-        let accounts = store.usageAccountsHere
+        let accounts = store.accountsWithUsage(on: unkey(ask.pane).machine)
         let line = failoverLine(store.agentAccounts[unkey(ask.pane).machine], agent: ask.agent)
         let name = store.pane(ask.pane)?.displayName ?? unkey(ask.pane).id
         VStack(alignment: .leading, spacing: 14) {
