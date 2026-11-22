@@ -2406,7 +2406,8 @@ struct AnswerStrip: View {
 struct StatusBar: View {
     @ObservedObject var store: Store
     @State private var showLimits = false
-    @State private var showUsageWindow = false
+    /// The machine whose usage window is open.
+    @State private var usageWindowOf: String?
     @State private var showMonitor = false
     @State private var monitorHover = false
 
@@ -2470,23 +2471,23 @@ struct StatusBar: View {
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;
             // a click lists every window, as the TUI's limits view does.
-            if !chipMarks(store.usageAccountsHere).isEmpty {
+            let usageOn = store.machineInView
+            if !chipMarks(store.accountsWithUsage(on: usageOn)).isEmpty {
                 // One chip for every account: a mark each, and the account
                 // in view's windows; a click opens a tab per account
                 // (UsagePanel.swift), which maximizes into a window.
-                Button { showLimits.toggle() } label: { AccountUsageChip(store: store).contentShape(Rectangle()) }
+                Button { showLimits.toggle() } label: { AccountUsageChip(store: store, machine: usageOn).contentShape(Rectangle()) }
                     .buttonStyle(.plain).focusEffectDisabled()
-                    .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
+                    .help(store.plans.on(usageOn).map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
                     .barPopover(isPresented: $showLimits) {
-                        UsagePanel(store: store) { showLimits = false; showUsageWindow = true }
+                        UsagePanel(store: store, machine: usageOn) { showLimits = false; usageWindowOf = usageOn }
                     }
-                    .sheet(isPresented: $showUsageWindow) { UsageWindow(store: store) }
             } else if store.connected {
                 // No plan reported yet: what was used is still a click away.
                 Button { showLimits.toggle() } label: { Text("Usage").foregroundStyle(Theme.muted) }
                     .buttonStyle(.plain).help("Tokens used in the last day, week and month, by model")
-                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
-                    .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
+                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store, machine: usageOn) }
+                    .onChange(of: showLimits) { if $0 { store.refreshLimits(on: usageOn); store.refreshUsageHistory() } }
             }
             // ✦ Ask, report a problem and pair a phone, as the TUI's bar has.
             StatusExtras(store: store)
@@ -2539,6 +2540,11 @@ struct StatusBar: View {
             .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store, close: { showMonitor = false }) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
+        // On the bar, not the chip: the chip goes when the machine in view
+        // has no plan, and would take the window with it.
+        .sheet(isPresented: Binding(get: { usageWindowOf != nil }, set: { if !$0 { usageWindowOf = nil } })) {
+            UsageWindow(store: store, machine: usageWindowOf ?? "local")
+        }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
         .background { ZStack { Frost(color: Theme.side); if Theme.ink { Screentone() } } }
@@ -2558,14 +2564,17 @@ struct StatusBar: View {
 /// limits view.
 struct LimitsPopover: View {
     @ObservedObject var store: Store
+    let machine: String
 
     var body: some View {
+        let limits = store.plans.on(machine)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Plan limits").font(.ui(size: 13, weight: .semibold))
-            if store.limits.isEmpty {
-                Text("No agent has reported its plan yet.").foregroundStyle(.secondary)
+            Text("Plan limits · \(store.usageName(machine))").font(.ui(size: 13, weight: .semibold))
+            if limits.isEmpty {
+                Text(store.usageGap(on: machine, needs: agentLimitsCapability) ?? "No agent has reported its plan yet.")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(store.limits, id: \.usageKey) { l in
+            ForEach(limits, id: \.usageKey) { l in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Mark(agent: l.agent)

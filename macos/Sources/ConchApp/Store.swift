@@ -137,7 +137,8 @@ final class Store: ObservableObject {
     @Published var keyLogin: [String: Bool] = [:]
     var keyAsked: Set<String> = []
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
-    @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
+    /// Each machine's plans, as its own server heard them (agent.limits).
+    @Published var plans = MachinePlans() { didSet { alertLimits() } }
     /// Plan limit alerts already raised (limitCrossings), kept with the
     /// app's preferences so a restart does not raise them again.
     private var limitSeen: [String: Int] = (UserDefaults.standard.dictionary(forKey: "conch.limitSeen") as? [String: Int]) ?? [:]
@@ -783,8 +784,6 @@ final class Store: ObservableObject {
 
     // MARK: the status bar's own: limits, settings, what conch uses
 
-    /// Asks again what each agent's plan has used, as the limits popover
-    /// opens: a report from minutes ago is not what anyone opened it for.
     /// What the agents on each machine used over the last day, week and
     /// month (usage.history.v1), in the sidebar's order of machines; asked
     /// when the usage popover opens.
@@ -810,10 +809,19 @@ final class Store: ObservableObject {
         }
     }
 
-    func refreshLimits() {
-        guard let c = conns["local"] else { return }
+    /// Asks machine again what each agent's plan has used, as it connects
+    /// and as its usage opens: a report from minutes ago is not what anyone
+    /// opened it for.
+    func refreshLimits(on machine: String) {
+        guard let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains(agentLimitsCapability) == true else {
+            plans.set([], on: machine) // not what a newer server there once said
+            return
+        }
         Task {
-            if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
+            guard let l = try? await c.call("agent.limits", as: AgentLimitsResult.self),
+                  conns[machine] === c else { return } // a connection since let go
+            plans.set(l.limits ?? [], on: machine)
         }
     }
 
@@ -1381,6 +1389,7 @@ final class Store: ObservableObject {
             c.shutdown()
         }
         machines = next
+        plans.keep(only: kept)
         for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
         if next.contains(where: { $0.provider.map { sandboxCaps[$0] == nil } ?? false }) { loadSandboxCaps() }
     }
@@ -1452,8 +1461,8 @@ final class Store: ObservableObject {
             if machine == "local" {
                 error = nil
                 status = ""
-                if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
             }
+            refreshLimits(on: machine)
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
             if machine == "local" { detectMobile(projects.projects.flatMap(mobileDirs), force: true) }
             countSessions(machine)
@@ -1955,9 +1964,8 @@ final class Store: ObservableObject {
             }
             return
         case "agent.limits":
-            if machine == "local", let l = try? dec.decode(PlanLimits.self, from: data) {
-                limits.removeAll { $0.usageKey == l.usageKey }
-                limits.append(l)
+            if let l = try? dec.decode(PlanLimits.self, from: data) {
+                plans.report(l, on: machine)
                 loadRanks(on: machine, agent: l.agent)
             }
             return
@@ -2179,7 +2187,7 @@ final class Store: ObservableObject {
         let now = Date()
         var seen = pruneLimitAlerts(limitSeen, now: now)
         var alerts: [LimitAlert] = []
-        for l in limits { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
+        for l in plans.on("local") { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
         if seen != limitSeen {
             limitSeen = seen
             UserDefaults.standard.set(seen, forKey: "conch.limitSeen")
