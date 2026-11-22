@@ -68,10 +68,17 @@ struct AccountUsageChip: View {
             if let a = shown, let l = a.limits {
                 Text(a.tabLabel).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
                 let line = failoverLine(store.agentAccounts[machine], agent: a.agent)
-                if let w = l.fiveHour { window("5h", w.usedPct, line) }
-                if let w = l.week {
-                    if l.fiveHour != nil { Rectangle().fill(Theme.line).frame(width: 1, height: 10) }
-                    window("7d", w.usedPct, line)
+                // A window turns over with no report to redraw the chip.
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    let bars = l.bars(now: ctx.date)
+                    HStack(spacing: 8) {
+                        ForEach(bars) { w in
+                            if w.id != bars.first?.id { Rectangle().fill(Theme.line).frame(width: 1, height: 10) }
+                            window(w.label, w.usedPct, line)
+                        }
+                        if l.barsReset(now: ctx.date) { Text("reset").foregroundStyle(Theme.muted) }
+                    }
+                    .help(store.plans.on(machine).map { usageHelp($0, now: ctx.date) }.joined(separator: "\n") + "\nClick for each account's usage")
                 }
             }
         }
@@ -124,22 +131,26 @@ struct PlanBar: View {
 
     var body: some View {
         let _ = look
-        let level = usageLevel(pct, line: line)
-        HStack(spacing: 8) {
-            Text(label).foregroundStyle(Theme.text2).frame(width: 96, alignment: .leading).lineLimit(1)
-            LevelBar(pct: pct, line: line, color: levelColor(level), width: 170, height: 7)
-            Text("\(Int(pct.rounded()))%").monospacedDigit().frame(width: 38, alignment: .trailing)
-                .foregroundStyle(level == .room ? Theme.text : levelColor(level))
-            if level != .room {
-                Text(level.words).font(.ui(size: 11, weight: .semibold)).foregroundStyle(levelColor(level)).lineLimit(1)
-            } else if let r = resets, r.timeIntervalSince1970 > 0 {
-                TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(Theme.muted).lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            let live = windowLive(resets, now: ctx.date)
+            let used = "\(Int(pct.rounded()))%"
+            let level = live ? usageLevel(pct, line: line) : .room
+            HStack(spacing: 8) {
+                Text(label).foregroundStyle(Theme.text2).frame(width: 96, alignment: .leading).lineLimit(1)
+                LevelBar(pct: live ? pct : 0, line: line, color: levelColor(level), width: 170, height: 7)
+                Text(live ? used : "—").monospacedDigit().frame(width: 38, alignment: .trailing)
+                    .foregroundStyle(level == .room ? Theme.text : levelColor(level))
+                if level != .room {
+                    Text(level.words).font(.ui(size: 11, weight: .semibold)).foregroundStyle(levelColor(level)).lineLimit(1)
+                } else if let r = resets {
+                    Text(live ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }
+            .help(live
+                  ? "\(label): \(used) used · \(level.words)\(line > 0 ? " · failover at \(line)%" : "")\(resets.map { " · resets in \(elapsed(ctx.date, $0))" } ?? "")"
+                  : "\(label): reset since it was last reported at \(used)")
         }
         .font(.ui(size: 12))
-        .help("\(label): \(Int(pct.rounded()))% used · \(level.words)\(line > 0 ? " · failover at \(line)%" : "")\(resets.map { $0 > Date() ? " · resets in \(elapsed(Date(), $0))" : "" } ?? "")")
     }
 }
 
@@ -451,7 +462,7 @@ struct UsagePanel: View {
     }
 
     func tabButton(_ a: UsageAccount, selected: Bool, inView: Bool, line: Int) -> some View {
-        let near = (a.limits?.allWindows.map(\.usedPct).max()).map { usageLevel($0, line: line) != .room } ?? false
+        let near = agentAccountUsed(a.limits).map { usageLevel($0, line: line) != .room } ?? false
         return Button { tab = a.id } label: {
             HStack(spacing: 5) {
                 Mark(agent: a.agent).frame(width: 14, height: 14)
@@ -502,7 +513,7 @@ struct UsageWindow: View {
                     VStack(alignment: .leading, spacing: 18) {
                         compare("Room left · fullest window", accounts) { a in
                             let line = failoverLine(store.agentAccounts[machine], agent: a.agent)
-                            let f = a.limits?.allWindows.map(\.usedPct).max()
+                            let f = agentAccountUsed(a.limits)
                             return (f.map { "\(Int($0.rounded()))%" } ?? "—",
                                     AnyView(LevelBar(pct: f ?? 0, line: line, color: f.map { levelColor(usageLevel($0, line: line)) } ?? Theme.line2, width: 130, height: 8)))
                         }

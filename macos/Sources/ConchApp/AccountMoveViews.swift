@@ -155,8 +155,12 @@ struct MoveAgentSheet: View {
                 }
             }
             if let l = a?.limits, l.reportsUse {
-                if let w = l.fiveHour { bar("5h", w.usedPct, line) }
-                if let w = l.week { bar("7d", w.usedPct, line) }
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(l.bars(now: ctx.date)) { bar($0.label, $0.usedPct, line) }
+                        if l.barsReset(now: ctx.date) { Text("Reset since last reported").font(.ui(size: 11)).foregroundStyle(Theme.muted) }
+                    }
+                }
             } else {
                 Text("No plan reported yet").font(.ui(size: 11)).foregroundStyle(Theme.muted)
             }
