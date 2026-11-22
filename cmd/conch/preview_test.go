@@ -356,3 +356,30 @@ func TestPreviewShutdownAndDelete(t *testing.T) {
 		}
 	}
 }
+
+func TestPreviewKeyboard(t *testing.T) {
+	ran, _ := fakePreview(t, map[string]string{"xcrun simctl list devices available -j": previewSims})
+	for arg, value := range map[string]string{"show": "false", "hide": "true"} {
+		*ran = nil
+		if err := runPreview([]string{"keyboard", "-device", "A1", arg}); err != nil {
+			t.Fatal(arg, err)
+		}
+		if want := "AutomaticMinimizationEnabled -bool " + value; !strings.Contains(strings.Join(*ran, "\n"), want) {
+			t.Errorf("%s ran %q", arg, *ran)
+		}
+	}
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"keyboard"}, "usage"},
+		{[]string{"keyboard", "maybe"}, "usage"},
+		{[]string{"keyboard", "show", "hide"}, "usage"},
+		{[]string{"keyboard", "-device", "Galaxy", "show"}, `no device "Galaxy"`},
+		{[]string{"keyboard", "-device", "A2", "show"}, "conch preview boot"},
+	} {
+		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%q: %v, want %q", c.args, err, c.err)
+		}
+	}
+}

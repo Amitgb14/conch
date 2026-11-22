@@ -62,6 +62,9 @@ func TestXcodeRunBuildsInstallsAndOpens(t *testing.T) {
 		"xcrun xcodebuild " + args + " build",
 		"xcrun xcodebuild -showBuildSettings -json " + args,
 		"xcrun simctl install U1 /dd/Debug-iphonesimulator/Conch.app",
+		// before it opens, or a simulator that has seen a hardware keyboard hides its own
+		"xcrun simctl spawn U1 defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool false",
+		"xcrun simctl spawn U1 notifyutil -p AppleKeyboardsPreferencesChangedNotification",
 		// closed first, so a second Run shows the new build
 		"xcrun simctl launch --terminate-running-process U1 dev.conch.mobile",
 	}
@@ -180,5 +183,24 @@ func TestBuiltApp(t *testing.T) {
 		if _, _, err := builtApp([]byte(in)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v", in, err)
 		}
+	}
+}
+
+// A keyboard that could not be shown is said and the app opened anyway.
+func TestXcodeRunWithoutKeyboard(t *testing.T) {
+	dir := xcodeDir(t, "Conch.xcodeproj")
+	proj := filepath.Join(dir, "Conch.xcodeproj")
+	f := &fake{answers: xcodeAnswers(proj, "-project"), fails: map[string]string{
+		"xcrun simctl spawn U1 defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool false": "simctl: no such process",
+	}}
+	var out bytes.Buffer
+	if _, err := f.tools("xcrun", "", "", "").XcodeRun(context.Background(), dir, iphone, "", &out); err != nil {
+		t.Fatal(err)
+	}
+	if last := f.ran[len(f.ran)-1]; last != "xcrun simctl launch --terminate-running-process U1 dev.conch.mobile" {
+		t.Errorf("not opened: %q", last)
+	}
+	if !strings.Contains(out.String(), "keyboard may stay hidden") {
+		t.Errorf("not said: %q", out.String())
 	}
 }

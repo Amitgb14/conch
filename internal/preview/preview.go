@@ -753,6 +753,33 @@ func adbText(s string) string {
 	return b.String()
 }
 
+// Keyboard says whether an iOS simulator shows its own keyboard once it
+// has seen a hardware one — the Simulator app's, or the one typing through
+// AXe is — which by default it hides. The setting is the simulator's and
+// stays; the notification is what makes a running app read it, at the
+// next field touched, where the setting alone waits for a relaunch.
+func (t *Tools) Keyboard(ctx context.Context, d Device, show bool) error {
+	if d.Platform != "ios" || d.Kind != "simulator" {
+		return fmt.Errorf("%s is not an iOS simulator: only its keyboard is conch's to show", d.Name)
+	}
+	if t.Xcrun == "" {
+		return errors.New("xcrun not found: install Xcode")
+	}
+	if err := needBooted(d); err != nil {
+		return err
+	}
+	return t.keyboard(ctx, d.ID, show)
+}
+
+func (t *Tools) keyboard(ctx context.Context, id string, show bool) error {
+	if _, err := t.Run(ctx, t.Xcrun, "simctl", "spawn", id, "defaults", "write",
+		"com.apple.keyboard.preferences", "AutomaticMinimizationEnabled", "-bool", strconv.FormatBool(!show)); err != nil {
+		return err
+	}
+	_, err := t.Run(ctx, t.Xcrun, "simctl", "spawn", id, "notifyutil", "-p", "AppleKeyboardsPreferencesChangedNotification")
+	return err
+}
+
 // Buttons are the device buttons Button presses.
 var Buttons = []string{"home", "back", "lock", "side"}
 

@@ -239,6 +239,12 @@ public func previewAgents(_ snapshot: Snapshot, project: String, preferred: Stri
 /// started while the last is still being taken).
 public let previewRefreshInterval: Double = 0.35
 
+/// Of the simulators already asked to show their keyboard, those still
+/// running: one that shut down is asked again at its next boot.
+public func previewStillBooted(_ ids: Set<String>, _ devices: [MobileDevice]) -> Set<String> {
+    ids.intersection(devices.filter(\.booted).map(\.id))
+}
+
 /// The hardware buttons beside the phone: `conch preview button`'s
 /// names, the SF Symbol each is drawn with, and what it does.
 public struct PreviewButton: Sendable, Equatable {

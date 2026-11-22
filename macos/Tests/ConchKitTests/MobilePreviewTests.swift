@@ -328,3 +328,12 @@ private let runKinds = ["/w/app": "", "/w/app.wt/beta": "xcode", "/w/app.wt/fix"
     l.active = 2
     #expect(l.previewTab(k)?.benchAgent == "local|p1")
 }
+
+// The keyboard is asked for once a boot: again after a shutdown, and not
+// with every screenshot.
+@Test func previewKeyboardOnceABoot() {
+    func d(_ id: String, _ state: String) -> MobileDevice { MobileDevice(id: id, name: id, platform: "ios", state: state) }
+    #expect(previewStillBooted(["A", "B"], [d("A", "booted"), d("B", "shutdown")]) == ["A"])
+    #expect(previewStillBooted(["A"], []) == [])
+    #expect(previewStillBooted([], [d("A", "booted")]) == [])
+}

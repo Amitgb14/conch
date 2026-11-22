@@ -31,6 +31,8 @@ final class MobilePreviewModel: ObservableObject {
     @Published private var picks: [String: String] = [:]
 
     private var loop: Task<Void, Never>?
+    /// The simulators asked to show their keyboard, since they last booted.
+    private var keyboardAsked: Set<String> = []
     private let shotPath: String
 
     init(key: String, store: Store) {
@@ -83,6 +85,7 @@ final class MobilePreviewModel: ObservableObject {
                 // A simulator that started meanwhile (▶ Run's) is shown.
                 let follow = previewFollow(old: devices, new: l.devices, chosen: chosen)
                 devices = l.devices
+                keyboardAsked = previewStillBooted(keyboardAsked, devices)
                 if follow != chosen { choose(follow) }
                 notes = l.notes ?? []
                 if device?.booted == true { booting = false }
@@ -190,6 +193,12 @@ final class MobilePreviewModel: ObservableObject {
                 // The picture's own pixels, which taps are given in.
                 imageSize = CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
                 error = ""
+            }
+            // Once it has a screen it can be asked: a simulator that has
+            // seen a hardware keyboard hides its own, and a tap on a
+            // field would open nothing.
+            if keyboardAsked.insert(d.id).inserted {
+                act(previewArgs("keyboard", device: d.id, ["show"]))
             }
         } catch {
             self.error = "\(error)"

@@ -656,3 +656,44 @@ func TestLockAndSideButtons(t *testing.T) {
 		t.Errorf("unknown iOS button: %v", err)
 	}
 }
+
+// A simulator that has seen a hardware keyboard (AXe's typing is one)
+// hides its own. The setting alone reaches a running app one time in
+// eight; with the notification after it, every time.
+func TestKeyboard(t *testing.T) {
+	ctx := context.Background()
+	ios := Device{ID: "U", Name: "iPhone", Platform: "ios", Kind: "simulator", State: "booted"}
+	f := &fake{}
+	tl := f.tools("xcrun", "adb", "", "")
+	if err := tl.Keyboard(ctx, ios, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Keyboard(ctx, ios, false); err != nil {
+		t.Fatal(err)
+	}
+	const write = "xcrun simctl spawn U defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool "
+	const tell = "xcrun simctl spawn U notifyutil -p AppleKeyboardsPreferencesChangedNotification"
+	if want := []string{write + "false", tell, write + "true", tell}; !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	// A write that failed is not announced.
+	g := &fake{fails: map[string]string{write + "false": "simctl: not booted"}}
+	if err := g.tools("xcrun", "", "", "").Keyboard(ctx, ios, true); err == nil || len(g.ran) != 1 {
+		t.Errorf("failed write: %v, ran %q", err, g.ran)
+	}
+	for _, c := range []struct {
+		d     Device
+		xcrun string
+		want  string
+	}{
+		{Device{ID: "U", Name: "iPhone", Platform: "ios", Kind: "simulator", State: "shutdown"}, "xcrun", "conch preview boot"},
+		{Device{ID: "E", Name: "Pixel", Platform: "android", Kind: "emulator", State: "booted"}, "xcrun", "not an iOS simulator"},
+		{Device{ID: "P", Name: "Phone", Platform: "ios", Kind: "device", State: "booted"}, "xcrun", "not an iOS simulator"},
+		{ios, "", "install Xcode"},
+	} {
+		h := &fake{}
+		if err := h.tools(c.xcrun, "", "", "").Keyboard(ctx, c.d, true); err == nil || !strings.Contains(err.Error(), c.want) || len(h.ran) != 0 {
+			t.Errorf("%+v: %v, ran %q", c.d, err, h.ran)
+		}
+	}
+}

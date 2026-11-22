@@ -23,7 +23,7 @@ import (
 // It is this computer's alone: the phones run where Xcode and the Android
 // SDK are, and no server is asked.
 
-const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shutdown DEVICE|-all | delete DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
+const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shutdown DEVICE|-all | delete DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side | keyboard [-device D] show|hide | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.
@@ -201,6 +201,20 @@ func runPreview(args []string) error {
 			return err
 		}
 		return t.Type(ctx, d, strings.Join(fs.Args(), " "))
+	case "keyboard":
+		fs := flag.NewFlagSet("preview keyboard", flag.ContinueOnError)
+		dev := fs.String("device", "", "the simulator, by ID or name (default: the one running)")
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 || (fs.Arg(0) != "show" && fs.Arg(0) != "hide") {
+			return errors.New("usage: conch preview keyboard [-device D] show|hide")
+		}
+		t, d, err := previewDevice(ctx, *dev, false)
+		if err != nil {
+			return err
+		}
+		return t.Keyboard(ctx, d, fs.Arg(0) == "show")
 	case "run":
 		fs := flag.NewFlagSet("preview run", flag.ContinueOnError)
 		dev := fs.String("device", "", "the simulator, by ID or name (default: the one running)")

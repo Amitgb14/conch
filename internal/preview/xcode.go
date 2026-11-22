@@ -134,6 +134,10 @@ func (t *Tools) XcodeRun(ctx context.Context, dir string, d Device, scheme strin
 	if _, err := t.Run(ctx, t.Xcrun, "simctl", "install", d.ID, app.Path); err != nil {
 		return app, err
 	}
+	// By ID: d may still say shutdown, though the build has booted it.
+	if err := t.keyboard(ctx, d.ID, true); err != nil {
+		fmt.Fprintf(w, "conch: the keyboard may stay hidden: %v\n", err)
+	}
 	// The app as it was is closed, so a second Run shows the new build.
 	if _, err := t.Run(ctx, t.Xcrun, "simctl", "launch", "--terminate-running-process", d.ID, app.BundleID); err != nil {
 		return app, err

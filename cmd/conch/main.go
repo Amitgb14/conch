@@ -476,6 +476,8 @@ Usage:
   conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side
                                 touch, type or press a button on it; X Y are pixels of the shot
                                 (an iOS simulator needs AXe or idb for these)
+  conch preview keyboard [-device D] show|hide
+                                whether a simulator shows its own keyboard beside a hardware one
   conch preview run [-device D] [-scheme S] [DIR]
                                 build an Xcode project for a simulator, install it and open it
   conch preview detect [DIR...] what kind of mobile app a folder is and how its dev server starts
