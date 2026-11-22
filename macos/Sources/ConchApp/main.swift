@@ -218,7 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// (File → New Window, the Dock); any other ends, and is not opened
     /// again with the app.
     func closed(_ w: AppWindow) {
-        guard w.store !== store else { return }
+        guard w.store !== store else {
+            for m in store.browserViews.values { m.pauseMedia() } // kept, but not heard
+            return
+        }
         windows.removeAll { $0 === w }
         AppWindows.shared.remove(w.store)
         w.store.closeWindow()

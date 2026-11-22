@@ -143,6 +143,7 @@ extension Store {
             t.stop()
             dropTerminal(k)
         }
+        endBrowsers()
         for c in conns.values { c.shutdown() }
         conns = [:]
         shutdown()
