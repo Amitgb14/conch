@@ -204,3 +204,36 @@ func TestXcodeRunWithoutKeyboard(t *testing.T) {
 		t.Errorf("not said: %q", out.String())
 	}
 }
+
+// What a run is doing is said as it starts doing it: a build takes
+// minutes, and whoever pressed Run may not have its terminal in view.
+func TestXcodeRunSaysItsSteps(t *testing.T) {
+	dir := xcodeDir(t, "Conch.xcodeproj")
+	proj := filepath.Join(dir, "Conch.xcodeproj")
+	build := "xcrun xcodebuild -project " + proj + " -scheme Conch -configuration Debug -destination id=U1 build"
+	shut := iphone
+	shut.State = "shutdown"
+	for _, c := range []struct {
+		name  string
+		dev   Device
+		fails string
+		want  []string
+	}{
+		{"running", iphone, "", []string{StepBuilding, StepInstalling, StepOpening}},
+		{"shut down", shut, "", []string{StepStarting, StepBuilding, StepInstalling, StepOpening}},
+		{"build fails", iphone, build, []string{StepBuilding}},
+		{"install fails", iphone, "xcrun simctl install U1 /dd/Debug-iphonesimulator/Conch.app", []string{StepBuilding, StepInstalling}},
+	} {
+		f := &fake{answers: xcodeAnswers(proj, "-project"), fails: map[string]string{}}
+		if c.fails != "" {
+			f.fails[c.fails] = "no"
+		}
+		tl := f.tools("xcrun", "", "", "")
+		var got []string
+		tl.Step = func(s string) { got = append(got, s) }
+		_, err := tl.XcodeRun(context.Background(), dir, c.dev, "", &bytes.Buffer{})
+		if (err != nil) != (c.fails != "") || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %v %v, want %v", c.name, got, err, c.want)
+		}
+	}
+}

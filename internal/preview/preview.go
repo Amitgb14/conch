@@ -69,6 +69,8 @@ type Tools struct {
 	// Pipe runs a program to its end with everything it prints sent to w
 	// as it prints it: a build somebody is watching in a terminal.
 	Pipe func(ctx context.Context, w io.Writer, name string, args ...string) error
+	// Step, when set, is told each step of XcodeRun as it begins.
+	Step func(step string)
 }
 
 // Options are the settings ([preview] in config.toml): where Xcode and

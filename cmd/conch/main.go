@@ -478,7 +478,7 @@ Usage:
                                 (an iOS simulator needs AXe or idb for these)
   conch preview keyboard [-device D] show|hide
                                 whether a simulator shows its own keyboard beside a hardware one
-  conch preview run [-device D] [-scheme S] [DIR]
+  conch preview run [-device D] [-scheme S] [-status FILE] [DIR]
                                 build an Xcode project for a simulator, install it and open it
   conch preview detect [DIR...] what kind of mobile app a folder is and how its dev server starts
                                 (several folders: a JSON line each, naming its folder)

@@ -383,3 +383,86 @@ func TestPreviewKeyboard(t *testing.T) {
 		}
 	}
 }
+
+// Run's status file: each step as it begins, and how it ended, which is
+// what Conch.app's status bar says while the build is in a terminal.
+func TestPreviewRunStatus(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "Conch.xcodeproj"), 0o755)
+	proj := filepath.Join(dir, "Conch.xcodeproj")
+	args := "-project " + proj + " -scheme Conch -configuration Debug -destination id=A1"
+	build := "xcrun xcodebuild " + args + " build"
+	answers := map[string]string{
+		"xcrun simctl list devices available -j":        previewSims,
+		"xcrun xcodebuild -list -json -project " + proj: `{"project":{"name":"Conch","schemes":["Conch"]}}`,
+		build: "** BUILD SUCCEEDED **\n",
+		"xcrun xcodebuild -showBuildSettings -json " + args: `[{"target":"Conch","buildSettings":{"WRAPPER_EXTENSION":"app","TARGET_BUILD_DIR":"/dd","WRAPPER_NAME":"Conch.app","PRODUCT_BUNDLE_IDENTIFIER":"dev.conch.mobile"}}]`,
+	}
+	fakePreview(t, answers)
+	status := filepath.Join(t.TempDir(), "run.json")
+	read := func() previewRunStatus {
+		t.Helper()
+		b, err := os.ReadFile(status)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s previewRunStatus
+		if err := json.Unmarshal(b, &s); err != nil {
+			t.Fatalf("%q: %v", b, err)
+		}
+		return s
+	}
+	var during previewRunStatus
+	tools := previewTools
+	previewTools = func() *preview.Tools {
+		tl := tools()
+		pipe := tl.Pipe
+		tl.Pipe = func(ctx context.Context, w io.Writer, name string, args ...string) error {
+			during = read()
+			return pipe(ctx, w, name, args...)
+		}
+		return tl
+	}
+
+	if err := runPreview([]string{"run", "-status", status, dir}); err != nil {
+		t.Fatal(err)
+	}
+	me := os.Getpid()
+	if want := (previewRunStatus{PID: me, Step: preview.StepBuilding, Device: "iPhone 16 Pro"}); during != want {
+		t.Errorf("while building: %+v", during)
+	}
+	if want, got := (previewRunStatus{PID: me, Step: previewRunOpen, Device: "iPhone 16 Pro"}), read(); got != want {
+		t.Errorf("at the end: %+v", got)
+	}
+
+	answers[build] = "ERR exit status 65"
+	if err := runPreview([]string{"run", "-status", status, dir}); err == nil {
+		t.Fatal("a failed build passed")
+	}
+	if s := read(); s.Step != previewRunFailed || s.Failed != preview.StepBuilding || !strings.Contains(s.Error, "exit status 65") {
+		t.Errorf("failed build: %+v", s)
+	}
+
+	// Failed before any step: still said, or the app waits on it.
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"run", "-status", status, filepath.Join(dir, "gone")}, "not a folder"},
+		{[]string{"run", "-status", status, "-device", "Galaxy", dir}, `no device "Galaxy"`},
+		{[]string{"run", "-status", status, "a", "b"}, "usage"},
+	} {
+		if err := runPreview(c.args); err == nil {
+			t.Fatalf("%q passed", c.args)
+		}
+		if s := read(); s.Step != previewRunFailed || s.Failed != "" || !strings.Contains(s.Error, c.err) {
+			t.Errorf("%q: %+v", c.args, s)
+		}
+	}
+
+	// A status nobody can write never stops the run.
+	answers[build] = "ok"
+	if err := runPreview([]string{"run", "-status", filepath.Join(dir, "no", "such", "run.json"), dir}); err != nil {
+		t.Errorf("unwritable status: %v", err)
+	}
+}
