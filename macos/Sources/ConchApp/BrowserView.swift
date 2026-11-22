@@ -142,8 +142,13 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         _ = web.url == nil ? web.reload() : web.reloadFromOrigin()
     }
 
-    /// The page goes quiet: a tab closed is not left playing.
+    /// The page goes quiet: a tab closed is not left playing, full screen
+    /// and Picture in Picture included, whoever still holds its view. It
+    /// has no browser any more to open tabs in.
     func stop() {
+        owner = nil
+        web.pauseAllMediaPlayback(completionHandler: nil)
+        web.closeAllMediaPresentations(completionHandler: nil)
         web.stopLoading()
         web.loadHTMLString("", baseURL: nil)
     }
@@ -295,6 +300,8 @@ final class BrowserModel: ObservableObject {
     /// Pages are made when a tab is first shown, so a pane of twenty saved
     /// tabs does not load twenty pages at launch.
     var pages: [Int: BrowserPage] = [:]
+    /// Shut down: a last draw, or an answer that came late, loads nothing.
+    private var ended = false
     @Published private(set) var busy: Set<Int> = []
     @Published private(set) var icons: [Int: NSImage] = [:]
     /// Bumped to put the cursor in the address bar (⌘L, ⌘T).
@@ -332,7 +339,7 @@ final class BrowserModel: ObservableObject {
     }
 
     // What the window's tab and the rest of the app read.
-    var current: BrowserPage? { tabs.active.map { page($0.id) } }
+    var current: BrowserPage? { ended ? nil : tabs.active.map { page($0.id) } }
     var web: WKWebView? { current?.web }
     var address: String { tabs.active?.address ?? "" }
     var title: String { tabs.active?.title ?? "" }
@@ -341,6 +348,7 @@ final class BrowserModel: ObservableObject {
         if let p = pages[id] { return p }
         let t = tabs.tab(id)
         let p = BrowserPage(id: id, owner: self, private: t?.isPrivate ?? false, develop: t?.develop ?? BrowserDevelop())
+        guard !ended else { return p }
         pages[id] = p
         if let t {
             p.web.pageZoom = t.zoom
@@ -569,8 +577,17 @@ final class BrowserModel: ObservableObject {
 
     /// Every page closed: the browser is going.
     func shutdown() {
+        ended = true
         for p in pages.values { p.stop() }
         pages = [:]
+    }
+
+    /// Its window closed but kept, to come back with its tabs: paused.
+    func pauseMedia() {
+        for p in pages.values {
+            p.web.pauseAllMediaPlayback(completionHandler: nil)
+            p.web.closeAllMediaPresentations(completionHandler: nil)
+        }
     }
 }
 

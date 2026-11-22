@@ -108,6 +108,9 @@ final class Store: ObservableObject {
             // here does not run didSet again.
             if !offersChat, layout.showsChat { layout.hideChat() }
             claimPanes(since: oldValue)
+            // After this turn: a move takes a pane out and puts it back,
+            // and a workspace's tabs are put away, all within one.
+            if !browserViews.isEmpty { DispatchQueue.main.async { [weak self] in self?.endClosedBrowsers() } }
         }
     }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
@@ -2489,11 +2492,26 @@ final class Store: ObservableObject {
     /// time it is shown.
     var savedBrowsers: [String: SavedBrowser] = [:]
 
-    func browser(for k: String) -> BrowserModel {
+    /// A pane's browser, to draw; nil for a pane that has been closed.
+    func browser(for k: String) -> BrowserModel? {
         if let m = browserViews[k] { return m }
+        guard mayMakeBrowser(k, in: layout, windowClosed: windowClosed) else { return nil }
         let m = BrowserModel(key: k, store: self, saved: savedBrowsers.removeValue(forKey: k))
         browserViews[k] = m
         return m
+    }
+
+    /// Shuts down every browser whose pane was closed, however it was.
+    private func endClosedBrowsers() {
+        for k in browsersClosed(made: Set(browserViews.keys), layouts: [layout] + Array(parkedTabs.values)) {
+            browserViews.removeValue(forKey: k)?.shutdown()
+        }
+    }
+
+    /// The window is gone for good: so are its browsers.
+    func endBrowsers() {
+        for m in browserViews.values { m.shutdown() }
+        browserViews = [:]
     }
 
     /// Every browser pane's tabs, for saving.
