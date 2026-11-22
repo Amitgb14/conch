@@ -2478,7 +2478,7 @@ struct StatusBar: View {
                 // (UsagePanel.swift), which maximizes into a window.
                 Button { showLimits.toggle() } label: { AccountUsageChip(store: store, machine: usageOn).contentShape(Rectangle()) }
                     .buttonStyle(.plain).focusEffectDisabled()
-                    .help(store.plans.on(usageOn).map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
+                    .help("Click for each account's usage")
                     .barPopover(isPresented: $showLimits) {
                         UsagePanel(store: store, machine: usageOn) { showLimits = false; usageWindowOf = usageOn }
                     }
@@ -2587,13 +2587,14 @@ struct LimitsPopover: View {
                         }
                     }
                     ForEach(l.allWindows, id: \.key) { w in
-                        HStack(spacing: 8) {
-                            Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
-                            Meter(fraction: w.usedPct / 100)
-                            Text("\(Int(w.usedPct.rounded()))%").frame(width: 38, alignment: .trailing).monospacedDigit()
-                            if let r = w.resetsAt, r.timeIntervalSince1970 > 0 {
-                                TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
+                        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                            let live = windowLive(w.resetsAt, now: ctx.date)
+                            HStack(spacing: 8) {
+                                Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
+                                Meter(fraction: live ? w.usedPct / 100 : 0)
+                                Text(live ? "\(Int(w.usedPct.rounded()))%" : "—").frame(width: 38, alignment: .trailing).monospacedDigit()
+                                if let r = w.resetsAt {
+                                    Text(live ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -2840,12 +2841,12 @@ struct UsageChip: View {
 @MainActor func usageColor(_ pct: Double) -> Color { pct >= 100 ? Theme.err : pct >= 80 ? Theme.warn : Theme.text2 }
 
 /// An agent's windows and when each resets, for the chip's tooltip.
-@MainActor func usageHelp(_ l: PlanLimits) -> String {
+@MainActor func usageHelp(_ l: PlanLimits, now: Date) -> String {
     var name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
     if let a = l.account, !a.isEmpty { name += " (\(a))" }
     let parts = l.allWindows.map { w -> String in
-        var s = "\(PlanLimits.label(w.key)) \(Int(w.usedPct.rounded()))%"
-        if let r = w.resetsAt, r > Date() { s += ", resets in \(elapsed(Date(), r))" }
+        var s = planWindowText(w, now: now)
+        if let r = w.resetsAt, r > now { s += ", resets in \(elapsed(now, r))" }
         return s
     }
     return "\(name): " + parts.joined(separator: " · ")
