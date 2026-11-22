@@ -97,8 +97,7 @@ func (m *Model) openBugReport() tea.Cmd {
 			return nil
 		}},
 		menuItem{label: "Copy it", run: func(m *Model) tea.Cmd {
-			putClipboard(text)
-			m.setFlash("report copied", false)
+			m.setFlash(putClipboard(text).say("the report"), false)
 			return nil
 		}},
 		menuItem{label: "Copy the server log's path (" + m.tildify(localMachine, config.ServerLogPath()) + ")",
@@ -106,8 +105,9 @@ func (m *Model) openBugReport() tea.Cmd {
 				// The log is not in the report and never will be: it holds
 				// project paths, branch names and pane titles. Handing over
 				// the path is the person's to do, having read it.
-				putClipboard(config.ServerLogPath())
-				m.setFlash("log path copied — it holds paths and branch names, so read it before you attach it", false)
+				// The warning first: the bar cuts a line from its end.
+				r := putClipboard(config.ServerLogPath())
+				m.setFlash("read the log before you attach it (it holds paths and branch names) · "+r.say("its path"), false)
 				return nil
 			}})
 	m.overlay = &menu{title: " Report a problem ", items: items, sel: len(items) - 3, x: 4, y: 2}

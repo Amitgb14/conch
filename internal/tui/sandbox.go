@@ -589,14 +589,19 @@ func (m *Model) receivePreview(msg previewDoneMsg) tea.Cmd {
 		if msg.url != "" {
 			// The link is good even when nothing answers yet: keep it on
 			// the clipboard so it can be tried again in a moment.
-			m.showError(errString(errText(msg.err) + " The link is on your clipboard: " + msg.url))
-			return copyText(msg.url)
+			// Now, not as a command: its flash would cover why it failed.
+			kept := "The link is on your clipboard: "
+			if r := putClipboard(msg.url); r.outcome != clipCopied {
+				kept = "The link (" + r.say("it") + "): "
+			}
+			m.showError(errString(errText(msg.err) + " " + kept + msg.url))
+			return nil
 		}
 		m.showError(msg.err)
 		return nil
 	}
-	m.setFlash("opened "+msg.url+" · copied", false)
-	return tea.Batch(openURL(msg.url), copyText(msg.url))
+	m.setFlash("opening "+msg.url, false)
+	return openAndCopy(msg.url)
 }
 
 // Keeping a sandbox to make others from: a checkout, its dependencies and

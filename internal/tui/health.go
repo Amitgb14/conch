@@ -180,8 +180,12 @@ func newHealthMenu(m Model) *menu {
 			continue
 		}
 		items = append(items, menuItem{label: "Copy the " + c.Name + " fix: " + fix, run: func(m *Model) tea.Cmd {
-			putClipboard(fix)
-			m.setFlash("copied — paste it in a terminal (n opens one)", false)
+			r := putClipboard(fix)
+			said := r.say("the fix")
+			if r.outcome == clipCopied {
+				said += " — paste it in a terminal (n opens one)"
+			}
+			m.setFlash(said, false)
 			return nil
 		}})
 	}
@@ -191,8 +195,7 @@ func newHealthMenu(m Model) *menu {
 	if len(m.health) > 0 {
 		text := doctor.Text(m.health)
 		items = append(items, menuItem{label: "Copy all of it", run: func(m *Model) tea.Cmd {
-			putClipboard(text)
-			m.setFlash("checks copied", false)
+			m.setFlash(putClipboard(text).say("the checks"), false)
 			return nil
 		}})
 	}
