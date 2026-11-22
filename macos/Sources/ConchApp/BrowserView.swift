@@ -18,6 +18,10 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     var id: Int
     weak var owner: BrowserModel?
     let web: FocusingWebView
+    /// What is put on screen: the page and, docked under it, its Web
+    /// Inspector — which WebKit adds beside the page, so beside it here
+    /// rather than in a SwiftUI view that goes when the tab is switched.
+    let holder = PageHolder()
     @Published var loading = false
     @Published var progress = 0.0
     @Published var canBack = false
@@ -41,12 +45,16 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         self.owner = owner
         let configuration = given ?? Self.configuration(private: p)
         prepareContent(configuration, private: p, sink: sink, noImages: develop.disableImages)
+        allowWebInspector(configuration) // here, so a window a page opened has it too
         web = FocusingWebView(frame: .zero, configuration: configuration)
         web.customUserAgent = develop.responsive?.userAgent
         web.allowsBackForwardNavigationGestures = true
         web.allowsMagnification = true
         web.isInspectable = true // Develop ▸ Inspect, as in Safari
         super.init()
+        web.autoresizingMask = [.width, .height]
+        holder.addSubview(web)
+        holder.page = web
         sink.page = self
         if develop.disableImages && BrowserNoImages.rules == nil {
             BrowserNoImages.set(true, in: web) { [weak self] in self?.reload() }
@@ -147,6 +155,7 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// has no browser any more to open tabs in.
     func stop() {
         owner = nil
+        closeWebInspector(web)
         web.pauseAllMediaPlayback(completionHandler: nil)
         web.closeAllMediaPresentations(completionHandler: nil)
         web.stopLoading()
@@ -500,7 +509,7 @@ final class BrowserModel: ObservableObject {
 
     func inspect() {
         guard let w = web else { return }
-        if !showWebInspector(w) { say("Right-click the page → Inspect Element") }
+        if !showWebInspector(w) { say("This macOS’s WebKit has no inspector to open: use Safari’s Develop menu") }
     }
 
     func say(_ s: String) {
@@ -508,13 +517,24 @@ final class BrowserModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.notice == s { self?.notice = "" } }
     }
 
-    /// Whether the keyboard is in this browser: one of its pages, or its
-    /// address or find field.
+    /// Whether the keyboard is in this browser: one of its pages or the
+    /// inspector docked under it, or its address or find field.
     func hasKeyboard(_ r: NSResponder?) -> Bool {
         if chromeEditing { return true }
         var v = r as? NSView
         while let view = v {
-            if let w = view as? WKWebView { return pages.values.contains { $0.web === w } }
+            if pages.values.contains(where: { $0.holder === view }) { return true }
+            v = view.superview
+        }
+        return false
+    }
+
+    /// Whether the keyboard is in an inspector docked under a page, whose
+    /// find is its own.
+    func inspectorHasKeyboard(_ r: NSResponder?) -> Bool {
+        var v = r as? NSView
+        while let view = v {
+            if let p = pages.values.first(where: { $0.holder === view.superview }) { return p.web !== view }
             v = view.superview
         }
         return false
@@ -591,15 +611,32 @@ final class BrowserModel: ObservableObject {
     }
 }
 
-/// Opens Web Inspector on a page. WebKit has no public call for it —
-/// `isInspectable` only lets Safari's Develop menu and the page's own
-/// Inspect Element reach it — so this is the private `_inspector`'s
-/// `show`, and false when a WebKit no longer has them: the caller says
-/// how to open it by hand instead.
+/// Lets a page have WebKit's own Web Inspector and Inspect Element.
+/// `isInspectable` is only for Safari's Develop menu: without this private
+/// preference the inspector's `show` does nothing, and says nothing.
+@MainActor
+func allowWebInspector(_ c: WKWebViewConfiguration) {
+    guard c.preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")) else { return }
+    c.preferences.setValue(true, forKey: "developerExtrasEnabled")
+}
+
+/// A closed page's inspector goes with it, its window too.
+@MainActor
+func closeWebInspector(_ w: WKWebView) {
+    let get = NSSelectorFromString("_inspector"), close = NSSelectorFromString("close")
+    guard w.responds(to: get), let i = w.perform(get)?.takeUnretainedValue() as? NSObject, i.responds(to: close) else { return }
+    i.perform(close)
+}
+
+/// Opens Web Inspector on a page — docked under it, or in a window of its
+/// own when the pane is too narrow. WebKit has no public call for it, so
+/// this is the private `_inspector`'s `show`, and false when a WebKit no
+/// longer has what it takes: the caller says where else to find it.
 @MainActor
 func showWebInspector(_ w: WKWebView) -> Bool {
     let get = NSSelectorFromString("_inspector")
-    guard w.responds(to: get), let i = w.perform(get)?.takeUnretainedValue() as? NSObject else { return false }
+    guard w.configuration.preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")),
+          w.responds(to: get), let i = w.perform(get)?.takeUnretainedValue() as? NSObject else { return false }
     let show = NSSelectorFromString("show")
     guard i.responds(to: show) else { return false }
     i.perform(show)
@@ -840,7 +877,7 @@ struct BrowserPageView: View {
     @ViewBuilder var pageHost: some View {
         if let r = model.tabs.tab(page.id)?.develop.responsive {
             ScrollView([.horizontal, .vertical]) {
-                WebHost(web: page.web)
+                WebHost(view: page.holder)
                     .frame(width: CGFloat(r.size.width), height: CGFloat(r.size.height))
                     .overlay(Rectangle().stroke(Theme.line))
                     .padding(16)
@@ -848,7 +885,7 @@ struct BrowserPageView: View {
             }
             .background(Theme.well)
         } else {
-            WebHost(web: page.web)
+            WebHost(view: page.holder)
         }
     }
 
@@ -1022,9 +1059,23 @@ struct BrowserPageView: View {
     }
 }
 
-/// A tab's WKWebView, kept by its page so switching tabs keeps the page.
+/// A page's place on screen. WebKit lays a docked inspector out from the
+/// page's top edge, and autoresizing loses that edge when SwiftUI sizes
+/// the place to nothing on a tab switch: so each resize gives the page all
+/// of it, and WebKit, told of that, takes the inspector's share again.
+final class PageHolder: NSView {
+    weak var page: NSView?
+
+    override func resizeSubviews(withOldSize old: NSSize) {
+        super.resizeSubviews(withOldSize: old)
+        if let page, page.superview === self { page.frame = bounds }
+    }
+}
+
+/// A tab's page and its docked inspector, kept by the page so switching
+/// tabs keeps both.
 struct WebHost: NSViewRepresentable {
-    let web: WKWebView
-    func makeNSView(context: Context) -> WKWebView { web }
-    func updateNSView(_ v: WKWebView, context: Context) {}
+    let view: NSView
+    func makeNSView(context: Context) -> NSView { view }
+    func updateNSView(_ v: NSView, context: Context) {}
 }

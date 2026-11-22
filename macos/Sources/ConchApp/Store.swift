@@ -1327,6 +1327,7 @@ final class Store: ObservableObject {
                       let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
                       let k = self.layout.focused, parseBrowserKey(k) != nil, let m = self.browserViews[k],
                       m.hasKeyboard(win.firstResponder) else { return false }
+                if [.find, .findNext, .findPrevious].contains(a), m.inspectorHasKeyboard(win.firstResponder) { return false }
                 return m.perform(a)
             }
             return taken ? nil : e
