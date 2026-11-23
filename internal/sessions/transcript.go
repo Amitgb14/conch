@@ -142,28 +142,36 @@ func codexTranscript(path string) ([]Turn, error) {
 		return nil, err
 	}
 	defer f.Close()
-	var turns []Turn
+	// A rollout that has the older events may have the items too, saying
+	// the same: those are read only when there are no events.
+	var events, items []Turn
 	lines(f, 1<<30, func(b []byte) bool {
 		var l struct {
 			Type      string    `json:"type"`
 			Timestamp time.Time `json:"timestamp"`
 			Payload   struct {
-				Type    string `json:"type"`
-				Message string `json:"message"`
+				Type    string     `json:"type"`
+				Message string     `json:"message"`
+				Item    *codexItem `json:"item"`
 			} `json:"payload"`
 		}
-		if json.Unmarshal(b, &l) != nil || l.Type != "event_msg" {
+		if json.Unmarshal(b, &l) != nil {
 			return true
 		}
-		switch l.Payload.Type {
-		case "user_message":
-			turns = addTurn(turns, "user", l.Payload.Message, l.Timestamp)
-		case "agent_message":
-			turns = addTurn(turns, "assistant", l.Payload.Message, l.Timestamp)
+		role, text := codexMessage(l.Type, l.Payload.Type, l.Payload.Message, l.Payload.Item)
+		switch {
+		case role == "":
+		case l.Payload.Type == "item_completed":
+			items = addTurn(items, role, text, l.Timestamp)
+		default:
+			events = addTurn(events, role, text, l.Timestamp)
 		}
 		return true
 	})
-	return turns, nil
+	if len(events) > 0 {
+		return events, nil
+	}
+	return items, nil
 }
 
 type geminiMessage struct {
