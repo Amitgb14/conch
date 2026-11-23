@@ -355,6 +355,14 @@ func TestSessionsSaysWhatItDoesNotRead(t *testing.T) {
 		t.Errorf("the wording for two agents:\n%s", out)
 	}
 
+	// One it only runs but whose sessions the server reads is not named.
+	mach.agentList = append(mach.agentList, proto.AgentAvailability{
+		Name: "pi", Label: "Pi", Installed: true, Tier: proto.TierRunsHere, Sessions: true})
+	out = a2Plain(sv.render(*m, 120, 30))
+	if strings.Contains(out, "Pi") {
+		t.Errorf("an agent whose sessions are read was said not to be:\n%s", out)
+	}
+
 	// Supported agents alone: nothing is said, because there is nothing
 	// conch is failing to do.
 	mach.agentList = mach.agentList[:1]

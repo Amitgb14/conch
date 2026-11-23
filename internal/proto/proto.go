@@ -3205,6 +3205,19 @@ type AgentAvailability struct {
 	// server too old to say it reads as "conch can install it", which is
 	// what every agent such a server offers.
 	NoInstaller bool `json:"no_installer,omitempty"`
+	// Sessions says the server reads this agent's saved sessions: every
+	// supported agent, and those it only runs whose files it has learnt
+	// to read (Pi, Grok, Cursor, Kilo Code). A server too old to say it
+	// sends none, and an agent it only runs then reads as unread, which is
+	// what that server did.
+	Sessions bool `json:"sessions,omitempty"`
+}
+
+// SessionsUnread is an agent conch runs without reading what it saved,
+// which a client says rather than show an empty list as if nothing had
+// been.
+func (a AgentAvailability) SessionsUnread() bool {
+	return a.Tier == TierRunsHere && !a.Sessions
 }
 
 // SessionListParams asks for the agent sessions saved for a project (its
