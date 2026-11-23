@@ -275,11 +275,12 @@ func parseCodex(path string, st os.FileInfo) *Session {
 		var l struct {
 			Type    string `json:"type"`
 			Payload struct {
-				Type      string    `json:"type"`
-				ID        string    `json:"id"`
-				Cwd       string    `json:"cwd"`
-				Timestamp time.Time `json:"timestamp"`
-				Message   string    `json:"message"`
+				Type      string     `json:"type"`
+				ID        string     `json:"id"`
+				Cwd       string     `json:"cwd"`
+				Timestamp time.Time  `json:"timestamp"`
+				Message   string     `json:"message"`
+				Item      *codexItem `json:"item"`
 				Git       struct {
 					Branch string `json:"branch"`
 				} `json:"git"`
@@ -288,11 +289,10 @@ func parseCodex(path string, st os.FileInfo) *Session {
 		if json.Unmarshal(b, &l) != nil {
 			return true
 		}
-		switch {
-		case l.Type == "session_meta" && s.ID == "":
+		if l.Type == "session_meta" && s.ID == "" {
 			s.ID, s.Dir, s.Started, s.Branch = l.Payload.ID, l.Payload.Cwd, l.Payload.Timestamp, l.Payload.Git.Branch
-		case l.Type == "event_msg" && l.Payload.Type == "user_message" && realPrompt(l.Payload.Message):
-			s.Title = title(l.Payload.Message)
+		} else if role, text := codexMessage(l.Type, l.Payload.Type, l.Payload.Message, l.Payload.Item); role == "user" && realPrompt(text) {
+			s.Title = title(text)
 			return false
 		}
 		return true
@@ -302,6 +302,63 @@ func parseCodex(path string, st os.FileInfo) *Session {
 	}
 	s.Output = codexOutput(f, st)
 	return s
+}
+
+// codexItem is a message as Codex writes it from 0.158 on: an
+// item_completed event's item, its text in typed parts ("text" for the
+// person, "Text" for Codex). Older rollouts said the same in user_message
+// and agent_message events, which newer ones no longer write at all.
+type codexItem struct {
+	Type    string          `json:"type"`
+	Content json.RawMessage `json:"content"`
+}
+
+// codexMessage is who said what in a rollout line, from either kind of
+// event; "" for anything else: tool calls, reasoning, and the
+// response_items that repeat the conversation along with the instructions
+// Codex adds to it.
+func codexMessage(lineType, eventType, message string, item *codexItem) (role, text string) {
+	if lineType != "event_msg" {
+		return "", ""
+	}
+	switch eventType {
+	case "user_message":
+		return "user", message
+	case "agent_message":
+		return "assistant", message
+	case "item_completed":
+		if item == nil {
+			return "", ""
+		}
+		switch item.Type {
+		case "UserMessage":
+			return "user", codexText(item.Content)
+		case "AgentMessage":
+			return "assistant", codexText(item.Content)
+		}
+	}
+	return "", ""
+}
+
+// codexText joins an item's text parts, leaving out images and the rest.
+func codexText(raw json.RawMessage) string {
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if strings.EqualFold(p.Type, "text") && strings.TrimSpace(p.Text) != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 // codexOutput reads the tokens a Codex session generated from the last
