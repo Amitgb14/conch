@@ -435,24 +435,7 @@ func parseGemini(path string, st os.FileInfo) *Session {
 	if err != nil {
 		return nil
 	}
-	var rec struct {
-		SessionID   string    `json:"sessionId"`
-		StartTime   time.Time `json:"startTime"`
-		LastUpdated time.Time `json:"lastUpdated"`
-		Summary     string    `json:"summary"`
-		Kind        string    `json:"kind"`
-		Messages    []struct {
-			Type    string          `json:"type"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-	}
-	if json.Unmarshal(b, &rec) != nil {
-		// A JSONL record: the header is the first line.
-		first, _, _ := bytes.Cut(b, []byte("\n"))
-		if json.Unmarshal(first, &rec) != nil {
-			return nil
-		}
-	}
+	rec := readGeminiChat(b)
 	if rec.SessionID == "" || rec.Kind == "subagent" {
 		return nil
 	}
@@ -473,6 +456,88 @@ func parseGemini(path string, st os.FileInfo) *Session {
 	}
 	s.Title = title(s.Title)
 	return s
+}
+
+// geminiChat is a Gemini CLI chat file read whole.
+type geminiChat struct {
+	SessionID   string          `json:"sessionId"`
+	StartTime   time.Time       `json:"startTime"`
+	LastUpdated time.Time       `json:"lastUpdated"`
+	Summary     string          `json:"summary"`
+	Kind        string          `json:"kind"`
+	Messages    []geminiMessage `json:"messages"`
+}
+
+// readGeminiChat reads either of Gemini CLI's chat files: one JSON object,
+// or JSONL — a header line (written again when the session is saved anew),
+// {"$set": …} lines that replace fields, the whole message list among
+// them, and message lines of their own, a message written again under its
+// id as it grows. Reading the header alone missed every message and the
+// title with it.
+func readGeminiChat(b []byte) geminiChat {
+	var rec geminiChat
+	if json.Unmarshal(b, &rec) == nil {
+		return rec
+	}
+	rec = geminiChat{}
+	at := map[string]int{} // a message's id → its place in rec.Messages
+	keep := func(m geminiMessage) {
+		if i, ok := at[m.ID]; ok && m.ID != "" {
+			rec.Messages[i] = m
+			return
+		}
+		if m.ID != "" {
+			at[m.ID] = len(rec.Messages)
+		}
+		rec.Messages = append(rec.Messages, m)
+	}
+	later := func(t time.Time) {
+		if t.After(rec.LastUpdated) {
+			rec.LastUpdated = t
+		}
+	}
+	for _, line := range bytes.Split(b, []byte("\n")) {
+		var l struct {
+			geminiMessage
+			SessionID   string    `json:"sessionId"`
+			StartTime   time.Time `json:"startTime"`
+			LastUpdated time.Time `json:"lastUpdated"`
+			Summary     string    `json:"summary"`
+			Kind        string    `json:"kind"`
+			Set         *struct {
+				Messages    *[]geminiMessage `json:"messages"`
+				LastUpdated time.Time        `json:"lastUpdated"`
+				Summary     string           `json:"summary"`
+			} `json:"$set"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(line), &l) != nil {
+			continue
+		}
+		switch {
+		case l.SessionID != "":
+			if rec.SessionID == "" {
+				rec.SessionID, rec.StartTime, rec.Kind = l.SessionID, l.StartTime, l.Kind
+			}
+			if l.Summary != "" {
+				rec.Summary = l.Summary
+			}
+			later(l.LastUpdated)
+		case l.Set != nil:
+			if l.Set.Messages != nil {
+				rec.Messages, at = nil, map[string]int{}
+				for _, m := range *l.Set.Messages {
+					keep(m)
+				}
+			}
+			if l.Set.Summary != "" {
+				rec.Summary = l.Set.Summary
+			}
+			later(l.Set.LastUpdated)
+		case l.Type != "":
+			keep(l.geminiMessage)
+		}
+	}
+	return rec
 }
 
 // ---- OpenCode ----

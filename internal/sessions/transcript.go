@@ -175,6 +175,7 @@ func codexTranscript(path string) ([]Turn, error) {
 }
 
 type geminiMessage struct {
+	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Timestamp time.Time       `json:"timestamp"`
 	Content   json.RawMessage `json:"content"`
@@ -185,21 +186,7 @@ func geminiTranscript(path string) ([]Turn, error) {
 	if err != nil {
 		return nil, err
 	}
-	var rec struct {
-		Messages []geminiMessage `json:"messages"`
-	}
-	var msgs []geminiMessage
-	if json.Unmarshal(b, &rec) == nil {
-		msgs = rec.Messages
-	} else {
-		// JSONL: a header line, then one message per line.
-		for _, line := range bytes.Split(b, []byte("\n")) {
-			var m geminiMessage
-			if json.Unmarshal(line, &m) == nil && m.Type != "" {
-				msgs = append(msgs, m)
-			}
-		}
-	}
+	msgs := readGeminiChat(b).Messages
 	var turns []Turn
 	for _, m := range msgs {
 		switch m.Type {
