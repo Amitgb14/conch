@@ -291,10 +291,11 @@ func TestWithNoManifestsOfYourOwn(t *testing.T) {
 	if got := amp.ResumeArgs("T-abc"); got != "threads continue T-abc" {
 		t.Errorf("amp resume %q", got)
 	}
-	// Kilo has only "the last one", which is what its docs document.
+	// Kilo resumes by id with --session (kilo 7.8.18's --help; its web
+	// docs name only --continue), which its Sessions rows need.
 	kilo, _ := r.Get("kilo")
-	if got := kilo.ResumeArgs("x"); got != "" {
-		t.Errorf("kilo resumed by id: %q", got)
+	if got := kilo.ResumeArgs("ses_x"); got != "--session ses_x" {
+		t.Errorf("kilo resume %q", got)
 	}
 	if got := kilo.ResumeArgs(""); got != "--continue" {
 		t.Errorf("kilo resume last %q", got)

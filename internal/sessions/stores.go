@@ -540,6 +540,20 @@ func readGeminiChat(b []byte) geminiChat {
 	return rec
 }
 
+// ---- Kilo Code ----
+
+// Kilo Code's CLI is a fork of OpenCode and keeps its sessions the same
+// way, in kilo.db beside its other data (kilo 7.8.18); `kilo --session
+// <id>` reopens one and `kilo session delete <id>` removes it.
+func kilo(e Env, dirs []string) []Session {
+	data := filepath.Join(e.Home, ".local", "share", "kilo")
+	if x := e.get("XDG_DATA_HOME"); x != "" {
+		data = filepath.Join(x, "kilo")
+	}
+	out, _ := sqliteSessions("kilo", filepath.Join(data, "kilo.db"), dirs)
+	return out
+}
+
 // ---- OpenCode ----
 
 func opencodeData(e Env) string {
@@ -580,6 +594,12 @@ func sqlUnder(col, dir string) []string {
 // opencodeDB queries the sqlite store through the sqlite3 command; ok is
 // false when there is no database or no sqlite3 to read it.
 func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
+	return sqliteSessions("opencode", db, dirs)
+}
+
+// sqliteSessions lists the sessions in an OpenCode database — OpenCode's
+// own, or that of Kilo Code, a fork that kept its session table.
+func sqliteSessions(agent, db string, dirs []string) (out []Session, ok bool) {
 	if _, err := os.Stat(db); err != nil {
 		return nil, false
 	}
@@ -619,7 +639,7 @@ func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
 		return nil, false
 	}
 	for _, r := range rows {
-		out = append(out, Session{Agent: "opencode", ID: r.ID, Dir: r.Dir, Title: title(r.Title),
+		out = append(out, Session{Agent: agent, ID: r.ID, Dir: r.Dir, Title: title(r.Title),
 			Started: time.UnixMilli(r.Created), Updated: time.UnixMilli(r.Updated), Path: db, Cost: r.Cost, Output: r.Output})
 	}
 	return out, true

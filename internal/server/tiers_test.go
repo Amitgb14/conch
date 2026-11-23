@@ -90,6 +90,20 @@ func TestAnAgentFromAManifestIsRunButNotPretendedFor(t *testing.T) {
 	if tiers["claude"] != proto.TierSupported {
 		t.Errorf("claude has tier %q", tiers["claude"])
 	}
+	// Whether its sessions are read is said too: every supported agent's,
+	// and of those it only runs, the ones conch has learnt to read.
+	read := map[string]bool{}
+	for _, a := range status.Agents {
+		read[a.Name] = a.Sessions
+	}
+	for name, want := range map[string]bool{"claude": true, "codex": true, "quiet": false, "talky": false, "pi": true, "grok": true, "aider": false} {
+		if _, ok := tiers[name]; ok && read[name] != want {
+			t.Errorf("%s: sessions read %v, want %v", name, read[name], want)
+		}
+	}
+	if _, ok := tiers["pi"]; !ok {
+		t.Error("the shipped manifests are offered too")
+	}
 
 	// It starts, and the pane says which agent it is.
 	var info proto.PaneInfo

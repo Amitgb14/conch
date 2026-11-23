@@ -622,7 +622,11 @@ is the contract below: nine agents meet it. *Runs here* is a manifest —
 `internal/detect/manifests` — naming the binary, how a first message is
 passed and how a session is resumed, **or saying neither**. conch starts and
 watches such an agent and nothing more: its sessions are not read, and the
-agent menu and the Sessions view say so rather than showing an empty list.
+agent menu and the Sessions view say so rather than showing an empty list —
+unless `internal/sessions` has a store for it, written from that agent's
+own files on a real machine (Pi, Grok, Cursor and Kilo Code so far;
+`sessions.Reads` is the list, and `agent.status` says it per agent as
+`sessions`). Never write a store from a format you have not seen.
 `conch agent add` writes one. The rules that keep it honest: a manifest may
 not take a supported agent's name; an agent whose manifest did not say how to
 pass a first message is not given one (several agents' prompt flags answer

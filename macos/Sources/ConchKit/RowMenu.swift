@@ -11,20 +11,24 @@ public struct AgentAvailability: Decodable, Equatable, Sendable {
     /// conch has no installer for it (a manifest that names none); none
     /// from a server too old to say, which installs every agent it lists.
     public var noInstaller: Bool?
+    /// The server reads its saved sessions; none from a server too old to
+    /// say, where an agent it only runs is not read.
+    public var sessions: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case name, label, installed, tier, version
+        case name, label, installed, tier, version, sessions
         case noInstaller = "no_installer"
     }
 
     public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil,
-                version: String? = nil, noInstaller: Bool? = nil) {
+                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil) {
         self.name = name
         self.label = label
         self.installed = installed
         self.tier = tier
         self.version = version
         self.noInstaller = noInstaller
+        self.sessions = sessions
     }
 
     /// What a menu calls it: its label (Claude Code), else its name.

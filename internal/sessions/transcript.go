@@ -50,6 +50,14 @@ func Transcript(ctx context.Context, e Env, s Session) ([]Turn, error) {
 		turns, err = qwenTranscript(s.Path)
 	case "goose":
 		turns, err = gooseTranscript(ctx, s.Path, s.ID)
+	case "kilo":
+		turns, err = opencodeDBTranscript(ctx, s.Path, s.ID)
+	case "pi":
+		turns, err = piTranscript(s.Path)
+	case "grok":
+		turns, err = grokTranscript(s.Path)
+	case "cursor":
+		turns, err = cursorTranscript(s.Path)
 	default:
 		return nil, fmt.Errorf("conch can't read %s sessions", s.Agent)
 	}

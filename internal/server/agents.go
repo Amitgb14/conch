@@ -16,6 +16,7 @@ import (
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sessions"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -630,7 +631,7 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	for i, ad := range s.adapters {
 		out = append(out, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-			NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())})
 	}
 	s.agentsSeen.note(out)
 	return out
