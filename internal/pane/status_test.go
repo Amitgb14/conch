@@ -467,3 +467,22 @@ func TestFormatStatusCleansText(t *testing.T) {
 		t.Fatalf("message not cut: %d runes of %d", len([]rune(cut.Msg)), len([]rune(long.Msg)))
 	}
 }
+
+// Antigravity CLI (agy 1.5.16) asks `OSC 7501 ; ?` and, answered, reports
+// these as it starts, asks to be trusted, asks to run a command and
+// finishes — read off the real CLI's output, byte for byte. Its state in
+// conch comes from these alone: it leaves the window title alone and conch
+// has no screen rules for it.
+func TestParseStatusAntigravity(t *testing.T) {
+	for body, want := range map[string]ProgramStatus{
+		"state=blocked:kind=auth:app=antigravity:msg=U2lnbiBpbiByZXF1aXJlZA==":           {State: "blocked", Kind: "auth", App: "antigravity", Msg: "Sign in required", Progress: -1},
+		"state=blocked:kind=permission:app=antigravity:msg=VHJ1c3QgdGhpcyBmb2xkZXI/":     {State: "blocked", Kind: "permission", App: "antigravity", Msg: "Trust this folder?", Progress: -1},
+		"state=blocked:kind=permission:app=antigravity:msg=QXBwcm92ZSBCYXNoOiBscyAtbGE=": {State: "blocked", Kind: "permission", App: "antigravity", Msg: "Approve Bash: ls -la", Progress: -1},
+		"state=idle:app=antigravity": {State: "idle", App: "antigravity", Progress: -1},
+	} {
+		got, ok := parseStatus(body)
+		if !ok || got != want {
+			t.Errorf("%s:\n got %+v %v\nwant %+v", body, got, ok, want)
+		}
+	}
+}

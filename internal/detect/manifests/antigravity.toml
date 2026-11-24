@@ -11,8 +11,12 @@
 #     from ~/.gemini/antigravity-cli as agy 1.5.16 wrote them on a Mac
 #     (2026-11-24, internal/sessions/antigravity.go), and resuming one by
 #     the id there with --conversation was checked with the real CLI.
-#   - it leaves the window title alone and its prompts are not quoted in
-#     its docs, so there are no screen rules yet.
+#   - its state needs no screen rules: agy 1.5.16 asks OSC 7501 ; ? and,
+#     answered as a conch pane answers it, reports blocked (kind=auth while
+#     signing in, kind=permission to trust a folder or approve a command,
+#     with its own words in msg), working and idle — seen in a conch pane
+#     on 2026-11-24. It leaves the window title alone unless its `title`
+#     setting names a command.
 agent = "antigravity"
 label = "Antigravity CLI"
 process_names = ["agy"]
