@@ -471,7 +471,7 @@ var tokenReads = map[string]bool{
 	proto.MethodBranchCILog: true, proto.MethodAutopilotActivity: true, proto.MethodCIStats: true, proto.MethodBranchRebased: true,
 	proto.MethodIntegrationDetect: true, proto.MethodBranchPreviews: true, proto.MethodBranchDeployLog: true,
 	proto.MethodWorktreeStale: true, proto.MethodBranchStale: true, proto.MethodWorktreeDescribe: true,
-	proto.MethodSystemStats: true, proto.MethodAccountList: true, proto.MethodAccountSuggest: true,
+	proto.MethodSystemStats: true, proto.MethodAccountList: true, proto.MethodAccountSuggest: true, proto.MethodPaneEndedList: true,
 }
 
 // tokenPrompts send to an agent: what a person replying to it does.
