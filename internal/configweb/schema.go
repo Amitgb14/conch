@@ -216,6 +216,8 @@ func Schema(c Choices) []Section {
 					Help: "On: a Claude Code agent whose account is past its failover line moves to the account with most room when its turn ends, before it hits the limit."},
 				{Key: "claude_idle_compaction", Label: "Compact Claude while idle", Kind: KindBool, Default: true,
 					Help: "Claude Code compacts a conversation left idle before its prompt cache expires. Off stops that in the Claude panes conch starts, from each one's next start; a Claude started outside conch still reads ~/.claude/settings.json."},
+				{Key: "antigravity_api_key_env", Label: "Antigravity CLI: variable holding a Gemini API key", Kind: KindString, Placeholder: "GEMINI_API_KEY",
+					Help: "The name of a variable your login shell sets, not the key: Antigravity CLI panes conch starts then use that Gemini API key instead of your Google sign-in. conch keeps no key and leaves agy's settings.json alone. Empty: agy signs in as it is."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & Autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
