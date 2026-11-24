@@ -189,3 +189,25 @@ func emptyTree(ctx context.Context, dir string) string {
 	}
 	return "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 }
+
+// Subjects is the subjects of the commits reachable from to but not from,
+// newest first, at most limit.
+func Subjects(ctx context.Context, dir, from, to string, limit int) ([]string, error) {
+	if err := validRev(from); err != nil {
+		return nil, err
+	}
+	if err := validRev(to); err != nil {
+		return nil, err
+	}
+	out, err := run(ctx, dir, "log", "--no-color", "--format=%s", "-n", strconv.Itoa(max(1, limit)), from+".."+to, "--")
+	if err != nil {
+		return nil, err
+	}
+	var subjects []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = Printable(strings.TrimSpace(line)); line != "" {
+			subjects = append(subjects, line)
+		}
+	}
+	return subjects, nil
+}

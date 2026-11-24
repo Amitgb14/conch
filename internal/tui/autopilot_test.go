@@ -46,7 +46,8 @@ func TestAutopilotPolicyIsHandedOver(t *testing.T) {
 	var pol proto.AutopilotPolicy
 	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
 	if !reflect.DeepEqual(pol, proto.AutopilotPolicy{AutoFix: 2, AutoMerge: true, AutoPR: true, AutoResolve: 1, Checks: map[string]string{"r1": "go test ./..."},
-		Intake: map[string]string{"r1": "ready"}, IntakeWIP: 2, Triage: map[string]string{"r1": "new"}, TriageAgent: "codex", TriageCommentOnly: true}) {
+		Intake: map[string]string{"r1": "ready"}, IntakeWIP: 2, Triage: map[string]string{"r1": "new"}, TriageAgent: "codex", TriageCommentOnly: true,
+		AutoReview: true}) {
 		t.Fatalf("policy %+v", pol)
 	}
 
@@ -272,5 +273,46 @@ func TestAutopilotGateSettings(t *testing.T) {
 	}
 	if !strings.HasPrefix(requireTestsText(false), "off") {
 		t.Fatal(requireTestsText(false))
+	}
+}
+
+// Review comments go with the autopilot, are said for what they are in
+// Settings, and a server older than autopilot.review.v1 is named as
+// sending none — it ignores the policy's fields rather than refusing them.
+func TestAutopilotReviewSetting(t *testing.T) {
+	m, mach, peer := fixModel(t, proto.CapAutopilot)
+	m.cfg.Verify.AutoFix, m.cfg.Verify.ResolveThreads = 1, true
+	if !m.cfg.Verify.AutoReview {
+		t.Fatal("auto_review is off by default")
+	}
+	runBatch(m.pushAutopilot(mach.id))
+	var pol proto.AutopilotPolicy
+	sentParams(t, peer, proto.MethodAutopilotSet, &pol)
+	if !pol.AutoReview || !pol.ResolveThreads {
+		t.Fatalf("policy %+v", pol)
+	}
+	if got := reviewWhere(m); !strings.Contains(got, "predates that and sends none") || !strings.Contains(got, m.machineLabel(mach.id)) {
+		t.Fatalf("an older server: %q", got)
+	}
+	newer, _, _ := fixModel(t, proto.CapAutopilot, proto.CapAutopilotReview)
+	if got := reviewWhere(newer); strings.Contains(got, "predates") {
+		t.Fatalf("a newer server: %q", got)
+	}
+	// A server with no autopilot at all is autopilotWhere's to name.
+	none, _, _ := fixModel(t)
+	if got := reviewWhere(none); strings.Contains(got, "predates") {
+		t.Fatalf("no autopilot: %q", got)
+	}
+	for _, tc := range []struct {
+		on      bool
+		autoFix int
+		want    string
+	}{{false, 2, "off"}, {true, 0, "auto_fix, which is off"}, {true, 1, "each once"}} {
+		if got := autoReviewText(tc.on, tc.autoFix); !strings.Contains(got, tc.want) {
+			t.Errorf("%v %d: %q", tc.on, tc.autoFix, got)
+		}
+	}
+	if !strings.Contains(resolveThreadsText(false), "reviewer resolves") || !strings.Contains(resolveThreadsText(true), "changed its file") {
+		t.Fatal("resolve_threads text")
 	}
 }

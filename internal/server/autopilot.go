@@ -79,6 +79,13 @@ type autopilot struct {
 	prompt func(proto.AgentPromptParams) (proto.AgentPromptResult, *proto.Error)
 	// noted is told every note, in tests: set before the autopilot runs.
 	noted func(proto.AutopilotNote)
+	// reviewing is branches whose review comments are on their way to the
+	// agent, replying whether threads are being answered, and replyTried
+	// the head each branch's answers last failed at, so GitHub is not
+	// asked again every tick for the same push.
+	reviewing  map[string]bool
+	replying   bool
+	replyTried map[string]string
 }
 
 // autopilotFile is autopilot.json.
@@ -134,6 +141,11 @@ type autopilotFile struct {
 	// TestAsked the commit each agent was asked for a test at.
 	Drafted   map[string]bool   `json:"drafted,omitempty"`
 	TestAsked map[string]string `json:"test_asked,omitempty"`
+	// ReviewSent is each review comment on GitHub sent to a branch's
+	// agent, by branch key and comment ID, with what it said then: sent
+	// once, and again only once somebody edits it or adds to its thread
+	// (autopilot_review.go).
+	ReviewSent map[string]reviewSent `json:"review_sent,omitempty"`
 }
 
 // init makes every map a file left out, as one from an older build does.
@@ -155,6 +167,7 @@ func (f *autopilotFile) init() {
 	orNew(&f.Rewrites)
 	orNew(&f.Drafted)
 	orNew(&f.TestAsked)
+	orNew(&f.ReviewSent)
 }
 
 func orNew[K comparable, V any](m *map[K]V) {
@@ -167,7 +180,8 @@ func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
 		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{}, stopped: map[string]stoppedRebase{},
 		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{}, reship: map[string]bool{},
-		gateMemo: map[string]gateResult{}, said: map[string]string{}, activity: loadActivity(configDir)}
+		gateMemo: map[string]gateResult{}, said: map[string]string{}, activity: loadActivity(configDir),
+		reviewing: map[string]bool{}, replyTried: map[string]string{}}
 	raw, err := os.ReadFile(a.file)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("autopilot: %v", err)
@@ -404,6 +418,7 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 			a.saved.Heads[key] = head
 		} else {
 			delete(a.saved.Heads, key)
+			dropReviewSent(a.saved.ReviewSent, key)
 		}
 		// A conflict is minded from the turn it was seen, like the rest.
 		_, known := a.saved.Conflicted[key]
@@ -431,6 +446,13 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		if strings.HasPrefix(key, prefix) {
 			if _, ok := now[key]; !ok {
 				delete(a.saved.Heads, key)
+			}
+		}
+	}
+	for id := range a.saved.ReviewSent {
+		if key := sentBranch(id); strings.HasPrefix(key, prefix) {
+			if _, ok := now[key]; !ok {
+				delete(a.saved.ReviewSent, id)
 			}
 		}
 	}
@@ -475,6 +497,8 @@ func (a *autopilot) forget(projectID string) {
 	dropKeys(ours, f.Fixes, f.CIFixes, f.Resolves)
 	dropKeys(ours, f.PendingCI, f.Drafted, a.capSaid, a.recheck, a.reship)
 	dropKeys(ours, f.Rewrites)
+	dropKeys(ours, f.ReviewSent)
+	dropKeys(ours, a.replyTried)
 	dropKeys(ours, a.gateMemo)
 	dropKeys(ours, a.stopped)
 	for pane, key := range f.CheckPanes {
@@ -589,6 +613,7 @@ func (s *Server) runAutopilot(quit <-chan struct{}) {
 			s.autopilotMerges()
 			s.groups.merges() // a task's Merge All When Green
 			s.autopilotPendingCI()
+			s.autopilotReviews()
 			goSafe("autopilot resolve", s.autopilotResolves) // a fetch can take a while; merges must not wait for it
 		}
 	}
