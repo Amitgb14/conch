@@ -418,6 +418,7 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 			a.saved.Heads[key] = head
 		} else {
 			delete(a.saved.Heads, key)
+			dropReviewSent(a.saved.ReviewSent, key)
 		}
 		// A conflict is minded from the turn it was seen, like the rest.
 		_, known := a.saved.Conflicted[key]
@@ -445,6 +446,13 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		if strings.HasPrefix(key, prefix) {
 			if _, ok := now[key]; !ok {
 				delete(a.saved.Heads, key)
+			}
+		}
+	}
+	for id := range a.saved.ReviewSent {
+		if key := sentBranch(id); strings.HasPrefix(key, prefix) {
+			if _, ok := now[key]; !ok {
+				delete(a.saved.ReviewSent, id)
 			}
 		}
 	}

@@ -461,6 +461,16 @@ func TestAutopilotReviewAcrossAReload(t *testing.T) {
 	reloadAutopilot(t, s)
 	st = watchAutopilot(s)
 	hook(s, e, "Stop")
+	// The first tick comes before GitHub is read again: an empty book is
+	// not every pull request closed.
+	s.autopilotReviews()
+	settle(t, s)
+	s.autopilot.mu.Lock()
+	kept := len(s.autopilot.saved.ReviewSent)
+	s.autopilot.mu.Unlock()
+	if kept != 1 {
+		t.Fatalf("a tick before the read forgot what was sent: %d", kept)
+	}
 	readReviews(s, p, t1.Add(time.Hour))
 	a5WaitFor(t, "the second thread after the reload", func() bool { return st.count() == 1 })
 	if text := st.last(); !strings.Contains(text, "rename this") || strings.Contains(text, "leaks the handle") {
@@ -612,8 +622,15 @@ func TestAutopilotReviewForgets(t *testing.T) {
 	readReviews(s, p, time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC))
 	a5WaitFor(t, "the review", func() bool { return st.count() == 1 })
 	settle(t, s)
-	s.fetchPRReviews(p, []string{"api/model"}, map[string]ghx.PR{"api/model": {Number: 5, State: "MERGED", Branch: "api/model"}})
-	s.autopilotReviews()
+	// Read as merged.
+	p.mu.Lock()
+	pr := p.prs["api/model"]
+	pr.State = "MERGED"
+	p.prs["api/model"] = pr
+	info := p.info
+	p.applyPRs(&info)
+	p.mu.Unlock()
+	s.autopilotPRs(info)
 	s.autopilot.mu.Lock()
 	left := len(s.autopilot.saved.ReviewSent)
 	s.autopilot.mu.Unlock()

@@ -84,21 +84,23 @@ func (s *Server) autopilotReviews() {
 	if s.autopilot == nil || s.reviews == nil || !reviewsOn(s.autopilot.policy()) {
 		return
 	}
-	keys := s.reviews.githubKeys()
-	// A branch the book has forgotten — its pull request merged or
-	// closed — has nothing left to answer either.
-	s.autopilot.mu.Lock()
-	for id := range s.autopilot.saved.ReviewSent {
-		if !slices.Contains(keys, sentBranch(id)) {
-			delete(s.autopilot.saved.ReviewSent, id)
-		}
-	}
-	s.autopilot.mu.Unlock()
-	for _, key := range keys {
+	// What was sent for a pull request merged or closed is dropped when
+	// that is read (observe), not here: until a reload has read GitHub
+	// again the book is empty, and that is not every pull request closed.
+	for _, key := range s.reviews.githubKeys() {
 		projectID, branch, _ := strings.Cut(key, "\x00")
 		s.autopilotReview(projectID, branch)
 	}
 	s.autopilotReplies()
+}
+
+// dropReviewSent forgets what was sent for a branch's pull request.
+func dropReviewSent(sent map[string]reviewSent, key string) {
+	for id := range sent {
+		if sentBranch(id) == key {
+			delete(sent, id)
+		}
+	}
 }
 
 // sentBranch is the branch key a ReviewSent key is under.
