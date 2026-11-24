@@ -487,7 +487,7 @@ An access token is a limited right for an agent outside conch — an MCP client 
 
 The secret is printed once and kept only as a hash, in `tokens.json` beside `config.toml`. A token revoked or expired stops connections already holding it, not only new ones. Every refusal is written to the server's log with the token's name. **Settings → Web → Access tokens…** lists and revokes them too.
 
-Every pane is also given a token of its own, for the scope its agent already has — see [what an agent may do](/docs/agents-together#what-an-agent-may-do). An agent in a pane cannot make, list or revoke tokens.
+Every pane is also given a token of its own in `CONCH_TOKEN`, for the scope its agent already has ([what an agent may do](/docs/agents-together#what-an-agent-may-do)). It keeps a helper the agent detached — or a harness that started it again under launchd — held to that agent, where walking its process tree would find no pane and take it for you. When the walk does find a pane, the walk decides, so a token copied from another pane changes nothing. A pane's token ends with the pane; a connection still holding it stays held. An agent in a pane cannot make, list or revoke tokens.
 
 ### completion
 

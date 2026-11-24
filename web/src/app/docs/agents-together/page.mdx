@@ -138,7 +138,3 @@ unrestricted_launch = true
 ```
 
 `conch -m MACHINE` from an agent's pane keeps the same limits on the other machine, held there by that machine's own `unrestricted_launch`.
-
-conch knows which pane a call comes from in two ways. Each pane is given a token of its own in `CONCH_TOKEN`, which every `conch` command and `conch mcp` present; and the server walks the caller's process up to a pane's program. The token is what keeps a helper an agent detached — or a harness that started it again under launchd — held to that agent, where the walk would find no pane and take it for you. The walk still decides when it does find a pane, so a token copied from another pane changes nothing, and an agent started before conch gave panes tokens is held as before. When the pane closes its token ends; a connection still holding it stays held, never you.
-
-For agents outside conch, make an [access token](/docs/cli#token) with a level and projects of its own.
