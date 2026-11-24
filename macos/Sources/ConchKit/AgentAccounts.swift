@@ -20,11 +20,15 @@ public struct AgentAccount: Decodable, Equatable, Sendable, Identifiable {
     /// Whether it has been signed in to; nil when the server cannot tell
     /// or is older.
     public var signedIn: Bool?
+    /// The variable holding the account's API key, for an agent whose
+    /// accounts are keys (account.keys.v1): never the key.
+    public var keyEnv: String?
     public var id: String { agent + "|" + (isDefault == true ? "default" : name) }
     enum CodingKeys: String, CodingKey {
         case agent, name, dir, limits, agents
         case isDefault = "default"
         case signedIn = "signed_in"
+        case keyEnv = "key_env"
     }
     public init(agent: String, name: String, dir: String? = nil, isDefault: Bool? = nil, limits: PlanLimits? = nil, agents: Int? = nil, signedIn: Bool? = nil) {
         self.signedIn = signedIn
@@ -77,11 +81,38 @@ public struct AccountAddParams: Encodable, Sendable {
     public var agent: String
     public var name: String
     public var dir: String?
-    public init(agent: String, name: String, dir: String? = nil) {
+    /// The variable holding the account's API key (account.keys.v1).
+    public var keyEnv: String?
+    enum CodingKeys: String, CodingKey {
+        case agent, name, dir
+        case keyEnv = "key_env"
+    }
+    public init(agent: String, name: String, dir: String? = nil, keyEnv: String? = nil) {
         self.agent = agent
         self.name = name
         self.dir = dir
+        self.keyEnv = keyEnv
     }
+}
+
+/// The server's capability for accounts made of API keys: Antigravity
+/// CLI's, each a Gemini API key named by its variable.
+public let accountKeysCapability = "account.keys.v1"
+
+/// Whether agent's accounts are API keys rather than sign-ins: Antigravity
+/// CLI keeps one Google sign-in whatever its folder.
+public func agentAccountUsesKey(_ agent: String) -> Bool { agent == "antigravity" }
+
+/// What is wrong with the variable named for an account's key, if
+/// anything: the server's rule, a shell variable's name.
+public func agentAccountKeyProblem(_ keyEnv: String, agent: String) -> String? {
+    guard agentAccountUsesKey(agent) else { return nil }
+    let k = keyEnv.trimmingCharacters(in: .whitespaces)
+    if k.isEmpty { return "Name the variable that holds its Gemini API key, like TEAM_GEMINI_KEY." }
+    if k.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) == nil {
+        return "That is not a variable's name: give the name of the one holding the key, not the key."
+    }
+    return nil
 }
 
 public struct AccountRefParams: Encodable, Sendable {

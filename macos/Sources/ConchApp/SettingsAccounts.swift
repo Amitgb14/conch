@@ -40,7 +40,7 @@ struct AgentAccountsCard: View {
                 Divider()
                 failover(list)
                 Divider()
-                note("Each account is a folder the agent signs in to once. A new one starts empty: copy or link your CLAUDE.md and skills into it. Only Claude Code and Codex can have more than one.")
+                note("Each account is a folder the agent signs in to once. A new one starts empty: copy or link your CLAUDE.md and skills into it. An Antigravity CLI account is a Gemini API key, named by the variable your shell keeps it in.")
             } else {
                 note("Asking \(store.label(machine))…")
             }
@@ -48,8 +48,9 @@ struct AgentAccountsCard: View {
         .onAppear { load() }
         .onChange(of: machine) { _, _ in load() }
         .sheet(isPresented: $adding) {
-            AddAccountSheet(list: list ?? AgentAccountList(), machineLabel: machine == "local" ? "this Mac" : store.label(machine)) { agent, name, dir, signIn in
-                store.addAccount(agent: agent, name: name, dir: dir, on: machine, signIn: signIn)
+            AddAccountSheet(list: list ?? AgentAccountList(), machineLabel: machine == "local" ? "this Mac" : store.label(machine),
+                            keys: store.conns[machine]?.hello?.capabilities?.contains(accountKeysCapability) == true) { agent, name, dir, keyEnv, signIn in
+                store.addAccount(agent: agent, name: name, dir: dir, keyEnv: keyEnv, on: machine, signIn: signIn)
             }
         }
         .sheet(isPresented: $pinning) {
@@ -311,7 +312,9 @@ struct AgentAccountsCard: View {
 struct AddAccountSheet: View {
     let list: AgentAccountList
     let machineLabel: String
-    let add: (String, String, String?, Bool) -> Void
+    /// Whether the server takes accounts made of API keys (account.keys.v1).
+    let keys: Bool
+    let add: (String, String, String?, String?, Bool) -> Void
     /// Read so the sheet is drawn again when the theme changes (ThemeLook).
     @Environment(\.conchTheme) private var look
     @Environment(\.dismiss) private var dismiss
@@ -319,12 +322,17 @@ struct AddAccountSheet: View {
     @State private var name = ""
     @State private var dir = ""
     @State private var signIn = true
+    @State private var keyEnv = ""
 
-    var agents: [String] { list.agents ?? Array(Set((list.accounts ?? []).map(\.agent))).sorted() }
+    var agents: [String] {
+        let all = list.agents ?? Array(Set((list.accounts ?? []).map(\.agent))).sorted()
+        return keys ? all : all.filter { !agentAccountUsesKey($0) }
+    }
 
     var body: some View {
         let _ = look
-        let problem = agentAccountNameProblem(name, agent: agent, existing: list.accounts ?? [])
+        let keyed = agentAccountUsesKey(agent)
+        let problem = agentAccountNameProblem(name, agent: agent, existing: list.accounts ?? []) ?? agentAccountKeyProblem(keyEnv, agent: agent)
         VStack(alignment: .leading, spacing: 14) {
             Text("Add an Agent Account").font(.ui(size: 15, weight: .semibold))
             Text("A second subscription of an agent on \(machineLabel), with its own sign-in, settings and conversations.")
@@ -335,7 +343,15 @@ struct AddAccountSheet: View {
                 }
                 TextField("Name", text: $name, prompt: Text("work"))
                 TextField("Folder", text: $dir, prompt: Text("optional — conch makes one"))
-                Toggle("Start it now to sign in", isOn: $signIn)
+                if keyed {
+                    TextField("Key variable", text: $keyEnv, prompt: Text("TEAM_GEMINI_KEY"))
+                } else {
+                    Toggle("Start it now to sign in", isOn: $signIn)
+                }
+            }
+            if keyed {
+                Text("Its Gemini API key, by the name of the variable your shell profile sets: conch keeps no key. Its own account is your Google sign-in.")
+                    .font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             }
             if !name.isEmpty, let problem {
                 Text(problem).font(.ui(size: 12)).foregroundStyle(Theme.warn)
@@ -344,7 +360,7 @@ struct AddAccountSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Add") {
-                    add(agent, name.trimmingCharacters(in: .whitespaces), dir.isEmpty ? nil : dir, signIn)
+                    add(agent, name.trimmingCharacters(in: .whitespaces), dir.isEmpty ? nil : dir, keyed ? keyEnv : nil, keyed ? false : signIn)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction).disabled(agent.isEmpty || problem != nil)
