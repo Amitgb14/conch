@@ -1,8 +1,11 @@
 package adapter
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/Amitgb14/conch/internal/config"
 )
@@ -11,25 +14,36 @@ import (
 // be put into a launch line from a setting.
 var varName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// antigravityModelProvider switches agy to the Gemini API for one launch;
-// --settings is never saved to its settings.json (agy 1.5.16 --help, and
-// checked: without the key it refuses and names GEMINI_API_KEY).
-const antigravityModelProvider = `{"modelProvider":"gemini"}`
-
-// antigravityLaunch reads [agents] antigravity_api_key_env at each start.
-// Set to a variable's name, agy is started with GEMINI_API_KEY taken from
-// it by the person's own login shell — conch never sees or keeps the key
-// — and an empty variable stops the launch saying which one, rather than
-// leaving agy to fail at its first request.
-func antigravityLaunch(dir string) func() (string, string) {
+// antigravityLaunch is what conch adds to each start of agy, read from
+// config.toml then. Always its own title command (conch report
+// agy-title), given through --settings, which lasts for that launch and is
+// never written to agy's settings.json: agy names its conversation
+// nowhere else, which is what the chat reads, and the command runs the
+// person's own title command after it.
+//
+// And with [agents] antigravity_api_key_env set to a variable's name,
+// agy is switched to the Gemini API ("modelProvider": "gemini") with
+// GEMINI_API_KEY taken from that variable by the person's own login shell
+// — conch never sees or keeps the key — and an empty variable stops the
+// launch saying which one, rather than leaving agy to fail at its first
+// request. Checked against agy 1.5.16: with that setting and no key it
+// refuses, naming GEMINI_API_KEY.
+func antigravityLaunch(exe, dir string) func() (string, string) {
 	return func() (string, string) {
-		name := AntigravityKeyEnv(dir)
-		if name == "" {
-			return "", ""
+		settings := map[string]any{"title": map[string]string{"command": ShellQuote(exe) + " report agy-title"}}
+		before := ""
+		if name := AntigravityKeyEnv(dir); name != "" {
+			before = `[ -n "$` + name + `" ] || { echo "conch: ` + name + ` is empty: it should hold your Gemini API key ([agents] antigravity_api_key_env)" >&2; exit 1; }; ` +
+				`export GEMINI_API_KEY="$` + name + `"; `
+			settings["modelProvider"] = "gemini"
 		}
-		before := `[ -n "$` + name + `" ] || { echo "conch: ` + name + ` is empty: it should hold your Gemini API key ([agents] antigravity_api_key_env)" >&2; exit 1; }; ` +
-			`export GEMINI_API_KEY="$` + name + `"; `
-		return before, "--settings " + ShellQuote(antigravityModelProvider)
+		var b bytes.Buffer
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(settings); err != nil {
+			return before, ""
+		}
+		return before, "--settings " + ShellQuote(strings.TrimSpace(b.String()))
 	}
 }
 

@@ -28,7 +28,7 @@ A Devin pane that needs an answer looks idle.
 - **Supported** — the nine above, with their saved conversations in the [Sessions](/docs/sessions) view.
 - **Runs here** — from a manifest: conch starts and recognises it; only Pi, Grok, Cursor, Kilo Code and Antigravity CLI list sessions.
 
-Antigravity CLI signs in with Google the first time it starts, and the agent menu says beforehand when it is not signed in (on a Mac, where conch can see that its sign-in is in the Keychain without reading it) or when it will use a [Gemini API key](/docs/configuration) instead. Its sign-in screen shows as waiting in the tree.
+Antigravity CLI signs in with Google the first time it starts, and the agent menu says beforehand when it is not signed in (on a Mac, where conch can see that its sign-in is in the Keychain without reading it) or when it will use a [Gemini API key](/docs/configuration) instead. Its sign-in screen shows as waiting in the tree. conch starts it with a title command of its own, for one session (`--settings`, never written to its `settings.json`): that is where agy names its conversation, which the chat needs, and its context window and weekly quota. A title command of your own still sets the title.
 
 conch ships manifests for [fourteen more](/docs/cli#the-agents-conch-knows), marked with anything but a circle.
 

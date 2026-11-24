@@ -37,18 +37,23 @@ func agyLine(t *testing.T, configTOML string) []string {
 // provider is switched for this launch alone with --settings.
 func TestAntigravityAPIKeyEnv(t *testing.T) {
 	plain := agyLine(t, "")
-	if strings.Contains(plain[2], "GEMINI_API_KEY") || strings.Contains(plain[2], "--settings") {
+	if strings.Contains(plain[2], "GEMINI_API_KEY") || strings.Contains(plain[2], "modelProvider") {
 		t.Fatalf("no key asked for, none given: %q", plain[2])
 	}
+	// conch's title command is always there: it is how agy names its
+	// conversation, for the chat.
+	if !strings.Contains(plain[2], `exec agy --settings '{"title":{"command":"/conch report agy-title"}}' -i 'hi'`) {
+		t.Fatalf("no title command: %q", plain[2])
+	}
 	line := agyLine(t, "[agents]\nantigravity_api_key_env = \"MY_GEMINI_KEY\"\n")[2]
-	for _, want := range []string{`GEMINI_API_KEY="$MY_GEMINI_KEY"`, `exec agy --settings '{"modelProvider":"gemini"}' -i 'hi'`} {
+	for _, want := range []string{`GEMINI_API_KEY="$MY_GEMINI_KEY"`, `exec agy --settings '{"modelProvider":"gemini","title":{"command":"/conch report agy-title"}}' -i 'hi'`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("missing %q in %q", want, line)
 		}
 	}
 	// A name that is not a variable's is not put in a shell line.
 	for _, bad := range []string{"MY KEY", "X;rm -rf ~", "$(id)", "1ST", "A-B"} {
-		if l := agyLine(t, "[agents]\nantigravity_api_key_env = \""+bad+"\"\n")[2]; strings.Contains(l, "GEMINI_API_KEY") || strings.Contains(l, bad) {
+		if l := agyLine(t, "[agents]\nantigravity_api_key_env = \""+bad+"\"\n")[2]; strings.Contains(l, "GEMINI_API_KEY") || strings.Contains(l, bad) || strings.Contains(l, "modelProvider") {
 			t.Errorf("%q made it into the line: %q", bad, l)
 		}
 	}
@@ -71,11 +76,20 @@ func TestAntigravityAPIKeyEnvRuns(t *testing.T) {
 		return string(out), err
 	}
 	out, err := run("k-123")
-	if err != nil || strings.TrimSpace(out) != `key=k-123 args=--settings {"modelProvider":"gemini"} -i hi` {
+	if err != nil || strings.TrimSpace(out) != `key=k-123 args=--settings {"modelProvider":"gemini","title":{"command":"/conch report agy-title"}} -i hi` {
 		t.Fatalf("%q %v", out, err)
 	}
 	out, err = run("")
 	if err == nil || !strings.Contains(out, "MY_GEMINI_KEY") || strings.Contains(out, "key=") {
 		t.Fatalf("an empty key started it: %q %v", out, err)
+	}
+}
+
+// conch's own path goes into agy's title command quoted, since agy runs it
+// with sh -c.
+func TestAntigravityTitleCommandQuotesConch(t *testing.T) {
+	_, flags := antigravityLaunch("/opt/conch bin/conch", t.TempDir())()
+	if !strings.Contains(flags, `"command":"'\''/opt/conch bin/conch'\'' report agy-title"`) {
+		t.Fatalf("%s", flags)
 	}
 }

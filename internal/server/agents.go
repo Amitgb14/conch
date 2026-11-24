@@ -344,6 +344,15 @@ var refreshEvents = map[string]bool{"PostToolUse": true, "PostToolUseFailure": t
 func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	if rp.Event == "StatusLine" {
 		s.statusLine(e, rp)
+		// Antigravity CLI has no hooks to name its conversation; its
+		// title command does, and that is the only place it is said.
+		if rp.Agent == "antigravity" && rp.SessionID != "" {
+			e.evalMu.Lock()
+			s.evaluate(e, func(t *detect.Tracker) {
+				t.Hook(detect.HookEvent{Agent: rp.Agent, Event: rp.Event, SessionID: rp.SessionID}, time.Now())
+			})
+			e.evalMu.Unlock()
+		}
 		return
 	}
 	e.evalMu.Lock()

@@ -111,7 +111,7 @@ func New(exe, dir string) (Registry, error) {
 	}
 	for _, a := range append(append([]Adapter{}, mine...), shipped...) {
 		if ca, ok := a.(*cliAgent); ok && ca.name == "antigravity" {
-			ca.launch = antigravityLaunch(dir)
+			ca.launch = antigravityLaunch(exe, dir)
 		}
 	}
 	return append(append(r, mine...), shipped...), nil
