@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,11 @@ import (
 // writes running totals in token_count events, so what a turn used is
 // the difference from the total before it, which also keeps a total
 // repeated with nothing new (a rate-limit update) from counting twice.
+//
+// Antigravity CLI (agy) writes each model step's own usage — its model,
+// input, cached and output tokens — on that step's line of the
+// conversation's transcript.jsonl; a step written again is the same step,
+// the latest winning.
 //
 // Files are read once and then from where they were left, so asking again
 // costs only what was appended. Only files changed within the longest
@@ -125,6 +131,31 @@ func (h *History) Summary(home string, env func(string) string, now time.Time, o
 	}
 	if len(codex) > 0 {
 		out.Agents = append(out.Agents, summarise("codex", codex, now))
+	}
+	// agy has no accounts of its own to move (#367), so its conversations
+	// are only ever the one folder's.
+	var agy []message
+	for _, f := range antigravityFiles(home, since) {
+		for _, m := range h.read(f, readAntigravity).byID {
+			agy = append(agy, m)
+		}
+	}
+	if len(agy) > 0 {
+		out.Agents = append(out.Agents, summarise("antigravity", agy, now))
+	}
+	return out
+}
+
+// antigravityFiles is each of agy's conversations' transcript changed
+// since then. Only transcript.jsonl: transcript_full.jsonl and the chunks
+// beside it hold the same steps again.
+func antigravityFiles(home string, since time.Time) []string {
+	files, _ := filepath.Glob(filepath.Join(home, ".gemini", "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"))
+	var out []string
+	for _, f := range files {
+		if info, err := os.Stat(f); err == nil && !info.ModTime().Before(since) {
+			out = append(out, f)
+		}
 	}
 	return out
 }
@@ -266,6 +297,30 @@ func readCodex(hf *histFile, b []byte) {
 		model = "unknown"
 	}
 	hf.turns = append(hf.turns, message{at: l.Timestamp, model: model, tok: d})
+}
+
+// readAntigravity takes one line of an agy transcript: a model step's
+// usage. Its input is taken to count the cached tokens too, as Gemini's
+// prompt count does, so they are taken out of it, never below nothing —
+// unconfirmed: every step seen so far read nothing from the cache.
+func readAntigravity(hf *histFile, b []byte) {
+	if !strings.Contains(string(b), `"output_tokens"`) {
+		return
+	}
+	var l struct {
+		Step    *int      `json:"step_index"`
+		Type    string    `json:"type"`
+		Created time.Time `json:"created_at"`
+		Model   string    `json:"model"`
+		Input   int       `json:"input_tokens"`
+		Cached  int       `json:"cache_read_tokens"`
+		Output  int       `json:"output_tokens"`
+	}
+	if json.Unmarshal(b, &l) != nil || l.Type != "PLANNER_RESPONSE" || l.Step == nil || l.Model == "" || l.Created.IsZero() {
+		return
+	}
+	hf.byID[strconv.Itoa(*l.Step)] = message{at: l.Created, model: l.Model,
+		tok: proto.UsageTokens{Input: max(l.Input-l.Cached, 0), CacheRead: l.Cached, Output: l.Output, Messages: 1}}
 }
 
 // summarise is one agent's periods.

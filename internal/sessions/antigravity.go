@@ -1,15 +1,19 @@
 package sessions
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -69,7 +73,8 @@ func antigravity(e Env, dirs []string) []Session {
 			continue
 		}
 		out = append(out, Session{Agent: "antigravity", ID: r.ID, Dir: dir,
-			Title: title(firstNonEmpty(r.Title, r.Preview)), Updated: updated, Path: db})
+			Title: title(firstNonEmpty(r.Title, r.Preview)), Updated: updated, Path: db,
+			Output: antigravityOutput(antigravityTranscriptPath(e, r.ID))})
 	}
 	return out
 }
@@ -93,10 +98,72 @@ func antigravityDir(uris string, dirs []string) string {
 	return ""
 }
 
+func antigravityTranscriptPath(e Env, id string) string {
+	return filepath.Join(antigravityRoot(e), "brain", id, ".system_generated", "logs", "transcript.jsonl")
+}
+
+// agyOutput is what has been read of one transcript: each model step's
+// output tokens, by step, a step written again replacing itself.
+type agyOutput struct {
+	offset int64
+	steps  map[int]int
+}
+
+var agyOutputs sync.Map // path → agyOutput
+
+// antigravityOutput is the tokens a conversation's model steps wrote. A
+// transcript is read whole once and then only what was appended, a line
+// still being written left for next time; one that shrank is read again.
+func antigravityOutput(path string) int {
+	prev, _ := agyOutputs.Load(path)
+	cur, _ := prev.(agyOutput)
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	if st.Size() < cur.offset || cur.steps == nil {
+		cur = agyOutput{steps: map[int]int{}}
+	} else {
+		cur.steps = maps.Clone(cur.steps)
+	}
+	if _, err := f.Seek(cur.offset, io.SeekStart); err == nil {
+		r := bufio.NewReaderSize(f, 1<<16)
+		for {
+			b, err := r.ReadBytes('\n')
+			if err != nil {
+				break
+			}
+			cur.offset += int64(len(b))
+			if !bytes.Contains(b, []byte(`"output_tokens"`)) {
+				continue
+			}
+			var l struct {
+				Step   *int   `json:"step_index"`
+				Type   string `json:"type"`
+				Output int    `json:"output_tokens"`
+			}
+			if json.Unmarshal(b, &l) == nil && l.Step != nil && l.Type == "PLANNER_RESPONSE" {
+				cur.steps[*l.Step] = l.Output
+			}
+		}
+	}
+	agyOutputs.Store(path, cur)
+	n := 0
+	for _, v := range cur.steps {
+		n += v
+	}
+	return n
+}
+
 // antigravityTranscript reads a conversation's steps: what the person
 // asked and what the model answered, its tool steps left out.
 func antigravityTranscript(e Env, id string) ([]Turn, error) {
-	f, err := os.Open(filepath.Join(antigravityRoot(e), "brain", id, ".system_generated", "logs", "transcript.jsonl"))
+	f, err := os.Open(antigravityTranscriptPath(e, id))
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +244,7 @@ func antigravityDelete(ctx context.Context, e Env, s Session, trashDir string) e
 			paths = append(paths, p)
 		}
 	}
+	agyOutputs.Delete(antigravityTranscriptPath(e, s.ID))
 	return trash(s.Agent, paths, trashDir)
 }
 

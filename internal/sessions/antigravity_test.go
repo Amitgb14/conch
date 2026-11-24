@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -52,10 +53,10 @@ func agyRow(id, title, preview, modified, uris, parent string) string {
 // <USER_REQUEST> among metadata of its own, a tool step between answers.
 var agyTranscript = strings.Join([]string{
 	`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-11-24T19:30:27Z","content":"<USER_REQUEST>\nRename the flag\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current local time is: 2026-11-24T11:30:27-08:00.\n</ADDITIONAL_METADATA>"}`,
-	`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-24T19:30:28Z","model":"m","content":"Looking."}`,
+	`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-24T19:30:28Z","model":"m","input_tokens":900,"cache_read_tokens":0,"output_tokens":28,"content":"Looking."}`,
 	`{"step_index":2,"source":"MODEL","type":"RUN_COMMAND","status":"DONE","created_at":"2026-11-24T19:30:29Z","content":"grep -r flag"}`,
 	`not json`,
-	`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-24T19:30:30Z","content":"Renamed."}`,
+	`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-24T19:30:30Z","model":"m","output_tokens":41,"content":"Renamed."}`,
 }, "\n") + "\n"
 
 func TestAntigravitySessions(t *testing.T) {
@@ -91,6 +92,9 @@ func TestAntigravitySessions(t *testing.T) {
 	got := List(env, []string{"/w/proj"}, 0)
 	if a6IDs(got) != "antigravity:a1,antigravity:a2,antigravity:a8" {
 		t.Fatalf("%s %+v", a6IDs(got), got)
+	}
+	if got[0].Output != 28+41 || got[1].Output != 0 {
+		t.Errorf("output tokens: %d %d", got[0].Output, got[1].Output)
 	}
 	if got[0].Title != "Rename the flag" || got[0].Dir != "/w/proj" || got[0].Path != db {
 		t.Errorf("preview is the title when there is none: %+v", got[0])
@@ -239,5 +243,39 @@ func TestAntigravityLockedDB(t *testing.T) {
 	}
 	if _, err := os.Stat(brain); err != nil {
 		t.Fatal("nothing is moved when the rows cannot be removed")
+	}
+}
+
+func TestAntigravityOutputFollowsTheFile(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "transcript.jsonl")
+	step := func(i, out int) string {
+		return `{"step_index":` + strconv.Itoa(i) + `,"type":"PLANNER_RESPONSE","model":"m","output_tokens":` + strconv.Itoa(out) + `}` + "\n"
+	}
+	if n := antigravityOutput(f); n != 0 {
+		t.Fatalf("no file: %d", n)
+	}
+	write(t, f, step(1, 5)+`{"step_index":2,"type":"RUN_COMMAND","output_tokens":99}`+"\n")
+	if n := antigravityOutput(f); n != 5 {
+		t.Fatalf("first read: %d", n)
+	}
+	fh, err := os.OpenFile(f, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same step again, further along, and half of the next.
+	line := step(3, 7)
+	fh.WriteString(step(1, 6) + line[:10])
+	if n := antigravityOutput(f); n != 6 {
+		t.Fatalf("half a line counted, or a step twice: %d", n)
+	}
+	fh.WriteString(line[10:])
+	fh.Close()
+	if n := antigravityOutput(f); n != 13 {
+		t.Fatalf("appended: %d", n)
+	}
+	// Rewritten shorter: read again from the start.
+	write(t, f, step(1, 2))
+	if n := antigravityOutput(f); n != 2 {
+		t.Fatalf("rewritten: %d", n)
 	}
 }
