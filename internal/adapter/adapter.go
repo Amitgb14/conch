@@ -15,6 +15,8 @@ import (
 	"unicode"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // Adapter launches one kind of agent.
@@ -342,7 +344,13 @@ func newClaude(exe, dir string) (*cliAgent, error) {
 	// line (if any) so it looks as before.
 	statusLine := map[string]any{"type": "command", "command": ShellQuote(exe) + " report claude-status"}
 	write := func() error {
-		if err := writeJSON(path, map[string]any{"hooks": hooks, "statusLine": statusLine}); err != nil {
+		settings := map[string]any{"hooks": hooks, "statusLine": statusLine}
+		// Read at every launch, so a change in Settings reaches the next
+		// Claude. A file that cannot be read leaves Claude's default.
+		if cfg, err := config.LoadFile(filepath.Join(dir, "config.toml")); err == nil && cfg.Agents.ClaudeIdleCompaction != nil {
+			settings["idleCompaction"] = *cfg.Agents.ClaudeIdleCompaction
+		}
+		if err := writeJSON(path, settings); err != nil {
 			return fmt.Errorf("write claude settings: %w", err)
 		}
 		return nil

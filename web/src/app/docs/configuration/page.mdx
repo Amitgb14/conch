@@ -118,6 +118,7 @@ default = ""  # what c and t start: claude, codex, gemini, opencode…; "" (the 
 permission_mode = "on"  # [[permissions]] rules: on, dry-run (record only) or off
 unrestricted_launch = false  # true lets an agent driving conch start panes with any command, env and flags, and type into shells
 no_auto_resume = false       # true leaves agents interrupted by a reboot or crash in Sessions instead of resuming them
+# claude_idle_compaction = false  # Claude panes conch starts don't compact while idle; unset is Claude's default, ~/.claude/settings.json is untouched
 
 [brain]
 provider = "claude"  # claude, anthropic or openai
@@ -252,6 +253,10 @@ Slack, Discord and ntfy also come as [notify integrations](/docs/integrations#no
 ### ui
 
 `mouse = false` leaves the mouse to your terminal entirely. With it on, hold shift (option in iTerm2) to select text with the terminal instead.
+
+### agents
+
+`claude_idle_compaction = false` stops Claude Code compacting a conversation left idle before its prompt cache expires ("Compacted while idle…"), in the Claude panes conch starts, from each one's next start. It is **Compact Claude while idle** under Agents in Settings, the settings page's and Conch.app's. conch writes it into the settings file it starts Claude with and never `~/.claude/settings.json`, which a Claude started outside conch still reads. Unset is Claude's own default.
 
 ### brain
 

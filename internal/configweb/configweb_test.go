@@ -591,6 +591,10 @@ func tomlName(f reflect.StructField) string {
 func TestSchemaDefaultsMatchConfig(t *testing.T) {
 	for _, s := range Schema(Choices{}) {
 		for _, f := range s.Fields {
+			// Unset is Claude's own default, which compacts.
+			if s.Key == "agents" && f.Key == "claude_idle_compaction" && (f.Default != true || f.Kind != KindBool) {
+				t.Errorf("claude_idle_compaction: %s, default %v", f.Kind, f.Default)
+			}
 			if f.Kind == KindSelect && len(f.Options) == 0 {
 				t.Errorf("%s.%s offers nothing", s.Key, f.Key)
 			}

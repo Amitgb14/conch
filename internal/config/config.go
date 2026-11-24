@@ -628,6 +628,10 @@ type AgentsCfg struct {
 	// MoveAtLine moves a Claude Code agent whose account is past its
 	// failover line when its turn ends, before it reaches the limit.
 	MoveAtLine bool `toml:"move_at_line,omitempty"`
+	// ClaudeIdleCompaction is Claude Code's idleCompaction for the Claude
+	// panes conch starts, written into conch's own --settings file and
+	// never ~/.claude/settings.json. nil leaves Claude's default (on).
+	ClaudeIdleCompaction *bool `toml:"claude_idle_compaction,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.
@@ -831,9 +835,13 @@ func ServerLogPath() string {
 }
 
 // Load reads config.toml from Dir(), falling back to defaults when absent.
-func Load() (Config, error) {
+func Load() (Config, error) { return LoadFile(File()) }
+
+// LoadFile is Load for a config.toml somewhere else: an adapter given
+// conch's directory reads the one in it.
+func LoadFile(path string) (Config, error) {
 	cfg := Default()
-	_, err := toml.DecodeFile(File(), &cfg)
+	_, err := toml.DecodeFile(path, &cfg)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Default(), err
 	}
