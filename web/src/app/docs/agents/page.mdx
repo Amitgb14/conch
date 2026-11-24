@@ -102,6 +102,12 @@ Agent panes show usage in their title: `ctx 45k/200k · out 12k · $0.42`.
 
 Context used, output tokens, and cost where the agent reports one.
 
+## Claude's idle compaction
+
+Claude Code compacts a conversation left idle just before its prompt cache expires ("Compacted while idle…"). To stop that in the Claude panes conch starts, turn off **Settings → Agents → Compact Claude while idle**, or set `claude_idle_compaction = false` under `[agents]`. It applies from each pane's next start.
+
+conch writes it into the settings file it starts Claude with, never `~/.claude/settings.json`; a Claude started outside conch still reads that file. Unset is Claude's own default.
+
 ## Plan limits
 
 <Shot name="desktop-limits" alt="Claude plan limits shown as bars with their reset times" caption="Plan limits and when each window resets." />

@@ -115,6 +115,7 @@ default = ""  # what c and t start: claude, codex, gemini, opencode…; "" (the 
 permission_mode = "on"  # [[permissions]] rules: on, dry-run (record only) or off
 unrestricted_launch = false  # true lets an agent driving conch start panes with any command, env and flags, and type into shells
 no_auto_resume = false       # true leaves agents interrupted by a reboot or crash in Sessions instead of resuming them
+# claude_idle_compaction = false  # Claude panes conch starts don't compact while idle; unset is Claude's default, ~/.claude/settings.json is untouched
 
 [brain]
 provider = "claude"  # claude, anthropic or openai
