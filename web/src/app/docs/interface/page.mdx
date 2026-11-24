@@ -83,8 +83,6 @@ auto_review = true   # with auto_fix: send review comments from GitHub to the ag
 resolve_threads = false # resolve a thread its push answered
 ```
 
-With `auto_review`, a review that asks for changes, or a new unresolved thread, on the branch's pull request goes to its agent as one message — each comment with its file and line — once its turn ends, and each comment once (again if somebody edits it or replies). After the agent pushes, conch answers each thread on GitHub with the commits and whether its file changed; the threads stay open for the reviewer unless `resolve_threads` is on. A review posted by conch's own reviewer agent is not sent again.
-
 ### A second opinion
 
 A reviewer reads each finished branch; `R` hands its report to the writer.
