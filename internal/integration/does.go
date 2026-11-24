@@ -59,6 +59,11 @@ func Does(kind string, ops []string) []Feature {
 			{"Its workspaces' repositories", "Added to conch as projects, so each conversation is in its branch's sessions", "yes"},
 			{"Resume a conversation in its own agent", "Resume, where it ran or in a folder you choose (Resume In…, conch import NAME -dir): from the session the agent kept itself while the other app ran it, or written as one when it kept none", "yes"},
 		}
+	case KindHook:
+		// It runs a command here; what the command does is the file's.
+		return []Feature{
+			{"A command run on conch's events", "Run by conch's server when its events happen — a worktree made, an agent done or waiting, a pull request opened or merged, a task failed — with a timeout, its output in $CONCH_HOME/hooks/logs and a failure in the activity", "yes"},
+		}
 	case KindCI:
 	default:
 		// Never nil: a list of nothing is read as such, where null was not.

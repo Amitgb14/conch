@@ -433,3 +433,31 @@ func TestHookWorktreeAndTaskThroughServer(t *testing.T) {
 		t.Errorf("hooks saw:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// What the server runs is config.toml's actions and the hook files
+// installed from a registry, after them.
+func TestHookActionsIncludeInstalledFiles(t *testing.T) {
+	a5IsolateEnv(t)
+	home := os.Getenv("CONCH_HOME")
+	os.WriteFile(filepath.Join(home, "config.toml"), []byte("[[actions]]\nname = \"Mine\"\nrun = \"true\"\non = [\"agent.done\"]\n"), 0o600)
+	os.MkdirAll(filepath.Join(home, "integrations"), 0o700)
+	os.WriteFile(filepath.Join(home, "integrations", "shared.toml"), []byte(`format = 3
+kind = "hook"
+name = "shared"
+label = "Shared"
+[hook]
+run = "echo shared"
+on = ["agent.done"]
+`), 0o600)
+	cfg, err := hookActions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range cfg.ActionsFor(config.EventAgentDone) {
+		got = append(got, a.Name)
+	}
+	if strings.Join(got, ",") != "Mine,Shared" {
+		t.Errorf("agent.done runs %v", got)
+	}
+}

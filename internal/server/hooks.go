@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/integration"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -137,7 +138,7 @@ type hookRun struct {
 }
 
 func loadHooks(configDir, sockPath string) *hooks {
-	h := &hooks{configDir: configDir, sockPath: sockPath, load: config.Load, running: map[int]*exec.Cmd{}}
+	h := &hooks{configDir: configDir, sockPath: sockPath, load: hookActions, running: map[int]*exec.Cmd{}}
 	if testing.Testing() {
 		// A server test that makes a worktree, or sees an agent finish,
 		// would otherwise run the hooks of whatever config.toml it found —
@@ -156,6 +157,18 @@ func loadHooks(configDir, sockPath string) *hooks {
 	orNew(&h.saved.Seen)
 	orNew(&h.saved.PRs)
 	return h
+}
+
+// hookActions is config.toml's actions and, after them, the hook files
+// installed from a registry (integration.KindHook).
+func hookActions() (config.Config, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return cfg, err
+	}
+	files, _ := integration.Hooks()
+	cfg.Actions = append(cfg.Actions, files...)
+	return cfg, nil
 }
 
 func (h *hooks) saveLocked() {

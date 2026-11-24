@@ -74,6 +74,9 @@ type File struct {
 	// The notify kind's operation.
 	Send Operation `toml:"send"`
 
+	// Hook is kind hook's: an action run on events (hook.go).
+	Hook HookSpec `toml:"hook"`
+
 	// The deploy kind's operations; its failed_log is FailedLog, with
 	// {deploy} for {run}.
 	Previews DeployOp  `toml:"previews"`
@@ -337,6 +340,14 @@ func (f *File) Problems() []string {
 	case f.Format != Format:
 		add("format = %d: an integration file says so, so that an older conch refuses it", Format)
 	}
+	if f.Kind == KindHook {
+		if !nameRE.MatchString(f.Name) {
+			add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
+		}
+		f.hookProblems(add)
+		sort.Strings(p)
+		return p
+	}
 	if f.Kind == KindImport {
 		if !nameRE.MatchString(f.Name) {
 			add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)
@@ -344,6 +355,9 @@ func (f *File) Problems() []string {
 		f.importProblems(add)
 		sort.Strings(p)
 		return p
+	}
+	if f.Hook.Run != "" || len(f.Hook.On) > 0 || f.Hook.Timeout != 0 || len(f.Hook.Variables) > 0 {
+		add("[hook]: only a hook file has one")
 	}
 	if f.Source.Reader != "" || f.Source.Path != "" || f.Source.Store != "" || len(f.Source.Platforms) > 0 || f.Source.MinReader != 0 {
 		add("[source]: only an import file has one")
@@ -356,7 +370,7 @@ func (f *File) Problems() []string {
 	case f.Kind == KindHost:
 		add("kind %q: this conch does not read it yet", f.Kind)
 	default:
-		add("kind %q: one of ci, tickets, notify, deploy, import, host, sandbox", f.Kind)
+		add("kind %q: one of ci, tickets, notify, deploy, import, hook, host, sandbox", f.Kind)
 	}
 	if !nameRE.MatchString(f.Name) {
 		add("name %q: lowercase letters, digits and -, starting with a letter", f.Name)

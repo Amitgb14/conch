@@ -56,7 +56,7 @@ func ReaderProblem(reader string, min int) string {
 // Reads says whether this conch reads integration files of kind.
 func Reads(kind string) bool {
 	_, ok := contracts[kind]
-	return ok || kind == KindImport
+	return ok || kind == KindImport || kind == KindHook
 }
 
 // NeedsNewer says why this conch cannot install or use e, in words ending
