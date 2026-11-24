@@ -279,3 +279,54 @@ func TestAntigravityOutputFollowsTheFile(t *testing.T) {
 		t.Fatalf("rewritten: %d", n)
 	}
 }
+
+// An account of agy's (internal/accounts) is a folder given as
+// --gemini_dir, with its own antigravity-cli inside: its conversations
+// are listed as that account's, their chat read from that folder, and the
+// same folder twice is read once.
+func TestAntigravityAccounts(t *testing.T) {
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("no sqlite3")
+	}
+	home := t.TempDir()
+	work := filepath.Join(t.TempDir(), "work")
+	now := time.Now().UTC().Add(-time.Hour).Format("2006-01-02 15:04:05.999999-07:00")
+	agySQL(t, filepath.Join(home, ".gemini", "antigravity-cli", "conversation_summaries.db"), agySchema+agyRow("own1", "mine", "", now, `["file:///w/proj"]`, ""))
+	agySQL(t, filepath.Join(work, "antigravity-cli", "conversation_summaries.db"), agySchema+agyRow("work1", "theirs", "", now, `["file:///w/proj"]`, ""))
+	write(t, filepath.Join(work, "antigravity-cli", "brain", "work1", ".system_generated", "logs", "transcript.jsonl"), agyTranscript)
+
+	env := a6Env(home, nil)
+	env.Accounts = []Account{
+		{Agent: "antigravity", Name: "work", Dir: work},
+		{Agent: "antigravity", Name: "again", Dir: work},
+		{Agent: "claude", Name: "other", Dir: t.TempDir()},
+	}
+	got := List(env, []string{"/w/proj"}, 0)
+	if a6IDs(got) != "antigravity:own1,antigravity:work1" {
+		t.Fatalf("%s", a6IDs(got))
+	}
+	var w Session
+	for _, s := range got {
+		if s.ID == "work1" {
+			w = s
+		} else if s.Account != "" {
+			t.Errorf("own conversation on an account: %+v", s)
+		}
+	}
+	if w.Account != "work" || w.Output != 28+41 {
+		t.Errorf("%+v", w)
+	}
+	turns, err := Transcript(context.Background(), env, w)
+	if err != nil || turnsText(turns) != "user: Rename the flag\nassistant: Looking.\n\nRenamed." {
+		t.Fatalf("%q %v", turnsText(turns), err)
+	}
+	if up, err := ChatSince(context.Background(), env, w, "", 0); err != nil || len(up.Turns) == 0 {
+		t.Fatalf("chat: %+v %v", up, err)
+	}
+	if err := Delete(context.Background(), env, w, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(work, "antigravity-cli", "brain", "work1")); !os.IsNotExist(err) {
+		t.Errorf("the account's files stayed: %v", err)
+	}
+}

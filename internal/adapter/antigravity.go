@@ -30,21 +30,48 @@ var varName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // refuses, naming GEMINI_API_KEY.
 func antigravityLaunch(exe, dir string) func() (string, string) {
 	return func() (string, string) {
-		settings := map[string]any{"title": map[string]string{"command": ShellQuote(exe) + " report agy-title"}}
+		title := map[string]string{"command": ShellQuote(exe) + " report agy-title"}
+		settings := map[string]any{"title": title}
 		before := ""
 		if name := AntigravityKeyEnv(dir); name != "" {
 			before = `[ -n "$` + name + `" ] || { echo "conch: ` + name + ` is empty: it should hold your Gemini API key ([agents] antigravity_api_key_env)" >&2; exit 1; }; ` +
 				`export GEMINI_API_KEY="$` + name + `"; `
 			settings["modelProvider"] = "gemini"
 		}
-		var b bytes.Buffer
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(settings); err != nil {
+		base, err := agySettings(settings)
+		if err != nil {
 			return before, ""
 		}
-		return before, "--settings " + ShellQuote(strings.TrimSpace(b.String()))
+		keyed, err := agySettings(map[string]any{"title": title, "modelProvider": "gemini"})
+		if err != nil {
+			return before, ""
+		}
+		// An account of agy's (internal/accounts) is chosen after this line
+		// is made, so it arrives as two variables of conch's and is read
+		// here: its folder, and the name of the variable holding its key —
+		// checked to be a name before the shell is asked for its value. They
+		// are unset before agy starts: nothing it runs needs them.
+		before += `conch_agy=` + ShellQuote(base) + `; conch_agy_dir="${CONCH_AGY_DIR-}"; ` +
+			`if [ -n "${CONCH_AGY_KEY_ENV-}" ]; then ` +
+			`case "$CONCH_AGY_KEY_ENV" in [0-9]*|*[!A-Za-z0-9_]*) echo "conch: this account's CONCH_AGY_KEY_ENV is not a variable's name" >&2; exit 1;; esac; ` +
+			`eval "conch_agy_key=\"\${$CONCH_AGY_KEY_ENV-}\""; ` +
+			`[ -n "$conch_agy_key" ] || { echo "conch: $CONCH_AGY_KEY_ENV is empty: it should hold this account's Gemini API key" >&2; exit 1; }; ` +
+			`export GEMINI_API_KEY="$conch_agy_key"; conch_agy=` + ShellQuote(keyed) + `; fi; ` +
+			`unset CONCH_AGY_DIR CONCH_AGY_KEY_ENV conch_agy_key; `
+		return before, `${conch_agy_dir:+"--gemini_dir=$conch_agy_dir"} --settings "$conch_agy"`
 	}
+}
+
+// agySettings is settings as --settings takes them: JSON on one line,
+// with & < > left as they are.
+func agySettings(settings map[string]any) (string, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(settings); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(b.String()), nil
 }
 
 // AntigravityKeyEnv is the variable [agents] antigravity_api_key_env in

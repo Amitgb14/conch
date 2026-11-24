@@ -8,6 +8,12 @@
 // An agent without such a variable keeps the one account it has, rather
 // than conch guessing at where its sign-in lives.
 //
+// Antigravity CLI is the exception that has one in part: --gemini_dir
+// moves its files, but its Google sign-in is one Keychain item whatever
+// the folder. So an account of agy's is a Gemini API key — the name of the
+// variable that holds it, never the key — with a folder of its own for
+// its conversations, and its own account is the Google sign-in.
+//
 // The book is the server's, in $CONCH_HOME/accounts.json, not config.toml:
 // the sign-ins are this machine's, the server is what starts agents, and a
 // client holding config.toml in memory would write an older copy back.
@@ -31,7 +37,24 @@ import (
 var vars = map[string]string{
 	"claude": "CLAUDE_CONFIG_DIR",
 	"codex":  "CODEX_HOME",
+	// agy has no variable for its folder, only a flag: this is conch's,
+	// which its launch line turns into --gemini_dir (internal/adapter).
+	"antigravity": "CONCH_AGY_DIR",
 }
+
+// keyVars is, for an agent whose accounts are API keys, the variable
+// that names the one holding an account's key; the launch line reads it.
+var keyVars = map[string]string{
+	"antigravity": "CONCH_AGY_KEY_ENV",
+}
+
+// KeyVar is the variable naming where agent's account keeps its key, ""
+// for an agent whose accounts are sign-ins.
+func KeyVar(agent string) string { return keyVars[agent] }
+
+// varName is a variable's name as a shell takes it: all a launch line may
+// be given from an account.
+var varName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Default is the name that asks for the agent's own account, the one it
 // uses when nothing is set.
@@ -67,6 +90,9 @@ type Account struct {
 	Agent string `json:"agent"`
 	Name  string `json:"name"`
 	Dir   string `json:"dir"`
+	// KeyEnv names the variable holding the account's API key, for an
+	// agent whose accounts are keys (KeyVar); the key is never kept.
+	KeyEnv string `json:"key_env,omitempty"`
 }
 
 // Pin says which account agents started in Path, or below it, use. Path
@@ -212,11 +238,26 @@ func expand(dir string) string {
 // its own under home, conch's folder — and makes the folder. Signing in
 // is the agent's: start it on the account and log in once.
 func (b *Book) Add(agent, name, dir, home string) (Account, error) {
+	return b.AddWithKey(agent, name, dir, "", home)
+}
+
+// AddWithKey is Add for an agent whose accounts are API keys: keyEnv is
+// the variable that holds this one's, read by the person's login shell
+// when the agent starts.
+func (b *Book) AddWithKey(agent, name, dir, keyEnv, home string) (Account, error) {
 	if !Supports(agent) {
 		return Account{}, fmt.Errorf("%s keeps one account: conch knows no way to give it a second (only %s can have several)", agent, strings.Join(Agents(), " and "))
 	}
 	if err := ValidName(name); err != nil {
 		return Account{}, err
+	}
+	switch {
+	case KeyVar(agent) == "" && keyEnv != "":
+		return Account{}, fmt.Errorf("%s signs in to each account itself: an account of its is a folder, not a key", agent)
+	case KeyVar(agent) != "" && keyEnv == "":
+		return Account{}, fmt.Errorf("an account of %s's is a Gemini API key: name the variable that holds it (its own account is your Google sign-in)", agent)
+	case keyEnv != "" && !varName.MatchString(keyEnv):
+		return Account{}, fmt.Errorf("%q is not a variable's name: give the name of the one holding the key, not the key", keyEnv)
 	}
 	if _, ok := b.Get(agent, name); ok {
 		return Account{}, fmt.Errorf("%s already has an account called %s", agent, name)
@@ -237,7 +278,7 @@ func (b *Book) Add(agent, name, dir, home string) (Account, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Account{}, err
 	}
-	a := Account{Agent: agent, Name: name, Dir: dir}
+	a := Account{Agent: agent, Name: name, Dir: dir, KeyEnv: keyEnv}
 	b.Accounts = append(b.Accounts, a)
 	return a, nil
 }
@@ -318,9 +359,11 @@ func (b Book) PinFor(dir string) (name, path string) {
 
 // Choice is the account an agent starts on.
 type Choice struct {
-	// Account is its name, "" for the agent's own; Dir its folder.
+	// Account is its name, "" for the agent's own; Dir its folder, and
+	// KeyEnv the variable holding its key where accounts are keys.
 	Account string
 	Dir     string
+	KeyEnv  string
 	// Pinned says a pin chose it.
 	Pinned bool
 	// PassedOver is the account it would have started on had that one not
@@ -334,8 +377,15 @@ func (c Choice) Env(agent string) []string {
 	if c.Account == "" || Var(agent) == "" {
 		return nil
 	}
-	return []string{Var(agent) + "=" + c.Dir}
+	env := []string{Var(agent) + "=" + c.Dir}
+	if KeyVar(agent) != "" && c.KeyEnv != "" {
+		env = append(env, KeyVar(agent)+"="+c.KeyEnv)
+	}
+	return env
 }
+
+// choice is a as an agent starts on it.
+func (a Account) choice() Choice { return Choice{Account: a.Name, Dir: a.Dir, KeyEnv: a.KeyEnv} }
 
 // Usage says how much of an account's plan is used, in percent: the
 // fullest of its windows, 0 when nothing is known.
@@ -361,12 +411,13 @@ func (b Book) Choose(agent, asked, dir string, used Usage) (Choice, error) {
 		if !ok {
 			return Choice{}, fmt.Errorf("no %s account called %s (conch account list)", agent, asked)
 		}
-		return Choice{Account: a.Name, Dir: a.Dir}, nil
+		return a.choice(), nil
 	}
 	var ch Choice
 	if name, _ := b.PinFor(dir); name != "" {
 		if a, ok := b.Get(agent, name); ok {
-			ch = Choice{Account: a.Name, Dir: a.Dir, Pinned: true}
+			ch = a.choice()
+			ch.Pinned = true
 		} else if name == Default {
 			ch.Pinned = true
 		}
@@ -385,7 +436,9 @@ func (b Book) Choose(agent, asked, dir string, used Usage) (Choice, error) {
 	for k := 1; k < len(ring); k++ {
 		a := ring[(at+k)%len(ring)]
 		if used(agent, a.Name) < float64(line) {
-			return Choice{Account: a.Name, Dir: a.Dir, PassedOver: Label(ch.Account)}, nil
+			next := a.choice()
+			next.PassedOver = Label(ch.Account)
+			return next, nil
 		}
 	}
 	return ch, nil

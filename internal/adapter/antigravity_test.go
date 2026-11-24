@@ -37,23 +37,26 @@ func agyLine(t *testing.T, configTOML string) []string {
 // provider is switched for this launch alone with --settings.
 func TestAntigravityAPIKeyEnv(t *testing.T) {
 	plain := agyLine(t, "")
-	if strings.Contains(plain[2], "GEMINI_API_KEY") || strings.Contains(plain[2], "modelProvider") {
+	// (The account branch is always in the line, and only taken when an
+	// account is chosen: TestAntigravityAccountLaunch.)
+	if strings.Contains(plain[2], "antigravity_api_key_env") || !strings.Contains(plain[2], `conch_agy='{"title"`) {
 		t.Fatalf("no key asked for, none given: %q", plain[2])
 	}
 	// conch's title command is always there: it is how agy names its
 	// conversation, for the chat.
-	if !strings.Contains(plain[2], `exec agy --settings '{"title":{"command":"/conch report agy-title"}}' -i 'hi'`) {
+	if !strings.Contains(plain[2], `conch_agy='{"title":{"command":"/conch report agy-title"}}'`) ||
+		!strings.Contains(plain[2], `exec agy ${conch_agy_dir:+"--gemini_dir=$conch_agy_dir"} --settings "$conch_agy" -i 'hi'`) {
 		t.Fatalf("no title command: %q", plain[2])
 	}
 	line := agyLine(t, "[agents]\nantigravity_api_key_env = \"MY_GEMINI_KEY\"\n")[2]
-	for _, want := range []string{`GEMINI_API_KEY="$MY_GEMINI_KEY"`, `exec agy --settings '{"modelProvider":"gemini","title":{"command":"/conch report agy-title"}}' -i 'hi'`} {
+	for _, want := range []string{`GEMINI_API_KEY="$MY_GEMINI_KEY"`, `conch_agy='{"modelProvider":"gemini","title":{"command":"/conch report agy-title"}}'`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("missing %q in %q", want, line)
 		}
 	}
 	// A name that is not a variable's is not put in a shell line.
 	for _, bad := range []string{"MY KEY", "X;rm -rf ~", "$(id)", "1ST", "A-B"} {
-		if l := agyLine(t, "[agents]\nantigravity_api_key_env = \""+bad+"\"\n")[2]; strings.Contains(l, "GEMINI_API_KEY") || strings.Contains(l, bad) || strings.Contains(l, "modelProvider") {
+		if l := agyLine(t, "[agents]\nantigravity_api_key_env = \""+bad+"\"\n")[2]; strings.Contains(l, "antigravity_api_key_env") || strings.Contains(l, bad) || !strings.Contains(l, `conch_agy='{"title"`) {
 			t.Errorf("%q made it into the line: %q", bad, l)
 		}
 	}
@@ -88,8 +91,58 @@ func TestAntigravityAPIKeyEnvRuns(t *testing.T) {
 // conch's own path goes into agy's title command quoted, since agy runs it
 // with sh -c.
 func TestAntigravityTitleCommandQuotesConch(t *testing.T) {
-	_, flags := antigravityLaunch("/opt/conch bin/conch", t.TempDir())()
-	if !strings.Contains(flags, `"command":"'\''/opt/conch bin/conch'\'' report agy-title"`) {
-		t.Fatalf("%s", flags)
+	before, _ := antigravityLaunch("/opt/conch bin/conch", t.TempDir())()
+	if !strings.Contains(before, `"command":"'\''/opt/conch bin/conch'\'' report agy-title"`) {
+		t.Fatalf("%s", before)
+	}
+}
+
+// agyShells are the shells a login shell may be that are on this machine:
+// the line is the person's shell's to run, not only sh's.
+func agyShells(t *testing.T) []string {
+	var out []string
+	for _, sh := range []string{"/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/usr/bin/dash"} {
+		if _, err := os.Stat(sh); err == nil {
+			out = append(out, sh)
+		}
+	}
+	return out
+}
+
+// An account of agy's reaches the line as two of conch's variables (from
+// accounts.Choice.Env): its folder, given to agy as --gemini_dir, and the
+// name of the variable holding its key, read there by the shell. Neither
+// is left for agy or what it runs.
+func TestAntigravityAccountLaunch(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\necho \"key=$GEMINI_API_KEY left=$CONCH_AGY_DIR$CONCH_AGY_KEY_ENV args=$*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := agyLine(t, "")
+	dir := filepath.Join(t.TempDir(), "work account")
+	for _, sh := range agyShells(t) {
+		run := func(env ...string) (string, error) {
+			cmd := exec.Command(sh, line[1:]...)
+			cmd.Env = append([]string{"PATH=" + bin + ":/usr/bin:/bin", "HOME=" + os.Getenv("HOME")}, env...)
+			out, err := cmd.CombinedOutput()
+			return strings.TrimSpace(string(out)), err
+		}
+		out, err := run("CONCH_AGY_DIR="+dir, "CONCH_AGY_KEY_ENV=WORK_KEY", "WORK_KEY=k-9")
+		want := `key=k-9 left= args=--gemini_dir=` + dir + ` --settings {"modelProvider":"gemini","title":{"command":"/conch report agy-title"}} -i hi`
+		if err != nil || out != want {
+			t.Errorf("%s: %q %v\nwant %q", sh, out, err, want)
+		}
+		// The agent's own account: neither set, nothing added.
+		if out, err := run(); err != nil || out != `key= left= args=--settings {"title":{"command":"/conch report agy-title"}} -i hi` {
+			t.Errorf("%s own account: %q %v", sh, out, err)
+		}
+		// The key's variable empty: stopped, saying which.
+		if out, err := run("CONCH_AGY_DIR="+dir, "CONCH_AGY_KEY_ENV=WORK_KEY"); err == nil || !strings.Contains(out, "WORK_KEY") || strings.Contains(out, "args=") {
+			t.Errorf("%s: an empty key started it: %q %v", sh, out, err)
+		}
+		// Not a variable's name: never evaluated.
+		if out, err := run("CONCH_AGY_KEY_ENV=X;echo pwned", "X=k"); err == nil || strings.Contains(out, "pwned") || strings.Contains(out, "args=") {
+			t.Errorf("%s: a bad name ran: %q %v", sh, out, err)
+		}
 	}
 }

@@ -109,11 +109,8 @@ func (s *Server) chooseAccount(agent, asked, dir string) (accounts.Choice, *prot
 		// signed in, with the most room, the fewest agents on it.
 		if ranked := s.rankAccounts(agent, accountName(ch.PassedOver)); len(ranked) > 0 && ranked[0].Usable {
 			best := ranked[0].Account
-			dir := ""
-			if a, ok := s.accountBook().Get(agent, best); ok {
-				dir = a.Dir
-			}
-			ch.Account, ch.Dir = best, dir
+			a, _ := s.accountBook().Get(agent, best)
+			ch.Account, ch.Dir, ch.KeyEnv = best, a.Dir, a.KeyEnv
 		}
 		log.Printf("accounts: %s's %s account is past its failover line; starting on %s", agent, ch.PassedOver, accounts.Label(ch.Account))
 	}
@@ -158,7 +155,7 @@ func (s *Server) listAccounts() proto.AccountList {
 	for _, agent := range accounts.Agents() {
 		add(proto.AccountInfo{Agent: agent, Default: true})
 		for _, a := range b.Of(agent) {
-			add(proto.AccountInfo{Agent: a.Agent, Name: a.Name, Dir: a.Dir})
+			add(proto.AccountInfo{Agent: a.Agent, Name: a.Name, Dir: a.Dir, KeyEnv: a.KeyEnv})
 		}
 	}
 	for _, p := range b.Pins {
@@ -171,14 +168,14 @@ func (s *Server) addAccount(p proto.AccountAddParams) (proto.AccountInfo, *proto
 	var a accounts.Account
 	perr := s.changeAccounts(func(b *accounts.Book) error {
 		var err error
-		a, err = b.Add(p.Agent, p.Name, p.Dir, s.configDir)
+		a, err = b.AddWithKey(p.Agent, p.Name, p.Dir, p.KeyEnv, s.configDir)
 		return err
 	})
 	if perr != nil {
 		return proto.AccountInfo{}, perr
 	}
 	log.Printf("accounts: added %s account %s in %s", a.Agent, a.Name, a.Dir)
-	return proto.AccountInfo{Agent: a.Agent, Name: a.Name, Dir: a.Dir}, nil
+	return proto.AccountInfo{Agent: a.Agent, Name: a.Name, Dir: a.Dir, KeyEnv: a.KeyEnv}, nil
 }
 
 func (s *Server) removeAccount(r proto.AccountRef) *proto.Error {

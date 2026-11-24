@@ -16,6 +16,12 @@ const CapAccounts = "agent.accounts.v1"
 // one line for every agent and would take an Agent's line as everyone's.
 const CapAccountFailoverAgent = "account.failover.agent.v1"
 
+// CapAccountKeys is Antigravity CLI among the agents with accounts, each a
+// Gemini API key by the name of the variable holding it
+// (AccountAddParams.KeyEnv, AccountInfo.KeyEnv). An older server refuses
+// such an account as an agent that keeps one.
+const CapAccountKeys = "account.keys.v1"
+
 // Account methods.
 const (
 	// MethodAccountList lists the accounts, the pins and the failover line.
@@ -37,6 +43,9 @@ type AccountInfo struct {
 	Name    string `json:"name"`
 	Dir     string `json:"dir,omitempty"`
 	Default bool   `json:"default,omitempty"`
+	// KeyEnv names the variable holding the account's API key, for an
+	// agent whose accounts are keys (CapAccountKeys).
+	KeyEnv string `json:"key_env,omitempty"`
 	// Limits is what the account's agents last reported of its plan.
 	Limits *PlanLimits `json:"limits,omitempty"`
 	// Agents is how many agents run on it now.
@@ -71,6 +80,9 @@ type AccountAddParams struct {
 	Agent string `json:"agent"`
 	Name  string `json:"name"`
 	Dir   string `json:"dir,omitempty"`
+	// KeyEnv is the variable holding the account's API key, where the
+	// agent's accounts are keys (CapAccountKeys): never the key.
+	KeyEnv string `json:"key_env,omitempty"`
 }
 
 // AccountRef names an account.

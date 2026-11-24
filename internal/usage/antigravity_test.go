@@ -107,3 +107,26 @@ func TestHistoryAntigravityNothingSaved(t *testing.T) {
 		writeAt(t, filepath.Join(agyLog(home, "c1"), "transcript.jsonl"), agyUser(0, histNow.Add(-time.Hour)), histNow.Add(-time.Hour))
 	}
 }
+
+// An account of agy's is a folder given as --gemini_dir: what it used
+// counts as agy's, and on its own line by account.
+func TestHistoryAntigravityAccounts(t *testing.T) {
+	home := t.TempDir()
+	work := filepath.Join(t.TempDir(), "work")
+	writeAt(t, filepath.Join(agyLog(home, "own"), "transcript.jsonl"), agyStep(1, "m", histNow.Add(-time.Hour), 10, 0, 1), histNow.Add(-time.Hour))
+	writeAt(t, filepath.Join(work, "antigravity-cli", "brain", "w1", ".system_generated", "logs", "transcript.jsonl"), agyStep(1, "m", histNow.Add(-time.Hour), 20, 0, 2), histNow.Add(-time.Hour))
+	others := []Root{{Agent: "antigravity", Dir: work, Name: "work"}, {Agent: "antigravity", Dir: work, Name: "again"}}
+
+	if d := period(t, agentOf(t, NewHistory().Summary(home, noEnv, histNow, others...), "antigravity"), 24); d.Output != 3 || d.Messages != 2 {
+		t.Errorf("summary: %+v", d.UsageTokens)
+	}
+	by := map[string]int{}
+	for _, a := range NewHistory().ByAccount(home, noEnv, histNow, time.UTC, others...).Agents {
+		if a.Agent == "antigravity" {
+			by[a.Account] += period(t, a, 24).Output
+		}
+	}
+	if len(by) != 2 || by[""] != 1 || by["work"] != 2 {
+		t.Errorf("by account: %v", by)
+	}
+}

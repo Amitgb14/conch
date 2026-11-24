@@ -58,10 +58,10 @@ func TestAccountsOverTheSocket(t *testing.T) {
 		t.Fatalf("not announced: %v", miss)
 	}
 	l := accountList(t, c)
-	if len(l.Accounts) != 2 || !l.Accounts[0].Default || l.Accounts[0].Agent != "claude" || l.Accounts[1].Agent != "codex" {
+	if len(l.Accounts) != 3 || !l.Accounts[0].Default || l.Accounts[0].Agent != "antigravity" || l.Accounts[1].Agent != "claude" || l.Accounts[2].Agent != "codex" {
 		t.Fatalf("a fresh machine lists %+v", l.Accounts)
 	}
-	if len(l.Agents) != 2 {
+	if len(l.Agents) != 3 {
 		t.Errorf("agents that can have accounts: %v", l.Agents)
 	}
 
@@ -139,7 +139,7 @@ func TestAccountsOverTheSocket(t *testing.T) {
 	}
 
 	l = accountList(t, c)
-	if len(l.Pins) != 1 || l.Pins[0].Account != "work" || len(l.Accounts) != 3 {
+	if len(l.Pins) != 1 || l.Pins[0].Account != "work" || len(l.Accounts) != 4 {
 		t.Errorf("list after: %+v", l)
 	}
 	var work *proto.AccountInfo
@@ -171,7 +171,7 @@ func TestAccountsOverTheSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	badRequest(t, c.Call(t.Context(), proto.MethodAccountRemove, proto.AccountRef{Agent: "claude", Name: "work"}, nil), "removed twice")
-	if l := accountList(t, c); len(l.Accounts) != 2 || len(l.Pins) != 0 {
+	if l := accountList(t, c); len(l.Accounts) != 3 || len(l.Pins) != 0 {
 		t.Errorf("after remove: %+v", l)
 	}
 	if _, err := os.Stat(want); err != nil {

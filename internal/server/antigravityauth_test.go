@@ -28,7 +28,9 @@ func TestAgentStatusSaysHowAntigravitySignsIn(t *testing.T) {
 	})
 	auth := func() map[string]string {
 		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		// agent.status starts a login shell for each of two dozen agents,
+		// which took 15s a call on a loaded Mac: room for that, twice.
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		var status proto.AgentStatusResult
 		if err := c.Call(ctx, proto.MethodAgentStatus, nil, &status); err != nil {

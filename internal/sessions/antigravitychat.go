@@ -18,7 +18,7 @@ import (
 
 // refreshAntigravity reads the transcript again when it has changed.
 func (l *chatLog) refreshAntigravity(e Env) error {
-	path := antigravityTranscriptPath(e, l.s.ID)
+	path := agyTranscriptPath(agyRootOf(e, l.s), l.s.ID)
 	st, err := os.Stat(path)
 	if err != nil {
 		return err

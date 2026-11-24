@@ -100,7 +100,7 @@ Usage:
                                 -- --model NAME, and no CMD ([agents] unrestricted_launch lifts it);
                                 -account starts it on another of its accounts (default: the
                                 folder's pin, else its own; "default" is its own)
-  conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME
+  conch account list | add AGENT NAME [-dir DIR] [-key-env VAR] | remove AGENT NAME
                                 an agent's other accounts (Claude Code, Codex): a work and a
                                 personal subscription, each a folder of its own to sign in to
                                 once; list shows each one's plan usage and agents

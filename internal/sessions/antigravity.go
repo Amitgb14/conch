@@ -28,8 +28,28 @@ import (
 
 func antigravityRoot(e Env) string { return filepath.Join(e.Home, ".gemini", "antigravity-cli") }
 
+// agyRootOf is where s's files are: beside the summaries it was listed
+// from, which for an account's conversation is in that account's folder.
+func agyRootOf(e Env, s Session) string {
+	if s.Path != "" {
+		return filepath.Dir(s.Path)
+	}
+	return antigravityRoot(e)
+}
+
+// antigravity lists agy's conversations in its own folder and in each of
+// its accounts' (internal/accounts): a folder given to it as --gemini_dir,
+// which holds an antigravity-cli of its own.
 func antigravity(e Env, dirs []string) []Session {
-	db := filepath.Join(antigravityRoot(e), "conversation_summaries.db")
+	var out []Session
+	for _, r := range e.roots("antigravity", filepath.Join(e.Home, ".gemini")) {
+		out = append(out, antigravityAt(filepath.Join(r.Dir, "antigravity-cli"), r.Name, dirs)...)
+	}
+	return out
+}
+
+func antigravityAt(root, account string, dirs []string) []Session {
+	db := filepath.Join(root, "conversation_summaries.db")
 	if _, err := os.Stat(db); err != nil || len(dirs) == 0 {
 		return nil
 	}
@@ -72,9 +92,9 @@ func antigravity(e Env, dirs []string) []Session {
 		if dir == "" || r.ID == "" || err != nil || time.Since(updated) > maxAge {
 			continue
 		}
-		out = append(out, Session{Agent: "antigravity", ID: r.ID, Dir: dir,
+		out = append(out, Session{Agent: "antigravity", ID: r.ID, Dir: dir, Account: account,
 			Title: title(firstNonEmpty(r.Title, r.Preview)), Updated: updated, Path: db,
-			Output: antigravityOutput(antigravityTranscriptPath(e, r.ID))})
+			Output: antigravityOutput(agyTranscriptPath(root, r.ID))})
 	}
 	return out
 }
@@ -98,8 +118,8 @@ func antigravityDir(uris string, dirs []string) string {
 	return ""
 }
 
-func antigravityTranscriptPath(e Env, id string) string {
-	return filepath.Join(antigravityRoot(e), "brain", id, ".system_generated", "logs", "transcript.jsonl")
+func agyTranscriptPath(root, id string) string {
+	return filepath.Join(root, "brain", id, ".system_generated", "logs", "transcript.jsonl")
 }
 
 // agyOutput is what has been read of one transcript: each model step's
@@ -162,8 +182,8 @@ func antigravityOutput(path string) int {
 
 // antigravityTranscript reads a conversation's steps: what the person
 // asked and what the model answered, its tool steps left out.
-func antigravityTranscript(e Env, id string) ([]Turn, error) {
-	f, err := os.Open(antigravityTranscriptPath(e, id))
+func antigravityTranscript(e Env, s Session) ([]Turn, error) {
+	f, err := os.Open(agyTranscriptPath(agyRootOf(e, s), s.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +264,7 @@ func antigravityDelete(ctx context.Context, e Env, s Session, trashDir string) e
 			paths = append(paths, p)
 		}
 	}
-	agyOutputs.Delete(antigravityTranscriptPath(e, s.ID))
+	agyOutputs.Delete(agyTranscriptPath(root, s.ID))
 	return trash(s.Agent, paths, trashDir)
 }
 

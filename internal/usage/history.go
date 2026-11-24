@@ -132,12 +132,13 @@ func (h *History) Summary(home string, env func(string) string, now time.Time, o
 	if len(codex) > 0 {
 		out.Agents = append(out.Agents, summarise("codex", codex, now))
 	}
-	// agy has no accounts of its own to move (#367), so its conversations
-	// are only ever the one folder's.
+	// An account of agy's is a folder given as --gemini_dir (#367).
 	var agy []message
-	for _, f := range antigravityFiles(home, since) {
-		for _, m := range h.read(f, readAntigravity).byID {
-			agy = append(agy, m)
+	for _, root := range rootsOf("antigravity", filepath.Join(home, ".gemini"), others) {
+		for _, f := range antigravityFiles(root, since) {
+			for _, m := range h.read(f, readAntigravity).byID {
+				agy = append(agy, m)
+			}
 		}
 	}
 	if len(agy) > 0 {
@@ -147,10 +148,11 @@ func (h *History) Summary(home string, env func(string) string, now time.Time, o
 }
 
 // antigravityFiles is each of agy's conversations' transcript changed
-// since then. Only transcript.jsonl: transcript_full.jsonl and the chunks
-// beside it hold the same steps again.
-func antigravityFiles(home string, since time.Time) []string {
-	files, _ := filepath.Glob(filepath.Join(home, ".gemini", "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"))
+// since then, under root (~/.gemini, or an account's --gemini_dir). Only
+// transcript.jsonl: transcript_full.jsonl and the chunks beside it hold
+// the same steps again.
+func antigravityFiles(root string, since time.Time) []string {
+	files, _ := filepath.Glob(filepath.Join(root, "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"))
 	var out []string
 	for _, f := range files {
 		if info, err := os.Stat(f); err == nil && !info.ModTime().Before(since) {
@@ -377,10 +379,13 @@ func (h *History) ByAccount(home string, env func(string) string, now time.Time,
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	seen := map[string]bool{}
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range []string{"claude", "codex", "antigravity"} {
 		own := claudeRoot
-		if agent == "codex" {
+		switch agent {
+		case "codex":
 			own = codexRoot
+		case "antigravity":
+			own = filepath.Join(home, ".gemini")
 		}
 		done := map[string]bool{}
 		roots := append([]Root{{Agent: agent, Dir: own}}, others...)
@@ -390,7 +395,14 @@ func (h *History) ByAccount(home string, env func(string) string, now time.Time,
 			}
 			done[filepath.Clean(r.Dir)] = true
 			var msgs []message
-			if agent == "claude" {
+			switch agent {
+			case "antigravity":
+				for _, f := range antigravityFiles(r.Dir, since) {
+					for _, m := range h.read(f, readAntigravity).byID {
+						msgs = append(msgs, m)
+					}
+				}
+			case "claude":
 				for _, f := range recentFiles(filepath.Join(r.Dir, "projects"), since) {
 					for id, m := range h.read(f, readClaude).byID {
 						if !seen[id] {
@@ -399,7 +411,7 @@ func (h *History) ByAccount(home string, env func(string) string, now time.Time,
 						}
 					}
 				}
-			} else {
+			default:
 				for _, f := range recentFiles(filepath.Join(r.Dir, "sessions"), since) {
 					msgs = append(msgs, h.read(f, readCodex).turns...)
 				}
