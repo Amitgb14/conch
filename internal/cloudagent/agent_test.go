@@ -431,8 +431,12 @@ func TestActivityHeartbeat(t *testing.T) {
 	if !bytes.Equal(got[1].Body, got[2].Body) {
 		t.Fatalf("heartbeats differ: %s / %s", got[1].Body, got[2].Body)
 	}
-	if gap := got[3].At.Sub(got[2].At); gap < 50*time.Millisecond {
-		t.Fatalf("heartbeats %s apart", gap)
+	// A ticker keeps its schedule, so one beat sent late under load is
+	// followed by the next on time and a single gap can be short (43ms
+	// was seen on CI). Two gaps still span a whole heartbeat, which a
+	// loop sending at every chance (minReport, 10ms) would not.
+	if span := got[3].At.Sub(got[1].At); span < heartbeat {
+		t.Fatalf("two heartbeats sent within %s, less than one heartbeat (%s)", span, heartbeat)
 	}
 }
 
