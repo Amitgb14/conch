@@ -561,6 +561,26 @@ helpers in `cmd/conch` and `internal/remote`.
   the walk exists — so what conch does instead is write it down: every
   refusal is logged, and `CONCH_LOG_CALLER=1` logs where each connection
   was placed with the ancestry it climbed.
+  **A pane's token closes most of it** (#350, `internal/server/tokens.go`).
+  Every pane is given its own access token in `CONCH_TOKEN`, and
+  `client.New` presents it (`auth.token`), so a reparented helper that
+  kept its environment is still held to its pane — and stays held after
+  the pane closes, never becoming the person. When the walk *does* find a
+  pane, the walk wins: a token is a string anybody reading another
+  process's environment could copy. A process that drops the variable
+  is back to the walk alone; this is a guard against a confused model,
+  not a sandbox. The person's own tokens (`conch token`, `conch mcp
+  -http`) carry a level — read, prompt, drive, full — and projects;
+  `tokenAllows` runs before `inScope`, and a method in none of the
+  `tokenReads`/`tokenPrompts`/`tokenDrives` lists needs full, so a new
+  method is closed to the lesser levels until somebody adds it. Secrets
+  are kept hashed in `tokens.json`; a token names the store that made it,
+  so another machine's is refused by name and another server's pane
+  token is ignored (a test server meeting the developer's inherited
+  one). A client never takes a person's token to a server without
+  `token.v1`, which would act as the person. `conch server` unsets
+  `CONCH_TOKEN` for itself, and `SanitizeEnv` keeps it out of new panes'
+  base environment.
 - **Saved ssh hosts** live in `ui.json`, not `machines.json`
   (`internal/tui/ssh.go`, `sshhosts.go`). `saved_ssh` stays the plain list
   of hosts older builds read; a host's name and extra ssh options sit

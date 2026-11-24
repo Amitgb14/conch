@@ -674,6 +674,7 @@ var sessionEnv = []string{
 	"CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
 	"CLAUDE_CODE_SSE_PORT",
 	"CONCH_PANE_ID", // a server started from inside a pane
+	"CONCH_TOKEN",   // that pane's access token, which a new pane is given its own of
 }
 
 // SanitizeEnv drops agent session variables from env.

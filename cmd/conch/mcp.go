@@ -25,14 +25,18 @@ import (
 // peer pid walked up its parents to a pane's program (internal/server/
 // scope.go), so an MCP process an agent starts inside its own pane inherits
 // that pane's scope — the panes it started, its project, that project's
-// branches and worktrees — and a tool cannot reach past it. Nothing here
-// declares who it is, and nothing here can widen it.
+// branches and worktrees — and a tool cannot reach past it. It presents
+// its pane's token (CONCH_TOKEN) as every client does, which holds it to
+// that pane even when its process tree was reparented. Nothing here can
+// widen it. Over HTTP (mcphttp.go) a token is the only way in.
 //
 // Two rules the transport imposes. Stdout *is* the protocol, so nothing but
 // a reply is ever written there — notes go to stderr. And requests are
 // answered one at a time, in the order they arrive: a `wait` holds the
 // session until it ends, as `conch wait` holds a shell, which is the
 // behaviour an agent handing work over expects.
+
+const mcpUsage = "usage: conch mcp [-http ADDRESS]"
 
 // mcpProtocol is the MCP revision conch implements. A client asking for
 // another revision is answered with this one, as the spec says to, and
@@ -97,8 +101,14 @@ type mcpSession struct {
 
 // runMCP serves MCP on stdin and stdout.
 func runMCP(args []string) error {
+	if len(args) > 0 && (args[0] == "-http" || args[0] == "--http") {
+		if len(args) != 2 {
+			return errors.New(mcpUsage)
+		}
+		return runMCPHTTP(args[1])
+	}
 	if len(args) > 0 {
-		return errors.New("usage: conch mcp")
+		return errors.New(mcpUsage)
 	}
 	s := &mcpSession{w: os.Stdout, err: os.Stderr, dial: func() (*client.Client, error) { return connect(false) }}
 	defer s.close()
@@ -152,20 +162,28 @@ func (s *mcpSession) serve(r io.Reader) error {
 // handle answers one message. A request with no id is a notification and
 // gets no reply at all, whatever it asks for.
 func (s *mcpSession) handle(req mcpRequest) {
+	if res, ok := s.answer(req); ok {
+		s.reply(res)
+	}
+}
+
+// answer is the reply to one message, and false for a notification,
+// which gets none. It is the transport's to write: a line on stdout, or
+// an HTTP response (mcphttp.go).
+func (s *mcpSession) answer(req mcpRequest) (mcpResponse, bool) {
 	notification := len(req.ID) == 0
 	result, err := s.dispatch(req)
 	if notification {
-		return
+		return mcpResponse{}, false
 	}
 	if err != nil {
 		var me *mcpError
 		if !errors.As(err, &me) {
 			me = &mcpError{mcpInternalError, err.Error()}
 		}
-		s.reply(mcpResponse{ID: req.ID, Error: me})
-		return
+		return mcpResponse{ID: req.ID, Error: me}, true
 	}
-	s.reply(mcpResponse{ID: req.ID, Result: result})
+	return mcpResponse{ID: req.ID, Result: result}, true
 }
 
 func (s *mcpSession) dispatch(req mcpRequest) (any, error) {

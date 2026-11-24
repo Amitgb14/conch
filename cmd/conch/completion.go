@@ -51,6 +51,7 @@ var compCommands = []compItem{
 	{"worktree", "list or clean up worktrees"},
 	{"schedule", "what the server will do later"},
 	{"run", "a job of tasks that depend on one another"},
+	{"token", "access tokens for agents outside conch"},
 	{"ticket", "tickets in Linear and Jira"},
 	{"agent", "install, set up and drive agents"},
 	{"machine", "run agents on another machine, over ssh"},
@@ -136,6 +137,7 @@ var compSubcommands = map[string][]compItem{
 		{"wait", "wait for a question or the end"}, {"done", "report a task done"}, {"fail", "report a task failed"}, {"ask", "ask the coordinator"},
 		{"answer", "answer a question"}, {"approve", "approve a gate"}, {"deny", "turn a gate down"}, {"rm", "forget a run"}},
 	"ticket": {{"ls", "the project's open tickets"}, {"show", "read one"}, {"comment", "add a comment"}, {"status", "move it to a status"}, {"link", "attach a pull request or branch"}},
+	"token":  {{"create", "make an access token"}, {"ls", "list them"}, {"revoke", "end one at once"}},
 	"machine": {
 		{"add", "add a machine reached over ssh"}, {"ls", "list machines"}, {"rm", "remove one"},
 		{"rename", "give one a new label"}, {"upgrade", "put this conch on it"}, {"hosts", "hosts from your ssh config"},

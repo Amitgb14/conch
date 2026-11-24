@@ -30,7 +30,7 @@ func a5Env(t *testing.T) string {
 	}
 	t.Cleanup(func() { os.RemoveAll(short) })
 	t.Setenv("CONCH_HOME", short)
-	for _, k := range []string{"CONCH_SOCKET", "CONCH_PANE_ID", "CONCH_RELOAD_STATE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "ZDOTDIR"} {
+	for _, k := range []string{"CONCH_SOCKET", "CONCH_PANE_ID", "CONCH_TOKEN", "CONCH_RELOAD_STATE", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "ZDOTDIR"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("SHELL", "/bin/sh")

@@ -990,6 +990,11 @@ func (s *settings) phoneItems(m *Model) []settingItem {
 			m.overlay = newDevicesPanel(s)
 			return nil
 		}},
+		settingItem{label: "Access tokens…", detail: "for agents outside conch · conch token", page: true, run: func(m *Model) tea.Cmd {
+			p, cmd := newTokensPanel(m, s)
+			m.overlay = p
+			return cmd
+		}},
 		settingItem{},
 		copyItem("In front of it", fmt.Sprintf("tailscale serve --bg http://127.0.0.1:%d", w.PortOrDefault())),
 		copyItem("Paired phones, in a terminal", "conch web devices"),
