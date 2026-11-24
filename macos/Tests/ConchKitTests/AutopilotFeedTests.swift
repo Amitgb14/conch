@@ -40,6 +40,14 @@ let activityJSON = #"""
     #expect(a.notes[6].tone == .info)
 }
 
+// A hook that failed (#351) is a failure, marked as a hook's.
+@Test func activityHookNote() throws {
+    let json = #"{"notes":[{"project_id":"r1","branch":"b","text":"hook Setup on worktree.created failed (exit 2)","kind":"hook","error":true}]}"#
+    let a = try conchDecoder().decode(AutopilotActivity.self, from: Data(json.utf8))
+    #expect(a.notes[0].kindLabel == "Hook")
+    #expect(a.notes[0].tone == .failed)
+}
+
 // Grouped by day as the person's calendar has it: Today, Yesterday, then
 // the date; a note without a time goes last, under Earlier.
 @Test func activityByDay() throws {

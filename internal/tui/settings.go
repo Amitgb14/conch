@@ -1029,6 +1029,10 @@ func (s *settings) actionItems(m *Model) []settingItem {
 			{label: styleMuted.Render("  It is then on the menu (m, or right-click) of a branch or project,")},
 			{label: styleMuted.Render("  and runs there with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH,")},
 			{label: styleMuted.Render("  CONCH_WORKTREE and CONCH_PANE set.")},
+			{},
+			{label: styleMuted.Render("  With events in on — worktree.created, agent.done, agent.waiting,")},
+			{label: styleMuted.Render("  pr.opened, pr.merged, task.failed — the server runs it when one")},
+			{label: styleMuted.Render("  happens instead, its output in hooks/logs beside config.toml.")},
 		}
 	}
 	items := []settingItem{{header: true, label: "Actions", detail: "your own commands on the row menus"}}
@@ -1036,6 +1040,11 @@ func (s *settings) actionItems(m *Model) []settingItem {
 		on := "every row"
 		if len(a.On) > 0 {
 			on = strings.Join(a.On, ", ")
+		}
+		if evs := a.Events(); len(evs) > 0 && len(evs) == len(a.On) {
+			on = "hook on " + strings.Join(evs, ", ") + " · stopped after " + a.HookTimeout().String()
+		} else if len(evs) > 0 {
+			on += " · stopped after " + a.HookTimeout().String()
 		}
 		if !a.Keeps() {
 			on += " · closes when done"
@@ -1048,7 +1057,7 @@ func (s *settings) actionItems(m *Model) []settingItem {
 			settingItem{label: styleMuted.Render("    " + a.Run)})
 	}
 	if len(problems) > 0 {
-		items = append(items, settingItem{}, settingItem{header: true, label: "Not offered"})
+		items = append(items, settingItem{}, settingItem{header: true, label: "Problems"})
 		for _, p := range problems {
 			items = append(items, settingItem{label: "  " + styleErr.Render(p)})
 		}

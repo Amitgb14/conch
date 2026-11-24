@@ -304,7 +304,8 @@ Usage:
   conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME
                                 says the hosts your key goes to first, checks the file's hash,
                                 asks for the key (kept in the Keychain on a Mac) and checks it here:
-                                a CI's runs, a tracker's tickets, a test message for a webhook
+                                a CI's runs, a tracker's tickets, a test message for a webhook;
+                                a hook (a command run on events) shows its command first
   conch integration key [-stdin] [-base URL] [-cwd DIR] NAME
                                 give an integration, shipped or installed, its key: without echo,
                                 kept in the Keychain on a Mac (elsewhere it says the variable)
@@ -312,7 +313,8 @@ Usage:
                                 every integration here — built in, shipped, installed — its key's
                                 state and whether this project uses it
   conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide | icons [-json]
-                                take newer versions (new hosts always asked), delete one, check a
+                                take newer versions (new hosts, or a hook's new command, always
+                                asked), delete one, check a
                                 file, or print the format to write one
   conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]
                                 a branch's deploys on Vercel or Netlify (a deploy integration):

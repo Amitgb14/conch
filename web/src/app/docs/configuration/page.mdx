@@ -196,8 +196,9 @@ branches = ["conch/cloud-*"]  # branch patterns, * for anything
 [[actions]]            # your own commands on the row menus; none by default
 name = "Run tests"     # the label on the menu
 run = "go test ./..."  # the command, as a shell reads it
-on = ["branch", "project"]  # the rows it is offered on; omit for all four
+on = ["branch", "project"]  # the rows it is offered on, or events to run on; omit for all four rows
 keep = true            # leave its terminal open when the command exits
+timeout = 300          # seconds a run on an event may take (hooks only)
 ```
 
 ### Rebinding the keys
@@ -452,8 +453,9 @@ An action is then on the menu of a matching row — **m**, or right-click — un
 | --- | --- | --- |
 | `name` | — | the label on the menu, and what its terminal is called |
 | `run` | — | the command, read by `sh -lc`: a pipeline, several commands, a script of yours |
-| `on` | all four | the rows it is offered on: `pane`, `branch`, `project`, `machine` |
+| `on` | all four | the rows it is offered on: `pane`, `branch`, `project`, `machine` — and the events it runs on, which make it a [hook](#hooks) |
 | `keep` | `true` | leave the terminal open when the command exits, so what it printed can still be read. `false` closes it like any other terminal |
+| `timeout` | `300` | a hook's limit in seconds: a run still going then is stopped, with everything it started. Menus ignore it |
 
 The command is given conch's own variables, so one action works from any row. What a row has nothing to say about is empty rather than missing, which a `set -u` script survives:
 
@@ -469,11 +471,60 @@ The command is given conch's own variables, so one action works from any row. Wh
 
 **Where it runs.** On the machine the row belongs to — a remote machine's action runs over there, in that checkout, not on the computer the TUI is on. A branch nobody has checked out has no directory to run in, and conch says so rather than making a worktree behind your back: open a terminal on it first (**n**).
 
-**Settings → Actions** (`,` then `7`) lists what is configured, and names anything conch is *not* offering: an action with no name or no command, two with the same name, an `on` that is not one of the four.
+**Settings → Actions** (`,` then `7`) lists what is configured, which actions are hooks and on what, and names any problem: an action with no name or no command, two with the same name, an `on` that is neither one of the four rows nor one of the events below.
+
+### Hooks
+
+An action whose `on` names an **event** is run by conch's server when that event happens, rather than chosen from a menu. It runs with no TUI open, and never in the way of the event that fired it.
+
+```toml
+[[actions]]
+name = "Set up the worktree"
+run  = "make setup"
+on   = ["worktree.created"]
+timeout = 600
+
+[[actions]]
+name = "Tell the channel"
+run  = 'curl -sd "$CONCH_BRANCH: $CONCH_EVENT" "$SLACK_HOOK"'
+on   = ["agent.done", "pr.merged"]
+```
+
+| Event | When |
+| --- | --- |
+| `worktree.created` | conch made a worktree: a task, `conch worktree add` and the tree's new branch, a group task, a branch moved here |
+| `agent.done` | an agent finished a turn |
+| `agent.waiting` | an agent is waiting on you: a permission, a question |
+| `pr.opened` | a pull request was opened, or reopened, on one of the project's branches |
+| `pr.merged` | a pull request conch had seen open was merged |
+| `task.failed` | a task could not be started — from `conch task`, the schedule, or intake |
+
+Each event fires its hooks once. A server that restarts or reloads does not fire them again: an agent a reload takes over comes back with no earlier state, which is no change, and the pull requests conch last saw are kept in `hooks.json`. A pull request already open, or already merged, when conch first reads a project is not news. Neither is one opened and merged between two reads, which can't be told from one merged long ago.
+
+A hook runs `sh -lc` in the event's worktree, else the project's folder, else your home, with these set (empty when the event has nothing to say):
+
+| Variable | What it holds |
+| --- | --- |
+| `CONCH_EVENT` | the event's name |
+| `CONCH_ACTION` | the action's name |
+| `CONCH_PROJECT`, `CONCH_PROJECT_ID`, `CONCH_ROOT` | the project's name, id and folder |
+| `CONCH_BRANCH`, `CONCH_WORKTREE` | the branch and its checkout |
+| `CONCH_PANE`, `CONCH_AGENT`, `CONCH_MESSAGE` | the agent's pane, which agent it is, and what it last said (`agent.*`) |
+| `CONCH_PR`, `CONCH_PR_URL`, `CONCH_PR_TITLE` | the pull request (`pr.*`) |
+| `CONCH_ERROR` | why a task could not start (`task.failed`) |
+| `CONCH_SOCKET` | the server's socket, so a hook can drive conch |
+
+The pane is `CONCH_PANE`, as for an action from a menu, never `CONCH_PANE_ID`: that one tells conch's own commands they run *inside* the pane, and an agent's report sent from a hook would land on the agent.
+
+Each run is a job of its own. Two events at once run side by side, and a run is stopped at its `timeout` (five minutes when the action does not say), with everything it started. Its output goes to `hooks/logs/` beside `config.toml`, the first megabyte of it, with how much more was cut said at the end. The newest 200 logs are kept. A run that fails or is stopped at its timeout is said in the **activity feed**, where the autopilot's notes are, with its log's path. A hook taken out of `config.toml` while it runs finishes as it was, and the next event does not run it. Stopping or reloading the server stops the runs under way, and their logs say so.
+
+An action that names only events is a hook alone and on no menu. Name a row as well (`on = ["agent.done", "branch"]`) to have it in both places. An action that names no event is never run on one, so a `config.toml` written before hooks does just what it did.
+
+Hooks can also be shared: an integration of kind `hook` is installed from a registry like any other ([more](/docs/integrations#hooks)), and runs after your own.
 
 <Callout type="note">
 
-An action is arbitrary command execution, from your own file, and nothing runs until you choose it from a menu. conch fetches actions from nowhere and never adds one itself.
+An action is arbitrary command execution, from your own file. Nothing runs until you choose it from a menu, or until an event it names happens. conch fetches actions from nowhere and never adds one itself. A hook from a registry runs only once you install it, after its command was shown to you.
 
 </Callout>
 
