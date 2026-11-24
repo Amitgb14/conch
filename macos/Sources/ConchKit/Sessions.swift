@@ -6,6 +6,8 @@ import Foundation
 /// view, in a tab of the app's own.
 public struct SessionInfo: Decodable, Equatable, Identifiable, Sendable {
     public var agent: String
+    /// Which of the agent's accounts holds it; nil for the agent's own.
+    public var account: String?
     /// The agent's own id for it; "" for an interrupted run whose
     /// conversation was not found.
     public var sessionID: String?
@@ -25,15 +27,16 @@ public struct SessionInfo: Decodable, Equatable, Identifiable, Sendable {
     public var snippet: String?
 
     enum CodingKeys: String, CodingKey {
-        case agent, dir, branch, title, started, updated, interrupted, starred, snippet
+        case agent, account, dir, branch, title, started, updated, interrupted, starred, snippet
         case sessionID = "id"
         case paneID = "pane_id"
         case costUSD = "cost_usd"
     }
 
-    public init(agent: String, sessionID: String? = nil, dir: String, branch: String? = nil, title: String,
+    public init(agent: String, account: String? = nil, sessionID: String? = nil, dir: String, branch: String? = nil, title: String,
                 updated: Date? = nil, paneID: String? = nil, interrupted: Bool? = nil) {
         self.agent = agent
+        self.account = account
         self.sessionID = sessionID
         self.dir = dir
         self.branch = branch
@@ -43,7 +46,14 @@ public struct SessionInfo: Decodable, Equatable, Identifiable, Sendable {
         self.interrupted = interrupted
     }
 
-    public var id: String { agent + "\u{0}" + (sessionID ?? "") + "\u{0}" + dir }
+    /// Unique within a list: the same session under two accounts is two
+    /// rows, and interrupted runs without an id are told apart by when they
+    /// were last seen. Two rows sharing an id drew as a blank gap (#346).
+    public var id: String {
+        var k = agent + "\u{0}" + (account ?? "") + "\u{0}" + (sessionID ?? "") + "\u{0}" + dir
+        if (sessionID ?? "").isEmpty, let u = updated { k += "\u{0}" + String(u.timeIntervalSince1970) }
+        return k
+    }
 
     /// What it is called in the list: its title, or the agent's name.
     public var name: String { title.trimmingCharacters(in: .whitespaces).isEmpty ? agent : title }
