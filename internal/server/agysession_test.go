@@ -2,6 +2,9 @@ package server_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,8 +16,15 @@ import (
 // chat be read. A status line from Claude, which says so through its
 // hooks, leaves the session alone as before.
 func TestAStatusLineNamesAntigravitysConversation(t *testing.T) {
+	// conch starts agy with --settings, which a bare sh refuses and exits
+	// on — sometimes before the pane was seen as an agent. The stand-in
+	// takes any arguments and stays.
+	bin := filepath.Join(t.TempDir(), "agy")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec cat\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	c, _ := startServerWithAgents(t, map[string]string{
-		"antigravity": "agent = \"antigravity\"\nlabel = \"Antigravity CLI\"\nprocess_names = [\"sh\"]\n\n[run]\nbinary = \"sh\"\n",
+		"antigravity": "agent = \"antigravity\"\nlabel = \"Antigravity CLI\"\nprocess_names = [\"cat\"]\n\n[run]\nbinary = " + strconv.Quote(bin) + "\n",
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
