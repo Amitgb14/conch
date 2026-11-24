@@ -1,6 +1,9 @@
 package proto
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // A task graph for agents driving agents (run.v1): a run is a named job
 // split into tasks, each with what it depends on, and the server keeps
@@ -113,6 +116,14 @@ type RunTask struct {
 	Result  string    `json:"result,omitempty"`
 	Started time.Time `json:"started,omitzero"`
 	Ended   time.Time `json:"ended,omitzero"`
+}
+
+// WhyGate is how Why begins while a task waits for a person's approval.
+const WhyGate = "waiting for a person to approve: "
+
+// GateWaits says the task stands waiting for a person's approval.
+func (t RunTask) GateWaits() bool {
+	return t.Status == RunBlocked && t.Gate != "" && !t.Approved && strings.HasPrefix(t.Why, WhyGate)
 }
 
 // RunQuestion is a worker asking its coordinator something.

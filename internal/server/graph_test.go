@@ -145,11 +145,11 @@ func TestRunFailureBlocksAndGateWaits(t *testing.T) {
 	r := proto.Run{Name: "job"}
 	addTasks(&r, []proto.RunTaskSpec{{ID: "a", Spec: "x"}, {ID: "b", Spec: "y", After: []string{"a"}}, {ID: "ship", Spec: "z", Gate: "merge it?"}})
 	settle(&r, time.Now())
-	if g := r.Task("ship"); !gateWaits(*g) || g.Why != "waiting for a person to approve: merge it?" {
+	if g := r.Task("ship"); !g.GateWaits() || g.Why != "waiting for a person to approve: merge it?" {
 		t.Fatalf("gate: %+v", g)
 	}
 	finishTask(t, &r, "a", proto.RunFailed)
-	if b := r.Task("b"); b.Status != proto.RunBlocked || b.Why != "a failed" || gateWaits(*b) {
+	if b := r.Task("b"); b.Status != proto.RunBlocked || b.Why != "a failed" || b.GateWaits() {
 		t.Fatalf("after a failure: %+v", b)
 	}
 	r.Task("ship").Approved = true
@@ -372,7 +372,7 @@ func TestRunGateApprovedAfterReload(t *testing.T) {
 		{ID: "no", Spec: "x", Gate: "this one?"},
 	}}))
 	s.advanceRuns()
-	if g := runTask(t, s, r.ID, "ship"); !gateWaits(g) || g.Pane != "" {
+	if g := runTask(t, s, r.ID, "ship"); !g.GateWaits() || g.Pane != "" {
 		t.Fatalf("gate: %+v", g)
 	}
 
@@ -381,7 +381,7 @@ func TestRunGateApprovedAfterReload(t *testing.T) {
 	s2.adapters, s2.manifests = s.adapters, s.manifests
 	s2.watcher.stop()
 	s2.watcher = nil
-	if g := runTask(t, s2, r.ID, "ship"); !gateWaits(g) {
+	if g := runTask(t, s2, r.ID, "ship"); !g.GateWaits() {
 		t.Fatalf("after reload: %+v", g)
 	}
 	r2 := mustRun(t)(s2.runApprove(nil, proto.RunApproveParams{Run: "job", Task: "ship"}))

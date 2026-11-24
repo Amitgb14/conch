@@ -291,7 +291,7 @@ func settle(r *proto.Run, now time.Time) bool {
 		case len(waiting) > 0:
 			status, why = proto.RunPending, "waiting for "+strings.Join(waiting, ", ")
 		case t.Gate != "" && !t.Approved:
-			status, why = proto.RunBlocked, "waiting for a person to approve: "+t.Gate
+			status, why = proto.RunBlocked, proto.WhyGate+t.Gate
 		}
 		if t.Status != status || t.Why != why {
 			t.Status, t.Why = status, why
@@ -306,11 +306,6 @@ func settle(r *proto.Run, now time.Time) bool {
 		}
 	}
 	return changed
-}
-
-// gateWaits says a task stands waiting for a person's approval.
-func gateWaits(t proto.RunTask) bool {
-	return t.Status == proto.RunBlocked && t.Gate != "" && !t.Approved && strings.HasPrefix(t.Why, "waiting for a person")
 }
 
 // runBranch is the branch a task's worker works on.
