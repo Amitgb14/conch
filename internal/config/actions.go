@@ -13,10 +13,10 @@ import (
 // so it passes the machine, project, branch, worktree and pane in the
 // environment and runs the command in a terminal of its own.
 //
-// Deliberately not a plugin API: no registry to host, nothing to version,
-// no interface to keep stable for other people's code. An action is a line
-// in your own config.toml and it only ever runs because you chose it from
-// a menu.
+// Deliberately not a plugin API: no interface to keep stable for other
+// people's code. An action is a line in your own config.toml and runs
+// because you chose it from a menu — or, when its `on` names an event
+// (hooks.go), because that happened.
 //
 //	[[actions]]
 //	name = "Run tests"
@@ -31,7 +31,10 @@ type Action struct {
 	Run string `toml:"run"`
 	// On is the kinds of row the action is offered on: pane, branch,
 	// project, machine. Empty is all four, since most actions make sense
-	// wherever there is a directory to run them in.
+	// wherever there is a directory to run them in. It also takes events
+	// (worktree.created, agent.done, … — HookEvents), which make the
+	// action a hook the server runs when one happens; an action naming
+	// events and no row is a hook alone, on no menu.
 	On []string `toml:"on,omitempty"`
 	// Keep leaves the terminal open when the command exits, so what it
 	// printed can still be read — which is what a command that takes a
@@ -39,6 +42,10 @@ type Action struct {
 	// closes it like an ordinary terminal, for an action whose output is
 	// not the point.
 	Keep *bool `toml:"keep,omitempty"`
+	// Timeout is how many seconds a hook run may take before it is
+	// stopped; 0 is DefaultHookTimeout. Menus ignore it: a terminal of
+	// your own is stopped by you.
+	Timeout int `toml:"timeout,omitempty"`
 }
 
 // Where an action can be offered. These are the words in `on`, and the
@@ -62,17 +69,22 @@ func (a Action) Named() bool {
 	return strings.TrimSpace(a.Name) != "" && strings.TrimSpace(a.Run) != ""
 }
 
-// Offers reports whether the action belongs on a row of this kind.
+// Offers reports whether the action belongs on a row of this kind. The
+// events in on are not places: an action that names only events is a
+// hook and on no menu, where one naming nothing is on every menu.
 func (a Action) Offers(place string) bool {
-	if len(a.On) == 0 {
-		return true
-	}
+	places := 0
 	for _, p := range a.On {
-		if strings.EqualFold(strings.TrimSpace(p), place) {
+		p = strings.TrimSpace(p)
+		if isEventWord(p) {
+			continue
+		}
+		places++
+		if strings.EqualFold(p, place) {
 			return true
 		}
 	}
-	return false
+	return places == 0 && len(a.Events()) == 0
 }
 
 // ActionsOn is the actions offered on a kind of row, in the order they
@@ -113,9 +125,16 @@ func (c Config) ActionProblems() []string {
 		}
 		seen[strings.ToLower(name)] = true
 		for _, p := range a.On {
-			if !known(strings.TrimSpace(p)) {
-				out = append(out, name+" is offered on "+strings.TrimSpace(p)+", which is not one of "+strings.Join(ActionPlaces, ", "))
+			p = strings.TrimSpace(p)
+			switch {
+			case isEventWord(p) && !IsHookEvent(p):
+				out = append(out, name+" runs on "+p+", which is not one of "+strings.Join(HookEvents, ", "))
+			case !isEventWord(p) && !known(p):
+				out = append(out, name+" is offered on "+p+", which is not one of "+strings.Join(ActionPlaces, ", "))
 			}
+		}
+		if a.Timeout < 0 {
+			out = append(out, name+" has a timeout below zero; leave it out for "+DefaultHookTimeout.String())
 		}
 	}
 	return out
