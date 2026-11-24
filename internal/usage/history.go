@@ -300,9 +300,9 @@ func readCodex(hf *histFile, b []byte) {
 }
 
 // readAntigravity takes one line of an agy transcript: a model step's
-// usage. Its input is taken to count the cached tokens too, as Gemini's
-// prompt count does, so they are taken out of it, never below nothing —
-// unconfirmed: every step seen so far read nothing from the cache.
+// usage. Cached tokens are counted apart from input, as Claude's are: a
+// real second turn read 2,309 in and 9,579 cached for a prompt the size of
+// the first turn's 11,628 in.
 func readAntigravity(hf *histFile, b []byte) {
 	if !strings.Contains(string(b), `"output_tokens"`) {
 		return
@@ -320,7 +320,7 @@ func readAntigravity(hf *histFile, b []byte) {
 		return
 	}
 	hf.byID[strconv.Itoa(*l.Step)] = message{at: l.Created, model: l.Model,
-		tok: proto.UsageTokens{Input: max(l.Input-l.Cached, 0), CacheRead: l.Cached, Output: l.Output, Messages: 1}}
+		tok: proto.UsageTokens{Input: l.Input, CacheRead: l.Cached, Output: l.Output, Messages: 1}}
 }
 
 // summarise is one agent's periods.

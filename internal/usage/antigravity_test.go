@@ -34,7 +34,9 @@ func TestHistoryAntigravity(t *testing.T) {
 		agyStep(3, "gemini-4-flash", histNow.Add(-30*hour), 50, 0, 5) +
 		agyStep(4, "gemini-4-flash", histNow.Add(-40*24*hour), 999, 0, 999) + // older than 30 days
 		agyStep(5, "", histNow.Add(-hour), 7, 0, 7) + // no model
-		// More cached than counted in: never a negative input.
+		// agy counts cached tokens apart from input, as a real second turn
+		// did (2,309 in and 9,579 cached for a prompt of ~11.9k): more
+		// cached than input is the usual case, not a fault.
 		agyStep(6, "gemini-4-flash", histNow.Add(-hour), 10, 30, 1) +
 		"not json\n" +
 		`{"step_index":7,"type":"RUN_COMMAND","created_at":"2026-11-04T11:00:00Z","input_tokens":5}` + "\n"
@@ -52,8 +54,8 @@ func TestHistoryAntigravity(t *testing.T) {
 	got := NewHistory().Summary(home, noEnv, histNow)
 	a := agentOf(t, got, "antigravity")
 	day := period(t, a, 24)
-	// 1200-400 + 0 (10 in, 30 cached) + 100 in; 400 + 30 cached; 20 + 1 + 3 out.
-	if day.Input != 800+0+100 || day.CacheRead != 430 || day.Output != 24 || day.Messages != 3 {
+	// 1200 + 10 + 100 in; 400 + 30 cached; 20 + 1 + 3 out.
+	if day.Input != 1200+10+100 || day.CacheRead != 430 || day.Output != 24 || day.Messages != 3 {
 		t.Errorf("24h: %+v", day.UsageTokens)
 	}
 	if len(day.Models) != 2 || day.Models[0].Model != "gemini-4-hydrogen-high" {
