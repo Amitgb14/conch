@@ -42,7 +42,7 @@ func finishTask(t *testing.T, r *proto.Run, id, status string) {
 		t.Fatalf("no task %s", id)
 	}
 	task.Status = status
-	settle(r, time.Now())
+	settleRun(r, time.Now())
 }
 
 func TestRunChain(t *testing.T) {
@@ -50,7 +50,7 @@ func TestRunChain(t *testing.T) {
 	if perr := addTasks(&r, specs("a", "b<a", "c<b")); perr != nil {
 		t.Fatal(perr)
 	}
-	settle(&r, time.Now())
+	settleRun(&r, time.Now())
 	if got := statuses(r); got != "a=ready b=pending c=pending" {
 		t.Fatal(got)
 	}
@@ -79,7 +79,7 @@ func TestRunDiamond(t *testing.T) {
 	}
 	finishTask(t, &r, "b", proto.RunDone)
 	r.Task("c").Status = proto.RunRunning
-	settle(&r, time.Now())
+	settleRun(&r, time.Now())
 	if d := r.Task("d"); d.Status != proto.RunPending || d.Why != "waiting for c" {
 		t.Fatalf("d with c still running: %+v", d)
 	}
@@ -144,7 +144,7 @@ func TestRunRefusesBadGraphs(t *testing.T) {
 func TestRunFailureBlocksAndGateWaits(t *testing.T) {
 	r := proto.Run{Name: "job"}
 	addTasks(&r, []proto.RunTaskSpec{{ID: "a", Spec: "x"}, {ID: "b", Spec: "y", After: []string{"a"}}, {ID: "ship", Spec: "z", Gate: "merge it?"}})
-	settle(&r, time.Now())
+	settleRun(&r, time.Now())
 	if g := r.Task("ship"); !g.GateWaits() || g.Why != "waiting for a person to approve: merge it?" {
 		t.Fatalf("gate: %+v", g)
 	}
@@ -153,7 +153,7 @@ func TestRunFailureBlocksAndGateWaits(t *testing.T) {
 		t.Fatalf("after a failure: %+v", b)
 	}
 	r.Task("ship").Approved = true
-	settle(&r, time.Now())
+	settleRun(&r, time.Now())
 	if g := r.Task("ship"); g.Status != proto.RunReady {
 		t.Fatalf("approved: %+v", g)
 	}
@@ -166,10 +166,10 @@ func TestRunQuestionTimesOut(t *testing.T) {
 		{ID: "q2", Text: "ever?"}, // no deadline: waits for good
 		{ID: "q3", Text: "done", Answer: "yes", Answered: true, Deadline: now.Add(-time.Hour)},
 	}}
-	if settle(&r, now) {
+	if settleRun(&r, now) {
 		t.Fatal("nothing was due")
 	}
-	if !settle(&r, now.Add(time.Minute)) {
+	if !settleRun(&r, now.Add(time.Minute)) {
 		t.Fatal("the deadline passed unnoticed")
 	}
 	q := r.Questions

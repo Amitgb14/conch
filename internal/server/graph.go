@@ -263,7 +263,7 @@ func findCycle(tasks []proto.RunTask) []string {
 
 // settle works out where every task not yet started stands, and times out
 // the questions nobody answered. It reports whether anything changed.
-func settle(r *proto.Run, now time.Time) bool {
+func settleRun(r *proto.Run, now time.Time) bool {
 	changed := false
 	for i := range r.Tasks {
 		t := &r.Tasks[i]
@@ -383,7 +383,7 @@ func (s *Server) runCreate(c *client, p proto.RunCreateParams) (proto.Run, *prot
 	if perr := addTasks(&r, p.Tasks); perr != nil {
 		return proto.Run{}, perr
 	}
-	settle(&r, time.Now())
+	settleRun(&r, time.Now())
 	b := s.graph
 	b.mu.Lock()
 	for _, o := range b.runs {
@@ -416,7 +416,7 @@ func (s *Server) runChange(ref string, change func(r *proto.Run) *proto.Error) (
 		b.mu.Unlock()
 		return proto.Run{}, perr
 	}
-	settle(&r, time.Now())
+	settleRun(&r, time.Now())
 	b.runs[i] = r
 	b.saveLocked()
 	out := copyRun(r)
@@ -775,7 +775,7 @@ func (s *Server) advanceRuns() {
 				moved = true
 			}
 		}
-		if settle(r, now) || moved {
+		if settleRun(r, now) || moved {
 			changed = append(changed, copyRun(*r))
 		}
 		if r.Manual {
