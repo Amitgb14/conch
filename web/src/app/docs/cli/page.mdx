@@ -441,7 +441,7 @@ An agent that would rather call a tool than a command talks to conch through `co
 
 `view` and `show` are the two that reach past the server to the screen. The server owns panes and the terminal owns the arrangement of them, so conch carries both ways: a TUI publishes what it is showing, and a `show` is passed back to it as a request. A request, not an order — the panes asked for are **gathered side by side in one tab** and nothing else is touched. They move rather than being copied, since a pane is shown in exactly one place, which is the same rule that governs `ctrl+b !` and dragging a pane between tabs. An agent may only show panes it could already type into, by the same scope that governs `prompt`.
 
-The tools are the same work as [`conch agent prompt`](#agent), `conch wait`, `conch task` and the rest — the same server methods with the same payloads — so the two doors cannot drift. Scope comes for free: conch finds the caller from the socket's peer pid walked up to a pane's program, so an MCP server an agent starts inside its own pane reaches only [what that pane may reach](/docs/agents-together#what-an-agent-may-do), and nothing in a tool call can widen it.
+The tools are the same work as [`conch agent prompt`](#agent), `conch wait`, `conch task` and the rest — the same server methods with the same payloads — so the two doors cannot drift. Scope comes for free: conch finds the caller from its pane's [token](#token) or the socket's peer pid walked up to a pane's program, so an MCP server an agent starts inside its own pane reaches only [what that pane may reach](/docs/agents-together#what-an-agent-may-do), and nothing in a tool call can widen it.
 
 Installing it is one action, because the entry is the same for every agent — the [library](/docs/tasks#shared-mcp-servers-and-skills) writes it in each one's own format:
 
@@ -454,7 +454,40 @@ Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **A
 
 [Three reviewers at once](/docs/agents-together#three-reviewers-at-once) is what this is for: several helpers, several kinds of agent, no shell.
 
+#### Over HTTP
+
+```sh
+conch token create -level prompt -project api remote-agent   # prints the token, once
+conch mcp -http 127.0.0.1:7740                                 # the same tools at http://127.0.0.1:7740/mcp
+```
+
+An agent that is not a process on this computer — in a container, on another machine, in a tool that only speaks HTTP — reaches the same tools over MCP's Streamable HTTP. Every request carries an [access token](#token) as `Authorization: Bearer TOKEN`; without one, or with one conch refuses, the answer is `401`. Each token gets a connection to conch of its own that holds it, so the server decides what each may do, and this door never acts as you. Requests from a web page on another site are refused. It is plain HTTP: keep it on `127.0.0.1`, or put TLS in front of it (`tailscale serve`).
+
 Stdin and stdout are the protocol: notes go to stderr, one request per line (this revision of MCP has no batches), answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell. A tool that names a pane refuses a name shaped like a pane id or one another running pane holds, as `conch rename` does — ids win, so such a name would pick out nothing. `timeout_seconds` defaults to 1800, 0 waits with no limit, and anything over a day is capped.
+
+### token
+
+```sh
+conch token create -level prompt -project api -expires 30d reviewer   # prints the token once
+conch token ls                                                         # name, level, projects, expiry, last use
+conch token revoke reviewer                                            # refused from now on, where it is in use too
+conch -m busybox token create -level read watcher                      # a token for that machine
+```
+
+An access token is a limited right for an agent outside conch — an MCP client elsewhere, a script, another tool. It is given to conch in `CONCH_TOKEN` (every `conch` command and `conch mcp` present it), or as a bearer token to [`conch mcp -http`](#over-http).
+
+| Level | What it may do |
+| --- | --- |
+| `read` | read: screens, panes, projects, diffs, sessions, files in its projects |
+| `prompt` | also send to agents — a prompt, a reply, keys — never type into a shell, where what is typed runs |
+| `drive` | also start and stop agents: tasks, agent panes, resumed sessions, closing and interrupting them |
+| `full` | what you can do — within its projects; with none, making and revoking tokens too |
+
+`-project` (name, id or folder; repeat it) limits a token to those projects: every pane, project and folder a call names must be in one of them, and anything about all of them — the server, the library, other tokens — is refused. Lists are not filtered. Without `-project` it reaches every project. Tokens last 30 days unless `-expires` says otherwise (`12h`, `90d`, `never`). A token belongs to the machine whose conch made it; another machine's is refused by name.
+
+The secret is printed once and kept only as a hash, in `tokens.json` beside `config.toml`. A token revoked or expired stops connections already holding it, not only new ones. Every refusal is written to the server's log with the token's name. **Settings → Web → Access tokens…** lists and revokes them too.
+
+Every pane is also given a token of its own, for the scope its agent already has — see [what an agent may do](/docs/agents-together#what-an-agent-may-do). An agent in a pane cannot make, list or revoke tokens.
 
 ### completion
 

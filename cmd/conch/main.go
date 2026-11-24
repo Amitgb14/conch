@@ -430,9 +430,15 @@ Usage:
                                 127.0.0.1 until ctrl+c; a TUI that is open edits them live
                                 instead (Settings, then e)
   conch config path             print where config.toml is
-  conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
+  conch mcp [-http ADDRESS]     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
-                                and rename, with the scope of the pane it is started in
+                                and rename, with the scope of the pane it is started in; -http
+                                serves them over HTTP at ADDRESS/mcp, to an access token only
+  conch token create [-level read|prompt|drive|full] [-project P]... [-expires 30d|never] NAME
+                                an access token for an agent outside conch, printed once: read
+                                reads, prompt also sends to agents, drive also starts and stops
+                                them, full does what you can; -project limits it to projects
+  conch token ls | revoke NAME  the access tokens you made; revoke ends one at once
   conch completion bash|zsh|fish
                                 print a script that completes commands, panes, machines and agents
                                 on tab; without a shell, says how to turn it on
@@ -585,6 +591,8 @@ func main() {
 		err = runScheduleCmd(args)
 	case "run", "runs":
 		err = runRun(args)
+	case "token", "tokens":
+		err = runToken(args)
 	case "ticket", "tickets":
 		err = runTicket(args)
 	case "branch":

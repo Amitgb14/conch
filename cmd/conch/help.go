@@ -21,7 +21,7 @@ import (
 
 // helpAliases are the other names a command answers to.
 var helpAliases = map[string]string{
-	"ls": "status", "worktrees": "worktree", "machines": "machine", "sandboxes": "sandbox", "integrations": "integration", "--skill": "skill",
+	"ls": "status", "tokens": "token", "worktrees": "worktree", "machines": "machine", "sandboxes": "sandbox", "integrations": "integration", "--skill": "skill",
 }
 
 // helpDocs is where on the CLI page a command is written up, for the ones
