@@ -214,6 +214,8 @@ func Schema(c Choices) []Section {
 					Help: "Off: a Claude Code agent whose plan runs out moves, after a few seconds anyone can cancel, to the account with most room and carries on. On: it waits for its own account to reset."},
 				{Key: "move_at_line", Label: "Move agents at the failover line", Kind: KindBool,
 					Help: "On: a Claude Code agent whose account is past its failover line moves to the account with most room when its turn ends, before it hits the limit."},
+				{Key: "claude_idle_compaction", Label: "Compact Claude while idle", Kind: KindBool, Default: true,
+					Help: "Claude Code compacts a conversation left idle before its prompt cache expires. Off stops that in the Claude panes conch starts, from each one's next start; a Claude started outside conch still reads ~/.claude/settings.json."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & Autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
