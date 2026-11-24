@@ -643,3 +643,36 @@ func TestIntegrationProjects(t *testing.T) {
 		t.Fatalf("loaded %v %v", back.Integrations.Projects, err)
 	}
 }
+
+// claude_idle_compaction is three-way: absent is Claude's own default, and
+// a file from before it (or one that never set it) must not gain the key.
+func TestClaudeIdleCompactionRoundTrips(t *testing.T) {
+	t.Setenv("CONCH_HOME", t.TempDir())
+	if err := os.WriteFile(File(), []byte("[agents]\ndefault = \"codex\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil || cfg.Agents.ClaudeIdleCompaction != nil || cfg.Agents.Default != "codex" {
+		t.Fatalf("old file: %+v, %v", cfg.Agents, err)
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(File())
+	if strings.Contains(string(raw), "claude_idle_compaction") {
+		t.Fatalf("an unset claude_idle_compaction was written:\n%s", raw)
+	}
+	for _, v := range []bool{false, true} {
+		cfg.Agents.ClaudeIdleCompaction = &v
+		if err := Save(cfg); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load()
+		if err != nil || got.Agents.ClaudeIdleCompaction == nil || *got.Agents.ClaudeIdleCompaction != v {
+			t.Fatalf("saved %v, loaded %v, %v", v, got.Agents.ClaudeIdleCompaction, err)
+		}
+	}
+	if _, err := LoadFile(filepath.Join(t.TempDir(), "missing.toml")); err != nil {
+		t.Fatalf("a missing file is the defaults: %v", err)
+	}
+}
