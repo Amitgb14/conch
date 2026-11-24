@@ -117,6 +117,7 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
     #expect(SettingsNav.search("", in: schema) == ["ui", "git", "skills"])
     #expect(SettingsNav.search("merge", in: schema) == ["git"]) // its own description, and Checks' key
     #expect(SettingsNav.search("reviewer", in: schema) == ["git"]) // only Checks has it: found on Git's page
+    #expect(SettingsNav.search("qa", in: schema) == ["skills"])
     #expect(SettingsNav.search("MOUSE", in: schema) == ["ui"])
     #expect(SettingsNav.search("mcp", in: schema) == ["skills"])
     #expect(SettingsNav.search("factory", in: schema) == ["skills"])
@@ -155,5 +156,5 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
     #expect(c[1].have == 0 && c[1].of == 1) // the person's own is not counted
     #expect(skillCoverage(AgentSkillResult(changes: [])).isEmpty)
     #expect(SkillCoverage(name: "x", have: 0, of: 0).everywhere == false)
-    #expect(conchSkillBlurbs.count == 6 && conchSkillBlurbs["conch-autopilot"] != nil)
+    #expect(conchSkillBlurbs.count == 10 && conchSkillBlurbs["conch-qa"] != nil && conchSkillBlurbs["conch-autopilot"] != nil)
 }

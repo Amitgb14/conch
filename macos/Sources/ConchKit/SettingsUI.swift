@@ -209,7 +209,7 @@ extension SettingsNav {
             } else if id == browser {
                 text = browserSearchText
             } else {
-                text = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot".lowercased()
+                text = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot conch-qa conch-cicd conch-setup conch-status".lowercased()
             }
             return words.allSatisfy { text.contains($0) }
         }

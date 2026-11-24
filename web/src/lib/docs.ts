@@ -21,6 +21,7 @@ export const docs: DocSection[] = [
       { title: "Tasks and worktrees", href: "/docs/tasks", description: "One branch and worktree per task, with your local files." },
       { title: "Agents", href: "/docs/agents", description: "Supported agents, their states, usage and plan limits." },
       { title: "Agents working together", href: "/docs/agents-together", description: "Let one agent hand work to another — a reviewer, a tester — and read what it did." },
+      { title: "Skills", href: "/docs/skills", description: "conch's ten skills for agents, each with a real example of it in use." },
       { title: "Sessions", href: "/docs/sessions", description: "Resume saved conversations and interrupted runs." },
       { title: "Remote machines", href: "/docs/remote-machines", description: "Run agents on other machines over ssh." },
       { title: "Sandboxes", href: "/docs/sandboxes", description: "Run agents in a Daytona sandbox that keeps going with your laptop closed." },

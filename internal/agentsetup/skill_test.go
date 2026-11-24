@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -338,7 +339,7 @@ func TestInstallSkillLeftoverCopy(t *testing.T) {
 // that is its folder's, a description under the cut, and conch's mark —
 // without which conch could never update or remove it.
 func TestBundledSkills(t *testing.T) {
-	want := []string{"conch", "conch-autopilot", "conch-factory", "conch-review", "conch-ship", "conch-team"}
+	want := []string{"conch", "conch-autopilot", "conch-cicd", "conch-factory", "conch-qa", "conch-review", "conch-setup", "conch-ship", "conch-status", "conch-team"}
 	var names []string
 	for _, sk := range Skills {
 		names = append(names, sk.Name)
@@ -405,6 +406,68 @@ func TestBundledSkills(t *testing.T) {
 		"Acceptance criteria", "SPEC.md", "test-first, a slice at a time", "fidelity to /abs/path/SPEC.md", "## 9. Retro", "Propose the changes; don't make them"} {
 		if !strings.Contains(string(factory.Body), w) {
 			t.Errorf("conch-factory no longer says %q", w)
+		}
+	}
+}
+
+// The skills for a day's work in conch: testing a branch and CI (roles a
+// helper is started as), setting a project up and seeing what is going
+// on. Each does its job with conch's own pieces, and promises what the
+// person relies on: QA never changes the author's code, nothing goes to
+// production unasked, setup proposes what conch keeps for the person and
+// asks where agents run, status changes nothing without a yes.
+func TestRoleSkills(t *testing.T) {
+	roles := map[string][]string{
+		"conch-qa": {"git checkout --detach BRANCH", "Acceptance criteria", "$CONCH_PORT", "conch preview run", "conch preview shot",
+			"conch integration previews", "conch review add -branch BRANCH", "TEST-REPORT.md", "Steps to reproduce",
+			"Don't fix the author's code", "never against production"},
+		"conch-cicd": {"conch config path", "auto_merge", "conch integration ls", "--log-failed", "conch branch fix-ci",
+			"conch branch rerun-ci", "A flaky test is a bug", "conch integration previews", "conch integration promote",
+			"only when the person asked", "for the person to run: conch refuses it from an agent", "Never disable a check"},
+		// Where agents run is asked, with three answers: here, a machine
+		// already connected (listed), or a new sandbox — made only after
+		// a yes to what it costs.
+		"conch-setup": {"conch doctor", "conch agent setup", "conch project files ID", "replaces the list", "conch agent skill -apply",
+			"Propose; the person runs", "This computer", "A machine already connected", "conch machine ls", "A new sandbox",
+			"conch sandbox providers", "conch sandbox provider install NAME", "never\n  ask for it yourself", "said yes to its cost",
+			"conch task -sandbox"},
+		"conch-status": {"conch status -json", "conch agent question", "conch schedule ls", "conch worktree ls", "conch review -branch BRANCH",
+			"Needs you", "Never answer a waiting agent's question", "conch worktree clean -y", "conch branch prune -merged",
+			"only what they say yes to", "Never add\n`-force`"},
+	}
+	// Six different conch commands at least: a role that could be
+	// followed without conch belongs in somebody's own skills, not here.
+	cmds := regexp.MustCompile("conch ((?:agent |branch |review |preview |integration |ticket )?[a-z][a-z-]*)")
+	for name, wants := range roles {
+		sk, ok := BundledSkillNamed(name)
+		if !ok {
+			t.Errorf("no %s skill", name)
+			continue
+		}
+		text := string(sk.Body)
+		for _, w := range wants {
+			if !strings.Contains(text, w) {
+				t.Errorf("%s no longer says %q", name, w)
+			}
+		}
+		if !strings.Contains(text, "## Rules") {
+			t.Errorf("%s has no rules", name)
+		}
+		// Only code counts: prose says "conch started you" without a command.
+		code := strings.Join(regexp.MustCompile("(?s)```[a-z]*\n.*?```|`[^`\n]+`").FindAllString(text, -1), "\n")
+		seen := map[string]bool{}
+		for _, m := range cmds.FindAllStringSubmatch(code, -1) {
+			seen[m[1]] = true
+		}
+		if len(seen) < 6 {
+			t.Errorf("%s uses %d of conch's commands (%v); a role here is how to do the job with conch", name, len(seen), seen)
+		}
+	}
+	// conch's own skill points a helper at the role it was started for.
+	own, _ := BundledSkillNamed("conch")
+	for _, name := range []string{"conch-qa", "conch-cicd"} {
+		if !strings.Contains(string(own.Body), "`"+name+"`") {
+			t.Errorf("conch's skill doesn't name the %s role", name)
 		}
 	}
 }

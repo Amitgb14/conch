@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/Amitgb14/conch/internal/agentsetup"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -160,7 +161,7 @@ func TestDocsPictures(t *testing.T) {
 // to look things up in and are left out.
 var guides = []string{
 	"page.mdx", "installation/page.mdx", "quick-start/page.mdx", "why/page.mdx",
-	"interface/page.mdx", "tasks/page.mdx", "agents/page.mdx", "agents-together/page.mdx",
+	"interface/page.mdx", "tasks/page.mdx", "agents/page.mdx", "agents-together/page.mdx", "skills/page.mdx",
 	"sessions/page.mdx", "remote-machines/page.mdx", "sandboxes/page.mdx",
 	"mac-app/page.mdx", "mobile-preview/page.mdx", "phone/page.mdx", "iphone/page.mdx",
 	"brain/page.mdx",
@@ -200,6 +201,32 @@ func TestDocsGuidesAreShort(t *testing.T) {
 			if n := len(strings.Fields(para)); n > guideMaxParagraph {
 				t.Errorf("%s: a paragraph of %d words, keep each under %d: %.80s…", g, n, guideMaxParagraph, strings.TrimSpace(para))
 			}
+		}
+	}
+}
+
+// TestDocsSkillsPage: every skill conch ships has a section on the skills
+// page, with something said to an agent and what came of it — a skill
+// added without one is a skill nobody finds out how to use.
+func TestDocsSkillsPage(t *testing.T) {
+	b, err := os.ReadFile("../../web/src/app/docs/skills/page.mdx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(b)
+	for _, sk := range agentsetup.Skills {
+		i := strings.Index(page, "## `"+sk.Name+"`")
+		if i < 0 {
+			t.Errorf("the skills page has no section for %s", sk.Name)
+			continue
+		}
+		section := page[i+3:]
+		if j := strings.Index(section, "\n## "); j >= 0 {
+			section = section[:j]
+		}
+		// A real example: what the person said, then the agent's answer.
+		if !strings.Contains(section, "you ❯ ") || !strings.Contains(section, "```") {
+			t.Errorf("%s's section has no example of it in use", sk.Name)
 		}
 	}
 }
