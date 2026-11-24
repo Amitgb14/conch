@@ -738,6 +738,11 @@ func (pm *projectManager) fetchPRs(p *project) {
 		p.prs = nil
 	} else {
 		p.noteMerges(list)
+		prs := make(map[string]proto.PRInfo, len(p.prs))
+		for b, pr := range p.prs {
+			prs[b] = pr
+		}
+		defer pm.s.hookPRs(p, prs) // after p.mu is let go
 		for branch, pr := range p.prs {
 			if pr.State == "MERGED" {
 				merged[branch] = pr.Head
@@ -1063,6 +1068,7 @@ func (pm *projectManager) addWorktree(p *project, branch, base string) (path str
 	p.gen++
 	p.mu.Unlock()
 	pm.request(p)
+	pm.s.hookWorktree(p, path, branch)
 	return path, copied, nil
 }
 

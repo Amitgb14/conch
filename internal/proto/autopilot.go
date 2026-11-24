@@ -134,6 +134,7 @@ const (
 	ActivityIntake  = "intake"  // an issue taken as a task
 	ActivityTriage  = "triage"  // an issue read and labelled
 	ActivityReview  = "review"  // a pull request's review comments sent to the agent, or answered
+	ActivityHook    = "hook"    // an action run on an event failed or timed out
 )
 
 // AutopilotActivityParams asks for what the autopilot did, newest first:

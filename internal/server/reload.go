@@ -178,6 +178,9 @@ func (s *Server) reload(bin string) {
 	s.watcher.stop()
 	log.Printf("reloading into %s with %d pane(s)", bin, len(st.Panes))
 	env := config.MergeEnv(os.Environ(), reloadStateEnv+"="+path)
+	// A hook's output is read by this process, which the new one cannot
+	// take over: it is stopped, and its log says so.
+	s.hooks.stopAll()
 	err = syscall.Exec(bin, []string{bin, "server"}, env)
 	os.Remove(path)
 	fail(fmt.Errorf("exec %s: %w", bin, err))

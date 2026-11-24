@@ -319,6 +319,7 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 			s.autopilotFinished(info)
 		}
 		s.notifyAgent(info, prevState)
+		s.hookAgent(info, prevState)
 	}
 	s.broadcast(proto.EventPaneUpdated, info)
 }
