@@ -99,7 +99,7 @@ func (e Env) get(k string) string {
 
 // Reads reports whether conch reads agent's saved sessions: every
 // supported agent, and those it only runs whose files have been read off
-// the real agent (Kilo Code, Pi, Grok, Cursor). An agent it does not read
+// the real agent (Kilo Code, Pi, Grok, Cursor, Antigravity). An agent it does not read
 // is said to have none rather than shown an empty list.
 func Reads(agent string) bool {
 	for _, st := range stores {
@@ -156,6 +156,7 @@ var stores = []struct {
 	{"pi", pi, false},
 	{"grok", grok, false},
 	{"cursor", cursor, false},
+	{"antigravity", antigravity, true},
 }
 
 func gatherStatus(e Env, dirs []string, limit int, background bool) ([]Session, bool) {
@@ -309,6 +310,9 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 	if s.Agent == "goose" {
 		return gooseDelete(ctx, s.Path, s.ID)
 	}
+	if s.Agent == "antigravity" {
+		return antigravityDelete(ctx, e, s, trashDir)
+	}
 	if (s.Agent == "opencode" || s.Agent == "kilo") && strings.HasSuffix(s.Path, ".db") {
 		// The database is the agent's: its own command removes a session
 		// with everything that hangs off it.
@@ -350,6 +354,11 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 			}
 		}
 	}
+	return trash(s.Agent, paths, trashDir)
+}
+
+// trash moves a session's files into trashDir, named by agent and when.
+func trash(agent string, paths []string, trashDir string) error {
 	if err := os.MkdirAll(trashDir, 0o700); err != nil {
 		return err
 	}
@@ -358,12 +367,12 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 		// Two parts of one session can share a name (a Cursor chat's
 		// folder and its transcript's are both its id), and the second
 		// must not fail the delete halfway through.
-		dst := filepath.Join(trashDir, s.Agent+"-"+stamp+"-"+filepath.Base(p))
+		dst := filepath.Join(trashDir, agent+"-"+stamp+"-"+filepath.Base(p))
 		for n := 2; ; n++ {
 			if _, err := os.Lstat(dst); os.IsNotExist(err) {
 				break
 			}
-			dst = filepath.Join(trashDir, fmt.Sprintf("%s-%s-%s-%d", s.Agent, stamp, filepath.Base(p), n))
+			dst = filepath.Join(trashDir, fmt.Sprintf("%s-%s-%s-%d", agent, stamp, filepath.Base(p), n))
 		}
 		if err := os.Rename(p, dst); err != nil {
 			return fmt.Errorf("move %s to the trash: %w", p, err)

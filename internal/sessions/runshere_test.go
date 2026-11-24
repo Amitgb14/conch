@@ -223,7 +223,7 @@ echo '[{"id":"ses_k1","directory":"/w/proj","title":"Kilo   task","time_created"
 }
 
 func TestReadsIsTheStoreList(t *testing.T) {
-	for _, a := range []string{"claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose", "kilo", "pi", "grok", "cursor"} {
+	for _, a := range []string{"claude", "codex", "gemini", "opencode", "devin", "copilot", "cline", "qwen", "goose", "kilo", "pi", "grok", "cursor", "antigravity"} {
 		if !Reads(a) {
 			t.Errorf("%s: sessions are read", a)
 		}
