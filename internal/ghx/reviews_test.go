@@ -8,7 +8,7 @@ import (
 
 const reviewsJSON = `{"data": {"repository": {"pullRequest": {
  "reviewThreads": {"nodes": [
-  {"isResolved": false, "isOutdated": false, "path": "api/model.go", "line": 12, "originalLine": 10,
+  {"id": "PRRT_1", "isResolved": false, "isOutdated": false, "path": "api/model.go", "line": 12, "originalLine": 10,
    "comments": {"nodes": [
     {"databaseId": 101, "author": {"login": "alice"}, "body": "this leaks the handle", "diffHunk": "@@ -8,4 +8,6 @@\n f()\n+g()", "url": "https://x/c101", "createdAt": "2026-10-01T10:00:00Z"},
     {"databaseId": 102, "author": null, "body": "agreed", "url": "https://x/c102", "createdAt": "2026-10-01T11:00:00Z"}]}},
@@ -41,7 +41,7 @@ EOF`)
 		t.Fatalf("threads %+v", got.Threads)
 	}
 	th := got.Threads[0]
-	if th.Path != "api/model.go" || th.Line != 12 || th.Outdated || !strings.HasPrefix(th.Hunk, "@@ -8,4") || len(th.Comments) != 2 {
+	if th.ID != "PRRT_1" || th.Path != "api/model.go" || th.Line != 12 || th.Outdated || !strings.HasPrefix(th.Hunk, "@@ -8,4") || len(th.Comments) != 2 {
 		t.Fatalf("first %+v", th)
 	}
 	if c := th.Comments[0]; c.ID != 101 || c.Author != "alice" || c.Body != "this leaks the handle" || c.URL != "https://x/c101" || c.At.IsZero() {
