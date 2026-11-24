@@ -1220,6 +1220,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		return nil
 
+	case proto.EventRunChanged:
+		var r proto.Run
+		if decodeInto(msg, &r) {
+			m.runChanged(mach, r)
+		}
+		return nil
+
 	case proto.EventAgentLimits:
 		var l proto.PlanLimits
 		if decodeInto(msg, &l) {
