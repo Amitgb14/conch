@@ -215,6 +215,31 @@ Projects kept together because they change together — an API, its web app, the
 | `-issue N` | work on that GitHub issue, read with `gh`: its title and body are the prompt, and any `PROMPT` is added |
 | `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address, or a [tickets integration](/docs/integrations#ticket-trackers)'s `NAME:KEY` (`shortcut:123`) — read by the server with the key in [`[trackers]`](/docs/configuration#trackers) or the integration's: its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
 
+### run
+
+A job split into tasks that depend on one another, kept by the server in `graph.json` so a coordinator agent that is restarted — or you — finds it where it was.
+
+| Command | Description |
+| --- | --- |
+| `conch run new [-cwd DIR] [-manual] NAME` | make a run in the project; `-manual` starts tasks only on `conch run start` |
+| `conch run add [-id ID] [-after A,B] [-agent A] [-gate TEXT] RUN SPEC...` | add a task. It starts once the tasks it is `-after` are done, with an agent on a branch `RUN/ID` made from the first one's (told to merge the others'); `-gate` waits for your approval first. A cycle, an unknown task or a repeated id is refused |
+| `conch run ls` / `conch run show [-json] RUN` | every run, or one: each task pending, ready, running, done, failed or blocked, with its pane, branch and result, and the questions |
+| `conch run start RUN [TASK]` | start ready tasks now (for a `-manual` run) |
+| `conch run wait [-timeout D] RUN` | wait until a worker asks something, the run is over, or nothing left can go on by itself. A gate waiting for you does not end it |
+| `conch run done RESULT...` / `conch run fail WHY...` | a worker's report, once; from its pane it needs no `-run`/`-task`. A worker whose pane ends without one has failed, and the tasks after it are blocked |
+| `conch run ask [-option O]... [-default O] [-timeout D] QUESTION...` | a worker asks the run's coordinator and waits; after `-timeout` the default is taken, or with none it fails |
+| `conch run answer RUN QUESTION ANSWER...` | answer a question (`q1`); with options, one of them |
+| `conch run approve RUN TASK` / `conch run deny RUN TASK` | approve a gate, or turn it down so the task fails. Yours alone: an agent is refused |
+| `conch run rm RUN` | forget a run (its panes and branches stay) |
+
+```sh
+conch run new checkout
+conch run add -id model checkout "add the Order model"
+conch run add -id api -after model checkout "add POST /orders"
+conch run add -id ship -after api -gate "release the checkout API?" checkout "write the release notes"
+conch run wait checkout
+```
+
 ### ticket
 
 Tickets in Linear and Jira, through the server on the project's machine and the key in [`[trackers]`](/docs/configuration#trackers). Each command takes `-cwd DIR`; outside a project, name the tracker (`linear:ENG-123`). conch changes a ticket only when one of these is run.
@@ -410,6 +435,9 @@ An agent that would rather call a tool than a command talks to conch through `co
 | `rename` | name a pane, to address it by that instead of its id |
 | `view` | what the person is looking at: the tabs, what is in each, and which pane has the keyboard |
 | `show` | ask the terminal to put panes in front of them — one is revealed, several open side by side in a tab of their own |
+| `run_create`, `run_add` | a [run of tasks](#run) that depend on one another, as `conch run new` and `add` |
+| `run_status`, `run_start`, `run_wait`, `run_answer` | where a run stands, start its ready tasks, wait until it needs you, answer a worker |
+| `run_report`, `run_ask` | for a worker: report done or failed once, or ask the coordinator and wait for the answer |
 
 `view` and `show` are the two that reach past the server to the screen. The server owns panes and the terminal owns the arrangement of them, so conch carries both ways: a TUI publishes what it is showing, and a `show` is passed back to it as a request. A request, not an order — the panes asked for are **gathered side by side in one tab** and nothing else is touched. They move rather than being copied, since a pane is shown in exactly one place, which is the same rule that governs `ctrl+b !` and dragging a pane between tabs. An agent may only show panes it could already type into, by the same scope that governs `prompt`.
 

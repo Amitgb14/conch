@@ -90,6 +90,29 @@ conch task -after schema -name api "Add the invoices API on top of the new table
 branch, so the second agent sees the first one's commits. Ask each agent to
 commit its work, or the next one will not see it.
 
+## A run: parts that depend on one another
+
+For more than two or three parts, make a run. The server keeps which
+part waits for which, which are done and which failed, so you can lose
+your context and still pick up where it was:
+
+```sh
+conch run new invoices
+conch run add -id schema invoices "Add the invoices table and its migration."
+conch run add -id api -after schema invoices "Add the invoices API."
+conch run add -id ui -after schema invoices "Add the invoices page."
+conch run add -id docs -after api,ui -gate "Publish the docs?" invoices "Document invoices."
+conch run wait invoices
+```
+
+Each part starts by itself when what it waits for is done, and its agent
+is told to run `conch run done "RESULT"` or `conch run fail "WHY"` at the
+end. `conch run wait` returns when a worker asks something — answer with
+`conch run answer invoices q1 ANSWER` and wait again — or when the run is
+over or stuck. `conch run show invoices` says where each part is. A gate
+is the person's: tell them to `conch run approve invoices docs`; you
+cannot.
+
 ## Holding the number down
 
 To run a list of tasks with at most two agents at a time:
