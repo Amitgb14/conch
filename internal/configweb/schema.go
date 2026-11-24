@@ -364,13 +364,15 @@ func Schema(c Choices) []Section {
 					{Key: "key", Label: "Team or project key", Kind: KindString, Placeholder: "ENG"},
 				}},
 			}},
-		{ID: "actions", Key: "", Title: "Actions", Icon: "zap", Description: "Commands of your own on the row menus (m, or right-click).",
+		{ID: "actions", Key: "", Title: "Actions", Icon: "zap", Description: "Commands of your own on the row menus (m, or right-click), or run by the server on events.",
 			Fields: []Field{
 				{Key: "actions", Label: "Actions", Kind: KindTables, Fields: []Field{
 					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "Run tests"},
 					{Key: "run", Label: "Command", Kind: KindText, Placeholder: "go test ./...", Help: "Whatever sh -lc takes. CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE are set."},
-					{Key: "on", Label: "Offered on", Kind: KindList, Options: opts(config.ActionPlaces...), Help: "None is every kind of row."},
+					{Key: "on", Label: "Offered on, or run on", Kind: KindList, Options: opts(append(append([]string(nil), config.ActionPlaces...), config.HookEvents...)...),
+						Help: "Rows (pane, branch, project, machine) put it on their menus; none is every kind of row. Events (worktree.created, agent.done, agent.waiting, pr.opened, pr.merged, task.failed) make it a hook the server runs when one happens, with CONCH_EVENT, CONCH_BRANCH, CONCH_PANE and the rest set; an action naming only events is on no menu."},
 					{Key: "keep", Label: "Keep the terminal open after", Kind: KindBool, Default: true},
+					{Key: "timeout", Label: "Hook timeout (seconds)", Kind: KindInt, Min: intp(0), Placeholder: "300", Help: "How long a run on an event may take before it is stopped, with what it started. Empty is 5 minutes. Menus ignore it."},
 				}},
 			}},
 		{ID: "teams", Key: "", Title: "Teams", Icon: "users", Description: "Group agents by what they work on. A new agent joins the first team whose project or branch matches; one put in a team by hand stays there.",

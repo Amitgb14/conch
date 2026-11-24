@@ -92,6 +92,23 @@ An **import** brings another app's conversations into conch: so far Conductor, w
 
 In Conch.app it is **Integrations → Import**. The card says whether the app is found on this Mac. **Import…** lists its conversations by workspace, ticked but for those imported already, and writes each one you keep ticked as a handoff an agent can read and carry on from. On the command line it is `conch import conductor` ([more](/docs/cli#import)). An import whose reader this conch does not have, or has an older version of, says it needs a newer conch.
 
+## Hooks
+
+A **hook** is an [action run on events](/docs/configuration#hooks), shared: the setup a team runs in every new worktree, a message when an agent finishes. Unlike every other kind it runs something, a command on your machine with your rights. So it holds no key and reaches no service of its own. `conch integration install` fetches it and **shows the whole command** and the events it runs on before asking, and `-y` does not skip the showing. An update that runs another command, or on other events, is shown and asked about again even with `-y`. It is installed with its hash recorded like any file, and the server runs installed hooks after the ones in your `config.toml`.
+
+```toml
+format = 3
+kind = "hook"
+name = "setup-worktree"
+label = "Set up a worktree"
+
+[hook]
+run = "make setup"
+on = ["worktree.created"]
+timeout = 600                              # seconds; conch's five minutes when left out
+variables = ["CONCH_WORKTREE", "CONCH_BRANCH"]   # what it reads, said at install
+```
+
 ## When a check can't be read
 
 If the failure came from a service conch recognises but has no integration for, such as Bitbucket Pipelines, `fix-ci` says *Bitbucket Pipelines: install its integration to read its log*. It doesn't stop at "no failed GitHub Actions run". If an integration is there but its key isn't, the message names the variable to set.

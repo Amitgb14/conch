@@ -54,8 +54,10 @@ type Server struct {
 	sockPath  string
 	sockID    os.FileInfo // the socket file this server bound; see noteSocket
 	configDir string
-	started   time.Time // kept across reloads, for uptime
-	loaded    time.Time // this program's start
+	// hooks runs the person's actions on events (hooks.go).
+	hooks   *hooks
+	started time.Time // kept across reloads, for uptime
+	loaded  time.Time // this program's start
 
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
@@ -181,6 +183,8 @@ func New(sockPath, configDir string) *Server {
 	s.graph = loadGraph(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
+	s.hooks = loadHooks(configDir, sockPath)
+	s.hooks.note = s.autopilotNote
 	if os.Getenv(reloadStateEnv) == "" {
 		s.autopilot.freshStart()
 	}
@@ -378,6 +382,7 @@ func (s *Server) unlinkSocket() {
 // and on macOS a CoreFoundation thread each, behind for good.
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
+	s.hooks.stopAll()
 	s.watcher.stop()
 	s.system.Stop()
 }
@@ -2069,6 +2074,15 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 // startTask is createTask saying the branch the task is on, which it may
 // have named itself: a task waiting for this one starts from it.
 func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
+	info, branch, perr := s.startTaskOnce(tp)
+	if perr != nil {
+		s.hookTaskFailed(tp, perr.Message)
+	}
+	return info, branch, perr
+}
+
+// startTaskOnce is startTask without saying a failure.
+func (s *Server) startTaskOnce(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
 	tp.Ticket = strings.TrimSpace(tp.Ticket)
 	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 && tp.Ticket == "" {
 		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")

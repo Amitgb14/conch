@@ -50,6 +50,7 @@ public struct AutopilotNote: Decodable, Equatable, Sendable {
         case "intake": "Intake"
         case "triage": "Triage"
         case "review": "Review"
+        case "hook": "Hook"
         default: ""
         }
     }

@@ -254,6 +254,8 @@ func integrationSearch(args []string) error {
 			where = "conch's own code"
 		case r.Kind == integration.KindImport:
 			where = "this machine only"
+		case r.Kind == integration.KindHook:
+			where = "runs a command here"
 		}
 		st := standing(r.Entry, r.Signed)
 		if r.Off {
@@ -451,9 +453,16 @@ func integrationInfo(args []string) error {
 		mark := map[string]string{"yes": "✓", "partly": "◐", "no": "✗", "built-in": "—"}[d.Level]
 		fmt.Printf("  %s %s\n      %s\n", mark, d.What, d.Where)
 	}
-	if kind == integration.KindImport {
+	switch {
+	case kind == integration.KindImport:
 		fmt.Println("\n" + imp.words(firstSetStr(label, name)))
-	} else {
+	case kind == integration.KindHook:
+		if f != nil {
+			fmt.Println("\n" + hookWords(f))
+		} else {
+			fmt.Println("\nIt runs a command on this machine when its events happen; conch integration install shows the command before anything is installed.")
+		}
+	default:
 		fmt.Printf("\nYour key ($%s) goes to %s only", keyEnv, firstSetStr(hosts.API, "the address you give"))
 		if len(hosts.Follow) > 0 {
 			fmt.Printf("; it also reads %s, without your key", strings.Join(hosts.Follow, ", "))
@@ -537,6 +546,9 @@ func integrationInstall(args []string) error {
 	reg, _ := registryNamed(e.Registry)
 	if e.Kind == integration.KindImport {
 		return installImport(ctx, reg, e, ix.Signed, *yes)
+	}
+	if e.Kind == integration.KindHook {
+		return installHook(ctx, reg, e, ix.Signed, *yes)
 	}
 	fmt.Printf("%s sends your key ($%s) to %s only.", name, e.KeyEnv, firstSetStr(e.Hosts.API, "the address you give"))
 	if len(e.Hosts.Follow) > 0 {
@@ -849,6 +861,8 @@ func integrationList(args []string) error {
 		}
 		if f.Kind == integration.KindImport {
 			r.State = importState(f)
+		} else if f.Kind == integration.KindHook {
+			r.State = "runs on " + strings.Join(f.Hook.On, ", ")
 		} else if keyFor(f.KeyEnv) == "" {
 			r.State = "key: $" + f.KeyEnv + " not set"
 			if keychainHere() {
@@ -962,9 +976,13 @@ func integrationUpdate(args []string) error {
 			continue
 		}
 		reg, _ := registryNamed(e.Registry)
-		data, _, err := integration.FetchFile(ctx, reg, e)
+		data, f, err := integration.FetchFile(ctx, reg, e)
 		if err != nil {
 			fmt.Printf("%s: %v\n", n, err)
+			continue
+		}
+		if !hookUpdateAgreed(n, f) {
+			fmt.Printf("%s: not updated\n", n)
 			continue
 		}
 		// Installed over the old one, which Install allows for a file as it
