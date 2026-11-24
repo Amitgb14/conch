@@ -192,7 +192,7 @@ func TestAgentSyncOverTheProtocol(t *testing.T) {
 
 	// A plan: changes, and nothing on disk.
 	plan := call(proto.AgentSyncParams{Dir: repo, From: "claude"})
-	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 8 {
+	if len(plan.Changes) == 0 || plan.Undo != "" || len(plan.To) != 9 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "AGENTS.md")); !os.IsNotExist(err) {
@@ -479,7 +479,7 @@ func TestAgentLibraryOverTheProtocol(t *testing.T) {
 	}
 
 	empty := get(proto.AgentLibraryParams{})
-	if empty.Library.Servers == nil || len(empty.Cells) != 0 || strings.Join(empty.Agents, ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
+	if empty.Library.Servers == nil || len(empty.Cells) != 0 || strings.Join(empty.Agents, ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose,antigravity" {
 		t.Fatalf("empty %+v", empty)
 	}
 	imp := get(proto.AgentLibraryParams{Import: "claude"})

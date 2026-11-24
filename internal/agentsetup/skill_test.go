@@ -75,7 +75,8 @@ func TestSkillTargets(t *testing.T) {
 	// Claude and Devin have folders of their own; the rest share one.
 	want := " " + filepath.Join(e.Home, ".claude", "skills", "conch", "SKILL.md") + " claude\n" +
 		" " + filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") + " codex,gemini,opencode,copilot,cline,qwen,goose\n" +
-		" " + filepath.Join(e.Home, ".config", "devin", "skills", "conch", "SKILL.md") + " devin\n"
+		" " + filepath.Join(e.Home, ".config", "devin", "skills", "conch", "SKILL.md") + " devin\n" +
+		" " + filepath.Join(e.Home, ".gemini", "config", "skills", "conch", "SKILL.md") + " antigravity\n"
 	if summary(got) != want {
 		t.Fatalf("targets:\n%s\nwant\n%s", summary(got), want)
 	}
@@ -113,7 +114,7 @@ func TestInstallSkill(t *testing.T) {
 
 	// Asked what it would do, it writes nothing.
 	got, err := InstallSkill(e, nil, false, false)
-	if err != nil || actions(got) != "create,create,create" {
+	if err != nil || actions(got) != "create,create,create,create" {
 		t.Fatalf("plan: %s %v", summary(got), err)
 	}
 	if _, err := os.Stat(filepath.Join(e.Home, ".claude")); err == nil {
@@ -121,7 +122,7 @@ func TestInstallSkill(t *testing.T) {
 	}
 
 	got, _ = InstallSkill(e, nil, false, true)
-	if actions(got) != "create,create,create" {
+	if actions(got) != "create,create,create,create" {
 		t.Fatalf("install: %s", summary(got))
 	}
 	for _, p := range []string{claude, shared} {
@@ -132,14 +133,14 @@ func TestInstallSkill(t *testing.T) {
 			t.Fatalf("%s: the temporary copy was left", p)
 		}
 	}
-	if got, _ = InstallSkill(e, nil, false, true); actions(got) != "same,same,same" {
+	if got, _ = InstallSkill(e, nil, false, true); actions(got) != "same,same,same,same" {
 		t.Fatalf("again: %s", summary(got))
 	}
 
 	// An older conch's copy is brought up to date.
 	os.WriteFile(shared, []byte("---\nname: conch\nmetadata:\n  installed-by: conch\n---\nold\n"), 0o644)
 	got, _ = InstallSkill(e, nil, false, true)
-	if actions(got) != "same,update,same" || got[1].Detail != "from an older conch" {
+	if actions(got) != "same,update,same,same" || got[1].Detail != "from an older conch" {
 		t.Fatalf("update: %s", summary(got))
 	}
 	if b, _ := os.ReadFile(shared); !bytes.Equal(b, Skill) {
@@ -210,7 +211,7 @@ func TestInstallSkillFailures(t *testing.T) {
 	os.MkdirAll(locked, 0o555)
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 	got, _ = InstallSkill(e, nil, false, true)
-	if len(got) != 3 || got[0].Error != "" || got[1].Error == "" || got[2].Error != "" {
+	if len(got) != 4 || got[0].Error != "" || got[1].Error == "" || got[2].Error != "" || got[3].Error != "" {
 		t.Fatalf("read-only folder: %+v", got)
 	}
 	if b, err := os.ReadFile(got[0].Path); err != nil || !bytes.Equal(b, Skill) {
@@ -480,10 +481,11 @@ func TestInstallSkills(t *testing.T) {
 	}
 	// A change per skill per folder, a folder's together and in
 	// SkillTargets' order of folders.
-	if len(got) != len(Skills)*3 {
+	if len(got) != len(Skills)*4 {
 		t.Fatalf("%d changes:\n%s", len(got), summary(got))
 	}
-	folders := []string{filepath.Join(e.Home, ".claude", "skills"), filepath.Join(e.Home, ".agents", "skills"), filepath.Join(e.Home, ".config", "devin", "skills")}
+	folders := []string{filepath.Join(e.Home, ".claude", "skills"), filepath.Join(e.Home, ".agents", "skills"), filepath.Join(e.Home, ".config", "devin", "skills"),
+		filepath.Join(e.Home, ".gemini", "config", "skills")}
 	for i, c := range got {
 		f, sk := folders[i/len(Skills)], Skills[i%len(Skills)]
 		if c.Path != filepath.Join(f, sk.Name, "SKILL.md") || c.Skill != sk.Name || c.Action != ActionCreate {
