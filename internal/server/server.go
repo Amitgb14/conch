@@ -78,6 +78,7 @@ type Server struct {
 	autopilot *autopilot
 	intake    *intakeBook
 	triage    *triageBook
+	graph     *graphBook // runs of tasks that depend on one another (graph.go)
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -168,6 +169,7 @@ func New(sockPath, configDir string) *Server {
 	s.schedules = loadSchedule(configDir)
 	s.intake = loadIntake(configDir)
 	s.triage = loadTriage(configDir)
+	s.graph = loadGraph(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
 	if os.Getenv(reloadStateEnv) == "" {
@@ -255,6 +257,7 @@ func (s *Server) Run() error {
 	s.keep("schedule", func() { s.runSchedule(s.quit) })
 	s.keep("autopilot", func() { s.runAutopilot(s.quit) })
 	s.keep("intake", func() { s.runIntake(s.quit) })
+	s.keep("runs", func() { s.runGraph(s.quit) })
 	s.keep("listening ports", func() { s.runListening(s.quit) })
 	s.keep("shell theme", func() { s.runShellTheme(s.quit) })
 	s.keep("account moves", s.watchMoves)
@@ -482,6 +485,7 @@ var slowMethods = map[string]bool{
 	proto.MethodServerHeap:  true, // a garbage collection and two files
 	proto.MethodFSSearch:    true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
+	proto.MethodRunStart: true, // starts agents on worktrees of their own
 }
 
 // repanic makes a recovered panic panic again in a test, so a test meets
@@ -1547,6 +1551,63 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.decidePermission(ask)
+
+	case proto.MethodRunCreate:
+		rp, perr := decode[proto.RunCreateParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runCreate(c, rp)
+	case proto.MethodRunAdd:
+		ap, perr := decode[proto.RunAddParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runAdd(c, ap)
+	case proto.MethodRunList:
+		return s.graph.list(), nil
+	case proto.MethodRunGet:
+		rp, perr := decode[proto.RunRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.graph.get(rp.Run)
+	case proto.MethodRunStart:
+		sp, perr := decode[proto.RunStartParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runStart(c, sp)
+	case proto.MethodRunReport:
+		rp, perr := decode[proto.RunReportParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runReport(c, rp)
+	case proto.MethodRunAsk:
+		ap, perr := decode[proto.RunAskParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runAsk(c, ap)
+	case proto.MethodRunAnswer:
+		ap, perr := decode[proto.RunAnswerParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runAnswer(c, ap)
+	case proto.MethodRunApprove:
+		ap, perr := decode[proto.RunApproveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runApprove(c, ap)
+	case proto.MethodRunRemove:
+		rp, perr := decode[proto.RunRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.runRemove(c, rp)
 
 	case proto.MethodProjectTickets:
 		tp, perr := decode[proto.TicketsParams](msg)

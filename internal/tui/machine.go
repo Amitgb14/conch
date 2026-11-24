@@ -112,6 +112,9 @@ type machine struct {
 	limits map[string]proto.PlanLimits
 	// schedule is what its server will do later (schedule.go).
 	schedule []proto.ScheduledItem
+	// gates are the run tasks there waiting for the person's approval
+	// (runs.go), by run/task, so each is said once.
+	gates map[string]bool
 	// reviews are the comments on its branches' diffs (review.go).
 	reviews []proto.ReviewComment
 

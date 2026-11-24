@@ -69,7 +69,7 @@ const whenItIsReady = "Wait for it (the wait tool) before prompting it: conch ha
 const agentArg = "which agent: claude, codex, gemini, opencode or devin; leave it out for the person's default"
 
 func mcpTools() []mcpTool {
-	return []mcpTool{
+	return append([]mcpTool{
 		{
 			Name:        "list",
 			Title:       "List panes",
@@ -165,7 +165,7 @@ func mcpTools() []mcpTool {
 			}),
 			run: mcpShow,
 		},
-	}
+	}, mcpRunTools()...)
 }
 
 // mcpView answers with the screen the person is looking at.
