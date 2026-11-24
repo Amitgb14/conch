@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/detect"
@@ -630,9 +632,13 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	wg.Wait()
 	var out []proto.AgentAvailability
 	for i, ad := range s.adapters {
-		out = append(out, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
+		av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())})
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())}
+		if av.Installed && av.Name == "antigravity" {
+			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))
+		}
+		out = append(out, av)
 	}
 	s.agentsSeen.note(out)
 	return out
@@ -694,3 +700,7 @@ func programReport(p *pane.Pane) *detect.ProgramReport {
 	}
 	return &detect.ProgramReport{State: rec.State, Kind: rec.Kind, App: rec.App, Msg: rec.Msg, At: rec.At}
 }
+
+// antigravityAuth says how Antigravity CLI is signed in. A variable, so
+// the tests never ask this machine's Keychain.
+var antigravityAuth = accounts.AntigravityAuth

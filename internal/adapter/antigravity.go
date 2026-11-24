@@ -23,16 +23,23 @@ const antigravityModelProvider = `{"modelProvider":"gemini"}`
 // leaving agy to fail at its first request.
 func antigravityLaunch(dir string) func() (string, string) {
 	return func() (string, string) {
-		cfg, err := config.LoadFile(filepath.Join(dir, "config.toml"))
-		if err != nil {
-			return "", ""
-		}
-		name := cfg.Agents.AntigravityAPIKeyEnv
-		if !varName.MatchString(name) {
+		name := AntigravityKeyEnv(dir)
+		if name == "" {
 			return "", ""
 		}
 		before := `[ -n "$` + name + `" ] || { echo "conch: ` + name + ` is empty: it should hold your Gemini API key ([agents] antigravity_api_key_env)" >&2; exit 1; }; ` +
 			`export GEMINI_API_KEY="$` + name + `"; `
 		return before, "--settings " + ShellQuote(antigravityModelProvider)
 	}
+}
+
+// AntigravityKeyEnv is the variable [agents] antigravity_api_key_env in
+// dir's config.toml names, when it is one a launch line can use; "" when
+// it is unset, unreadable or not a variable's name.
+func AntigravityKeyEnv(dir string) string {
+	cfg, err := config.LoadFile(filepath.Join(dir, "config.toml"))
+	if err != nil || !varName.MatchString(cfg.Agents.AntigravityAPIKeyEnv) {
+		return ""
+	}
+	return cfg.Agents.AntigravityAPIKeyEnv
 }

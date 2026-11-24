@@ -652,3 +652,38 @@ func TestMachinePageSaysWhichBuild(t *testing.T) {
 		t.Fatalf("local:\n%s", got)
 	}
 }
+
+// The menu says how Antigravity CLI will sign in before it is started:
+// signed out, it asks for a Google sign-in as it starts; on a Gemini API
+// key, it never does. Signed in, or from a server that cannot tell,
+// nothing is said.
+func TestAgentMenuSaysHowAntigravitySignsIn(t *testing.T) {
+	for auth, want := range map[string]string{
+		"signed-out": "not signed in · it asks when it starts",
+		"api-key":    "Gemini API key",
+		"signed-in":  "",
+		"":           "",
+	} {
+		m, _ := a5Agents(t, false)
+		a := proto.AgentAvailability{Name: "antigravity", Label: "Antigravity CLI", Installed: true, Version: "1.5.16",
+			Tier: proto.TierRunsHere, Sessions: true, Auth: auth}
+		mach := m.machines[0]
+		mach.agentList = append(mach.agentList, a)
+		mach.available[a.Name] = a
+		var line string
+		for _, l := range strings.Split(a2Plain(labelsOf(newAgentMenu(*m, mach).items)), "\n") {
+			if strings.Contains(l, "Antigravity CLI") {
+				line = l
+			}
+		}
+		if !strings.HasPrefix(line, "Start Antigravity CLI") {
+			t.Fatalf("%q: no start row: %q", auth, line)
+		}
+		if want != "" && !strings.Contains(line, want) {
+			t.Errorf("%q: %q does not say %q", auth, line, want)
+		}
+		if want == "" && (strings.Contains(line, "signed") || strings.Contains(line, "API key")) {
+			t.Errorf("%q: said too much: %q", auth, line)
+		}
+	}
+}

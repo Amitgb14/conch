@@ -3216,6 +3216,11 @@ type AgentAvailability struct {
 	// sends none, and an agent it only runs then reads as unread, which is
 	// what that server did.
 	Sessions bool `json:"sessions,omitempty"`
+	// Auth is how the agent is signed in, where the server can tell
+	// without reading a secret: "signed-in", "signed-out", or "api-key"
+	// for one conch starts on a key. Empty when it cannot tell, for every
+	// agent but Antigravity CLI so far, and from older servers.
+	Auth string `json:"auth,omitempty"`
 }
 
 // SessionsUnread is an agent conch runs without reading what it saved,
