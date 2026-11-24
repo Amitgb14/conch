@@ -215,6 +215,19 @@ Usage:
                                 -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
+  conch run ls | new [-cwd DIR] [-manual] NAME | add [-id ID] [-after A,B] [-agent A] [-gate TEXT] RUN SPEC
+                                a job of tasks that depend on one another, kept by the server:
+                                each task starts once the tasks it is -after are done, on a branch
+                                made from the first one's (-manual: only on conch run start);
+                                -gate waits for your approval before the task starts
+  conch run show [-json] RUN | start RUN [TASK] | wait [-timeout D] RUN | rm RUN
+                                where each task is; wait returns on a question to answer, the run
+                                over, or nothing left that can move by itself
+  conch run done RESULT | fail WHY | ask [-option O]... [-default O] [-timeout D] QUESTION
+                                for a task's worker: report once, or ask the run's coordinator and
+                                wait for the answer (-run, -task when not run from the worker's pane)
+  conch run answer RUN QUESTION ANSWER | approve RUN TASK | deny RUN TASK
+                                answer a worker's question; approve a gate (the person's alone)
   conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL | check | all
                                 tickets in Linear or Jira ([trackers] in config.toml) or a tickets
                                 integration (Shortcut, GitLab issues: NAME:KEY): list the project's
@@ -570,6 +583,8 @@ func main() {
 		err = runTask(args)
 	case "schedule":
 		err = runScheduleCmd(args)
+	case "run", "runs":
+		err = runRun(args)
 	case "ticket", "tickets":
 		err = runTicket(args)
 	case "branch":
