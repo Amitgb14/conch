@@ -84,7 +84,7 @@ const skills: Skill[] = [
   {
     name: "conch-cicd",
     tagline: "Red CI and deploys",
-    body: "Reads a failed run and tells a real failure from a flake or a broken runner, sends it to the branch's agent or reruns it once, reads a deploy's build log — and promotes to production only when you ask.",
+    body: "Reads a failed run and tells a real failure from a flake or a broken runner, sends it to the branch's agent or reruns it once, reads a deploy's build log — and hands you the command when a deploy should go to production.",
     steps: ["Checks what the autopilot already does", "Reads the failed run's log", "Real failure → the branch's agent; a flake → found, not retried", "Deploys followed; production only when you ask"],
     asks: ["CI has been red on main since this morning — what's going on?", "The Vercel preview for my branch failed. Why?"],
     slash: "/conch-cicd",

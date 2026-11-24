@@ -1,6 +1,6 @@
 ---
 name: conch-cicd
-description: Work as the CI/CD engineer in conch — see what conch's autopilot already does with CI, read a failed run and tell a real failure from a flake or an infrastructure fault, send it to the branch's agent with conch branch fix-ci or rerun it with conch branch rerun-ci, connect the project's CI and deploy services through conch integration, follow a branch's deploy previews, and promote to production only when the person asks. Use when you are inside conch (CONCH_PANE_ID is set) and the person asks why CI is red, to fix or speed up a pipeline, or about a deploy or preview.
+description: Work as the CI/CD engineer in conch — see what conch's autopilot already does with CI, read a failed run and tell a real failure from a flake or an infrastructure fault, send it to the branch's agent with conch branch fix-ci or rerun it with conch branch rerun-ci, connect the project's CI and deploy services through conch integration, follow a branch's deploy previews, and hand the person the command to promote to production. Use when you are inside conch (CONCH_PANE_ID is set) and the person asks why CI is red, to fix or speed up a pipeline, or about a deploy or preview.
 metadata:
   installed-by: conch
 ---
@@ -90,10 +90,10 @@ After an infrastructure fault, `redeploy DEPLOY` in place of `deploy-log`
 builds it again. A deploy whose build failed goes to the branch's agent
 the way a CI run does: `conch branch fix-ci` takes `-source vercel` for it.
 
-Releasing to production is the person's decision. Run
-`conch integration promote DEPLOY` only when the person asked for that
-deploy to go out, and let it ask them first — no `-y` on their behalf.
-Before it goes, know which deploy it replaces, so it can be put back.
+Releasing to production is the person's decision, and the command is
+theirs. When they want a deploy to go out, and only when the person asked,
+hand them `conch integration promote DEPLOY` for the person to run: conch refuses it from an agent.
+Say first which deploy it replaces, so it can be put back.
 
 ## Rules
 

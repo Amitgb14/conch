@@ -423,7 +423,7 @@ func TestRoleSkills(t *testing.T) {
 			"Don't fix the author's code", "never against production"},
 		"conch-cicd": {"conch config path", "auto_merge", "conch integration ls", "--log-failed", "conch branch fix-ci",
 			"conch branch rerun-ci", "A flaky test is a bug", "conch integration previews", "conch integration promote",
-			"only when the person asked", "no `-y` on their behalf", "Never disable a check"},
+			"only when the person asked", "for the person to run: conch refuses it from an agent", "Never disable a check"},
 		// Where agents run is asked, with three answers: here, a machine
 		// already connected (listed), or a new sandbox — made only after
 		// a yes to what it costs.
