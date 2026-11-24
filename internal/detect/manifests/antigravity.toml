@@ -7,8 +7,10 @@
 #     open; -p/--print is the one that answers and exits.
 #   - --conversation ID reopens a conversation and --continue the most
 #     recent.
-#   - where it keeps conversations is not documented (its settings are in
-#     ~/.gemini/antigravity-cli), so conch does not read them.
+#   - where it keeps conversations is not documented; conch reads them
+#     from ~/.gemini/antigravity-cli as agy 1.5.16 wrote them on a Mac
+#     (2026-11-24, internal/sessions/antigravity.go), and resuming one by
+#     the id there with --conversation was checked with the real CLI.
 #   - it leaves the window title alone and its prompts are not quoted in
 #     its docs, so there are no screen rules yet.
 agent = "antigravity"
