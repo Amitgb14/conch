@@ -4,6 +4,9 @@
 #   - a first message is a positional argument, which is why this is the
 #     one shipped manifest with a prompt line.
 #   - --resume <chatId> reopens a chat and --continue the previous one.
+#   - chats are ~/.cursor/chats/<hash>/<id>/ and their transcripts in
+#     ~/.cursor/projects; conch lists them (internal/sessions/cursor.go,
+#     read off cursor-agent 2026.10.22's own files).
 #
 # The binary: today's docs call it `agent` and install it in ~/.local/bin;
 # earlier releases installed `cursor-agent`. Both are listed below in the

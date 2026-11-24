@@ -1121,7 +1121,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.projects.reviewBranch(rp)
+		return s.projects.reviewBranch(rp, s.callerIsReviewer(c))
 
 	case proto.MethodProjectDiff:
 		dp, perr := decode[proto.DiffParams](msg)

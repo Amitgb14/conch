@@ -64,6 +64,8 @@ auto_fix = 2         # a failed check or CI run goes back to the agent, twice at
 auto_pr = true       # a passing branch is pushed and gets its pull request
 auto_merge = false   # a green pull request merges itself — off until they trust it
 auto_resolve = 1     # a pull request that conflicts with its base is rebased, once
+auto_review = true   # review comments on GitHub go to the agent, once each; threads answered after its push
+resolve_threads = false # leave resolving a thread to the reviewer
 require_tests = true # code changed with no test: the pull request is a draft
 max_diff = 800       # past 800 changed lines: a draft, for a person to look at
 ```

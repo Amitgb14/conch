@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -337,6 +337,11 @@ const CapIntegrationTeam = "integration.team.v1"
 // branch.previews, branch.deploy_log, branch.redeploy and branch.promote,
 // and branch.ci_log falling back to a failed build when no CI failed.
 const CapBranchPreviews = "branch.previews.v1"
+
+// CapAutopilotReview is AutopilotPolicy.AutoReview and ResolveThreads:
+// a pull request's review comments sent to the branch's agent by the
+// server, each once, and its threads answered after the agent pushes.
+const CapAutopilotReview = "autopilot.review.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -3205,6 +3210,19 @@ type AgentAvailability struct {
 	// server too old to say it reads as "conch can install it", which is
 	// what every agent such a server offers.
 	NoInstaller bool `json:"no_installer,omitempty"`
+	// Sessions says the server reads this agent's saved sessions: every
+	// supported agent, and those it only runs whose files it has learnt
+	// to read (Pi, Grok, Cursor, Kilo Code). A server too old to say it
+	// sends none, and an agent it only runs then reads as unread, which is
+	// what that server did.
+	Sessions bool `json:"sessions,omitempty"`
+}
+
+// SessionsUnread is an agent conch runs without reading what it saved,
+// which a client says rather than show an empty list as if nothing had
+// been.
+func (a AgentAvailability) SessionsUnread() bool {
+	return a.Tier == TierRunsHere && !a.Sessions
 }
 
 // SessionListParams asks for the agent sessions saved for a project (its

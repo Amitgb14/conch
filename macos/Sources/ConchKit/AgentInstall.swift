@@ -79,7 +79,10 @@ public struct InstalledAgentRow: Equatable, Sendable, Identifiable {
 /// server has agent.install.v1.
 public func installedAgentRows(_ status: [AgentAvailability], installing: Set<String>, canInstall: Bool) -> [InstalledAgentRow] {
     status.map { a in
-        var note: String? = a.tier == "runs here" ? "conch runs it; its sessions are not read" : nil
+        var note: String? = nil
+        if a.tier == "runs here" {
+            note = a.sessions == true ? "conch runs it and reads its sessions" : "conch runs it; its sessions are not read"
+        }
         let state: InstalledAgentState
         if a.installed {
             state = .installed(a.version ?? "")

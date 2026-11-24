@@ -99,24 +99,45 @@ extension Store {
         }
     }
 
-    /// Everything the status bar's usage shows, for this computer: its
-    /// accounts with their plans, usage and listing.
-    var usageAccountsHere: [UsageAccount] {
-        usageAccounts(limits: limits, history: accountUsage["local"], list: agentAccounts["local"])
+    /// The machine whose usage the status bar shows (usageMachine).
+    var machineInView: String {
+        let typing = terminalHasKeyboard && layout.focused != nil
+        // The tree is built to find the cursor's row, so not for every
+        // redraw while an agent is being typed into.
+        let row = typing ? nil : treeCursor.flatMap { treeNav.row($0)?.machine }
+        return usageMachine(typing: typing, row: row,
+                            focusedTab: layout.focused, known: Set(machines.map(\.id)))
+    }
+
+    /// Machine as the usage views name it.
+    func usageName(_ machine: String) -> String { machine == "local" ? "This Mac" : label(machine) }
+
+    /// Why machine cannot say what needs asks of it, or nil when it can.
+    func usageGap(on machine: String, needs: String) -> String? {
+        ConchKit.usageGap(machine: machine, label: label(machine),
+                          capabilities: conns[machine].map { $0.hello?.capabilities ?? [] }, needs: needs)
+    }
+
+    /// Everything the usage views show of machine: its accounts with their
+    /// plans, usage and listing.
+    func accountsWithUsage(on machine: String) -> [UsageAccount] {
+        usageAccounts(limits: plans.on(machine), history: accountUsage[machine], list: agentAccounts[machine])
     }
 
     /// The agent in view and the account it runs on, when the focused pane
-    /// is this computer's and runs one.
-    var agentInView: (agent: String, account: String?)? {
-        guard let k = layout.focused, unkey(k).machine == "local", let p = pane(k), let a = p.agent?.name, !a.isEmpty else { return nil }
+    /// is machine's and runs one.
+    func agentInView(on machine: String) -> (agent: String, account: String?)? {
+        guard let f = layout.focused else { return nil }
+        let k = parseChatKey(f) ?? f
+        guard unkey(k).machine == machine, let p = pane(k), let a = p.agent?.name, !a.isEmpty else { return nil }
         return (a, p.account)
     }
 
     /// The usage panel's data asked for again, as it opens.
-    func refreshAccountUsage() {
-        refreshLimits()
-        loadAccounts(on: "local")
-        loadAccountUsage(on: "local")
+    func refreshAccountUsage(on machine: String) {
+        refreshLimits(on: machine)
+        loadAccounts(on: machine)
+        loadAccountUsage(on: machine)
     }
 
     /// Starts agent on account in machine's home, to sign in once with

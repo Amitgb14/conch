@@ -54,6 +54,14 @@ type AutopilotPolicy struct {
 	Triage            map[string]string `json:"triage,omitempty"`
 	TriageAgent       string            `json:"triage_agent,omitempty"`
 	TriageCommentOnly bool              `json:"triage_comment_only,omitempty"`
+	// AutoReview sends what reviewers asked for on an open pull request
+	// — a review requesting changes, a new unresolved thread — to the
+	// branch's agent, each once, while AutoFix is on; after the agent
+	// pushes, each thread is answered with what changed, and with
+	// ResolveThreads resolved where the push changed its file
+	// (CapAutopilotReview). An older server ignores both.
+	AutoReview     bool `json:"auto_review,omitempty"`
+	ResolveThreads bool `json:"resolve_threads,omitempty"`
 }
 
 // AutopilotBranch is one branch the server is minding.
@@ -125,6 +133,7 @@ const (
 	ActivityResolve = "resolve" // a conflict with the base rebased or sent to the agent
 	ActivityIntake  = "intake"  // an issue taken as a task
 	ActivityTriage  = "triage"  // an issue read and labelled
+	ActivityReview  = "review"  // a pull request's review comments sent to the agent, or answered
 )
 
 // AutopilotActivityParams asks for what the autopilot did, newest first:

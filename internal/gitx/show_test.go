@@ -88,3 +88,29 @@ func TestCompareAndFileDiff(t *testing.T) {
 		t.Fatalf("root %q %v", diff, err)
 	}
 }
+
+func TestSubjects(t *testing.T) {
+	dir := newRepo(t)
+	ctx := context.Background()
+	from := git(t, dir, "rev-parse", "HEAD")
+	if got, err := Subjects(ctx, dir, from, from, 10); err != nil || len(got) != 0 {
+		t.Fatalf("nothing between: %q %v", got, err)
+	}
+	commit(t, dir, "a.go", "one\n", "Close the handle")
+	commit(t, dir, "b.go", "b\n", "Add a test")
+	commit(t, dir, "c.go", "c\n", "Tidy")
+	to := git(t, dir, "rev-parse", "HEAD")
+	got, err := Subjects(ctx, dir, from, to, 10)
+	if err != nil || strings.Join(got, "|") != "Tidy|Add a test|Close the handle" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if got, _ := Subjects(ctx, dir, from, to, 2); len(got) != 2 {
+		t.Fatalf("limit: %q", got)
+	}
+	if _, err := Subjects(ctx, dir, "-x", to, 2); err == nil {
+		t.Fatal("an option taken as a commit")
+	}
+	if _, err := Subjects(ctx, dir, "f00ba12345678901234567890123456789012345", to, 2); err == nil {
+		t.Fatal("a commit this repository lacks")
+	}
+}

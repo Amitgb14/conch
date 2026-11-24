@@ -52,6 +52,20 @@ conch task -name reviewer -agent codex "Review the changes on this branch agains
 - Start one helper per job, and only as many as the task needs: each one
   is an agent spending the person's usage.
 
+## Give a helper its role
+
+For a tester or a CI job, conch has a skill with that job's whole way of
+working. When the person has installed them, name the role in the
+helper's prompt — "Work as the `conch-qa` role" — and your prompt only
+needs the task:
+
+- `conch-qa` — uses the change on its own port, a simulator or the deploy
+  preview, and writes `TEST-REPORT.md`;
+- `conch-cicd` — a red CI run, a pipeline, a deploy.
+
+`conch skill NAME` prints one, for an agent that doesn't have it
+installed: put what it prints in a file and give the helper its path.
+
 ## Prompt it and wait for the answer
 
 ```sh
@@ -183,6 +197,18 @@ it, or when it wants a test. Work the way that needs:
 - Write a test that fails without the change, then the change.
 - Commit in small commits whose messages say what changed and why, and
   leave nothing that belongs to the work uncommitted.
+- Read the task where it lives: `gh issue view N --comments`, or
+  `conch ticket show KEY` for a tracker's ticket. If it is ambiguous in a
+  way that changes what you build, end your turn with the question.
+- Servers you start listen on `$CONCH_PORT`, never a fixed port.
+- `git diff --cached | conch commit-message` drafts a commit message
+  from what is staged, if you want a start.
+- Review comments sent to you are all in `conch review -branch BRANCH`,
+  conch's and GitHub's: fix or answer each, and reply to each of conch's
+  with `conch review reply ID`.
+- A failed check or CI run sent to you: reproduce it with the same
+  command, fix the cause. A test that fails only sometimes is a bug to
+  find, never one to retry, skip or sleep past.
 - Don't push, force-push or merge: conch does, after checking the work.
 - Asked to resolve a conflict, keep both sides — every change the base
   made and every change the branch made. Where they really contradict,

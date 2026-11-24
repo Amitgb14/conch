@@ -6,12 +6,54 @@
 // to one; change that file first when a shape here has to change.
 package phone
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // APIVersion is what hello reports, so a UI cached from an older build can
 // see that it is out of date. 2 is machines: a pane ID is machine:pane,
 // which is not something an older app can read.
 const APIVersion = 2
+
+// Features are the routes added since APIVersion 2, named in hello's
+// features so a client can tell what this gateway answers before calling
+// one; a gateway from before a feature answers 404 "no such route". They
+// are additions, so they leave APIVersion alone: an app that knows none of
+// them still works against this gateway.
+const (
+	FeatureProject      = "project"       // GET /api/project
+	FeatureResources    = "resources"     // GET /api/resources
+	FeatureAttach       = "attach"        // POST /api/attach
+	FeatureGitReview    = "git.review"    // changes, diff, stage, review/note, commit, push, pr
+	FeatureArtifacts    = "artifacts"     // GET /api/artifacts?pane=
+	FeatureArtifactsAll = "artifacts.all" // GET /api/artifacts with no pane: every session's
+	FeatureLimits       = "limits"        // GET /api/limits
+	FeatureAsk          = "ask"           // GET /api/ask?pane=
+)
+
+// featureRoutes is which routes each feature stands for, sorted by name.
+var featureRoutes = map[string][]string{
+	FeatureArtifacts:    {"GET /api/artifacts"},
+	FeatureArtifactsAll: {"GET /api/artifacts"},
+	FeatureAttach:       {"POST /api/attach"},
+	FeatureGitReview: {"GET /api/changes", "GET /api/diff", "POST /api/stage", "POST /api/review/note",
+		"POST /api/commit", "POST /api/push", "POST /api/pr"},
+	FeatureAsk:       {"GET /api/ask"},
+	FeatureLimits:    {"GET /api/limits"},
+	FeatureProject:   {"GET /api/project"},
+	FeatureResources: {"GET /api/resources"},
+}
+
+// features is hello's list: every feature, sorted.
+func features() []string {
+	out := make([]string, 0, len(featureRoutes))
+	for f := range featureRoutes {
+		out = append(out, f)
+	}
+	slices.Sort(out)
+	return out
+}
 
 // CookieName carries the device token.
 const CookieName = "conch_device"
@@ -100,6 +142,7 @@ const (
 	CodeNotWaiting        = "not_waiting"
 	CodeQuestionChanged   = "question_changed"
 	CodeNoChoices         = "no_choices"
+	CodeHunkChanged       = "hunk_changed"
 	CodePairExpired       = "pair_expired"
 	CodeRateLimited       = "rate_limited"
 	CodeServerUnavailable = "server_unavailable"
@@ -115,6 +158,7 @@ var httpStatus = map[string]int{
 	CodeNotWaiting:        409,
 	CodeQuestionChanged:   409,
 	CodeNoChoices:         422,
+	CodeHunkChanged:       409,
 	CodePairExpired:       410,
 	CodeRateLimited:       429,
 	CodeServerUnavailable: 503,
@@ -273,6 +317,178 @@ type RenameRequest struct {
 	Name string `json:"name"`
 }
 
+// AttachResponse is POST /api/attach?pane=…&name=…, whose body is the
+// file itself. Path is where it was saved on the pane's machine; Rel is
+// the same from the pane's folder (".conch/attachments/settings.png"),
+// left out with Note when the pane had no folder to save it in and it went
+// to conch's uploads folder there instead. Size is in bytes.
+type AttachResponse struct {
+	Pane string `json:"pane"`
+	Path string `json:"path"`
+	Rel  string `json:"rel,omitempty"`
+	Size int64  `json:"size"`
+	Note string `json:"note,omitempty"`
+}
+
+// BranchChanges is GET /api/changes?pane=…: the branch the pane is on,
+// as the TUI's changes view reads it — the uncommitted files where it is
+// checked out, and its commits ahead of the base, newest first. Ahead and
+// Behind count commits against the project's base branch. Files and
+// Commits are never null; PR is its pull request, when it has one.
+type BranchChanges struct {
+	Pane    string          `json:"pane"`
+	Branch  string          `json:"branch"`
+	Base    string          `json:"base"`
+	Ahead   int             `json:"ahead,omitempty"`
+	Behind  int             `json:"behind,omitempty"`
+	Files   []ChangedFile   `json:"files"`
+	Commits []CommitSummary `json:"commits"`
+	PR      *BranchPR       `json:"pr,omitempty"`
+}
+
+// File states and how much of a file is staged.
+const (
+	FileModified  = "modified"
+	FileAdded     = "added"
+	FileDeleted   = "deleted"
+	FileRenamed   = "renamed"
+	FileUntracked = "untracked"
+
+	StagedNone    = "none"
+	StagedPartial = "partial"
+	StagedAll     = "all"
+)
+
+// ChangedFile is one uncommitted file. OldPath is a rename's old name;
+// Staged says how much of it is in the index.
+type ChangedFile struct {
+	Path    string `json:"path"`
+	OldPath string `json:"old_path,omitempty"`
+	Status  string `json:"status"`
+	Added   int    `json:"added"`
+	Removed int    `json:"removed"`
+	Staged  string `json:"staged"`
+	Binary  bool   `json:"binary,omitempty"`
+}
+
+// CommitSummary is one commit: Short is the abbreviated SHA.
+type CommitSummary struct {
+	SHA     string    `json:"sha"`
+	Short   string    `json:"short"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// BranchPR is a branch's pull request: State as PullRequest's, Checks never
+// null.
+type BranchPR struct {
+	Number int       `json:"number"`
+	URL    string    `json:"url"`
+	State  string    `json:"state"`
+	Checks []PRCheck `json:"checks"`
+}
+
+// FileDiff is GET /api/diff?pane=…&path=…[&commit=…]: one file's diff cut
+// into hunks. Truncated says hunks were left out to keep it small.
+type FileDiff struct {
+	Path      string     `json:"path"`
+	OldPath   string     `json:"old_path,omitempty"`
+	Binary    bool       `json:"binary"`
+	Truncated bool       `json:"truncated"`
+	Hunks     []DiffHunk `json:"hunks"`
+}
+
+// DiffHunk is one hunk. ID names it to POST /api/stage for as long as the
+// worktree stays as it is; Staged says it is in the index.
+type DiffHunk struct {
+	ID     string     `json:"id"`
+	Header string     `json:"header"`
+	Staged bool       `json:"staged"`
+	Lines  []DiffLine `json:"lines"`
+}
+
+// DiffLine is one line of a hunk: K is " ", "+" or "-"; Old and New its
+// numbers in the old and new file, the one it is not in left out.
+type DiffLine struct {
+	K   string `json:"k"`
+	Old int    `json:"old,omitempty"`
+	New int    `json:"new,omitempty"`
+	T   string `json:"t"`
+}
+
+// StageRequest is POST /api/stage: a file, or one of its hunks, put in
+// the index or (Unstage) taken out of it.
+type StageRequest struct {
+	Pane    string `json:"pane"`
+	Path    string `json:"path"`
+	Hunk    string `json:"hunk,omitempty"`
+	Unstage bool   `json:"unstage,omitempty"`
+}
+
+// StageResponse is how much of the file is staged now.
+type StageResponse struct {
+	Pane   string `json:"pane"`
+	Path   string `json:"path"`
+	Staged string `json:"staged"`
+}
+
+// NoteRequest is POST /api/review/note: a note on a line of the pane's
+// branch, for its agent. Side is "new" (the default) or "old", the side
+// of the diff Line counts on. The answer is the ReviewNote made.
+type NoteRequest struct {
+	Pane string `json:"pane"`
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Side string `json:"side,omitempty"`
+	Note string `json:"note"`
+}
+
+// CommitRequest is POST /api/commit: what is staged, or with All every
+// change, untracked files included.
+type CommitRequest struct {
+	Pane    string `json:"pane"`
+	Message string `json:"message"`
+	All     bool   `json:"all,omitempty"`
+}
+
+// CommitResponse is the commit made.
+type CommitResponse struct {
+	Pane    string `json:"pane"`
+	SHA     string `json:"sha"`
+	Short   string `json:"short"`
+	Subject string `json:"subject"`
+}
+
+// PushRequest is POST /api/push.
+type PushRequest struct {
+	Pane string `json:"pane"`
+}
+
+// PushResponse says which branch went to which remote.
+type PushResponse struct {
+	Pane   string `json:"pane"`
+	Branch string `json:"branch"`
+	Remote string `json:"remote"`
+}
+
+// PRRequest is POST /api/pr: an empty Title takes the title and
+// description from the commits.
+type PRRequest struct {
+	Pane  string `json:"pane"`
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
+	Draft bool   `json:"draft,omitempty"`
+}
+
+// PRResponse is the branch's pull request: the one opened, or the one
+// already open.
+type PRResponse struct {
+	Pane   string `json:"pane"`
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+}
+
 // Frame is a pane's screen as the server renders it: a snapshot, drawn
 // whole each time.
 type Frame struct {
@@ -294,6 +510,113 @@ type Project struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Base string `json:"base,omitempty"`
+}
+
+// ProjectDetail is GET /api/project: a project's worktrees, its pull
+// requests and their checks, and what its agents have spent — the TUI's
+// project page. Worktrees and PRs are empty, never absent: a plain folder
+// has neither, and a server without pull requests (project.pr.v1) has no
+// PRs. Usage is absent while none of its agents has reported any.
+type ProjectDetail struct {
+	Project   Project       `json:"project"`
+	Worktrees []Worktree    `json:"worktrees"`
+	PRs       []PullRequest `json:"prs"`
+	Usage     *ProjectUsage `json:"usage,omitempty"`
+}
+
+// Worktree is a checkout of the project. Ahead and Behind are its
+// branch's commits against the project's base branch, so the main
+// checkout's are 0; Added and Removed are the uncommitted lines. Panes are
+// the agents working on its branch, as machine:pane.
+type Worktree struct {
+	Branch  string   `json:"branch"`
+	Path    string   `json:"path"`
+	Base    bool     `json:"base,omitempty"`
+	Panes   []string `json:"panes,omitempty"`
+	Ahead   int      `json:"ahead,omitempty"`
+	Behind  int      `json:"behind,omitempty"`
+	Added   int      `json:"added,omitempty"`
+	Removed int      `json:"removed,omitempty"`
+	Dirty   bool     `json:"dirty,omitempty"`
+	PR      int      `json:"pr,omitempty"`
+}
+
+// Pull request states.
+const (
+	PROpen   = "open"
+	PRDraft  = "draft"
+	PRMerged = "merged"
+	PRClosed = "closed"
+)
+
+// PullRequest is a branch's pull request: the server keeps one a branch,
+// an open one before any other. Checks are its checks one by one, empty
+// when it has none or the server is too old to say them singly.
+type PullRequest struct {
+	Number int       `json:"number"`
+	Title  string    `json:"title"`
+	Branch string    `json:"branch"`
+	URL    string    `json:"url,omitempty"`
+	State  string    `json:"state"`
+	Checks []PRCheck `json:"checks"`
+	// Review is GitHub's decision in words: "approved", "changes
+	// requested" or "review required".
+	Review string `json:"review,omitempty"`
+}
+
+// PRCheck is one check: State is pass, fail or pending.
+type PRCheck struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// ProjectUsage is what the project's agents conch sees have used so far,
+// as the TUI's project page sums it: only Claude Code and OpenCode report
+// a cost, so CostAgents says how many of Agents CostUSD stands for.
+// Input counts cache reads and writes.
+type ProjectUsage struct {
+	Agents       int     `json:"agents"`
+	CostUSD      float64 `json:"cost_usd,omitempty"`
+	CostAgents   int     `json:"cost_agents,omitempty"`
+	InputTokens  int     `json:"input_tokens,omitempty"`
+	OutputTokens int     `json:"output_tokens,omitempty"`
+}
+
+// Resources is GET /api/resources: what this computer and conch on it are
+// using, as the TUI's resource monitor adds it up. CPU is a rate, worked
+// out between two samples; a CPU field is left out when it cannot be
+// (cpu_percent on a system conch cannot read it on). 1.0 of CPUCores is
+// one core busy; CPUPercent is the whole machine, 0–100. Memory is in
+// bytes; MemUsed is what free(1) or Activity Monitor calls used, without
+// the file cache (procs.Memory). Panes are never null.
+type Resources struct {
+	Machine    string          `json:"machine"`
+	SampledAt  time.Time       `json:"sampled_at"`
+	Cores      int             `json:"cores"`
+	CPUPercent *float64        `json:"cpu_percent,omitempty"`
+	MemTotal   int64           `json:"mem_total"`
+	MemUsed    int64           `json:"mem_used"`
+	Conch      ResourceUse     `json:"conch"`
+	Panes      []PaneResources `json:"panes"`
+}
+
+// ResourceUse is a group of processes: conch's is the server with every
+// pane and everything they started.
+type ResourceUse struct {
+	CPUCores *float64 `json:"cpu_cores,omitempty"`
+	Mem      int64    `json:"mem"`
+}
+
+// PaneResources is one pane: its program and everything it started.
+// Procs counts those processes; Top names up to three that used the most
+// CPU (memory breaking ties), the pane's own shell left out while
+// something else runs under it. Top is never null.
+type PaneResources struct {
+	Pane     string   `json:"pane"`
+	CPUCores *float64 `json:"cpu_cores,omitempty"`
+	Mem      int64    `json:"mem"`
+	Procs    int      `json:"procs"`
+	Top      []string `json:"top"`
 }
 
 // PairRequest is POST /pair.
@@ -321,6 +644,10 @@ type Hello struct {
 	// Machines is every machine the gateway reaches, local first, so the
 	// app can draw them before asking for anything else.
 	Machines []Machine `json:"machines"`
+	// Features names the routes added since APIVersion 2 that this
+	// gateway answers (FeatureProject and the rest); absent from a
+	// gateway older than them.
+	Features []string `json:"features,omitempty"`
 }
 
 // AgentList is GET /api/agents and the socket's "agents".

@@ -117,7 +117,7 @@ func TestBugReportMenu(t *testing.T) {
 	// is replaced in TestMain for the same reason.
 	copied := ""
 	oldCopy := putClipboard
-	putClipboard = func(s string) { copied = s }
+	putClipboard = func(s string) clipResult { copied = s; return clipResult{outcome: clipCopied} }
 	t.Cleanup(func() { putClipboard = oldCopy })
 	for _, it := range mn.items {
 		if ansi.Strip(it.label) == "Copy it" {

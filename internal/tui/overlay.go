@@ -576,11 +576,13 @@ func newAgentMenu(m Model, mach *machine) *menu {
 				detail = "  " + styleMuted.Render(a.Version)
 			}
 			// An agent conch only runs says so where it is chosen: it
-			// starts and is watched like any other, and its saved
-			// conversations are not read, which is worth knowing before
+			// starts and is watched like any other, and where its saved
+			// conversations are not read that is worth knowing before
 			// rather than when the Sessions view is empty.
-			if a.Tier == proto.TierRunsHere {
+			if a.SessionsUnread() {
 				detail += styleMuted.Render("  runs here · no sessions")
+			} else if a.Tier == proto.TierRunsHere {
+				detail += styleMuted.Render("  runs here")
 			}
 			if a.Name == m.defaultAgent() {
 				detail += styleMuted.Render("  default")
@@ -1443,6 +1445,7 @@ var helpGroups = []helpGroup{{
 		{keys: "click", what: "select · double-click opens · right-click is the menu · the wheel scrolls"},
 		{keys: "drag", what: "in a pane or a page, copy what you drag over", more: []string{
 			"past the edge, or with the wheel, it scrolls · a double click copies a word",
+			"sent, not copied: your terminal may ignore it — shift-drag uses its own selection",
 		}},
 		{keys: "Y", what: "an agent's conversation: scroll (g top · G bottom), drag over a part, release to copy"},
 		{keys: "alt+click", what: "open a link an agent printed (option+click, or ctrl+click)", more: []string{

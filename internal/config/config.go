@@ -520,6 +520,16 @@ type VerifyCfg struct {
 	Triage            map[string]string `toml:"triage,omitempty"`
 	TriageAgent       string            `toml:"triage_agent,omitempty"`
 	TriageCommentOnly bool              `toml:"triage_comment_only,omitempty"`
+	// AutoReview sends what reviewers asked for on a branch's pull
+	// request — a review requesting changes, an unresolved thread — to
+	// its agent, each comment once, while auto_fix is on: on with the
+	// autopilot, since a review that only holds the merge leaves the
+	// branch waiting on somebody to pass it on. After the agent pushes,
+	// each thread is answered on GitHub with what changed; with
+	// ResolveThreads (off by default) it is also resolved, where the push
+	// changed its file.
+	AutoReview     bool `toml:"auto_review"`
+	ResolveThreads bool `toml:"resolve_threads,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.
@@ -787,6 +797,7 @@ func Default() Config {
 		Update: UpdateCfg{CheckReleases: true},
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: DefaultUploadMaxMB},
 		Git:    GitCfg{Squash: true},
+		Verify: VerifyCfg{AutoReview: true},
 	}
 }
 

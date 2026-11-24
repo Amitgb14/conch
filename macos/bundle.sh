@@ -80,6 +80,9 @@ cat >"$app/Contents/Info.plist" <<EOF
 	<key>NSHighResolutionCapable</key><true/>
 	$source_key
 	<key>NSSupportsAutomaticTermination</key><false/>
+	<!-- A page in a browser tab may ask for these; each site is asked first, and denied unless allowed. -->
+	<key>NSCameraUsageDescription</key><string>A web page in a browser tab asked to use the camera.</string>
+	<key>NSMicrophoneUsageDescription</key><string>A web page in a browser tab asked to use the microphone.</string>
 	<!-- A browser tab shows what a dev server speaks, which is plain http. -->
 	<key>NSAppTransportSecurity</key><dict>
 		<key>NSAllowsLocalNetworking</key><true/>

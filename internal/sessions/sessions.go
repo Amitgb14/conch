@@ -97,6 +97,19 @@ func (e Env) get(k string) string {
 	return e.Getenv(k)
 }
 
+// Reads reports whether conch reads agent's saved sessions: every
+// supported agent, and those it only runs whose files have been read off
+// the real agent (Kilo Code, Pi, Grok, Cursor). An agent it does not read
+// is said to have none rather than shown an empty list.
+func Reads(agent string) bool {
+	for _, st := range stores {
+		if st.name == agent {
+			return true
+		}
+	}
+	return false
+}
+
 // maxAge bounds how far back stores are searched.
 const maxAge = 180 * 24 * time.Hour
 
@@ -124,22 +137,28 @@ func gather(e Env, dirs []string, limit int, background bool) []Session {
 	return out
 }
 
+// stores are where each agent's sessions are read from.
+var stores = []struct {
+	name string
+	find func(Env, []string) []Session
+	slow bool // asks another program, so it can take seconds
+}{
+	{"claude", claude, false},
+	{"codex", codex, false},
+	{"gemini", gemini, false},
+	{"opencode", opencode, true},
+	{"devin", devin, true},
+	{"copilot", copilot, false},
+	{"cline", cline, false},
+	{"qwen", qwen, false},
+	{"goose", goose, true},
+	{"kilo", kilo, true},
+	{"pi", pi, false},
+	{"grok", grok, false},
+	{"cursor", cursor, false},
+}
+
 func gatherStatus(e Env, dirs []string, limit int, background bool) ([]Session, bool) {
-	stores := []struct {
-		name string
-		find func(Env, []string) []Session
-		slow bool // asks another program, so it can take seconds
-	}{
-		{"claude", claude, false},
-		{"codex", codex, false},
-		{"gemini", gemini, false},
-		{"opencode", opencode, true},
-		{"devin", devin, true},
-		{"copilot", copilot, false},
-		{"cline", cline, false},
-		{"qwen", qwen, false},
-		{"goose", goose, true},
-	}
 	var out []Session
 	ok := true
 	var mu sync.Mutex
@@ -290,23 +309,37 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 	if s.Agent == "goose" {
 		return gooseDelete(ctx, s.Path, s.ID)
 	}
-	if s.Agent == "opencode" && strings.HasSuffix(s.Path, ".db") {
-		bin, err := exec.LookPath("opencode")
+	if (s.Agent == "opencode" || s.Agent == "kilo") && strings.HasSuffix(s.Path, ".db") {
+		// The database is the agent's: its own command removes a session
+		// with everything that hangs off it.
+		name, label := "opencode", "an OpenCode"
+		if s.Agent == "kilo" {
+			name, label = "kilo", "a Kilo Code"
+		}
+		bin, err := exec.LookPath(name)
 		if err != nil {
-			return fmt.Errorf("deleting an OpenCode session needs the opencode command")
+			return fmt.Errorf("deleting %s session needs the %s command", label, name)
 		}
 		cmd := exec.CommandContext(ctx, bin, "session", "delete", s.ID)
 		cmd.Dir = s.Dir
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("opencode session delete: %v: %s", err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("%s session delete: %v: %s", name, err, strings.TrimSpace(string(out)))
 		}
 		return nil
 	}
 	paths := []string{s.Path}
-	if s.Agent == "copilot" {
-		// A Copilot session is its folder: the events, the plan,
-		// checkpoints and a database of its own.
+	switch s.Agent {
+	case "copilot", "grok":
+		// A Copilot or Grok session is its folder: the events, the plan,
+		// checkpoints and whatever else the agent keeps beside them.
 		paths = []string{filepath.Dir(s.Path)}
+	case "cursor":
+		// A Cursor chat is its folder (its database among it), and the
+		// transcript Cursor writes for it in the project's folder.
+		paths = []string{filepath.Dir(s.Path)}
+		if t := cursorTranscriptPath(s.Path); t != "" {
+			paths = append(paths, filepath.Dir(t))
+		}
 	}
 	if s.Agent == "claude" {
 		// Claude keeps a session's subagent transcripts and tool output in a
@@ -322,7 +355,16 @@ func Delete(ctx context.Context, e Env, s Session, trashDir string) error {
 	}
 	stamp := time.Now().Format("20060102-150405")
 	for _, p := range paths {
+		// Two parts of one session can share a name (a Cursor chat's
+		// folder and its transcript's are both its id), and the second
+		// must not fail the delete halfway through.
 		dst := filepath.Join(trashDir, s.Agent+"-"+stamp+"-"+filepath.Base(p))
+		for n := 2; ; n++ {
+			if _, err := os.Lstat(dst); os.IsNotExist(err) {
+				break
+			}
+			dst = filepath.Join(trashDir, fmt.Sprintf("%s-%s-%s-%d", s.Agent, stamp, filepath.Base(p), n))
+		}
 		if err := os.Rename(p, dst); err != nil {
 			return fmt.Errorf("move %s to the trash: %w", p, err)
 		}

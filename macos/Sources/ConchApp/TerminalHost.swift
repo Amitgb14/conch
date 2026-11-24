@@ -12,7 +12,66 @@ import SwiftUI
 /// SwiftTerm's view. Which pane has the keyboard is followed by the
 /// window watching clicks (Store.watchClicks), since SwiftTerm does not
 /// let becomeFirstResponder be overridden.
-final class FocusingTerminalView: LocalProcessTerminalView {}
+final class FocusingTerminalView: LocalProcessTerminalView {
+    /// As GhosttyPaneView's.
+    var selectsOverApp: () -> Bool = { false }
+    private var dragSelect = DragSelect()
+
+    override func mouseDown(with e: NSEvent) {
+        allowMouseReporting = true
+        let steps = dragSelect.press(at: e.locationInWindow, clicks: e.clickCount,
+                                     modified: !e.modifierFlags.isDisjoint(with: [.command, .shift, .option, .control]),
+                                     agent: selectsOverApp(), captured: getTerminal().mouseMode != .off,
+                                     cellWidth: Double(font.maximumAdvancement.width))
+        for step in steps {
+            if step == .pass { super.mouseDown(with: e) } else { perform(step, e) }
+        }
+    }
+
+    override func mouseDragged(with e: NSEvent) {
+        for step in dragSelect.drag(to: e.locationInWindow) {
+            if step == .pass { super.mouseDragged(with: e) } else { perform(step, e) }
+        }
+    }
+
+    override func mouseUp(with e: NSEvent) {
+        for step in dragSelect.release(at: e.locationInWindow) {
+            if step == .pass { super.mouseUp(with: e) } else { perform(step, e) }
+        }
+    }
+
+    /// Shift is SwiftTerm's way past the program too, and extends too.
+    private func perform(_ step: DragStep, _ e: NSEvent) {
+        func event(_ type: NSEvent.EventType, _ p: CGPoint, shift: Bool = true, clicks: Int = 1) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: p, modifierFlags: shift ? .shift : [], timestamp: e.timestamp,
+                               windowNumber: e.windowNumber, context: nil, eventNumber: e.eventNumber,
+                               clickCount: clicks, pressure: 1) ?? e
+        }
+        switch step {
+        case .pass:
+            break
+        case .click(let p):
+            super.mouseDown(with: event(.leftMouseDown, p, shift: false))
+            super.mouseUp(with: event(.leftMouseUp, p, shift: false))
+        case let .select(p, clicks):
+            selectNone()
+            // SwiftTerm drops a selection at the next output while it
+            // reports the mouse, which an agent at work never lets it
+            // outlast: not reported until it is copied.
+            allowMouseReporting = false
+            super.mouseDown(with: event(.leftMouseDown, p, clicks: clicks))
+            // SwiftTerm anchors a selection at the first drag it is given.
+            if clicks == 1 { super.mouseDragged(with: event(.leftMouseDragged, p)) }
+        case .extend(let p):
+            super.mouseDragged(with: event(.leftMouseDragged, p))
+        case .end(let p):
+            super.mouseUp(with: event(.leftMouseUp, p))
+        case .copy:
+            if selectionActive, getSelection()?.isEmpty == false { copy(self) }
+            allowMouseReporting = true
+        }
+    }
+}
 
 @MainActor
 final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDelegate {
@@ -135,6 +194,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
             view = g
             super.init()
             g.onExit = { [weak self] in self?.ended = "detached" }
+            g.selectsOverApp = { [weak store] in MainActor.assumeIsolated { store?.pane(k)?.agent != nil } }
             g.onReport = { [weak self] r in self?.took(r) }
             if raw {
                 roomTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -148,6 +208,7 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
         view = st
         super.init()
         st.processDelegate = self
+        st.selectsOverApp = { [weak store] in MainActor.assumeIsolated { store?.pane(k)?.agent != nil } }
         st.font = Self.font(PaneTerminal.fontSize)
         apply(Theme.current)
         st.optionAsMetaKey = true

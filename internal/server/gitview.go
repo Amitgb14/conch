@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/Amitgb14/conch/internal/ghx"
 	"github.com/Amitgb14/conch/internal/gitx"
@@ -44,6 +45,34 @@ func (pm *projectManager) commitDetail(cp proto.CommitParams) (proto.CommitDetai
 		Subject: d.Subject, Body: d.Body, Files: fileStats(d.Files), Commits: 1}, nil
 }
 
+// markReview puts the reviewer's mark on a review's words and each of its
+// comments, when conch's reviewer agent wrote them.
+func markReview(rp proto.BranchReviewParams, byReviewer bool) proto.BranchReviewParams {
+	if !byReviewer {
+		return rp
+	}
+	if strings.TrimSpace(rp.Body) != "" {
+		rp.Body = ghx.Marked(ghx.ReviewerMark, rp.Body)
+	}
+	comments := make([]proto.ReviewLineNew, len(rp.Comments))
+	for i, c := range rp.Comments {
+		c.Note = ghx.Marked(ghx.ReviewerMark, c.Note)
+		comments[i] = c
+	}
+	rp.Comments = comments
+	return rp
+}
+
+// callerIsReviewer says whether the connection is conch's reviewer agent.
+func (s *Server) callerIsReviewer(c *client) bool {
+	caller, ok := s.scopedCaller(c)
+	if !ok {
+		return false
+	}
+	e, perr := s.get(caller.id)
+	return perr == nil && proto.IsReviewer(e.info())
+}
+
 func fileStats(fs []gitx.FileStat) []proto.FileChange {
 	out := make([]proto.FileChange, 0, len(fs))
 	for _, f := range fs {
@@ -53,8 +82,11 @@ func fileStats(fs []gitx.FileStat) []proto.FileChange {
 }
 
 // reviewBranch submits a review of the branch's open pull request — the
-// one conch last read for it — through gh.
-func (pm *projectManager) reviewBranch(rp proto.BranchReviewParams) (proto.BranchReviewResult, *proto.Error) {
+// one conch last read for it — through gh. A review conch's reviewer agent
+// submits is marked, so the autopilot does not send the agent from GitHub
+// what it already had from the reviewer's report.
+func (pm *projectManager) reviewBranch(rp proto.BranchReviewParams, byReviewer bool) (proto.BranchReviewResult, *proto.Error) {
+	rp = markReview(rp, byReviewer)
 	p, perr := pm.gitProject(rp.ProjectID)
 	if perr != nil {
 		return proto.BranchReviewResult{}, perr

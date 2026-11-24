@@ -78,8 +78,11 @@ auto_fix = 0     # send a failed check — the project's own, or a pull request'
 auto_merge = false # merge a pull request on GitHub when its checks turn green (held while a draft, conflicting, under review or an unresolved thread, or until the project's check has passed on the commit being merged)
 auto_pr = false  # push a branch whose agent finished and whose check passed, and open its pull request (or push to the open one)
 auto_resolve = 0 # rebase a pull request that conflicts with its base, asking the branch's agent up to this many times when that stops on a conflict
+                 # one that stopped is not rebased again until the branch or its base moves (a failure otherwise: after 5 minutes)
 require_tests = false # open a pull request whose branch changes code and no test as a draft (auto_merge leaves drafts), and ask the agent for a test
 max_diff = 0     # open one bigger than this many changed lines as a draft too; 0 is no limit
+auto_review = true # while auto_fix is on: send a pull request's review asking for changes and each new unresolved thread to the branch's agent, once each (again if edited or replied to), and answer each thread on GitHub with what its next push changed
+resolve_threads = false # also resolve a thread its push answered, where the push changed the thread's file
                  # both are handed to each machine's server, which acts on them with conch closed
 reviewer = ""    # an agent asked to review a branch when its agent finishes, e.g. "codex"; closed once its report is handed over or the branch merged
 intake = {}      # a GitHub label by project ID: { r1a2b3c = "ready" } — every 5 minutes the server queues each open issue with it as a task, once, and comments on it
