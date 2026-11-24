@@ -343,3 +343,25 @@ func TestAppUpdateSettings(t *testing.T) {
 		t.Fatalf("default config wrote them:\n%s", b)
 	}
 }
+
+// auto_review is on with the autopilot: a config.toml from before it, with
+// a [verify] of its own, has it on; turned off, it stays off through a
+// save; resolve_threads is off unless named.
+func TestAutoReviewDefault(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CONCH_HOME", dir)
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte("[verify]\nauto_fix = 2\n"), 0o600)
+	cfg, err := Load()
+	if err != nil || !cfg.Verify.AutoReview || cfg.Verify.ResolveThreads || cfg.Verify.AutoFix != 2 {
+		t.Fatalf("an older file: %+v %v", cfg.Verify, err)
+	}
+	cfg.Verify.AutoReview, cfg.Verify.ResolveThreads = false, true
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Load()
+	if err != nil || cfg.Verify.AutoReview || !cfg.Verify.ResolveThreads {
+		t.Fatalf("after a save: %+v %v", cfg.Verify, err)
+	}
+}

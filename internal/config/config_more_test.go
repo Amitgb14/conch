@@ -37,6 +37,8 @@ func TestA3Defaults(t *testing.T) {
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: 25},
 		// Squash is on, which is what the merge dialog has always ticked.
 		Git: GitCfg{Squash: true},
+		// Review comments go to the agent with the autopilot (auto_fix).
+		Verify: VerifyCfg{AutoReview: true},
 	}
 	if !reflect.DeepEqual(d, want) {
 		t.Fatalf("Default = %+v", d)
