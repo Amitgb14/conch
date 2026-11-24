@@ -465,6 +465,7 @@ func (h *hooks) observePRs(projectID string, prs map[string]proto.PRInfo) []hook
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	first := !h.saved.Seen[projectID]
+	changed := first
 	h.saved.Seen[projectID] = true
 	prefix := projectID + "\x00"
 	var out []hookEvent
@@ -475,6 +476,7 @@ func (h *hooks) observePRs(projectID string, prs map[string]proto.PRInfo) []hook
 		cur := fmt.Sprintf("%d %s", pr.Number, pr.State)
 		prev := h.saved.PRs[key]
 		h.saved.PRs[key] = cur
+		changed = changed || prev != cur
 		if first || prev == cur {
 			continue
 		}
@@ -495,9 +497,12 @@ func (h *hooks) observePRs(projectID string, prs map[string]proto.PRInfo) []hook
 	for key := range h.saved.PRs {
 		if strings.HasPrefix(key, prefix) && !now[key] {
 			delete(h.saved.PRs, key)
+			changed = true
 		}
 	}
-	h.saveLocked()
+	if changed {
+		h.saveLocked()
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Branch < out[j].Branch })
 	return out
 }

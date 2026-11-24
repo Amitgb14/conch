@@ -461,3 +461,23 @@ on = ["agent.done"]
 		t.Errorf("agent.done runs %v", got)
 	}
 }
+
+// A read that changes nothing writes nothing: pull requests are read
+// every few seconds.
+func TestHookPRsWriteOnlyOnChange(t *testing.T) {
+	b := newHookBench(t)
+	prs := map[string]proto.PRInfo{"a": {Number: 1, State: "OPEN"}}
+	b.h.observePRs("p", prs)
+	path := filepath.Join(b.dir, hookStateFile)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	b.h.observePRs("p", prs)
+	if _, err := os.Stat(path); err == nil {
+		t.Error("the same read wrote hooks.json again")
+	}
+	b.h.observePRs("p", map[string]proto.PRInfo{"a": {Number: 1, State: "MERGED"}})
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("a change was not written: %v", err)
+	}
+}
