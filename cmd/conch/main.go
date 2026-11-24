@@ -812,6 +812,10 @@ func runServer(args []string) error {
 	if err := withoutAsyncPreemption(); err != nil {
 		return err
 	}
+	// A server started from inside a pane inherited that pane's access
+	// token; anything it connects to later is its own business, not the
+	// pane's.
+	_ = os.Unsetenv(proto.TokenEnv)
 	err := server.New(config.SocketPath(), config.Dir()).Run()
 	if errors.Is(err, server.ErrAlreadyRunning) {
 		return fmt.Errorf("%w on %s", err, config.SocketPath())

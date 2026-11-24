@@ -52,7 +52,7 @@ func (ca *cloudAgent) register(c *client, p proto.CloudAgentRegisterParams) *pro
 	c.mu.Lock()
 	actFor := c.actFor.ID
 	c.mu.Unlock()
-	if c.pane != "" || actFor != "" {
+	if c.paneID() != "" || actFor != "" {
 		// Even a shell's: an agent types into shells it started.
 		return proto.Errorf(proto.ErrOutOfScope, "a cloud agent is not registered from inside a pane: it would decide what every agent's environment holds")
 	}

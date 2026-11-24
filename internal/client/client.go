@@ -27,6 +27,9 @@ import (
 type Client struct {
 	conn   *proto.Conn
 	Server proto.HelloResult
+	// Token is what the access token presented holds the connection to;
+	// zero when none was (Present).
+	Token proto.AuthTokenResult
 
 	// Events receives server pushes in order. It is closed when the
 	// connection ends; Err then reports why.
@@ -97,7 +100,34 @@ func New(rw io.ReadWriteCloser, clientName string) (*Client, error) {
 		c.Close()
 		return nil, fmt.Errorf("handshake: %w", err)
 	}
+	if err := c.Present(ctx, os.Getenv(proto.TokenEnv)); err != nil {
+		c.Close()
+		return nil, err
+	}
 	return c, nil
+}
+
+// Present hands the server an access token (CONCH_TOKEN), which holds the
+// connection to it from then on; "" presents nothing. A server too old to
+// check one is a failure for a token the person made — going on would act
+// as the person, which is what the token was given to prevent — but not
+// for a pane's own, whose connection that server still scopes by walking
+// up to the pane, as it always did.
+func (c *Client) Present(ctx context.Context, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil
+	}
+	if len(c.MissingCapabilities([]string{proto.CapToken})) > 0 {
+		if proto.IsPaneToken(token) {
+			return nil
+		}
+		return fmt.Errorf("the conch server (pid %d) is from an older build that cannot check the access token in %s; reload it, or unset %s to act as yourself", c.Server.PID, proto.TokenEnv, proto.TokenEnv)
+	}
+	if err := c.Call(ctx, proto.MethodAuthToken, proto.AuthTokenParams{Token: token}, &c.Token); err != nil {
+		return fmt.Errorf("the access token in %s was refused: %w", proto.TokenEnv, err)
+	}
+	return nil
 }
 
 func (c *Client) readLoop() {

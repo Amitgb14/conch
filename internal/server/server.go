@@ -110,6 +110,7 @@ type Server struct {
 	watcher *worktreeWatcher // nil when the machine gives no watches
 	views   *viewBook        // what each TUI says it is showing (view.go)
 	stars   *starBook        // the sessions somebody means to come back to (star.go)
+	tokens  *tokenBook       // access tokens, the panes' own among them (tokens.go)
 
 	quit     chan struct{}
 	quitOnce sync.Once
@@ -133,6 +134,13 @@ type client struct {
 	// actFor is the agent on another machine the connection is held to
 	// (scope.act_for), guarded by mu.
 	actFor proto.ActForParams
+	// token is the id of the token the connection presented (auth.token),
+	// grant the token itself when the person made it, and paneToken that
+	// pane was set from a pane's own token rather than by the walk; all
+	// guarded by mu, as is pane once a token can set it (tokens.go).
+	token     string
+	grant     *tokenRec
+	paneToken bool
 
 	mu   sync.Mutex
 	subs map[string]*subscription // by pane ID
@@ -166,6 +174,7 @@ func New(sockPath, configDir string) *Server {
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
+	s.tokens = loadTokens(configDir)
 	s.schedules = loadSchedule(configDir)
 	s.intake = loadIntake(configDir)
 	s.triage = loadTriage(configDir)
@@ -272,7 +281,11 @@ func (s *Server) Run() error {
 		}
 		s.noteSocket(ln)
 		s.adopt(reloaded)
+		// The panes adopted keep their tokens; any other's pane is gone.
+		s.tokens.keepPanes(func(id string) bool { _, perr := s.get(id); return perr == nil })
 	} else {
+		// Nothing survives a restart, so no pane token does either.
+		s.tokens.keepPanes(func(string) bool { return false })
 		_ = os.Remove(s.sockPath) // stale socket from a crashed server
 		if ln, err = net.Listen("unix", s.sockPath); err != nil {
 			return err
@@ -579,6 +592,9 @@ func withPane[T any](s *Server, msg proto.Message, id func(T) string) (T, *entry
 }
 
 func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
+	if perr := s.tokenAllows(c, msg); perr != nil {
+		return nil, perr
+	}
 	if perr := s.inScope(c, msg); perr != nil {
 		return nil, perr
 	}
@@ -623,6 +639,42 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return proto.CloudAgentRegisterResult{Capabilities: s.capabilities()}, nil
+
+	case proto.MethodAuthToken:
+		ap, perr := decode[proto.AuthTokenParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.authenticate(c, ap)
+
+	case proto.MethodTokenCreate:
+		tp, perr := decode[proto.TokenCreateParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		projects, perr := s.resolveTokenProjects(tp.Projects)
+		if perr != nil {
+			return nil, perr
+		}
+		res, perr := s.tokens.create(tp, projects)
+		if perr == nil {
+			log.Printf("token %q (%s) made, id %s", res.Info.Name, res.Info.Level, res.Info.ID)
+		}
+		return res, perr
+
+	case proto.MethodTokenList:
+		return proto.TokenListResult{Tokens: s.tokens.list()}, nil
+
+	case proto.MethodTokenRevoke:
+		rp, perr := decode[proto.TokenRevokeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		info, perr := s.tokens.revoke(rp.Name)
+		if perr == nil {
+			log.Printf("token %q (%s) revoked", info.Name, info.ID)
+		}
+		return info, perr
 
 	case proto.MethodActFor:
 		ap, perr := decode[proto.ActForParams](msg)
@@ -1974,9 +2026,11 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 	id := "p" + strconv.Itoa(s.nextID)
 	s.mu.Unlock()
 
-	// The library's tokens first, then a cloud machine's secrets for an
-	// agent, so anything the caller set wins.
-	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...)
+	// The pane's own token (tokens.go) — set even where the server's own
+	// environment carried one, which is somebody else's — and the
+	// library's tokens, then a cloud machine's secrets for an agent, so
+	// anything the caller set wins.
+	env := append([]string{"CONCH_SOCKET=" + s.sockPath, proto.TokenEnv + "=" + s.tokens.issuePane(id)}, s.secretEnv()...)
 	if cp.Agent != "" {
 		env = append(env, s.cloud.env()...)
 	}
@@ -1987,6 +2041,7 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		Cols: cp.Cols, Rows: cp.Rows,
 	})
 	if err != nil {
+		s.tokens.dropPane(id)
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "start %q: %v", cp.Command[0], err)
 	}
 	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
@@ -2117,6 +2172,7 @@ func (s *Server) close(id string) *proto.Error {
 	if !ok {
 		return proto.Errorf(proto.ErrNotFound, "no pane %q", id)
 	}
+	s.tokens.dropPane(id) // its token ends with it
 	for _, c := range clients {
 		s.unsubscribe(c, id)
 	}
