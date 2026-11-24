@@ -26,9 +26,7 @@ A Devin pane that needs an answer looks idle.
 ## Two tiers
 
 - **Supported** — the nine above, with their saved conversations in the [Sessions](/docs/sessions) view.
-- **Runs here** — from a manifest: conch starts and recognises it; only Pi, Grok, Cursor, Kilo Code and Antigravity CLI list sessions.
-
-Antigravity CLI signs in with Google the first time it starts, and the agent menu says beforehand when it is not signed in (on a Mac, where conch can see that its sign-in is in the Keychain without reading it) or when it will use a [Gemini API key](/docs/configuration) instead. Its sign-in screen shows as waiting in the tree. conch starts it with a title command of its own, for one session (`--settings`, never written to its `settings.json`): that is where agy names its conversation, which the chat needs, and its context window and weekly quota. A title command of your own still sets the title.
+- **Runs here** — from a manifest: conch starts and recognises it; only five list sessions ([which](/docs/cli#the-agents-conch-knows)).
 
 conch ships manifests for [fourteen more](/docs/cli#the-agents-conch-knows), marked with anything but a circle.
 
@@ -77,7 +75,7 @@ An idle agent that left a dev server or a background shell running shows **⟳2*
 
 Most reliable first:
 
-1. **The program's own report** ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)), from Claude Code 2.1.295 and Antigravity CLI 1.5.16 and later; for Antigravity CLI it is the only one, so it shows working, waiting (sign-in, trusting a folder, approving a command) and done with no hooks or screen rules.
+1. **The program's own report** ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)), from Claude Code 2.1.295+ and [Antigravity CLI](/docs/cli#antigravity-cli) 1.5.16+.
 2. **Hooks** (Claude Code, Gemini CLI, Codex); yours still run.
 3. **Screen rules** over the bottom of the screen.
 4. **Foreground process**: a pane is an agent only while the agent is in front.
@@ -103,8 +101,6 @@ An agent can start and prompt another. See [Agents working together](/docs/agent
 Agent panes show usage in their title: `ctx 45k/200k · out 12k · $0.42`.
 
 Context used, output tokens, and cost where the agent reports one.
-
-Conch.app's **Tokens used** adds up what Claude Code, Codex and Antigravity CLI used over the last day, week and month, by model, from the conversations each saved on that machine; nothing is asked of the agent's service. Antigravity CLI rows in **Sessions** show the output tokens of each conversation.
 
 ## Plan limits
 

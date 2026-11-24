@@ -172,6 +172,18 @@ The names `-agent`, `conch agent install` and `conch new -agent` take. **Support
 
 **Runs here** — from a manifest in `internal/detect/manifests`, which says what was checked for each: `aider` (Aider), `amp` (Amp), `antigravity` (Antigravity CLI, `agy`), `auggie` (Auggie), `continue` (Continue CLI, `cn`), `crush` (Crush), `cursor` (Cursor CLI), `droid` (Droid), `grok` (Grok), `kilo` (Kilo Code), `kimi` (Kimi Code), `kiro` (Kiro CLI, `kiro-cli chat`), `vibe` (Mistral Vibe) and `pi` (Pi). Add your own with `conch agent add`.
 
+Of these, Pi, Grok, Cursor, Kilo Code and Antigravity CLI have their conversations listed in [Sessions](/docs/sessions).
+
+#### Antigravity CLI
+
+What conch does for `agy` (checked against 1.5.16), all read on this computer and nothing sent to Google:
+
+- **Sign-in:** it signs in with Google the first time it starts. On a Mac the agent menu says beforehand when it is not signed in — conch sees whether its Keychain item is there without reading it — or that it will use a [Gemini API key](/docs/configuration).
+- **State:** it reports its own ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)), so working, waiting (sign-in, trusting a folder, approving a command) and done show with no hooks or screen rules.
+- **Chat:** conch starts it with a title command of its own for that session (`--settings`, never written to its `settings.json`). That is where agy names its conversation, so Conch.app's chat shows its tools with what each was given and returned, its context window and its weekly quota. A title command of your own still runs.
+- **Usage:** Conch.app's **Tokens used** counts it by model over the last day, week and month, and its rows in Sessions show each conversation's output tokens.
+- **Setup (`i`):** its `AGENTS.md`, `GEMINI.md` and `.agents/rules`, its skills and plugins, and the servers in `.agents/mcp_config.json` and `~/.gemini/config/mcp_config.json`. Sync gives it instructions (a copy, since its `@path` does not pull a file in) and skills, not servers: add those with `agy mcp add`.
+
 ### project
 
 | Command | Description |

@@ -153,13 +153,11 @@ npm run dev -- --port $CONCH_PORT
 
 `i` on a project, branch or pane shows what each agent loads there, a tab per agent: instructions, skills, commands, MCP servers, plugins, hooks conch added, and warnings. In a worktree it lists local files that are missing; `c` copies them. `S` installs conch's own skill.
 
-Antigravity CLI has a tab too, though conch only runs it: its `AGENTS.md`, `GEMINI.md` and `.agents/rules`, its skills and plugins, and the servers in `.agents/mcp_config.json` and `~/.gemini/config/mcp_config.json`.
-
 **How:** `i`, or `conch agent setup [-agent NAME] [-copy] [-json] [DIR]`.
 
 ## One setup, every agent
 
-`s` in the setup view copies one agent's instructions, skills and MCP servers to the others, after showing the plan. `u` undoes it. Antigravity CLI is given instructions (a copy, since its `@path` does not pull a file in) and skills, but not servers: add those with `agy mcp add`.
+`s` in the setup view copies one agent's instructions, skills and MCP servers to the others, after showing the plan. `u` undoes it.
 
 ```sh
 conch agent sync                                 # show the plan
