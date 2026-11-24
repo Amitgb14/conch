@@ -254,6 +254,10 @@ Slack, Discord and ntfy also come as [notify integrations](/docs/integrations#no
 
 `mouse = false` leaves the mouse to your terminal entirely. With it on, hold shift (option in iTerm2) to select text with the terminal instead.
 
+### agents
+
+`claude_idle_compaction = false` stops Claude Code compacting a conversation left idle before its prompt cache expires ("Compacted while idle…"), in the Claude panes conch starts, from each one's next start. It is **Compact Claude while idle** under Agents in Settings, the settings page's and Conch.app's. conch writes it into the settings file it starts Claude with and never `~/.claude/settings.json`, which a Claude started outside conch still reads. Unset is Claude's own default.
+
 ### brain
 
 The model behind `:` and agent summaries. `[brain]` also takes `base_url`, `api_key_env`, `command` and `no_fast_path` (send every request to the model, even [those conch plans alone](/docs/brain#without-the-model)); see [Brain](/docs/brain#configuration).
