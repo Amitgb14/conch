@@ -267,7 +267,7 @@ func (s *Server) noteOnce(key, what, text string, isErr bool) {
 		return
 	}
 	projectID, branch, _ := strings.Cut(key, "\x00")
-	kind := map[string]string{"check": proto.ActivityCheck, "ready": proto.ActivityShip, "resolve": proto.ActivityResolve}[what]
+	kind := map[string]string{"check": proto.ActivityCheck, "ready": proto.ActivityShip, "resolve": proto.ActivityResolve, "review": proto.ActivityReview}[what]
 	s.autopilotNote(proto.AutopilotNote{ProjectID: projectID, Branch: branch, Text: text, Error: isErr, Kind: kind})
 }
 
