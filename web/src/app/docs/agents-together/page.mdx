@@ -52,14 +52,14 @@ An agent reaches only the panes it started and its own project's.
 
 ## A team, a review loop, a factory
 
-Ask for the other skills the same way, or by name as a command in Claude Code.
+Ask for the other skills the same way, or by name in Claude Code. [Skills](/docs/skills) shows each in use.
 
 | Ask | Skill |
 | --- | --- |
-| _"Have Claude and Codex each try the parser fix, and tell me which one to keep."_ | conch-team |
-| _"Get this branch reviewed by Codex and have the fixes made until the review is clean."_ | conch-review |
-| _"Open the pull request for this branch and merge it once CI is green."_ | conch-ship |
-| _"Take issue 123 from build to a merged pull request."_ | conch-factory (`/conch-factory 123`) |
+| _"Have Claude and Codex each try the parser fix."_ | conch-team |
+| _"Get this branch reviewed by Codex and fixed."_ | conch-review |
+| _"Open the PR and merge it once CI is green."_ | conch-ship |
+| _"Take issue 123 to a merged pull request."_ | conch-factory (`/conch-factory 123`) |
 | _"Set up an automated workflow for this project."_ | conch-autopilot |
 | _"QA this branch."_ | conch-qa |
 | _"Why is CI red?"_ | conch-cicd |
