@@ -53,6 +53,9 @@ type rawSession struct {
 	id      string
 	out     io.Writer
 	control string
+	// controlFrom is when a control paste still coming was first waited
+	// on at a flush (zero: none is).
+	controlFrom time.Time
 	// want is the size the app said it has room for; zero means this
 	// terminal's own.
 	wantCols, wantRows int
@@ -146,6 +149,10 @@ func attachRawLoopAs(c *client.Client, id string, in io.Reader, out io.Writer, s
 			}
 		case <-flush.C:
 			held = s.input(held, true, size)
+			// A control paste still coming is waited on.
+			if len(held) > 0 {
+				flush.Reset(attachFlush)
+			}
 		case <-winch:
 			s.resize(size)
 			s.release(size)
@@ -337,6 +344,10 @@ func (s *rawSession) resize(size func() (int, int, bool)) {
 	call(s.c, proto.MethodPaneResize, proto.PaneResizeParams{ID: s.id, Cols: w, Rows: h}, nil) //nolint:errcheck
 }
 
+// attachControlWait is how long a control paste of ours that has begun
+// is waited on for the rest; after it the start is dropped, never typed.
+var attachControlWait = 3 * time.Second
+
 // input passes what the terminal sent on to the pane: typing as typing,
 // its answers and the pointer's moving as replies, and a control paste
 // from the app to this view. What is not whole yet is returned to be
@@ -361,7 +372,24 @@ func (s *rawSession) input(b []byte, final bool, size func() (int, int, bool)) [
 						send()
 						return b
 					}
+					// The flush came mid-paste. Once the mark is all
+					// there it is ours — nobody types it — so the rest
+					// is waited for rather than the start typed into
+					// the pane; and dropped, never typed, if it never
+					// comes.
+					if s.ownsStart(b) {
+						send()
+						if s.controlFrom.IsZero() {
+							s.controlFrom = time.Now()
+						}
+						if time.Since(s.controlFrom) < attachControlWait {
+							return b
+						}
+						s.controlFrom = time.Time{}
+						return nil
+					}
 				} else {
+					s.controlFrom = time.Time{}
 					send()
 					s.apply(ctl, size)
 					b = b[n:]
@@ -412,6 +440,13 @@ func (s *rawSession) input(b []byte, final bool, size func() (int, int, bool)) [
 	}
 	send()
 	return nil
+}
+
+// ownsStart says whether b starts with the whole control mark, bracketed
+// or not: the start of a control paste, never something typed.
+func (s *rawSession) ownsStart(b []byte) bool {
+	body := bytes.TrimPrefix(b, []byte("\x1b[200~"))
+	return bytes.HasPrefix(body, []byte(attachControlMark))
 }
 
 // controlAt reads a control paste at the start of b — bracketed or not,

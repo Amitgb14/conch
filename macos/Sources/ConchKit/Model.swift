@@ -186,14 +186,25 @@ public struct MachineEntry: Equatable, Sendable, Decodable {
         self.enabled = enabled
     }
 
+    /// The providers whose machines are sandboxes: the ones conch once had
+    /// built in (a machine they made still opens), devin (dropped, but its
+    /// machine still says so rather than becoming an ssh host), and every
+    /// provider file installed, which the app adds as it reads machines.json
+    /// (installedSandboxProviders). A fixed list here once left InstaBox's
+    /// machines plain ssh hosts: no Stop, Start or Delete Sandbox.
+    public static let builtInSandboxProviders: Set<String> = ["daytona", "boat", "devin", "tensorlake"]
+    nonisolated(unsafe) public static var sandboxProviders: Set<String> = builtInSandboxProviders
+
     /// The provider when this machine is a hosted sandbox (its target is
-    /// "provider:id", as remote.ParseSandboxTarget reads it), else nil.
-    /// devin stays, though Devin Cloud was dropped: such a machine is still
-    /// a sandbox, whose provider says it is gone, not an ssh host.
-    public var sandboxProvider: String? {
+    /// "provider:id", as remote.ParseSandboxTarget reads it: a provider
+    /// conch knows), else nil.
+    public var sandboxProvider: String? { sandboxProvider(known: Self.sandboxProviders) }
+
+    public func sandboxProvider(known: Set<String>) -> String? {
         guard let t = target, let colon = t.firstIndex(of: ":") else { return nil }
         let p = String(t[..<colon]), id = t[t.index(after: colon)...]
-        guard ["daytona", "boat", "devin", "tensorlake"].contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
+        // conch: is a Conch Cloud machine, never a provider's.
+        guard p != "conch", known.contains(p), !id.isEmpty, !id.contains(where: { "@/: ".contains($0) }) else { return nil }
         return p
     }
 
@@ -1020,6 +1031,9 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("newSandbox", "New Sandbox (a Machine in the Cloud)…", ""),
     ("splitRight", "Split Right", "⌘D"),
     ("splitDown", "Split Down", "⇧⌘D"),
+    ("splitRightBrowser", "Split Right with Browser", "⌥⌘D"),
+    ("splitDownBrowser", "Split Down with Browser", "⌥⇧⌘D"),
+    ("splitRightAgent", "Split Right with Agent", ""),
     ("closeSplit", "Close Split", "⌘W"),
     ("workbench", "Open Workbench (Files, Terminal, Chat and Agent)", "⌥⌘B"),
     ("bench:ide", "Workbench: IDE Layout", "⌥⌘1"),
@@ -1300,6 +1314,16 @@ public func branchBadgeParts(_ b: BranchInfo, worktree w: WorktreeInfo?, isBase:
     return out
 }
 
+/// Whether a pane whose terminal view has ended — `conch attach` exits on
+/// any key once the program is over ("· any key closes") — should now be
+/// closed: its program has exited, so the key was the person closing it.
+/// A pane still running had only its view end (a reload, a dropped
+/// connection), and gets a fresh view instead.
+public func closesWhenViewEnds(_ p: PaneInfo?) -> Bool {
+    guard let p else { return false }
+    return !p.running && p.state == "exited"
+}
+
 /// A pane row's badge when it is not an agent at work (the TUI's
 /// paneGlyph): how it ended — exited, or exit N and failed in red — or a
 /// terminal's activity or silence alert; nil leaves the state pill.
@@ -1370,3 +1394,18 @@ public struct RepoSummary: Equatable, Sendable {
     }
 }
 
+/// The providers installed as files in a providers folder
+/// ($CONCH_HOME/providers/NAME.toml), by name: what makes a machine
+/// "NAME:ID" a sandbox, as sandbox.Known does in conch. A name that is
+/// not one conch would take is left out.
+public func installedSandboxProviders(dir: String, fm: FileManager = .default) -> Set<String> {
+    guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
+    var out: Set<String> = []
+    for n in names where n.hasSuffix(".toml") {
+        let p = String(n.dropLast(".toml".count))
+        if !p.isEmpty, p.allSatisfy({ ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") || $0 == "-" || $0 == "_" }) {
+            out.insert(p)
+        }
+    }
+    return out
+}

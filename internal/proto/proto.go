@@ -19,7 +19,7 @@ import (
 
 // Version is the conch release version, set at release time with
 // -ldflags "-X github.com/Amitgb14/conch/internal/proto.Version=0.2.0".
-var Version = "0.2.2-dev"
+var Version = "0.2.3-dev"
 
 // IsRelease reports whether Version names a published release rather than a
 // development build.
@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -906,6 +906,11 @@ type PaneInfo struct {
 	// Account is the account its agent was started on, "" for the agent's
 	// own (CapAccounts).
 	Account string `json:"account,omitempty"`
+	// MovedFrom is the account its agent was moved off, so a client can
+	// offer to move it back; Replaces is the pane it took over from, so a
+	// client puts it where that one was (CapAgentMove).
+	MovedFrom string `json:"moved_from,omitempty"`
+	Replaces  string `json:"replaces,omitempty"`
 	// Team is the team the pane was put in by hand (CapPaneTeam), "-" for
 	// kept out of every team; "" leaves it to config.toml's [[teams]]
 	// rules (config.TeamFor), which clients apply.
@@ -3200,6 +3205,19 @@ type AgentAvailability struct {
 	// server too old to say it reads as "conch can install it", which is
 	// what every agent such a server offers.
 	NoInstaller bool `json:"no_installer,omitempty"`
+	// Sessions says the server reads this agent's saved sessions: every
+	// supported agent, and those it only runs whose files it has learnt
+	// to read (Pi, Grok, Cursor, Kilo Code). A server too old to say it
+	// sends none, and an agent it only runs then reads as unread, which is
+	// what that server did.
+	Sessions bool `json:"sessions,omitempty"`
+}
+
+// SessionsUnread is an agent conch runs without reading what it saved,
+// which a client says rather than show an empty list as if nothing had
+// been.
+func (a AgentAvailability) SessionsUnread() bool {
+	return a.Tier == TierRunsHere && !a.Sessions
 }
 
 // SessionListParams asks for the agent sessions saved for a project (its
@@ -3935,7 +3953,31 @@ type UsageHistory struct {
 type AgentUsage struct {
 	Agent   string        `json:"agent"`
 	Periods []UsagePeriod `json:"periods"`
+	// Account is which of the agent's accounts, when asked for by account
+	// (CapUsageAccounts): "" for the agent's own.
+	Account string `json:"account,omitempty"`
+	// Hours is the last 24 hours an hour at a time and Days the last 30
+	// days a day at a time, oldest first, each with what each model used:
+	// for charting, when asked for by account.
+	Hours []UsageBucket `json:"hours,omitempty"`
+	Days  []UsageBucket `json:"days,omitempty"`
 }
+
+// UsageBucket is what was used from Start for an hour or a day.
+type UsageBucket struct {
+	Start time.Time `json:"start"`
+	UsageTokens
+	Models []ModelUsage `json:"models,omitempty"`
+}
+
+// UsageHistoryParams asks for usage.history by account, with Hours and
+// Days (CapUsageAccounts); without it, one entry per agent as before.
+type UsageHistoryParams struct {
+	ByAccount bool `json:"by_account,omitempty"`
+}
+
+// CapUsageAccounts is usage.history by account, with hours and days.
+const CapUsageAccounts = "usage.history.accounts.v1"
 
 // UsagePeriod is what was used in the last Hours hours, in all and by
 // model, the model that used most first.

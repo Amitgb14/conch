@@ -48,6 +48,9 @@ type Gateway struct {
 	// stop every request the gateway is serving.
 	pool *fleet.Pool
 
+	// meter samples this computer for GET /api/resources (resources.go).
+	meter *resourceMeter
+
 	mu       sync.Mutex
 	c        *client.Client // the local server; a socket has its own
 	devices  []Device
@@ -115,6 +118,7 @@ func newGateway(store *Store, dial func() (*client.Client, error), logf func(for
 		quit:      make(chan struct{}), done: make(chan struct{}),
 	}
 	g.pool = g.newPool()
+	g.meter = newResourceMeter()
 	go g.watch()
 	go g.pushes()
 	go g.sendPushes()
@@ -249,6 +253,14 @@ func (g *Gateway) server() (*client.Client, *APIError) {
 	return c, nil
 }
 
+// byteSize is a limit in words: 64 KB, 25 MB.
+func byteSize(n int64) string {
+	if n >= 1<<20 {
+		return strconv.FormatInt(n>>20, 10) + " MB"
+	}
+	return strconv.FormatInt(n>>10, 10) + " KB"
+}
+
 func apiErr(code, message string) *APIError { return &APIError{Code: code, Message: message} }
 
 // fromServer turns a failed call into the error the phone gets. The
@@ -269,6 +281,10 @@ func fromServer(err error) *APIError {
 			return apiErr(CodeAgentBlocked, perr.Message)
 		case proto.ErrOutOfScope:
 			return apiErr(CodeForbidden, perr.Message)
+		case proto.ErrPushRejected, proto.ErrRebaseConflict:
+			// The remote has commits the branch lacks: something to do in
+			// the worktree, not a server that is down.
+			return apiErr(CodeBadRequest, perr.Message)
 		case proto.ErrUnknown:
 			return apiErr(CodeServerUnavailable, "the conch server is from an older build; reload it with `conch server reload`")
 		}
@@ -317,6 +333,10 @@ var routes = []route{
 	{"GET", "/api/agents", PermView, (*Gateway).listAgents},
 	{"GET", "/api/machines", PermView, (*Gateway).listMachines},
 	{"GET", "/api/projects", PermView, (*Gateway).listProjects},
+	{"GET", "/api/project", PermView, (*Gateway).projectDetail},
+	{"GET", "/api/resources", PermView, (*Gateway).resources},
+	{"GET", "/api/limits", PermView, (*Gateway).limits},
+	{"GET", "/api/ask", PermView, (*Gateway).ask},
 	{"POST", "/api/reply", PermReply, (*Gateway).reply},
 	{"POST", "/api/answer", PermReply, (*Gateway).answer},
 	{"POST", "/api/review/send", PermReply, (*Gateway).reviewSend},
@@ -328,12 +348,22 @@ var routes = []route{
 	{"POST", "/api/panes", PermFull, (*Gateway).newPane},
 	{"POST", "/api/close", PermFull, (*Gateway).closePane},
 	{"POST", "/api/rename", PermFull, (*Gateway).renamePane},
+	{"POST", "/api/attach", PermFull, (*Gateway).attach},
+	{"GET", "/api/changes", PermView, (*Gateway).changes},
+	{"GET", "/api/diff", PermView, (*Gateway).fileDiff},
+	{"POST", "/api/stage", PermFull, (*Gateway).stage},
+	{"POST", "/api/review/note", PermReply, (*Gateway).reviewNote},
+	{"POST", "/api/commit", PermFull, (*Gateway).commit},
+	{"POST", "/api/push", PermFull, (*Gateway).push},
+	{"POST", "/api/pr", PermFull, (*Gateway).openPR},
+	{"GET", "/api/artifacts", PermView, (*Gateway).artifacts},
 }
 
 // SocketPath is where the WebSocket is opened.
 const SocketPath = "/api/socket"
 
-// maxBody bounds a request: a reply or a task's prompt, not a file.
+// maxBody bounds a request: a reply or a task's prompt, not a file. A
+// route that takes a file says how much in bodyLimits.
 const maxBody = 64 << 10
 
 // Handler is the gateway's HTTP handler.
@@ -508,9 +538,24 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, rts []route
 			g.fail(w, r, apiErr(CodeForbidden, "the "+CSRFHeader+" header is missing or wrong; take it from /api/hello"))
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+		limit := int64(maxBody)
+		if l, ok := bodyLimits[rt.path]; ok {
+			limit = l
+		}
+		// Said before any of it is read when the request says its size.
+		tooLarge := apiErr(CodeBadRequest, "the request is larger than "+byteSize(limit)+", the most "+rt.path+" takes")
+		if r.ContentLength > limit {
+			g.failStatus(w, r, http.StatusRequestEntityTooLarge, tooLarge)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			g.failStatus(w, r, http.StatusRequestEntityTooLarge, tooLarge)
+			return
+		}
 		if err != nil {
-			g.fail(w, r, apiErr(CodeBadRequest, "the request is too large"))
+			g.fail(w, r, apiErr(CodeBadRequest, "the request couldn't be read"))
 			return
 		}
 		rq.body = body
@@ -686,7 +731,7 @@ func (g *Gateway) hello(rq *request) (any, *APIError) {
 	// socket says again when it answers.
 	return Hello{APIVersion: APIVersion, ConchVersion: proto.Version, DeviceID: rq.dev.ID,
 		Permission: rq.dev.Permission, CSRFToken: csrfToken(rq.token),
-		Machines: machineList(g.machinesFor(rq.dev), nil)}, nil
+		Machines: machineList(g.machinesFor(rq.dev), nil), Features: features()}, nil
 }
 
 func (g *Gateway) listAgents(rq *request) (any, *APIError) {

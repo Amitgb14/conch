@@ -26,7 +26,7 @@ A Devin pane that needs an answer looks idle.
 ## Two tiers
 
 - **Supported** — the nine above, with their saved conversations in the [Sessions](/docs/sessions) view.
-- **Runs here** — described by a manifest: conch starts and recognises it, but does not read its sessions.
+- **Runs here** — from a manifest: conch starts and recognises it; only Pi, Grok, Cursor, Kilo Code list sessions.
 
 conch ships manifests for [fourteen more](/docs/cli#the-agents-conch-knows), marked with anything but a circle.
 
@@ -120,4 +120,4 @@ A work and a home subscription of Claude Code or Codex side by side.
 4. **Or per task:** `conch task -account home "Fix the flaky test"`.
 5. **Failover:** `conch account failover 90`; a new agent skips an account past 90%.
 
-`conch account list` or **Settings → Agents → Agent accounts…** shows each one's limits. Sessions resume on their own account. A new account starts empty: copy in your `CLAUDE.md` and skills. See [Agent accounts](/docs/cli#agent-accounts).
+`conch account list` or Conch.app's **Settings → Agents → Agent accounts** shows each one's limits. Sessions resume on their own account. A new account starts empty: copy in your `CLAUDE.md` and skills. See [Agent accounts](/docs/cli#agent-accounts).

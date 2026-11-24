@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ErrNothingToCommit is returned by CommitChanges when there are no changes.
@@ -279,7 +280,7 @@ func (e *RebaseConflictError) Error() string {
 // was and nothing is pushed — and uncommitted changes to tracked files stop
 // it before it starts, so a rebase never moves work nobody committed.
 func PushRebase(ctx context.Context, dir, branch string) (took int, err error) {
-	if err := readyToRebase(ctx, dir, branch); err != nil {
+	if err := ReadyToRebase(ctx, dir, branch); err != nil {
 		return 0, err
 	}
 	remote, err := branchRemote(ctx, dir, branch)
@@ -300,10 +301,10 @@ func PushRebase(ctx context.Context, dir, branch string) (took int, err error) {
 	return took, Push(ctx, dir, branch)
 }
 
-// readyToRebase refuses a rebase of branch in dir unless it is the
+// ReadyToRebase refuses a rebase of branch in dir unless it is the
 // branch checked out there and nothing tracked is left uncommitted: a
 // rebase never moves work nobody committed.
-func readyToRebase(ctx context.Context, dir, branch string) error {
+func ReadyToRebase(ctx context.Context, dir, branch string) error {
 	head, err := revParse(ctx, dir, "--abbrev-ref", "HEAD")
 	if err != nil {
 		return err
@@ -323,18 +324,65 @@ func readyToRebase(ctx context.Context, dir, branch string) error {
 	return nil
 }
 
+// RebaseLeftError is a rebase that stopped and then could not be undone:
+// the checkout is still in the middle of it.
+type RebaseLeftError struct {
+	Dir string
+	Err error // why the abort failed
+}
+
+func (e *RebaseLeftError) Error() string {
+	return fmt.Sprintf("conch's rebase stopped and could not be undone (%v); run `git rebase --abort` in %s", e.Err, e.Dir)
+}
+
+func (e *RebaseLeftError) Unwrap() error { return e.Err }
+
+// abortTries is how often an abort is tried, abortPause apart: what stops
+// one is usually another git's index.lock, gone a moment later — a status
+// run by a watcher of the very files the rebase just wrote.
+const (
+	abortTries = 5
+	abortPause = 300 * time.Millisecond
+)
+
 // rebaseUndoing rebases the checkout in dir onto onto. One that stops is
 // undone, whatever stopped it, and the files it conflicted in come back
-// (none when it was something else, which is err).
+// (none when it was something else, which is err). One that could not be
+// undone names no conflicts and is a *RebaseLeftError: nothing may be told
+// the branch is as it was.
 func rebaseUndoing(ctx context.Context, dir, onto string) (conflicts []string, err error) {
 	if _, err := run(ctx, dir, "rebase", "--quiet", onto); err != nil {
-		conflicts := conflictFiles(ctx, dir)
 		// Without the caller's context: a cancelled one would leave the
 		// rebase half done.
-		_, _ = run(context.Background(), dir, "rebase", "--abort")
+		undo := context.WithoutCancel(ctx)
+		conflicts := conflictFiles(undo, dir)
+		if left := abortRebase(undo, dir); left != nil {
+			return nil, left
+		}
 		return conflicts, err
 	}
 	return nil, nil
+}
+
+// abortRebase undoes the rebase under way in dir, if one is: git may have
+// refused to begin.
+func abortRebase(ctx context.Context, dir string) error {
+	var err error
+	for try := range abortTries {
+		if InProgress(ctx, dir) != "rebase" {
+			return nil
+		}
+		if try > 0 {
+			time.Sleep(abortPause)
+		}
+		if _, err = run(ctx, dir, "rebase", "--abort"); err == nil {
+			return nil
+		}
+	}
+	if InProgress(ctx, dir) != "rebase" {
+		return nil
+	}
+	return &RebaseLeftError{Dir: dir, Err: err}
 }
 
 // pushRemote picks where a branch without an upstream goes: origin, or the

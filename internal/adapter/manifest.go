@@ -27,6 +27,9 @@ import (
 // detects it in a pane and gives it a first message. What it does not
 // claim, it says — sessions and the setup view answer "not read for this
 // agent" rather than pretending to read a format nobody has written down.
+// A few of them conch has since learnt to read off the real agent's
+// files (sessions.Reads: Pi, Grok, Cursor, Kilo Code), and their
+// sessions are listed like a supported agent's.
 // That honesty is the point of having a tier at all: the wider catalogs
 // *detect* an agent, and conch is not going to say it supports one it
 // cannot resume.

@@ -56,7 +56,10 @@ type autopilot struct {
 	reship    map[string]bool
 	unshipped map[string]string
 	resolving map[string]bool // conflicts being worked on now
-	starting  map[string]bool // checks being started, by branch
+	// stopped is each branch's last rebase onto its base that stopped, so
+	// it is not run again in somebody's worktree to learn the same.
+	stopped  map[string]stoppedRebase
+	starting map[string]bool // checks being started, by branch
 	// capSaid is branches told their auto_fix allowance is spent, so it
 	// is said once rather than at every failure after.
 	capSaid map[string]bool
@@ -162,7 +165,7 @@ func orNew[K comparable, V any](m *map[K]V) {
 
 func loadAutopilot(configDir string) *autopilot {
 	a := &autopilot{file: filepath.Join(configDir, "autopilot.json"), merging: map[string]bool{},
-		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{},
+		shipping: map[string]bool{}, unshipped: map[string]string{}, lastCheck: map[string]string{}, resolving: map[string]bool{}, stopped: map[string]stoppedRebase{},
 		starting: map[string]bool{}, capSaid: map[string]bool{}, recheck: map[string]bool{}, reship: map[string]bool{},
 		gateMemo: map[string]gateResult{}, said: map[string]string{}, activity: loadActivity(configDir)}
 	raw, err := os.ReadFile(a.file)
@@ -412,6 +415,7 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 		case !conflicting:
 			delete(a.saved.Conflicted, key)
 			delete(a.saved.Resolves, key)
+			delete(a.stopped, key)
 			// The next conflict is news, even said in the same words.
 			delete(a.said, key+"\x00resolve")
 		}
@@ -435,6 +439,7 @@ func (a *autopilot) observe(info proto.ProjectInfo) (red []string) {
 			if _, ok := now[key]; !ok {
 				delete(a.saved.Conflicted, key)
 				delete(a.saved.Resolves, key)
+				delete(a.stopped, key)
 				delete(a.said, key+"\x00resolve")
 			}
 		}
@@ -471,6 +476,7 @@ func (a *autopilot) forget(projectID string) {
 	dropKeys(ours, f.PendingCI, f.Drafted, a.capSaid, a.recheck, a.reship)
 	dropKeys(ours, f.Rewrites)
 	dropKeys(ours, a.gateMemo)
+	dropKeys(ours, a.stopped)
 	for pane, key := range f.CheckPanes {
 		if ours(key) {
 			delete(f.CheckPanes, pane)

@@ -55,7 +55,7 @@ func TestCloudGate(t *testing.T) {
 // what it is and how to turn it on, and exits 1 — not 2, "unknown".
 func TestCloudHiddenFromMain(t *testing.T) {
 	a4Env(t)
-	for _, args := range [][]string{{"login"}, {"logout"}, {"account"}, {"cloud", "machine", "ls"}} {
+	for _, args := range [][]string{{"login"}, {"logout"}, {"account", "-json"}, {"cloud", "machine", "ls"}} {
 		code, out, errOut := a4RunMain(t, "", args...)
 		if code != 1 || out != "" || !strings.Contains(errOut, "conch "+args[0]+": Conch Cloud is not enabled") || strings.Contains(errOut, "unknown command") {
 			t.Errorf("%v: %d %q %q", args, code, out, errOut)
@@ -80,14 +80,14 @@ func TestCloudHiddenFromMain(t *testing.T) {
 func TestCloudHiddenFromUsage(t *testing.T) {
 	a4Env(t)
 	off := fullUsage()
-	for _, gone := range []string{"conch login", "conch logout", "conch account", "conch cloud", "Conch Cloud", "conch-cloud-agent"} {
+	for _, gone := range []string{"conch login", "conch logout", cloudAccountEntry, "conch cloud", "Conch Cloud", "conch-cloud-agent"} {
 		if strings.Contains(off, gone) {
 			t.Errorf("help all says %q with Cloud hidden", gone)
 		}
 	}
 	// What is around it is all still there, line for line.
 	for _, l := range strings.Split(usage, "\n") {
-		if m := helpWords.FindStringSubmatch(l); m != nil && !slices.Contains(cloudCommands, m[1]) && !strings.Contains(off, l) {
+		if m := helpWords.FindStringSubmatch(l); m != nil && !slices.Contains(cloudCommands, m[1]) && !strings.HasPrefix(l, cloudAccountEntry) && !strings.Contains(off, l) {
 			t.Errorf("help all lost %q", l)
 		}
 	}

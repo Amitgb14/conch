@@ -145,7 +145,7 @@ func RewriteDiff(ctx context.Context, dir string, r *Rebase, max int) (string, e
 // if it is still at after and has nothing uncommitted: the rewrite stays
 // in the reflog, so this too can be undone.
 func UndoRebase(ctx context.Context, dir, branch, before, after string) error {
-	if err := readyToRebase(ctx, dir, branch); err != nil {
+	if err := ReadyToRebase(ctx, dir, branch); err != nil {
 		return err
 	}
 	if head, _ := revParse(ctx, dir, "HEAD"); head != after {

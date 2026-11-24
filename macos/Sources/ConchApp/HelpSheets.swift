@@ -16,6 +16,7 @@ struct ShortcutsSheet: View {
         ("⇧PgUp  ⇧PgDn", "scroll a pane's history a page"),
         ("⇧Home  ⇧End", "a pane's oldest line, and back to the live screen"),
         ("⌘-click", "open a link a pane printed"),
+        ("drag in an agent's pane", "select and copy; ⌥-drag is the agent's"),
         ("drag a split's edge", "resize the splits"),
         ("drag a tab onto another", "move it there"),
         ("⏎  ← →  ↑ ↓", "in the sidebar: open, fold, move"),
@@ -58,6 +59,12 @@ struct ShortcutsSheet: View {
                             line("1 … 9  0", "the tab at that place")
                             line(showKey(t.prefix), "twice: the program gets it")
                         }
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        // Ahead of the menus while a browser has the keyboard;
+                        // a terminal keeps ⌘T and ⌘W.
+                        Text("IN A BROWSER").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)
+                        ForEach(browserKeysHelp, id: \.keys) { k, what in line(k, what) }
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text("PANES AND THE MOUSE").font(.ui(size: 10.5, weight: .semibold)).foregroundStyle(.secondary)

@@ -365,7 +365,10 @@ func connectMachine(ref string) (*client.Client, error) {
 	return c, err
 }
 
-func progress(msg string) { fmt.Fprintf(os.Stderr, "  %s…\n", msg) }
+func progress(msg string) {
+	fmt.Fprintf(os.Stderr, "  %s…\n", msg)
+	stepLog.note(msg)
+}
 
 func confirm(prompt string, def bool) bool {
 	fmt.Fprint(os.Stderr, prompt)

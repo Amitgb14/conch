@@ -170,7 +170,7 @@ extension SettingsNav {
     /// schema still shows. Checks & autopilot is listed under Workspace
     /// for a schema without Git; with one, it is on Git's page.
     public static let groups: [(String, [String])] = [
-        ("General", ["ui", "app", "keys", "notify", "update"]),
+        ("General", ["ui", "app", browser, "keys", "notify", "update"]),
         ("Agents", ["agents", skills, "teams", "permissions", "brain"]),
         ("Workspace", ["git", "verify", "shell", "preview", "actions"]),
         ("Machines", ["remote", "sandbox", "web"]),
@@ -206,6 +206,8 @@ extension SettingsNav {
                 // A page finds what is shown on it: Git, Checks & autopilot's.
                 let guests = schema.filter { mergedInto[$0.id] == id }
                 text = ([s] + guests).flatMap(hay).joined(separator: " ").lowercased()
+            } else if id == browser {
+                text = browserSearchText
             } else {
                 text = "\(skillsTitle) skill skills mcp server servers library conch-factory conch-team conch-review conch-ship conch-autopilot autopilot conch-qa conch-cicd conch-setup conch-status".lowercased()
             }

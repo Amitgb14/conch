@@ -44,7 +44,10 @@ func (m Model) knownMachines() []remote.Machine {
 // copyPaneRef puts a pane's ID on the clipboard and says which it was.
 func copyPaneRef(ref string) tea.Cmd {
 	return func() tea.Msg {
-		putClipboard(ref)
+		r := putClipboard(ref)
+		if r.outcome != clipCopied {
+			return flashMsg(r.say(ref)) // what to do instead, over what it is for
+		}
 		return flashMsg(fmt.Sprintf("copied %s: conch read %s, conch send %s …", ref, ref, ref))
 	}
 }

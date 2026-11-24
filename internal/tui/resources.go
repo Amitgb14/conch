@@ -1,21 +1,18 @@
 package tui
 
 import (
-	"bufio"
-	"bytes"
-	"context"
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Amitgb14/conch/internal/procs"
 )
 
 // The resource monitor: an icon at the right end of the status bar opens a
@@ -31,101 +28,13 @@ const (
 	monitorBarW     = 10 // cells in a CPU bar; full is one core
 )
 
-// proc is one process from ps.
-type proc struct {
-	pid, ppid int
-	rss       int64         // resident memory, KiB
-	cpu       time.Duration // CPU time used so far
-	comm      string
-}
-
-// procSample is every process on this computer at one moment.
-type procSample struct {
-	at    time.Time
-	procs map[int]proc
-	err   error
-}
-
-// runPS lists every process; tests replace it.
-var runPS = func(ctx context.Context) ([]byte, error) {
-	// The same fields exist in procps (Linux) and BSD ps (macOS); comm is
-	// last because it may contain spaces.
-	return exec.CommandContext(ctx, "ps", "-A", "-o", "pid=,ppid=,rss=,time=,comm=").Output()
-}
-
-// parsePS reads ps output, skipping lines it can't parse.
-func parsePS(out []byte) map[int]proc {
-	procs := map[int]proc{}
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) < 4 {
-			continue
-		}
-		pid, err1 := strconv.Atoi(f[0])
-		ppid, err2 := strconv.Atoi(f[1])
-		rss, err3 := strconv.ParseInt(f[2], 10, 64)
-		cpu, ok := parseCPUTime(f[3])
-		if err1 != nil || err2 != nil || err3 != nil || !ok || pid < 0 || rss < 0 {
-			continue
-		}
-		procs[pid] = proc{pid: pid, ppid: ppid, rss: rss, cpu: cpu, comm: strings.Join(f[4:], " ")}
-	}
-	return procs
-}
-
-// parseCPUTime reads ps's time column: [DD-][HH:]MM:SS[.ss]. Linux prints
-// 00:01:02, macOS 1:02.34 (minutes may pass 59 there).
-func parseCPUTime(s string) (time.Duration, bool) {
-	var days int64
-	if d, rest, ok := strings.Cut(s, "-"); ok {
-		n, err := strconv.ParseInt(d, 10, 64)
-		if err != nil || n < 0 {
-			return 0, false
-		}
-		days, s = n, rest
-	}
-	parts := strings.Split(s, ":")
-	if len(parts) < 2 || len(parts) > 3 {
-		return 0, false
-	}
-	sec, err := strconv.ParseFloat(parts[len(parts)-1], 64)
-	if err != nil || sec < 0 || math.IsInf(sec, 0) || math.IsNaN(sec) {
-		return 0, false
-	}
-	total := sec + float64(days)*86400
-	for i, mult := len(parts)-2, 60.0; i >= 0; i, mult = i-1, mult*60 {
-		n, err := strconv.ParseInt(parts[i], 10, 64)
-		if err != nil || n < 0 {
-			return 0, false
-		}
-		total += float64(n) * mult
-	}
-	// Whole milliseconds, so float noise never shows up as CPU use.
-	return time.Duration(math.Round(total*1000)) * time.Millisecond, true
-}
-
-// takeSample runs ps. A ps that fails but still prints its list (a process
-// it couldn't read) is as good as one that didn't.
-func takeSample() procSample {
-	ctx, cancel := context.WithTimeout(context.Background(), monitorEvery)
-	defer cancel()
-	out, err := runPS(ctx)
-	s := procSample{at: time.Now(), procs: parsePS(out)}
-	if len(s.procs) == 0 {
-		if err == nil {
-			err = fmt.Errorf("ps listed no processes")
-		}
-		s.err = err
-	}
-	return s
-}
+// takeSample runs ps, given until the next sample is due.
+func takeSample() procs.Sample { return procs.Take(monitorEvery) }
 
 // monitorSampleMsg carries a sample to the box that asked for it.
 type monitorSampleMsg struct {
 	mon    *monitor
-	sample procSample
+	sample procs.Sample
 }
 
 // monitorTickMsg asks the box for its next sample.
@@ -133,7 +42,7 @@ type monitorTickMsg struct{ mon *monitor }
 
 // monitor is the box the status bar icon opens.
 type monitor struct {
-	prev, cur *procSample
+	prev, cur *procs.Sample
 }
 
 func (m *Model) openMonitor() tea.Cmd {
@@ -191,68 +100,20 @@ type monUsage struct {
 	indent bool
 }
 
-// tree lists root and its descendants that aren't claimed yet, claiming
-// them. Each pid is taken once, so a parent loop in ps's list (a pid reused
-// while ps was reading) can't send it round forever.
-func tree(root int, children map[int][]int, procs map[int]proc, claimed map[int]bool) []int {
-	if _, ok := procs[root]; !ok || claimed[root] {
-		return nil
-	}
-	var out []int
-	stack := []int{root}
-	claimed[root] = true
-	for len(stack) > 0 {
-		pid := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		out = append(out, pid)
-		for _, c := range children[pid] {
-			if !claimed[c] {
-				claimed[c] = true
-				stack = append(stack, c)
-			}
-		}
-	}
-	return out
-}
-
-// sum adds up the memory and CPU of pids. CPU needs two samples: a process
-// missing from the first, or whose time went down (its pid was reused),
-// counts all its time as new.
+// sum adds up the memory and CPU of pids. CPU needs two samples.
 func (mon *monitor) sum(pids []int) (rss int64, cpu float64) {
 	cpu = -1
-	var used time.Duration
-	for _, pid := range pids {
-		p := mon.cur.procs[pid]
-		rss += p.rss
-		d := p.cpu
-		if mon.prev != nil {
-			if old, ok := mon.prev.procs[pid]; ok && old.cpu <= p.cpu {
-				d = p.cpu - old.cpu
-			}
-		}
-		used += d
+	if elapsed, ok := procs.Elapsed(mon.prev, mon.cur); ok {
+		cpu = float64(procs.Used(mon.prev, mon.cur, pids)) / float64(elapsed) * 100
 	}
-	if mon.prev != nil && mon.prev.err == nil {
-		if elapsed := mon.cur.at.Sub(mon.prev.at); elapsed > 0 {
-			cpu = float64(used) / float64(elapsed) * 100
-		}
-	}
-	return rss, cpu
+	return mon.cur.RSS(pids), cpu
 }
 
 // rows works out the box's rows from the latest sample. Only this
 // computer's panes are matched: a remote pane's pid means another machine.
 func (mon *monitor) rows(m Model) (rows []monUsage, total monUsage) {
-	procs := mon.cur.procs
-	children := map[int][]int{}
-	for _, p := range procs {
-		if p.ppid != p.pid {
-			children[p.ppid] = append(children[p.ppid], p.pid)
-		}
-	}
-	for _, c := range children {
-		slices.Sort(c)
-	}
+	running := mon.cur.Procs
+	children := procs.Children(running)
 	claimed := map[int]bool{}
 	var all []int
 	add := func(label string, pids []int, indent bool) monUsage {
@@ -275,7 +136,7 @@ func (mon *monitor) rows(m Model) (rows []monUsage, total monUsage) {
 	}
 	// The TUI before the panes, so running it inside a conch pane doesn't
 	// count it twice.
-	rows = append(rows, add("This window (TUI)", tree(os.Getpid(), children, procs, claimed), false))
+	rows = append(rows, add("This window (TUI)", procs.Tree(os.Getpid(), children, running, claimed), false))
 
 	var panes []monUsage
 	if local != nil {
@@ -283,15 +144,15 @@ func (mon *monitor) rows(m Model) (rows []monUsage, total monUsage) {
 			if p.PID <= 0 { // 0 would be macOS's kernel, above everything
 				continue
 			}
-			if pids := tree(p.PID, children, procs, claimed); len(pids) > 0 {
+			if pids := procs.Tree(p.PID, children, running, claimed); len(pids) > 0 {
 				panes = append(panes, add(p.DisplayName(), pids, true))
 			}
 		}
 	}
 	if serverPID > 0 {
-		if _, ok := procs[serverPID]; ok {
+		if _, ok := running[serverPID]; ok {
 			delete(claimed, serverPID)
-			rows = append(rows, add(fmt.Sprintf("Server · pid %d", serverPID), tree(serverPID, children, procs, claimed), false))
+			rows = append(rows, add(fmt.Sprintf("Server · pid %d", serverPID), procs.Tree(serverPID, children, running, claimed), false))
 		}
 	}
 	slices.SortStableFunc(panes, func(a, b monUsage) int {
@@ -360,8 +221,8 @@ func (mon *monitor) render(m Model) box {
 	switch {
 	case mon.cur == nil:
 		lines = []string{" " + styleMuted.Render("reading processes…")}
-	case mon.cur.err != nil:
-		lines = []string{" " + styleErr.Render("ps: "+mon.cur.err.Error())}
+	case mon.cur.Err != nil:
+		lines = []string{" " + styleErr.Render("ps: "+mon.cur.Err.Error())}
 	default:
 		lines = append(lines, " "+styleMuted.Render(strings.Repeat(" ", monitorNameW)+fmt.Sprintf(" %8s %7s", "memory", "cpu")))
 		rows, total := mon.rows(m)

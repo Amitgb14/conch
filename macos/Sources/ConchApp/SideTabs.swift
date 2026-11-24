@@ -44,6 +44,16 @@ struct SideTabs: View {
                 .foregroundStyle(Theme.muted).padding(.horizontal, 8).frame(height: 28).contentShape(Rectangle())
             }
             .buttonStyle(.plain).focusable(false)
+            Button { store.openBrowser(nil) } label: {
+                HStack(spacing: 7) {
+                    Text("◎").font(.ui(size: 12)).frame(width: 12)
+                    Text("New browser tab").font(.ui(size: 12.5))
+                    Spacer()
+                    Keycap("⇧⌘B")
+                }
+                .foregroundStyle(Theme.muted).padding(.horizontal, 8).frame(height: 28).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).focusable(false)
         }
     }
 }

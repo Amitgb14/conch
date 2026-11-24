@@ -2,7 +2,7 @@ export const metadata = { title: "Mac app", description: "conch in a native macO
 
 # Mac app
 
-Conch.app shows the TUI's agents and terminals in a macOS window; closing it stops nothing. New installs start white, with a welcome.
+Conch.app shows conch's agents and terminals; closing it stops nothing.
 
 <Shot
   name="desktop-agents"
@@ -31,13 +31,15 @@ The sidebar is conch's tree; tabs and splits work as in the TUI.
 
 **Background:** a scene, or [your own](/docs/configuration#scenes-of-your-own): **Settings → Mac App → Background**.
 
-**How:** click a row to open it, right-click for more. ⌘. finds the next waiting agent, ⌃⌘S hides the sidebar.
+**How:** click a row, right-click for more. ⌘. finds a waiting agent; ⌃⌘S hides the sidebar.
+
+**Copy:** drag in an agent's pane (⌥: the agent's).
 
 **Teams:** right-click an agent → **Team**, or drag it to a [team](/docs/configuration#teams).
 
 ## Settings
 
-**How:** ⚙ in the status bar, or ⌘,. **View → Theme** and **View → Style** change the look. **Agents** installs agents.
+**How:** ⚙ in the status bar, or ⌘,. **View → Theme** and **View → Style** change the look.
 
 <Shot name="desktop-settings" alt="Conch.app's Settings panel with its sections down the left" caption="Settings, in the app." />
 
@@ -45,7 +47,7 @@ The sidebar is conch's tree; tabs and splits work as in the TUI.
 
 ## Plan limits
 
-The status bar shows each agent's plan use.
+Click the status bar's plan for every account's plan and tokens.
 
 <Shot name="desktop-limits" alt="Conch.app's plan windows" caption="Plan windows and tokens used." />
 
@@ -59,13 +61,13 @@ A pane sized by another window is letterboxed.
 
 A shell floating over the splits.
 
-**How:** ⌥Space shows or hides it, ⌥⌘↩ docks it as a split, ⌥⌘T makes it a tab.
+**How:** ⌥Space shows or hides it; ⌥⌘↩ docks it, ⌥⌘T makes it a tab.
 
 ## A branch's changes
 
 A branch opens in a tab. Tick hunks, then **Commit**; **✦ Write** drafts a message; **+** leaves a note.
 
-**How:** ⋯ holds **Push**, **Merge…**, **Open Pull Request** and **Delete Branch…**.
+**How:** ⋯ holds **Push**, **Merge…** and **Open Pull Request**.
 
 <Shot
   name="desktop-git"
@@ -81,27 +83,15 @@ What each agent loads in a checkout.
 
 ## Left running
 
-An agent that left a dev server running shows *idle · 2 running*.
-
-**How:** hover it for each command; click it to stop one.
+An agent that left a server running shows *idle · 2 running*: hover for each command, click to stop one.
 
 ## Answering an agent without opening it
 
-Each waiting agent is a card under **Needs you**, its choices as buttons.
-
-**How:** click a choice to answer, or the card to open it.
+Waiting agents are cards under **Needs you**: click a choice, or the card to open it.
 
 ## Files and sessions
 
-**Files** edits the checkout; **Sessions** resumes saved conversations.
-
-| Keys | |
-| --- | --- |
-| `⌘S` | save |
-| `⌘P` | go to a file |
-| `⇧⌘F` | search the project |
-| `⌥⌘F` | find and replace |
-| `⌘I` | edit with an agent |
+**Files** edits the checkout (⌘P a file, ⇧⌘F search); **Sessions** resumes saved conversations.
 
 <Shot
   name="desktop-files"
@@ -111,7 +101,7 @@ Each waiting agent is a card under **Needs you**, its choices as buttons.
 
 ## Workbench
 
-An agent's files, a terminal and its chat in one tab.
+An agent's files, terminal, chat and browser (🌐) in one tab.
 
 **How:** ⌥⌘B, or right-click an agent → **Open Workbench**; ⌥⌘1–⌥⌘5 pick a layout.
 
@@ -119,15 +109,23 @@ An agent's files, a terminal and its chat in one tab.
 
 ## Browser tabs
 
-A web page in a tab beside the agents.
+A web page in a tab, split or Workbench, with its own tabs.
 
-**How:** **File → New Browser Tab** (⇧⌘B).
+**How:** ⇧⌘B, ⌥⌘D, or an agent's `:3000 ↗`. ⌘/ lists its keys. Right-click a tab for more. Memory: hover, or ⋯ → **Browser Memory**.
 
 <Shot
   name="desktop-browser"
   alt="Conch.app with a browser tab on a dev server"
   caption="A dev server beside its agents."
 />
+
+### Develop
+
+⋯ → **Develop**, or the menu bar's: source ⌥⌘U, hard reload ⇧⌘R, phone sizes ⌃⌘R, cache, JavaScript or images off, screenshots. ⚠ counts the page's errors; **Send Errors to Agent** pastes them, unsent. **About Browser** shows versions and the certificate.
+
+### Privacy and security
+
+Sign-ins stay in WebKit's store; a private tab (⇧⌘N) keeps nothing. Pages cannot reach conch; the error watcher only listens, and not in private tabs. A file:// page reads only itself; pop-ups need a click. A bad certificate stops until **Visit Anyway**. **Settings → Browser** clears data and permissions.
 
 ## Commits
 
@@ -137,17 +135,17 @@ Agents' branches, conflicts, **CI**, **Autopilot**.
 
 ## Starting agents and tasks
 
-**How:** **File → New Task…** (⌘N), **File → Start Agent** (⇧⌘N), **Add Project…** (⌘O).
+**How:** **New Task…** (⌘N), **Start Agent** (⇧⌘N), **Add Project…** (⌘O).
 
 ## System Monitor
 
-CPU, memory, disk and the heaviest processes, on any machine conch reaches.
+CPU, memory, disk and processes, on any machine.
 
 **How:** `⌥⌘M`, or the expand icon on the `▁▃▆` monitor.
 
 ## Tickets
 
-Every project's issues and tickets, by **Mine**, **Ready for conch**, **Needs info** and **conch is on it**.
+Every project's issues and tickets.
 
 **How:** `⇧⌘I`. Setting up a tracker: [Tickets](/docs/tasks#tickets).
 
@@ -156,24 +154,20 @@ Every project's issues and tickets, by **Mine**, **Ready for conch**, **Needs in
 | Keys | |
 | --- | --- |
 | `⌘K` | search |
-| `⌘T` / `⌘D` | new terminal tab / split |
-| `⇧⌘↩` | zoom the focused split |
+| `⌘T` / `⌘D` | new terminal tab / split, where you are |
 | `⌘F` | find in the pane |
-| `⌥⌘M` | the [System Monitor](#system-monitor) |
-| `⇧⌘I` | Tickets |
 | `⌥⌘N` / ``⌘` `` | new window / next window |
-| `⌘W` | close the split (the pane runs on) |
+| `⌘W` | close the split |
 | `⌘1`–`⌘9` | go to a tab |
-| `⌘0` | the sidebar takes the keyboard |
 | `⌘/` | every keyboard shortcut |
 
 The TUI's `ctrl+b` [prefix keys](/docs/configuration#rebinding-the-keys) work too.
 
 ## Installing the beta
 
-Download `Conch_<version>_macos_arm64.zip` from the [releases](https://github.com/Amitgb14/conch/releases); it needs Apple Silicon and macOS 14+.
+Download the `.dmg` from the [releases](https://github.com/Amitgb14/conch/releases); Apple Silicon, macOS 14+.
 
-**How:** unzip it into **Applications**; **Conch → Check for Updates…** updates it.
+**How:** drag it to **Applications**; **Conch → Check for Updates…** updates it.
 
 ## Building it
 

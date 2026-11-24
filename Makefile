@@ -1,6 +1,7 @@
-VERSION ?= 0.2.2-dev
+VERSION ?= 0.2.3-dev
 MODULE  := github.com/Amitgb14/conch
-LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION)
+COMMIT  := $(shell git rev-parse HEAD 2>/dev/null)
+LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION) -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT)
 # Pinned, so a new staticcheck release can't turn CI red on its own. The
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1

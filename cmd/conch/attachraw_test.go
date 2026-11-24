@@ -231,6 +231,57 @@ func TestAttachRawControlInPieces(t *testing.T) {
 	}
 }
 
+// A control paste cut in two by a pause longer than the flush — a busy
+// machine, a big paste — once had its first piece typed into the pane at
+// the flush, and the rest after it: the agent's prompt read
+// `conch-attach:TOKEN {"cols":244,"rows":38}`.
+func TestAttachRawControlSplitAcrossAFlush(t *testing.T) {
+	srv, c := startRawServer(t, true)
+	r := runRaw(t, srv, c, false)
+	attachWait(t, "pane.raw", func() bool { return len(attachSent[proto.PaneRef](srv, proto.MethodPaneRaw)) == 1 })
+	texts := func() []proto.PaneSendTextParams {
+		return attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText)
+	}
+	for i, cut := range []int{len(attachControlMark) + 2, len(attachControlMark + "tok {\"cols\":24")} {
+		body := attachControlMark + `tok {"cols":91,"rows":2` + string(rune('0'+i)) + `}`
+		io.WriteString(r.in, body[:cut]) //nolint:errcheck
+		time.Sleep(4 * attachFlush)
+		if got := texts(); len(got) != 0 {
+			t.Fatalf("cut at %d: the first piece reached the pane at the flush: %+v", cut, got)
+		}
+		io.WriteString(r.in, body[cut:]) //nolint:errcheck
+		attachWait(t, "the size", func() bool { return len(attachSent[proto.PaneResizeParams](srv, proto.MethodPaneResize)) == i+1 })
+	}
+	// Typing after it is typing, as ever.
+	io.WriteString(r.in, "hi") //nolint:errcheck
+	attachWait(t, "typing", func() bool { return len(texts()) == 1 })
+	if got := texts(); got[0].Text != "hi" {
+		t.Fatalf("typed %+v", got)
+	}
+}
+
+// A control paste of ours that never finishes is dropped after a while,
+// never typed, and typing goes on behind it.
+func TestAttachRawControlNeverFinished(t *testing.T) {
+	old := attachControlWait
+	attachControlWait = 150 * time.Millisecond
+	t.Cleanup(func() { attachControlWait = old })
+	srv, c := startRawServer(t, true)
+	r := runRaw(t, srv, c, false)
+	attachWait(t, "pane.raw", func() bool { return len(attachSent[proto.PaneRef](srv, proto.MethodPaneRaw)) == 1 })
+	io.WriteString(r.in, attachControlMark+`tok {"cols":91`) //nolint:errcheck
+	time.Sleep(3 * attachControlWait)
+	io.WriteString(r.in, "x") //nolint:errcheck
+	attachWait(t, "the x", func() bool { return len(attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText)) >= 1 })
+	var all strings.Builder
+	for _, s := range attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText) {
+		all.WriteString(s.Text)
+	}
+	if strings.Contains(all.String(), "conch-attach") || !strings.HasSuffix(all.String(), "x") {
+		t.Fatalf("typed %q", all.String())
+	}
+}
+
 func TestAttachRawHoldsAnEndedPane(t *testing.T) {
 	srv, c := startRawServer(t, true)
 	r := runRaw(t, srv, c, true)

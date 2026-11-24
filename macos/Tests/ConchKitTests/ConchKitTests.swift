@@ -267,8 +267,8 @@ func projects(_ machine: TreeNode) -> [TreeNode] {
     let items = fixture().paletteItems()
     #expect(filterPalette(items, query: "") == items)
     let split = filterPalette(items, query: "split")
-    #expect(split.map(\.title) == ["Split Right", "Split Down", "Close Split"])
-    #expect(filterPalette(items, query: "down split").map(\.title) == ["Split Down"])
+    #expect(split.map(\.title) == ["Split Right", "Split Down", "Split Right with Browser", "Split Down with Browser", "Split Right with Agent", "Close Split"])
+    #expect(filterPalette(items, query: "down split").map(\.title) == ["Split Down", "Split Down with Browser"])
     #expect(filterPalette(items, query: "HEALTH").first?.title == "Add health check")
     #expect(filterPalette(items, query: "zzqq").isEmpty)
 }
@@ -3875,4 +3875,42 @@ func sshPane(_ id: String, _ host: String, args: [String] = []) -> PaneInfo {
     let chip = try body(of: "struct MachineChip: View {")
     #expect(!chip.contains("p.kind == .local ? Color.clear"), "this Mac's chip drawn bare on the toolbar")
     #expect(!chip.contains("p.kind == .local ? Theme.muted : Theme.text2"), "this Mac's name in the muted colour")
+}
+
+@Test func anEndedPaneClosesWhenItsViewEnds() {
+    #expect(!closesWhenViewEnds(nil), "a pane already gone")
+    #expect(!closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh")), "still running: only the view ended")
+    #expect(closesWhenViewEnds(PaneInfo(id: "p1", name: "sandbox create · instabox", state: "exited")),
+            "a failed setup kept open to be read, then a key pressed")
+    #expect(closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh", state: "exited")))
+    #expect(!closesWhenViewEnds(PaneInfo(id: "p1", name: "zsh", state: "starting")))
+}
+
+@Test func everyInstalledProvidersMachineIsASandbox() {
+    // InstaBox is a provider file, not one of the old built-ins: its
+    // machine was taken for an ssh host, with no Delete Sandbox.
+    let box = MachineEntry(id: "ib", label: "web", target: "instabox:m_agq7tsac25mgywba63lsvhzhhu")
+    let known = MachineEntry.builtInSandboxProviders.union(["instabox"])
+    #expect(box.sandboxProvider(known: known) == "instabox")
+    #expect(box.sandboxProvider(known: MachineEntry.builtInSandboxProviders) == nil, "not installed: not a sandbox conch can act on")
+    #expect(MachineEntry(id: "d", label: "d", target: "daytona:abc").sandboxProvider(known: []) == nil)
+    // conch: is Conch Cloud's, even were a provider file named so.
+    #expect(MachineEntry(id: "c", label: "c", target: "conch:m_i806gqdxqcmoyx2y").sandboxProvider(known: ["conch"]) == nil)
+    // An ssh host with a port, or a user, is never one.
+    #expect(MachineEntry(id: "h", label: "h", target: "instabox:22").sandboxProvider(known: known) == "instabox",
+            "a host named like a provider, with a port, reads as that provider's sandbox — as conch's own parser reads it")
+    #expect(MachineEntry(id: "h", label: "h", target: "me@instabox:22").sandboxProvider(known: known) == nil)
+    #expect(MachineEntry(id: "h", label: "h", target: "instabox:").sandboxProvider(known: known) == nil)
+    #expect(MachineEntry(id: "h", label: "h", target: nil).sandboxProvider(known: known) == nil)
+}
+
+@Test func installedProvidersAreTheFilesInTheFolder() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir.appendingPathComponent("drafts"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    for n in ["instabox.toml", "daytona.toml", "registry.json", "Bad Name.toml", ".toml", "hetzner-cloud.toml"] {
+        try Data("x".utf8).write(to: dir.appendingPathComponent(n))
+    }
+    #expect(installedSandboxProviders(dir: dir.path) == ["instabox", "daytona", "hetzner-cloud"])
+    #expect(installedSandboxProviders(dir: dir.appendingPathComponent("missing").path).isEmpty)
 }

@@ -4,8 +4,8 @@ import SwiftUI
 
 // New Sandbox…, as the TUI's M → New sandbox…: a provider, a name, and
 // what to make it from, then `conch sandbox -provider P create` in a
-// terminal of its own so the install is watched, as Add Machine… does with
-// `conch machine add`. The sandbox shows in the sidebar when machines.json
+// terminal of the server's, its steps shown in this sheet as they come
+// (SandboxProgressView) and kept going when the sheet is closed. The sandbox shows in the sidebar when machines.json
 // has it. Which providers have their key here is conch's to say
 // (`conch sandbox providers -json`), so one without is shown, not offered.
 
@@ -29,6 +29,19 @@ struct NewSandboxSheet: View {
 
     var body: some View {
         let _ = theme
+        // Once Create is pressed the sheet follows the setup where it was
+        // asked for, rather than a terminal of its own printing it.
+        if let run = store.shownSandboxSetup {
+            SandboxProgressView(store: store, run: run) { dismiss() }
+                .frame(width: 520)
+                .background(Theme.window)
+                .focusEffectDisabled()
+        } else {
+            formView
+        }
+    }
+
+    private var formView: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
@@ -357,9 +370,12 @@ struct NewSandboxSheet: View {
         case .failure(let e):
             problem = e.message
         case .success(let args):
-            store.expectMachine()
-            store.runCLIPane(name: "sandbox create · " + p.label, args: args)
-            dismiss()
+            let summary = [form.region, form.size].map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " · ")
+            let label = form.label.trimmingCharacters(in: .whitespaces)
+            if let run = store.startSandboxSetup(args: args, provider: p.name, providerLabel: p.label, summary: summary,
+                                                 label: label.isEmpty ? nil : label) {
+                store.sandboxSheetRun = run.id
+            }
         }
     }
 }

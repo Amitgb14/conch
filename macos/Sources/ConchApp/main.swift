@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var keyStore: Store { AppWindows.shared.keyStore ?? store }
     /// Where the windows are kept when the app quits, to open again.
     static let windowsKey = "conch.windows"
+    static let browsersKey = "conch.mainBrowsers"
     /// Under Quit: how many panes go on running without the app.
     let runOnItem: NSMenuItem = {
         let i = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -124,12 +125,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings.show(section: page)
             if UserDefaults.standard.bool(forKey: "background") { settings.window?.orderBack(nil) }
         }
+        // The first window's own tabs are the TUI's, given by the server;
+        // its browsers are the app's alone, so they are kept here.
+        if let d = UserDefaults.standard.data(forKey: Self.browsersKey), let b = try? JSONDecoder().decode(SavedLayout.self, from: d) {
+            store.restoreBrowsers(b)
+        }
         store.connect()
         // Conch.app's own updates: once for the app, not for each window.
         AppUpdater.shared.start()
         // The windows open when the app last quit, behind the first.
         for saved in loadSavedWindows(UserDefaults.standard.data(forKey: Self.windowsKey)) {
             let s = Store(windowID: saved.id, workspace: saved.workspace, project: saved.project, layout: saved.layout.layout())
+            s.savedBrowsers = saved.layout.browsers ?? [:]
             let w = AppWindow(store: s, app: self, frame: saved.frame)
             windows.append(w)
             w.window.orderBack(nil)
@@ -211,7 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// (File → New Window, the Dock); any other ends, and is not opened
     /// again with the app.
     func closed(_ w: AppWindow) {
-        guard w.store !== store else { return }
+        guard w.store !== store else {
+            for m in store.browserViews.values { m.pauseMedia() } // kept, but not heard
+            return
+        }
         windows.removeAll { $0 === w }
         AppWindows.shared.remove(w.store)
         w.store.closeWindow()
@@ -224,6 +234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let saved = windows.dropFirst().filter { $0.window.isVisible || $0.window.isMiniaturized }
             .map { $0.store.saved(frame: $0.window.frameDescriptor) }
         UserDefaults.standard.set(encodeSavedWindows(Array(saved)), forKey: Self.windowsKey)
+        let browsers = SavedLayout(store.layout, browsers: store.browserTabs).onlyBrowsers
+        UserDefaults.standard.set(try? JSONEncoder().encode(browsers), forKey: Self.browsersKey)
     }
 
     /// ⌘` and ⇧⌘`: the next window, round the end (nextWindow).
@@ -371,6 +383,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .separator(),
             item("Split Right", "d", .command, "splitRight"),
             item("Split Down", "d", [.command, .shift], "splitDown"),
+            item("Split Right with Browser", "d", [.command, .option], "splitRightBrowser"),
+            item("Split Down with Browser", "d", [.command, .option, .shift], "splitDownBrowser"),
+            item("Split Right with Agent", "", [], "splitRightAgent"),
+            item("Split Down with Agent", "", [], "splitDownAgent"),
             item("Zoom Split", "\r", [.command, .shift], "zoomSplit"),
             item("Select Split Left", String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option], "splitLeft"),
             item("Select Split Right", String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option], "splitRightward"),
@@ -456,6 +472,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                       item("Default Window Text", "0", [.command, .control, .shift], "defaultText")])
         updateStyleMenu()
         updateThemeMenu()
+        // The browser's Develop menu, for the browser that has the
+        // keyboard; the same items as its ⋯ → Develop.
+        var develop: [NSMenuItem] = BrowserDevelopItem.menu.map { i in
+            guard let i else { return .separator() }
+            var mods: NSEvent.ModifierFlags = []
+            if let k = i.key {
+                if k.command { mods.insert(.command) }
+                if k.shift { mods.insert(.shift) }
+                if k.option { mods.insert(.option) }
+                if k.control { mods.insert(.control) }
+            }
+            return item(i.title, i.key?.character ?? "", mods, "browser:" + i.rawValue)
+        }
+        develop += [.separator(), item("About Browser…", "", [], "browser:about")]
+        menu("Develop", develop)
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(NSMenuItem(title: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"))
         windowMenu.addItem(.separator())
@@ -571,6 +602,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.state = id == store.themeChoice ? .on : .off
             if id.isEmpty { m.title = "Same as conch (\(store.conchTheme.label))" }
         }
+    }
+
+    /// The Develop menu's items work only while a browser has the
+    /// keyboard, so their keys stay a terminal's otherwise; its settings
+    /// show a tick when on.
+    @objc func validateMenuItem(_ m: NSMenuItem) -> Bool {
+        guard let cmd = m.representedObject as? String, cmd.hasPrefix("browser:") else { return true }
+        guard let b = keyStore.browserWithKeyboard else {
+            m.state = .off
+            return false
+        }
+        let i = BrowserDevelopItem(rawValue: String(cmd.dropFirst("browser:".count)))
+        m.state = i.map { $0.isOn(b.developSettings) } == true ? .on : .off
+        return !(i?.needsAgent == true && b.agent == nil)
     }
 
     @objc func runCommand(_ sender: NSMenuItem) {

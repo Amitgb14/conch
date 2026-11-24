@@ -215,6 +215,47 @@ func TestAttachEndsWithItsInput(t *testing.T) {
 	}
 }
 
+// A control paste cut in two by a flush, in a view drawn from frames:
+// the half that came is held, not typed into the pane, and the whole is
+// taken as the app's when the rest arrives; one that never finishes is
+// dropped.
+func TestAttachControlPasteAcrossAFlush(t *testing.T) {
+	srv, c := startAttachServer(t)
+	s := &attachSession{c: c, id: "p3", out: io.Discard, control: "tok"}
+	start := "\x1b[200~" + attachControlMark + `tok {"find":"x`
+	held := s.input([]byte(start), true)
+	if string(held) != start {
+		t.Fatalf("held %q at the flush, want it all", held)
+	}
+	if got := attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText); len(got) != 0 {
+		t.Fatalf("typed at the flush: %+v", got)
+	}
+	if rest := s.input(append(held, []byte(`"}`+"\x1b[201~")...), false); len(rest) != 0 {
+		t.Fatalf("left %q", rest)
+	}
+	if s.query != "x" {
+		t.Fatalf("query %q, want the control's", s.query)
+	}
+	if got := attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText); len(got) != 0 {
+		t.Fatalf("the control reached the pane: %+v", got)
+	}
+
+	old := attachControlWait
+	attachControlWait = 0
+	t.Cleanup(func() { attachControlWait = old })
+	if left := s.input([]byte(start), true); len(left) != 0 {
+		t.Fatalf("one never finished: left %q, want it dropped", left)
+	}
+	// Somebody's own paste that has not finished goes as before.
+	if left := s.input([]byte("\x1b[200~mine"), true); len(left) != 0 {
+		t.Fatalf("left %q", left)
+	}
+	got := attachSent[proto.PaneSendTextParams](srv, proto.MethodPaneSendText)
+	if len(got) != 1 || got[0].Text != "\x1b[200~mine" {
+		t.Fatalf("typed %+v", got)
+	}
+}
+
 func TestAttachInput(t *testing.T) {
 	srv, c := startAttachServer(t)
 	s := &attachSession{c: c, id: "p3", out: io.Discard}

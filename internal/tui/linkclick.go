@@ -151,8 +151,8 @@ func (m *Model) openClickedLink(msg linkOpenMsg) tea.Cmd {
 		return nil // a double click, or another click since
 	}
 	m.linkClick = nil
-	m.setFlash("opening "+ansi.Truncate(lc.link, 60, "…")+" · also copied", false)
-	return tea.Batch(copyText(lc.link), openURL(lc.link))
+	m.setFlash("opening "+ansi.Truncate(lc.link, 60, "…"), false)
+	return openAndCopy(lc.link)
 }
 
 // linkSpanUnder is the columns a link under x,y covers on its own row, so

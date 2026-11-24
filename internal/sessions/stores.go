@@ -275,11 +275,12 @@ func parseCodex(path string, st os.FileInfo) *Session {
 		var l struct {
 			Type    string `json:"type"`
 			Payload struct {
-				Type      string    `json:"type"`
-				ID        string    `json:"id"`
-				Cwd       string    `json:"cwd"`
-				Timestamp time.Time `json:"timestamp"`
-				Message   string    `json:"message"`
+				Type      string     `json:"type"`
+				ID        string     `json:"id"`
+				Cwd       string     `json:"cwd"`
+				Timestamp time.Time  `json:"timestamp"`
+				Message   string     `json:"message"`
+				Item      *codexItem `json:"item"`
 				Git       struct {
 					Branch string `json:"branch"`
 				} `json:"git"`
@@ -288,11 +289,10 @@ func parseCodex(path string, st os.FileInfo) *Session {
 		if json.Unmarshal(b, &l) != nil {
 			return true
 		}
-		switch {
-		case l.Type == "session_meta" && s.ID == "":
+		if l.Type == "session_meta" && s.ID == "" {
 			s.ID, s.Dir, s.Started, s.Branch = l.Payload.ID, l.Payload.Cwd, l.Payload.Timestamp, l.Payload.Git.Branch
-		case l.Type == "event_msg" && l.Payload.Type == "user_message" && realPrompt(l.Payload.Message):
-			s.Title = title(l.Payload.Message)
+		} else if role, text := codexMessage(l.Type, l.Payload.Type, l.Payload.Message, l.Payload.Item); role == "user" && realPrompt(text) {
+			s.Title = title(text)
 			return false
 		}
 		return true
@@ -302,6 +302,63 @@ func parseCodex(path string, st os.FileInfo) *Session {
 	}
 	s.Output = codexOutput(f, st)
 	return s
+}
+
+// codexItem is a message as Codex writes it from 0.158 on: an
+// item_completed event's item, its text in typed parts ("text" for the
+// person, "Text" for Codex). Older rollouts said the same in user_message
+// and agent_message events, which newer ones no longer write at all.
+type codexItem struct {
+	Type    string          `json:"type"`
+	Content json.RawMessage `json:"content"`
+}
+
+// codexMessage is who said what in a rollout line, from either kind of
+// event; "" for anything else: tool calls, reasoning, and the
+// response_items that repeat the conversation along with the instructions
+// Codex adds to it.
+func codexMessage(lineType, eventType, message string, item *codexItem) (role, text string) {
+	if lineType != "event_msg" {
+		return "", ""
+	}
+	switch eventType {
+	case "user_message":
+		return "user", message
+	case "agent_message":
+		return "assistant", message
+	case "item_completed":
+		if item == nil {
+			return "", ""
+		}
+		switch item.Type {
+		case "UserMessage":
+			return "user", codexText(item.Content)
+		case "AgentMessage":
+			return "assistant", codexText(item.Content)
+		}
+	}
+	return "", ""
+}
+
+// codexText joins an item's text parts, leaving out images and the rest.
+func codexText(raw json.RawMessage) string {
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		if strings.EqualFold(p.Type, "text") && strings.TrimSpace(p.Text) != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n\n")
+			}
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }
 
 // codexOutput reads the tokens a Codex session generated from the last
@@ -378,24 +435,7 @@ func parseGemini(path string, st os.FileInfo) *Session {
 	if err != nil {
 		return nil
 	}
-	var rec struct {
-		SessionID   string    `json:"sessionId"`
-		StartTime   time.Time `json:"startTime"`
-		LastUpdated time.Time `json:"lastUpdated"`
-		Summary     string    `json:"summary"`
-		Kind        string    `json:"kind"`
-		Messages    []struct {
-			Type    string          `json:"type"`
-			Content json.RawMessage `json:"content"`
-		} `json:"messages"`
-	}
-	if json.Unmarshal(b, &rec) != nil {
-		// A JSONL record: the header is the first line.
-		first, _, _ := bytes.Cut(b, []byte("\n"))
-		if json.Unmarshal(first, &rec) != nil {
-			return nil
-		}
-	}
+	rec := readGeminiChat(b)
 	if rec.SessionID == "" || rec.Kind == "subagent" {
 		return nil
 	}
@@ -416,6 +456,102 @@ func parseGemini(path string, st os.FileInfo) *Session {
 	}
 	s.Title = title(s.Title)
 	return s
+}
+
+// geminiChat is a Gemini CLI chat file read whole.
+type geminiChat struct {
+	SessionID   string          `json:"sessionId"`
+	StartTime   time.Time       `json:"startTime"`
+	LastUpdated time.Time       `json:"lastUpdated"`
+	Summary     string          `json:"summary"`
+	Kind        string          `json:"kind"`
+	Messages    []geminiMessage `json:"messages"`
+}
+
+// readGeminiChat reads either of Gemini CLI's chat files: one JSON object,
+// or JSONL — a header line (written again when the session is saved anew),
+// {"$set": …} lines that replace fields, the whole message list among
+// them, and message lines of their own, a message written again under its
+// id as it grows. Reading the header alone missed every message and the
+// title with it.
+func readGeminiChat(b []byte) geminiChat {
+	var rec geminiChat
+	if json.Unmarshal(b, &rec) == nil {
+		return rec
+	}
+	rec = geminiChat{}
+	at := map[string]int{} // a message's id → its place in rec.Messages
+	keep := func(m geminiMessage) {
+		if i, ok := at[m.ID]; ok && m.ID != "" {
+			rec.Messages[i] = m
+			return
+		}
+		if m.ID != "" {
+			at[m.ID] = len(rec.Messages)
+		}
+		rec.Messages = append(rec.Messages, m)
+	}
+	later := func(t time.Time) {
+		if t.After(rec.LastUpdated) {
+			rec.LastUpdated = t
+		}
+	}
+	for _, line := range bytes.Split(b, []byte("\n")) {
+		var l struct {
+			geminiMessage
+			SessionID   string    `json:"sessionId"`
+			StartTime   time.Time `json:"startTime"`
+			LastUpdated time.Time `json:"lastUpdated"`
+			Summary     string    `json:"summary"`
+			Kind        string    `json:"kind"`
+			Set         *struct {
+				Messages    *[]geminiMessage `json:"messages"`
+				LastUpdated time.Time        `json:"lastUpdated"`
+				Summary     string           `json:"summary"`
+			} `json:"$set"`
+		}
+		if json.Unmarshal(bytes.TrimSpace(line), &l) != nil {
+			continue
+		}
+		switch {
+		case l.SessionID != "":
+			if rec.SessionID == "" {
+				rec.SessionID, rec.StartTime, rec.Kind = l.SessionID, l.StartTime, l.Kind
+			}
+			if l.Summary != "" {
+				rec.Summary = l.Summary
+			}
+			later(l.LastUpdated)
+		case l.Set != nil:
+			if l.Set.Messages != nil {
+				rec.Messages, at = nil, map[string]int{}
+				for _, m := range *l.Set.Messages {
+					keep(m)
+				}
+			}
+			if l.Set.Summary != "" {
+				rec.Summary = l.Set.Summary
+			}
+			later(l.Set.LastUpdated)
+		case l.Type != "":
+			keep(l.geminiMessage)
+		}
+	}
+	return rec
+}
+
+// ---- Kilo Code ----
+
+// Kilo Code's CLI is a fork of OpenCode and keeps its sessions the same
+// way, in kilo.db beside its other data (kilo 7.8.18); `kilo --session
+// <id>` reopens one and `kilo session delete <id>` removes it.
+func kilo(e Env, dirs []string) []Session {
+	data := filepath.Join(e.Home, ".local", "share", "kilo")
+	if x := e.get("XDG_DATA_HOME"); x != "" {
+		data = filepath.Join(x, "kilo")
+	}
+	out, _ := sqliteSessions("kilo", filepath.Join(data, "kilo.db"), dirs)
+	return out
 }
 
 // ---- OpenCode ----
@@ -458,6 +594,12 @@ func sqlUnder(col, dir string) []string {
 // opencodeDB queries the sqlite store through the sqlite3 command; ok is
 // false when there is no database or no sqlite3 to read it.
 func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
+	return sqliteSessions("opencode", db, dirs)
+}
+
+// sqliteSessions lists the sessions in an OpenCode database — OpenCode's
+// own, or that of Kilo Code, a fork that kept its session table.
+func sqliteSessions(agent, db string, dirs []string) (out []Session, ok bool) {
 	if _, err := os.Stat(db); err != nil {
 		return nil, false
 	}
@@ -497,7 +639,7 @@ func opencodeDB(db string, dirs []string) (out []Session, ok bool) {
 		return nil, false
 	}
 	for _, r := range rows {
-		out = append(out, Session{Agent: "opencode", ID: r.ID, Dir: r.Dir, Title: title(r.Title),
+		out = append(out, Session{Agent: agent, ID: r.ID, Dir: r.Dir, Title: title(r.Title),
 			Started: time.UnixMilli(r.Created), Updated: time.UnixMilli(r.Updated), Path: db, Cost: r.Cost, Output: r.Output})
 	}
 	return out, true

@@ -611,6 +611,13 @@ type AgentsCfg struct {
 	// than having the next server resume them by itself. A server stopped
 	// on purpose (conch server stop) never resumes them either way.
 	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
+	// NoMoveAtLimit keeps a Claude Code agent its plan stopped on its
+	// account, rather than moving it to the one with most room and
+	// carrying on (internal/server/accountmove.go).
+	NoMoveAtLimit bool `toml:"no_move_at_limit,omitempty"`
+	// MoveAtLine moves a Claude Code agent whose account is past its
+	// failover line when its turn ends, before it reaches the limit.
+	MoveAtLine bool `toml:"move_at_line,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.

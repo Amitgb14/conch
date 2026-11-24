@@ -16,6 +16,7 @@ import (
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sessions"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -97,6 +98,11 @@ type entry struct {
 	// team is the team the pane was put in by hand (pane.team), "" for
 	// none: its clients apply config.toml's rules to that.
 	team string
+	// movedFrom is the account its agent was first moved off, so clients
+	// can offer the move back; replaces is the pane it took over from
+	// (accountmove.go). Both guarded by mu.
+	movedFrom string
+	replaces  string
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -119,6 +125,7 @@ func (e *entry) info() proto.PaneInfo {
 	info.LastActive = e.lastActive
 	info.Account = e.account
 	info.Team = e.team
+	info.MovedFrom, info.Replaces = e.movedFrom, e.replaces
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {
@@ -624,7 +631,7 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	for i, ad := range s.adapters {
 		out = append(out, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-			NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())})
 	}
 	s.agentsSeen.note(out)
 	return out

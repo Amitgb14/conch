@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -481,20 +480,17 @@ func TestA1UIStateFiles(t *testing.T) {
 }
 
 func TestA1ClipboardTools(t *testing.T) {
-	if runtime.GOOS == "darwin" {
-		if tools := clipboardTools(); len(tools) != 1 || tools[0][0] != "pbcopy" {
-			t.Fatalf("darwin tools %v", tools)
-		}
-		return
+	none := func(string) string { return "" }
+	if tools := clipboardTools("darwin", none); len(tools) != 1 || tools[0][0] != "pbcopy" {
+		t.Fatalf("darwin tools %v", tools)
 	}
-	t.Setenv("WAYLAND_DISPLAY", "")
-	t.Setenv("DISPLAY", "")
-	if tools := clipboardTools(); len(tools) != 0 {
+	if tools := clipboardTools("linux", none); len(tools) != 0 {
 		t.Fatalf("no display: %v", tools)
 	}
-	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
-	t.Setenv("DISPLAY", ":0")
-	if tools := clipboardTools(); len(tools) != 3 || tools[0][0] != "wl-copy" || tools[1][0] != "xclip" {
+	displays := func(k string) string {
+		return map[string]string{"WAYLAND_DISPLAY": "wayland-0", "DISPLAY": ":0"}[k]
+	}
+	if tools := clipboardTools("linux", displays); len(tools) != 3 || tools[0][0] != "wl-copy" || tools[1][0] != "xclip" {
 		t.Fatalf("displays: %v", tools)
 	}
 }

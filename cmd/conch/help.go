@@ -126,7 +126,7 @@ func commandHelp(cmd string) string {
 			fmt.Fprintf(&b, "conch %s — %s\n\n", cmd, c.desc)
 		}
 	}
-	b.WriteString(usageOf(cmd))
+	b.WriteString(withoutCloudAccount(usageOf(cmd)))
 	if ex := helpExamples[cmd]; len(ex) > 0 {
 		b.WriteString("\nFor example:\n")
 		for _, e := range ex {

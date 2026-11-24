@@ -184,12 +184,30 @@ struct BenchBar: View {
                 if store.offersChat { toggle("Chat", icon: "bubble.left.and.bubble.right", leaf: parts.chat) }
                 toggle("Agent", icon: "apple.terminal", leaf: parts.agent)
                 if let phone = parts.phone { toggle("Phone", icon: "iphone", leaf: phone) }
+                browserToggle(parts)
                 Rectangle().fill(Theme.line).frame(width: 1, height: 16)
             }
             LayoutPicker(store: store, current: tab.bench ?? .ide)
         }
         .padding(.horizontal, 12).frame(height: 34)
         .background(Theme.window)
+    }
+
+    /// The browser's switch: there whether or not the workbench has one
+    /// yet, since it is how one is opened here.
+    func browserToggle(_ parts: BenchParts) -> some View {
+        let on = parts.browser.map { tab.shows($0) } ?? false
+        let help = parts.browser == nil ? "Open a Browser (the agent's dev server, if it has one)" : on ? "Hide Browser" : "Show Browser"
+        return Button { store.toggleBenchBrowser() } label: {
+            Image(systemName: "globe").font(.system(size: 12))
+                .foregroundStyle(on ? Theme.accent : Theme.muted)
+                .frame(width: 26, height: 22)
+                .background(RoundedRectangle(cornerRadius: 5).fill(on ? Theme.accent.opacity(0.14) : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     func toggle(_ name: String, icon: String, leaf: String) -> some View {
@@ -253,6 +271,7 @@ struct ToolStripe: View {
                     if store.offersChat { icon("bubble.left.and.bubble.right", "Agent Chat", leaf: parts.chat, badge: store.questions[parts.agent] != nil) }
                     icon("apple.terminal", "Agent Terminal", leaf: parts.agent)
                     if let phone = parts.phone { icon("iphone", "Mobile Preview", leaf: phone) }
+                    browserIcon(parts)
                     Spacer()
                     Menu {
                         ForEach(BenchLayout.offered(chat: store.offersChat, phone: store.benchHasPhone), id: \.self) { l in
@@ -270,6 +289,21 @@ struct ToolStripe: View {
         .frame(maxHeight: .infinity)
         .background(Theme.chrome)
         .overlay(alignment: leading ? .trailing : .leading) { Rectangle().fill(Theme.line).frame(width: 1) }
+    }
+
+    func browserIcon(_ parts: BenchParts) -> some View {
+        let on = parts.browser.map { tab.shows($0) } ?? false
+        let help = parts.browser == nil ? "Open a Browser" : on ? "Hide Browser" : "Show Browser"
+        return Button { store.toggleBenchBrowser() } label: {
+            Image(systemName: "globe").font(.system(size: 14))
+                .foregroundStyle(on ? Theme.text : Theme.text2)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on ? Theme.raise : .clear))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     func icon(_ symbol: String, _ name: String, leaf: String, badge: Bool = false) -> some View {

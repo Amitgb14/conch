@@ -1,5 +1,6 @@
 # Pi — https://pi.dev (earendil-works). The "runs here" tier: conch
-# starts it and watches it, and does not read its saved conversations.
+# starts it and watches it, and lists its saved conversations, read off
+# pi 1.1.0's own files (~/.pi/agent/sessions; internal/sessions/pi.go).
 #
 # It needs no screen rules, and has none: pi reports its own state
 # through the Program Status Protocol (OSC 7501), which conch answers

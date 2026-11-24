@@ -4,7 +4,7 @@ import Link from "next/link"
 import { Callout } from "@/components/callout"
 import { CodeBlock } from "@/components/code-block"
 import { Shot } from "@/components/doc-shot"
-import { AgentStates, AutopilotLoop, Feature, FeatureGrid, TaskFlow, TuiShot } from "@/components/docs-visuals"
+import { AccountFlow, AgentStates, AutopilotLoop, Feature, FeatureGrid, TaskFlow, TuiShot } from "@/components/docs-visuals"
 import { Architecture } from "@/components/landing/architecture"
 import { Step, Steps } from "@/components/steps"
 import { cn } from "@/lib/utils"
@@ -66,6 +66,7 @@ const components: MDXComponents = {
   AutopilotLoop,
   TaskFlow,
   AgentStates,
+  AccountFlow,
   TuiShot,
 }
 

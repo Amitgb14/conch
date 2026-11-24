@@ -64,6 +64,8 @@ func paneArgs(cmd string, args []string) []int {
 			return firstPositional(args, 1, map[string]bool{"until": true, "timeout": true, "at": true})
 		case "answer":
 			return firstPositional(args, 1, map[string]bool{"question": true})
+		case "move":
+			return firstPositional(args, 1, map[string]bool{"account": true})
 		}
 	}
 	return nil

@@ -115,9 +115,18 @@ extension Store {
         for k in layout.tabs.flatMap(\.root.panes) where AppWindows.shared.holder(of: k, except: self) != nil { release(k) }
     }
 
+    /// The first window's browsers as they were at the last quit, each
+    /// tab of them back, ahead of what the server's view adds.
+    func restoreBrowsers(_ s: SavedLayout) {
+        savedBrowsers = s.browsers ?? [:]
+        let l = s.layout()
+        guard !l.tabs.isEmpty else { return }
+        layout.tabs += l.tabs
+    }
+
     /// This window as saved, to open again when the app does.
     func saved(frame: String?) -> SavedWindow {
-        SavedWindow(id: windowID, workspace: homeWs?.id ?? "first", project: projectScope, frame: frame, layout: SavedLayout(layout))
+        SavedWindow(id: windowID, workspace: homeWs?.id ?? "first", project: projectScope, frame: frame, layout: SavedLayout(layout, browsers: browserTabs))
     }
 
     /// A window closed for good: its connections and the bridges behind
@@ -134,6 +143,7 @@ extension Store {
             t.stop()
             dropTerminal(k)
         }
+        endBrowsers()
         for c in conns.values { c.shutdown() }
         conns = [:]
         shutdown()
