@@ -13,14 +13,11 @@ import (
 	"time"
 )
 
-// geminiWriteVersion is the Gemini CLI GeminiWriter's sessions were
-// checked against: its chatRecordingService.ts, sessionUtils.ts and
-// projectRegistry.ts as shipped in 0.66.0.
-const geminiWriteVersion = "0.66.0"
-
 // GeminiWriter writes Gemini CLI sessions: a chat file in the folder
 // Gemini CLI keeps for the project, which `gemini --resume ID` opens with
-// its history.
+// its history. It was checked against Gemini CLI 0.66.0's
+// chatRecordingService.ts, sessionUtils.ts and projectRegistry.ts; a chat
+// file names no version.
 //
 // The file is the JSONL Gemini CLI 0.66 writes, named as it names one
 // (session-<minute>-<first 8 of the id>.jsonl): a header with the session
