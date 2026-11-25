@@ -1,71 +1,181 @@
-# conch
+<h1 align="center">
+  <a href="https://amitgb14.github.io/conch/"><img src="assets/conch-icon.png" alt="conch" width="64" valign="middle" /></a> conch
+</h1>
 
-A terminal orchestrator for AI coding agents. A background server owns the
-terminals your agents run in, so they keep working when you close the UI. The
-TUI organises everything as a tree — machines, projects, git branches, agents
-and terminals — beside a live view of whatever you select. It is not the only
-way in: [Conch.app](#conchapp-on-a-mac) is the same thing in a native Mac
-window, and [`conch web`](#from-your-phone) hands it to your phone.
+<p align="center">
+  <a href="https://github.com/Amitgb14/conch"><img src="https://img.shields.io/github/stars/Amitgb14/conch?style=flat&amp;label=%E2%98%85&amp;color=08C" alt="GitHub stars" /></a>
+  <a href="https://github.com/Amitgb14/conch/releases/latest"><img src="https://img.shields.io/github/v/release/Amitgb14/conch?style=flat&amp;color=08C" alt="Latest release" /></a>
+  <a href="https://github.com/Amitgb14/conch/actions/workflows/ci.yml"><img src="https://github.com/Amitgb14/conch/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-08C?style=flat" alt="License: Apache-2.0" /></a>
+  <img src="https://img.shields.io/badge/macOS%20%7C%20Linux-4493F8?style=flat-square" alt="Supported platforms: macOS and Linux" />
+</p>
 
-Works with **Claude Code**, **Codex**, **Gemini CLI**, **OpenCode**,
-**Devin**, **Copilot CLI**, **Cline**, **Qwen Code** and **Goose** — and runs
-a dozen more, from Kiro and Crush to Mistral Vibe — on your machine or on
-remote machines over SSH.
+<p align="center">
+  <strong>A terminal orchestrator for AI coding agents.</strong><br/>
+  Run Claude Code, Codex, Gemini CLI and a dozen more side by side, each on its own branch and worktree, on your laptop or on machines over SSH.
+  A background server owns their terminals, so they keep working when you close the UI — and the same agents are a native Mac window or your phone away.
+</p>
 
-**[Website](https://amitgb14.github.io/conch/) · [Documentation](https://amitgb14.github.io/conch/docs/)**
+<h3 align="center"><a href="#install"><ins>Install conch</ins></a> · <a href="https://amitgb14.github.io/conch/docs/"><ins>Documentation</ins></a></h3>
 
-## Is it for you?
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop.png" alt="Conch.app: the tree of machines, projects, branches and agents down the left, a waiting agent's question with its answers above it, and an agent at work in a Ghostty pane" width="960" />
+</p>
 
-It is for running **several** agents at once and keeping track of them — which
-one is waiting on you, what each has changed, and getting back to them after
-your laptop slept. It earns its keep from the third agent, not the first.
+## Features
 
-It is the wrong shape if you run one agent in one repo (use the agent's own
-CLI, with tmux if you want it to survive a dropped ssh session), if you branch
-and commit by hand (a plain multiplexer gives you panes without the opinions),
-or if review means a conversation with other people — conch reads diffs side
-by side, stages hunks, and a note on a line goes to the agent, which answers
-it in the thread; Conch.app submits a pull request review (approve, request
-changes, comment), but a reply to a colleague's own comment happens on
-GitHub, so pair it with `gh` or your forge for that. It is macOS and Linux;
-on Windows, WSL. And it waits for Enter on purpose: nothing the brain
-proposes runs until you confirm, so it is not the tool for unattended
-swarms.
+<table>
+<tr>
+<td width="50%" valign="middle">
 
-[The longer version](https://amitgb14.github.io/conch/docs/#is-conch-for-you),
-losses included.
+### A tree of everything
 
-![conch showing a project: branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-project.png)
+Machines → projects → branches, agents and terminals, beside a live view of
+whatever you select. Tabs and splits behave like tmux windows; `!` jumps to
+the next agent waiting on you.
 
-A project expanded into branches, agents and terminals, with a tab per agent
-— and beside it what the project holds: each worktree, the open pull requests
-and their checks, and what the agents have spent.
+[Docs →](https://amitgb14.github.io/conch/docs/interface)
 
-![conch showing a branch's changes: the file list and its diff, hunk by hunk, with the keys to mark and commit one](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-diff.png)
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-project.png" alt="conch showing a project: branches, agents and terminals in the tree, a tab per agent, and the project's worktrees, pull requests and usage beside it" width="100%" /></td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
 
-Review an agent's work before it lands: a branch's uncommitted files and
-commits ahead, each diff hunk by hunk, and `space` to stage one.
+### Review before it lands
+
+A branch's uncommitted files and commits ahead, each diff hunk by hunk;
+`space` stages one, and a note on a line goes to the agent, which answers it
+in the thread.
+
+[Docs →](https://amitgb14.github.io/conch/docs/tasks)
+
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/tui-diff.png" alt="conch showing a branch's changes: the file list and its diff, hunk by hunk, with the keys to mark and commit one" width="100%" /></td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Conch.app, on a Mac <sup>beta</sup>
+
+The same agents in a native window, panes drawn by
+[Ghostty](https://ghostty.org). A waiting agent's question comes with its
+answers to click; ⌘K finds a pane, a branch or a file, and ⌘S saves one —
+checked against what the agents wrote meanwhile.
+
+[Docs →](https://amitgb14.github.io/conch/docs/mac-app)
+
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-files.png" alt="Conch.app showing a project's files: the tree of folders on the left and a TypeScript file open beside it, with Save in the corner" width="100%" /></td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### Changes, files and the dev server, in tabs
+
+In Conch.app a branch's changes, the project's files and the dev server's page
+sit in tabs beside the agents: stage a hunk, write the commit, watch the pull
+request's checks, submit a review.
+
+[Docs →](https://amitgb14.github.io/conch/docs/mac-app)
+
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-changes.png" alt="Conch.app showing a branch's changes: the uncommitted files and commits, a unified diff with a review thread answered by the agent, and the commit box, checks and review beside it" width="100%" /></td>
+</tr>
+<tr>
+<td width="50%" valign="middle">
+
+### From your phone
+
+`conch web` serves the same agents to a phone: what each is doing, the
+question it is waiting on with its answers as buttons, and a keyboard into
+any terminal. Nothing to install; off your tailnet it goes through a relay
+you run yourself, end-to-end encrypted.
+
+[Docs →](https://amitgb14.github.io/conch/docs/phone)
+
+</td>
+<td width="50%" align="center"><img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/phone.png" alt="The phone app: a waiting agent with its question and three answers to tap, an agent at work under it with its last line, and the Agents, Watch, Machines and Settings tabs" width="260" /></td>
+</tr>
+</table>
+
+**Also in the box:**
+
+- **[Remote machines](https://amitgb14.github.io/conch/docs/remote-machines)** — `conch machine add` installs conch over SSH; `conch project move` takes branches, worktrees and agents there.
+- **[Cloud sandboxes](https://amitgb14.github.io/conch/docs/sandboxes)** — providers described by a file, from a signed registry; `conch-sandbox` makes them for [herdr and Orca](https://amitgb14.github.io/conch/docs/sandbox-tools) too.
+- **[Sessions](https://amitgb14.github.io/conch/docs/sessions)** — every agent's saved conversations per project, to resume or delete.
+- **[The brain](https://amitgb14.github.io/conch/docs/brain)** — ask in plain words with `:`; nothing it proposes runs until you press Enter.
+- **[Agents working together](https://amitgb14.github.io/conch/docs/agents-together)** — skills that let an agent start helpers, review until clean and take a ticket to a merged pull request.
+- **[Autopilot](https://amitgb14.github.io/conch/docs/agents-together)** — a failed CI run sent back to the branch's agent, a green pull request merged, issues triaged and queued as tasks.
+- **[Mobile preview](https://amitgb14.github.io/conch/docs/mobile-preview)** — iOS simulators and Android emulators an agent can look at with `conch preview shot`.
+- **[MCP and the CLI](https://amitgb14.github.io/conch/docs/cli)** — `conch new/send/read`, and `conch mcp` for agents that speak MCP.
+- **Hot reload** — the server moves onto a new build without stopping your agents.
+
+## Supported agents
+
+<p>
+<kbd>Claude Code</kbd>&nbsp;
+<kbd>Codex</kbd>&nbsp;
+<kbd>Gemini CLI</kbd>&nbsp;
+<kbd>OpenCode</kbd>&nbsp;
+<kbd>Devin</kbd>&nbsp;
+<kbd>Copilot CLI</kbd>&nbsp;
+<kbd>Cline</kbd>&nbsp;
+<kbd>Qwen Code</kbd>&nbsp;
+<kbd>Goose</kbd>
+</p>
+
+Sessions, setup, skills and state for each. conch also runs and watches:
+
+<p>
+<kbd>Aider</kbd>&nbsp;
+<kbd>Amp</kbd>&nbsp;
+<kbd>Antigravity CLI</kbd>&nbsp;
+<kbd>Auggie</kbd>&nbsp;
+<kbd>Continue CLI</kbd>&nbsp;
+<kbd>Crush</kbd>&nbsp;
+<kbd>Cursor CLI</kbd>&nbsp;
+<kbd>Droid</kbd>&nbsp;
+<kbd>Grok</kbd>&nbsp;
+<kbd>Kilo Code</kbd>&nbsp;
+<kbd>Kimi Code</kbd>&nbsp;
+<kbd>Kiro CLI</kbd>&nbsp;
+<kbd>Mistral Vibe</kbd>&nbsp;
+<kbd>Pi</kbd>&nbsp;
+<kbd>+ any CLI agent</kbd>
+</p>
+
+Add your own with `conch agent add`. See [Agents](https://amitgb14.github.io/conch/docs/agents).
 
 ## Install
 
-macOS and Linux (amd64 and arm64):
+### CLI and TUI — macOS, Linux (amd64, arm64)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Amitgb14/conch/master/install.sh | sh
 ```
 
-With Homebrew, on macOS or Linux:
+_Or with a package manager:_
 
 ```sh
+# Homebrew, macOS or Linux
 brew install Amitgb14/conch/conch
+
+# Go 1.25+
+go install github.com/Amitgb14/conch/cmd/conch@latest
 ```
 
-Or with Go 1.25+: `go install github.com/Amitgb14/conch/cmd/conch@latest`.
-`conch update` upgrades to the newest release, `conch update list` shows
-what is published and `conch update rollback` goes back to the version
-before it; `conch server reload` moves the server onto a new build without
-stopping your agents. A Homebrew install is updated with `brew upgrade conch`
-instead, and conch then offers to reload onto it.
+`conch update` upgrades to the newest release (`update list`, `update
+rollback`); a Homebrew install is updated with `brew upgrade conch`, and conch
+then offers to reload onto it. On Windows, use WSL.
+
+### Conch.app — macOS (beta)
+
+- [Download the latest release](https://github.com/Amitgb14/conch/releases/latest), or build it from [`macos/`](macos).
+
+### Phone
+
+- Run `conch web`, then `conch web pair` and scan the QR code. See [Phone](https://amitgb14.github.io/conch/docs/phone).
 
 ## Quick start
 
@@ -76,129 +186,54 @@ conch machine add gpu-box               # add a remote machine over ssh
 conch project move api -to gpu-box      # branches, worktrees and agents, moved there
 conch status                            # panes with agent state
 conch read gpu-box:p3                   # a pane's screen, by the ID every view shows
+conch agent skill -apply                # teach your agents to drive conch
 ```
 
 In the TUI: `t` new task · `c` start an agent · `:` ask in plain words ·
-`B` broadcast to a group · `!` jump to the next agent waiting for you · `?` all keys ·
+`B` broadcast to a group · `!` next agent waiting for you · `?` all keys ·
 `q` detach.
 
-## Conch.app, on a Mac
+The skills are also a Claude Code plugin:
+`/plugin marketplace add Amitgb14/conch` then `/plugin install conch@conch`.
 
-Conch.app is conch in a native macOS window — another client of the same
-servers, so it shows the agents the TUI shows and closing it stops none of
-them. Panes are drawn by [Ghostty](https://ghostty.org); a branch's changes,
-its files and the dev server's page sit in tabs beside the agents; ⌘K finds a
-pane, a branch or a file. It is in **beta**:
-[download it](https://github.com/Amitgb14/conch/releases/latest) or build it
-from [`macos/`](macos).
+## Is it for you?
 
-![Conch.app: the tree of machines, projects, branches and agents down the left, a waiting agent's question with its answers above it, and an agent at work in a Ghostty pane](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop.png)
+It is for running **several** agents at once and keeping track of them — which
+one is waiting on you, what each has changed, and getting back to them after
+your laptop slept. It earns its keep from the third agent, not the first.
 
-An agent in a Ghostty pane, the tree beside it, and what needs you at the
-top left: the question a waiting agent asked, with its answers to click.
+It is the wrong shape if you run one agent in one repo, if you branch and
+commit by hand, or if review means a conversation with other people (pair it
+with `gh` for that). And it waits for Enter on purpose, so it is not the tool
+for unattended swarms. [The longer version](https://amitgb14.github.io/conch/docs/#is-conch-for-you),
+losses included.
 
-![Conch.app showing a branch's changes: the uncommitted files and commits, a unified diff with a review thread answered by the agent, and the commit box, checks and review beside it](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-changes.png)
+## Community & support
 
-A branch's changes in a tab of their own: stage a hunk, write the commit
-message, watch the pull request's checks, and leave the agent a note on a
-line — it answers in the thread.
+- **Bugs and ideas:** [GitHub issues](https://github.com/Amitgb14/conch/issues) — `conch bug` fills in versions and counts, never your paths or screens.
+- **Health check:** `conch doctor` says what is wrong and how to fix it.
+- **Show support:** star [the repository](https://github.com/Amitgb14/conch).
 
-![Conch.app showing a project's files: the tree of folders on the left and a TypeScript file open beside it, with Save in the corner](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-files.png)
-
-The project's files in a tab too: the tree on the left, the file open with
-its syntax coloured, and ⌘S to save — checked against what the agents may
-have written in the meantime.
-
-![Conch.app showing the dev server's page in a tab: a ledger app served from 127.0.0.1:4321](https://raw.githubusercontent.com/Amitgb14/conch/master/assets/desktop-browser.png)
-
-And the dev server's own page in a tab beside them, so what the agent just
-changed is a glance away rather than another window.
-
-[What the window holds](https://amitgb14.github.io/conch/docs/mac-app), key
-by key.
-
-## From your phone
-
-`conch web` serves the same agents to a phone: what each one is doing, the
-question it is waiting on with its answers as buttons, every screen at once,
-and a keyboard into any terminal. It is a page the gateway serves itself —
-nothing to install, and no service of conch's in between.
-
-```sh
-conch web          # the gateway, in front of the same server
-conch web pair     # a QR code and a one-time code for the phone
-```
-
-<img src="https://raw.githubusercontent.com/Amitgb14/conch/master/assets/phone.png" width="320" alt="The phone app: a waiting agent with its question and three answers to tap, an agent at work under it with its last line, and the Agents, Watch, Machines and Settings tabs">
-
-On your own tailnet the phone reaches the laptop directly. From any other
-network it goes through a **relay** you run yourself (`conch relay`): the
-phone and the laptop both connect out to it, and what it carries it cannot
-read — they make a [Noise](https://noiseprotocol.org) session whose key
-travels in the QR code, through the camera rather than the network. See
-[Phone](https://amitgb14.github.io/conch/docs/phone).
-
-## Skills for your agents
-
-conch carries skills that teach an agent to run other agents: start a
-helper and read its answer (`conch`), several at once (`conch-team`),
-review until clean (`conch-review`), tests to a merged pull request
-(`conch-ship`), a ticket all the way (`conch-factory`), and the automated
-workflow for a project (`conch-autopilot`), testing a branch as a user
-would (`conch-qa`), red CI and deploys (`conch-cicd`), a project set up
-for agents (`conch-setup`), and what all of them are doing
-(`conch-status`). Install them for every agent
-— Claude Code, Codex, Gemini CLI, OpenCode, Devin, Copilot CLI, Cline, Qwen Code and Goose:
-
-```sh
-conch agent skill -apply
-```
-
-Or, in Claude Code, as a plugin from this repository:
-
-```
-/plugin marketplace add Amitgb14/conch
-/plugin install conch@conch
-```
-
-Then ask an agent in a conch pane: *"take issue 123 to a merged pull
-request"*, *"set up an automated workflow for this project"*. They act
-only inside conch. See [Agents working together](https://amitgb14.github.io/conch/docs/agents-together).
-
-## Sandboxes for herdr, the herdr app and Orca
-
-`conch-sandbox` is a small second program that makes, starts, stops and
-deletes conch's cloud sandboxes for tools that reach a machine over plain
-ssh, with the same provider files and keys as conch. It writes an ssh
-alias for each (`conch-PROVIDER-ID`), prints JSON for the tools, and
-installs nothing inside the sandbox. The plugins for those tools fetch it
-through a launcher that checks a pinned sha256. See
-[Sandboxes for other tools](https://amitgb14.github.io/conch/docs/sandbox-tools).
-
-## Development
+## Developing
 
 ```sh
 make build        # bin/conch
 make test         # go test -race -timeout 20m ./...
 make lint         # gofmt, go vet, staticcheck — CI's lint job
-make gate         # lint, then the suite with internal/server in shards — what CI runs, on one machine
+make gate         # lint, then the suite with internal/server in shards — what CI runs
 ```
 
-The tests of the phone app and the settings page run with node and skip
-without it. The settings page (`internal/configweb/app`) is committed as
-built; after changing it, run `make settings-ui` (needs pnpm) and commit
-`internal/configweb/dist`. [AGENTS.md](AGENTS.md) has the rules for
-contributing, including keeping tests away from your own running conch.
+[AGENTS.md](AGENTS.md) has the rules for contributing, including keeping tests
+away from your own running conch. The settings page
+(`internal/configweb/app`) is committed as built: after changing it, run
+`make settings-ui` (needs pnpm) and commit `internal/configweb/dist`. The
+website lives in [`web/`](web); its screenshots are regenerated by
+`web/scripts/tui-capture` and `web/scripts/phone-capture`.
 
-The website and documentation live in [`web/`](web), a Next.js and
-shadcn/ui app (`pnpm dev` there). Most of its screenshots are regenerated
-rather than taken by hand: `web/scripts/tui-capture/capture.sh` stages a
-demo project in a scratch conch and saves the TUI's screens,
-`web/scripts/phone-capture/capture.sh` photographs the phone app in
-headless Chrome, and both keep away from your own server and agents.
-Conch.app's are taken in the app by hand — a native window is nobody's
-script.
+<p align="center">
+  <a href="https://star-history.com/#Amitgb14/conch&Date"><img src="https://api.star-history.com/svg?repos=Amitgb14/conch&type=Date" alt="Star history" width="720" /></a>
+</p>
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+conch is free and open source under the [Apache License 2.0](LICENSE).
