@@ -206,3 +206,70 @@ func TestContinueNowTakesTheOffer(t *testing.T) {
 		break
 	}
 }
+
+// TestNoMoveAtLimitStillOffers: no_move_at_limit stops the move and
+// nothing else. With no account that has room, Codex is still offered;
+// with one that has room, the agent stays where it is and nothing is
+// offered, since another agent comes only when no account has room.
+func TestNoMoveAtLimitStillOffers(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 300*time.Millisecond))
+	home, log := switchLimitHome(t)
+	c, dir := startServer(t)
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nno_move_at_limit = true\n"), 0o600)
+	p := startOutOfPlan(t, c, home, dir)
+	if o := offerEvent(t, c, p.ID, false); o.To != "codex" || o.Auto {
+		t.Fatalf("offer: %+v", o)
+	}
+	if got := launches(t, log, 1); len(got) != 1 {
+		t.Fatalf("started unasked: %q", got)
+	}
+}
+
+func TestNoMoveAtLimitWithRoomStays(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 200*time.Millisecond))
+	home, log := switchLimitHome(t)
+	c, dir := startServer(t)
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nno_move_at_limit = true\nswitch_at_limit = \"codex\"\n"), 0o600)
+	p := startAtLimit(t, c, home, dir)
+	deadline := time.After(1200 * time.Millisecond)
+	for done := false; !done; {
+		select {
+		case m := <-c.Events:
+			if m.Event == proto.EventAgentMoving || m.Event == proto.EventAgentSwitchOffered || m.Event == proto.EventAgentSwitched {
+				t.Fatalf("with an account that has room and moves off: %s %s", m.Event, m.Data)
+			}
+		case <-deadline:
+			done = true
+		}
+	}
+	if _, ok := panesNow(t, c)[p.ID]; !ok {
+		t.Fatal("moved with no_move_at_limit")
+	}
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
+		t.Errorf("started again: %q", b)
+	}
+}
+
+// TestNoMoveAtLimitStillSwitches: with no_move_at_limit and
+// switch_at_limit both set, an agent out of plan everywhere is switched
+// unasked, and never moved between accounts.
+func TestNoMoveAtLimitStillSwitches(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 300*time.Millisecond))
+	home, log := switchLimitHome(t)
+	c, dir := startServer(t)
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nno_move_at_limit = true\nswitch_at_limit = \"codex\"\n"), 0o600)
+	p := startOutOfPlan(t, c, home, dir)
+	var res proto.AgentSwitchResult
+	waitEvent(t, c, func(m proto.Message) bool {
+		if m.Event == proto.EventAgentMoving || m.Event == proto.EventAgentMoved {
+			t.Fatalf("moved with no_move_at_limit: %s %s", m.Event, m.Data)
+		}
+		return m.Event == proto.EventAgentSwitched && json.Unmarshal(m.Data, &res) == nil && res.Pane.ID == p.ID
+	})
+	if res.Error != "" || res.Reason != "limit" || res.To != "codex" {
+		t.Fatalf("switched: %+v", res)
+	}
+	if second := launches(t, log, 2)[1]; !strings.HasPrefix(second, "codex|") {
+		t.Fatalf("started as %q", second)
+	}
+}
