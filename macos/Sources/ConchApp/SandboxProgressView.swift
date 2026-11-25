@@ -184,7 +184,7 @@ struct SandboxProgressView: View {
                     }
                     Menu("Start an Agent") {
                         ForEach(store.startable(on: m), id: \.name) { a in
-                            Button(store.agentTitle(a.name)) {
+                            AgentMenuButton(agent: a.name, title: store.agentTitle(a.name)) {
                                 store.newPane(machine: m, cwd: nil, inProject: false, agent: a.name)
                                 close()
                             }
