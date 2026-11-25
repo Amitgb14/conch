@@ -371,6 +371,10 @@ func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	if refreshEvents[rp.Event] && e.project != nil {
 		s.projects.request(e.project)
 	}
+	if rp.Event == "PostToolUse" && rp.Tool == "Artifact" && rp.Agent == "claude" && rp.SessionID != "" {
+		id, session := e.p.ID(), rp.SessionID
+		goSafe("artifact published", func() { _ = s.artifactPublished(id, session) })
+	}
 }
 
 // updateUsage re-reads the session transcript's new lines. The caller holds

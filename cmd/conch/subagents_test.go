@@ -50,3 +50,43 @@ func TestReportSubagents(t *testing.T) {
 		t.Fatalf("a subagent's tool use: %+v", p)
 	}
 }
+
+// TestReportArtifactTool: the Artifact tool's PostToolUse names the tool,
+// so the server reads what was published; other tools, and the Artifact
+// tool's other hooks, do not.
+func TestReportArtifactTool(t *testing.T) {
+	a4Env(t)
+	srv := startA4Server(t, "")
+	t.Setenv("CONCH_SOCKET", srv.sock)
+	t.Setenv("CONCH_PANE_ID", "p7")
+
+	last := func() proto.AgentReportParams {
+		t.Helper()
+		var p proto.AgentReportParams
+		if !srv.params(t, proto.MethodAgentReport, &p) {
+			t.Fatal("nothing reported")
+		}
+		return p
+	}
+	a4Capture(t, `{"hook_event_name":"PostToolUse","session_id":"s1","tool_name":"Artifact","tool_input":{"title":"Mock"}}`,
+		func() { runReport([]string{"claude-hook"}) })
+	if p := last(); p.Event != "PostToolUse" || p.Tool != "Artifact" || p.SessionID != "s1" {
+		t.Fatalf("artifact: %+v", p)
+	}
+	a4Capture(t, `{"hook_event_name":"PostToolUse","session_id":"s1","tool_name":"Bash"}`,
+		func() { runReport([]string{"claude-hook"}) })
+	if p := last(); p.Tool != "" {
+		t.Fatalf("bash named its tool: %+v", p)
+	}
+	a4Capture(t, `{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"Artifact"}`,
+		func() { runReport([]string{"claude-hook"}) })
+	if p := last(); p.Event != "PreToolUse" || p.Tool != "" {
+		t.Fatalf("before the publish: %+v", p)
+	}
+	// Gemini's hooks never name it, whatever the tool is called.
+	a4Capture(t, `{"hook_event_name":"PostToolUse","session_id":"s1","tool_name":"Artifact"}`,
+		func() { runReport([]string{"gemini-hook"}) })
+	if p := last(); p.Agent != "gemini" || p.Tool != "" {
+		t.Fatalf("gemini: %+v", p)
+	}
+}

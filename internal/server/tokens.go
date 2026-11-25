@@ -439,7 +439,7 @@ var tokenReads = map[string]bool{
 	proto.MethodPaneList: true, proto.MethodPaneRead: true, proto.MethodPaneSubscribe: true, proto.MethodPaneUnsubscribe: true,
 	proto.MethodPaneScroll: true, proto.MethodPaneSearch: true, proto.MethodPaneRaw: true,
 	proto.MethodUsageHistory: true, proto.MethodAgentExplain: true, proto.MethodAgentStatus: true, proto.MethodAgentLimits: true,
-	proto.MethodAgentChat: true, proto.MethodAgentSetup: true,
+	proto.MethodAgentChat: true, proto.MethodAgentSetup: true, proto.MethodArtifactList: true,
 	proto.MethodGroupList: true, proto.MethodProjectList: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true,
 	proto.MethodProjectLog: true, proto.MethodProjectCommit: true, proto.MethodProjectResolve: true,
 	proto.MethodFSList: true, proto.MethodFSRead: true, proto.MethodFSFind: true, proto.MethodFSSearch: true, proto.MethodFSLines: true,

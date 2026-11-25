@@ -177,6 +177,11 @@ func runReport(args []string) {
 		if params.Agent == "claude" { // Claude's transcript format is the one usage reads
 			params.TranscriptPath = in.TranscriptPath
 		}
+		// The Artifact tool's publish is told to the server, which reads the
+		// transcript for what was published and tells clients.
+		if params.Agent == "claude" && in.Event == "PostToolUse" && in.ToolName == "Artifact" {
+			params.Tool = in.ToolName
+		}
 		// Every hook a subagent fires names it; only these two are about it.
 		if in.Event == "SubagentStart" || in.Event == "SubagentStop" {
 			params.AgentID, params.AgentType, params.TaskDescription = in.AgentID, in.AgentType, in.TaskDescription

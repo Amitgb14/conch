@@ -47,6 +47,8 @@ type Server struct {
 	system *sysstat.Sampler
 	// sizes says whose size a pane shown by several clients takes (size.go).
 	sizes paneSizes
+	// published is each pane's artifacts as last announced (artifacts.go).
+	published published
 	// agentsSeen is which agents this machine was last found to have,
 	// for a task that names none (agents.go, defaultAgent).
 	agentsSeen agentsSeen
@@ -493,7 +495,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
 	proto.MethodSessionSearch: true, proto.MethodSessionShare: true, proto.MethodSessionExport: true, proto.MethodFSUpload: true,
 	proto.MethodBranchCommit: true, proto.MethodBranchStage: true, proto.MethodBranchPush: true, proto.MethodBranchPR: true,
-	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true, proto.MethodBranchPreviews: true, proto.MethodBranchDeployLog: true, proto.MethodBranchRedeploy: true, proto.MethodBranchPromote: true,
+	proto.MethodBranchMerge: true, proto.MethodBranchPRMerge: true, proto.MethodBranchDiscard: true, proto.MethodBranchGit: true, proto.MethodBranchCILog: true, proto.MethodCIStats: true, proto.MethodCIRerun: true, proto.MethodBranchCIRerun: true, proto.MethodIntegrationDetect: true, proto.MethodBranchRebased: true, proto.MethodBranchRebaseUndo: true, proto.MethodBranchResolving: true, proto.MethodAgentReply: true, proto.MethodAgentChat: true, proto.MethodArtifactList: true, proto.MethodAgentBackgroundStop: true, proto.MethodScheduleAdd: true, proto.MethodProjectIssues: true, proto.MethodReviewSend: true, proto.MethodAgentInterrupt: true, proto.MethodAgentAttach: true, proto.MethodIntegrationTeam: true, proto.MethodBranchPreviews: true, proto.MethodBranchDeployLog: true, proto.MethodBranchRedeploy: true, proto.MethodBranchPromote: true,
 	proto.MethodProjectTickets: true, proto.MethodTicketGet: true, proto.MethodTicketUpdate: true, proto.MethodTicketCheck: true, proto.MethodTicketOverview: true,
 	proto.MethodWorktreeStale: true, proto.MethodWorktreeCleanup: true, proto.MethodBranchStale: true, proto.MethodBranchPrune: true, proto.MethodProjectResolve: true, proto.MethodProjectGitInit: true,
 	proto.MethodWorktreeDescribe: true, proto.MethodWorktreeHave: true, proto.MethodWorktreePack: true,
@@ -1799,6 +1801,13 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.agentChat(rp)
 
+	case proto.MethodArtifactList:
+		ap, perr := decode[proto.ArtifactListParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.artifactList(ap)
+
 	case proto.MethodAgentBackgroundStop:
 		bp, perr := decode[proto.AgentBackgroundStopParams](msg)
 		if perr != nil {
@@ -2195,6 +2204,7 @@ func (s *Server) close(id string) *proto.Error {
 	s.autopilotClosed(id)
 	log.Printf("pane %s closed", id)
 	s.sizes.drop(id)
+	s.published.forget(id)
 	s.broadcast(proto.EventPaneClosed, proto.PaneRef{ID: id})
 	return nil
 }
