@@ -194,6 +194,13 @@ final class Store: ObservableObject {
     /// Bumped to put the keyboard in the find bar's field.
     @Published var findFocus = 0
     @Published var sidebarVisible = true
+    /// The inspector column at the right edge (⌃⌘I, InspectorPanel.swift),
+    /// remembered across launches.
+    @Published var inspectorOpen = UserDefaults.standard.bool(forKey: "inspectorOpen") {
+        didSet { UserDefaults.standard.set(inspectorOpen, forKey: "inspectorOpen") }
+    }
+    /// The column's web view, made the first time it is shown and kept.
+    private(set) lazy var inspectorHost = InspectorHost()
     /// What the status bar says for a moment (say), and the long jobs
     /// running (job), oldest first.
     @Published private(set) var flash: Flash?
@@ -3046,6 +3053,7 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "toggleInspector": inspectorOpen.toggle()
         case "workbench": workbenchForFocused()
         case let b where b.hasPrefix("bench:"):
             let l = BenchLayout(setting: String(b.dropFirst(6)))

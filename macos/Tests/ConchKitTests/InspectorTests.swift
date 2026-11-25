@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import WebKit
 import Testing
 @testable import ConchKit
 
@@ -175,6 +176,9 @@ private let target = InspectorTarget(machine: "local", project: "p1", branch: "f
     #expect(inspectorPage.contains("Content-Security-Policy"))
     #expect(inspectorPage.contains("default-src 'none'"))
     #expect(!inspectorPage.contains("http://") && !inspectorPage.contains("https://"))
+    // No script of its own: the inspector's runs in a world apart.
+    #expect(!inspectorPage.contains("<script") && !inspectorPage.contains("script-src"))
+    #expect(!inspectorPage.contains("renderInspector"))
 }
 
 @Test func inspectorUpdateScriptIsOneCall() throws {
@@ -254,4 +258,129 @@ private func render(_ v: InspectorView) throws -> String {
     let c = paletteCommands.first { $0.id == "toggleInspector" }
     #expect(c?.keys == "⌃⌘I")
     #expect(c?.title.contains("Inspector") == true)
+}
+
+// MARK: the page in WebKit
+
+/// The page in a real web view, the way the app hosts it
+/// (InspectorHost): its script in a world of its own with the handler.
+/// What it says is collected, and scripts are run in either world.
+@MainActor
+private final class Page: NSObject, WKScriptMessageHandler {
+    let web: WKWebView
+    let world = WKContentWorld.world(name: inspectorWorldName)
+    var said: [[String: Any]] = []
+    /// What reached the handler from the page's own world.
+    var fromPage = 0
+
+    override init() {
+        let c = WKWebViewConfiguration()
+        c.websiteDataStore = .nonPersistent()
+        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 600), configuration: c)
+        super.init()
+        c.userContentController.addUserScript(WKUserScript(source: inspectorScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: world))
+        c.userContentController.add(self, contentWorld: world, name: "conch")
+        web.loadHTMLString(inspectorPage, baseURL: nil)
+    }
+
+    func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.world != world { fromPage += 1 }
+        if let m = message.body as? [String: Any] { said.append(m) }
+    }
+
+    /// Waits, turning the main run loop, until the page has said n things.
+    func await(_ n: Int) async throws {
+        let until = Date().addingTimeInterval(10)
+        while said.count < n, Date() < until { try await Task.sleep(nanoseconds: 20_000_000) }
+        try #require(said.count >= n, "the page said \(said.count) of \(n)")
+    }
+
+    /// A script in the inspector's world, as the app sends the view.
+    func run(_ js: String) async throws -> Any? { try await web.evaluateJavaScript(js, in: nil, contentWorld: world) }
+    /// A script in the page's own world: what would run had anything got
+    /// past the escaping.
+    func inPage(_ js: String) async throws -> Any? { try await web.evaluateJavaScript(js, in: nil, contentWorld: .page) }
+}
+
+@MainActor @Test func inspectorPageRunsInWebKit() async throws {
+    let page = Page()
+    // Its own script runs under its policy, and it asks for the view.
+    try await page.await(1)
+    #expect(page.said.first?["type"] as? String == "ready")
+    #expect(inspectorIntent(page.said[0]) == .ready)
+
+    var note = ReviewComment(projectID: "p1", branch: "fix/overdraft", file: "post.go", line: 14, note: "<b>lock</b> first", id: "n1")
+    note.by = "codex"
+    let v = inspectorView(target, project: "ledger", branch: nil,
+                          changes: changes([FileChange(path: "internal/post.go", code: "M", added: 6, deleted: 0)]),
+                          comments: [note], error: nil, theme: .conch)
+    _ = try await page.run(inspectorUpdateScript(v))
+    let text = try #require(try await page.run("document.getElementById('root').innerText") as? String)
+    #expect(text.contains("fix/overdraft") && text.contains("internal/post.go") && text.contains("<b>lock</b> first"))
+    #expect(try await page.run("document.querySelectorAll('#root b').length") as? Int == 0, "a note's markup is text")
+    // The theme reached the page.
+    let bg = try await page.run("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()") as? String
+    #expect(bg?.uppercased() == ConchTheme.conch.sidebar.hex)
+
+    // Clicks come back as intents the app accepts.
+    _ = try await page.run("document.querySelector('[data-intent=openChanges]').click()")
+    _ = try await page.run("document.querySelector('[data-intent=openFile]').click()")
+    _ = try await page.run("document.querySelector('[data-intent=resolve]').click()")
+    try await page.await(4)
+    #expect(page.said[1...3].map { inspectorIntent($0) } == [.openChanges, .openFile("internal/post.go"), .resolve("n1")])
+}
+
+@MainActor @Test func inspectorPageFetchesNothing() async throws {
+    // The policy holds in WebKit, not only in the text: WebKit itself
+    // reports each request the page tried as a violation, before any
+    // request is made.
+    let page = Page()
+    try await page.await(1)
+    _ = try await page.inPage("""
+        window.seen = [];
+        document.addEventListener('securitypolicyviolation', function (e) { window.seen.push(e.effectiveDirective); });
+        fetch('https://127.0.0.1:9/').catch(function () {});
+        new Image().src = 'https://127.0.0.1:9/x.png';
+        var s = document.createElement('script'); s.src = 'https://127.0.0.1:9/x.js'; document.body.appendChild(s);
+        true
+        """)
+    var seen = ""
+    let until = Date().addingTimeInterval(10)
+    while Date() < until {
+        seen = try await page.inPage("window.seen.slice().sort().join(',')") as? String ?? ""
+        if seen.split(separator: ",").count >= 3 { break }
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+    #expect(seen == "connect-src,img-src,script-src-elem" || seen == "connect-src,img-src,script-src", "\(seen)")
+}
+
+@MainActor @Test func inspectorBridgeIsOutOfThePagesReach() async throws {
+    let page = Page()
+    try await page.await(1)
+    // The page's own world cannot see the handler or the inspector's script.
+    #expect(try await page.inPage("typeof (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.conch)") as? String == "undefined")
+    #expect(try await page.inPage("typeof window.conchInspector") as? String == "undefined")
+    // Markup that got past the escaping runs nothing: its policy allows no
+    // script, inline handlers included.
+    _ = try await page.inPage("""
+        document.getElementById('root').insertAdjacentHTML('beforeend',
+          '<img src="data:," onerror="document.title=1"><svg onload="document.title=2"></svg><a id="j" href="javascript:document.title=3">x</a>');
+        document.getElementById('j').click();
+        true
+        """)
+    try await Task.sleep(nanoseconds: 300_000_000)
+    #expect(try await page.inPage("document.title") as? String == "")
+    #expect(page.fromPage == 0 && page.said.count == 1)
+}
+
+// The app's side has no test target, so it is read, as BrowserView is.
+@Test func inspectorHostKeepsThePageToItself() throws {
+    let path = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp/InspectorPanel.swift"
+    let code = try String(contentsOfFile: path, encoding: .utf8)
+    #expect(code.contains("websiteDataStore = .nonPersistent()"), "nothing the page does is kept")
+    #expect(code.contains("message.world == inspectorWorld, message.frameInfo.isMainFrame, let intent = inspectorIntent(message.body)"), "messages are checked before use")
+    #expect(code.contains("decisionHandler(first ? .allow : .cancel)"), "it navigates nowhere")
+    #expect(code.contains("listed.contains(u.absoluteString)"), "only a link the column listed opens")
+    #expect(code.contains("model.changes?.files.contains(where: { $0.path == path })"), "only a file the branch changes opens")
+    #expect(!code.contains("isInspectable = true"))
 }

@@ -779,6 +779,7 @@ struct MainView: View {
                         Rectangle().fill(Theme.line).frame(width: 1)
                         ScrollView { SideTabs(store: store).padding(8) }.frame(width: 230).background(Frost(color: Theme.side))
                     }
+                    InspectorColumn(store: store)
                     if Theme.style.roster && AppStyle.celSideFits(width: size.width) { CelSide(store: store).background(Theme.window) }
                 }
                 StatusBar(store: store)

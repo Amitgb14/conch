@@ -7,8 +7,17 @@ import Foundation
 // the shell and terminals native, rich views in HTML shared across the
 // platforms), so the page and its bridge are here, where they are
 // tested: what the page is sent (InspectorView, one JSON object), the
-// page itself (no network, everything it draws escaped), and what it may
-// ask back (InspectorIntent, checked before the app acts on it).
+// page itself (no network, no script of its own, everything it draws
+// escaped), and what it may ask back (InspectorIntent, checked before the
+// app acts on it). The script runs in a content world of its own
+// (inspectorWorldName), as the browser's error watcher does: the page's
+// world — where anything that slipped past the escaping would run — can
+// neither see the bridge nor run at all, since its policy allows no
+// script.
+
+/// The content world the inspector's script and its message handler
+/// share, apart from the page's.
+public let inspectorWorldName = "conch-inspector"
 
 /// The branch the inspector shows.
 public struct InspectorTarget: Equatable, Hashable, Sendable {
@@ -209,9 +218,10 @@ public func inspectorUpdateScript(_ v: InspectorView) -> String {
     return "window.conchInspector && window.conchInspector.update(\(json));"
 }
 
-/// The page's script. renderInspector(view) is the whole of what it
-/// draws, a string of HTML with every value escaped; the rest binds it to
-/// the document and sends clicks on [data-intent] to the app.
+/// The inspector's script, run in its own content world at the end of the
+/// page's loading. renderInspector(view) is the whole of what it draws, a
+/// string of HTML with every value escaped; the rest binds it to the
+/// document and sends clicks on [data-intent] to the app.
 public let inspectorScript = #"""
 "use strict";
 function esc(s) {
@@ -317,12 +327,13 @@ if (typeof document !== "undefined") {
 }
 """#
 
-/// The page: the script and its styles, and a policy that lets it load
-/// nothing at all — no network, no frames, no other script.
+/// The page: its styles, and a policy that lets it load and run nothing at
+/// all — no network, no frames, no script (inline handlers included). The
+/// script is the app's, in a world of its own.
 public let inspectorPage = """
 <!doctype html>
 <html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <style>
 :root { --bg: #1b1f24; --fg: #c9d1d9; --muted: #8b949e; --border: #444c56; --raised: #262c33; --accent: #2aa5b5;
   --ok: #3fb950; --warn: #d29922; --err: #f85149; --work: #58a6ff; color-scheme: dark; }
@@ -358,9 +369,5 @@ p { margin: 0; }
 .empty { color: var(--muted); text-align: center; margin-top: 40px; padding: 0 12px; }
 .error { color: var(--err); overflow-wrap: anywhere; }
 </style></head>
-<body><div id="root"></div>
-<script>
-\(inspectorScript)
-</script>
-</body></html>
+<body><div id="root"></div></body></html>
 """
