@@ -217,7 +217,7 @@ func Schema(c Choices) []Section {
 				{Key: "no_auto_resume", Label: "Don't resume agents after a restart", Kind: KindBool,
 					Help: "Off: after a reboot or a crash, the agents that were running come back by themselves, each on its own conversation. On: they wait in Sessions for I. conch server stop never brings them back."},
 				{Key: "no_move_at_limit", Label: "Keep agents on their account at its limit", Kind: KindBool,
-					Help: "Off: a Claude Code agent whose plan runs out moves, after a few seconds anyone can cancel, to the account with most room and carries on. On: it waits for its own account to reset."},
+					Help: "Off: a Claude Code agent whose plan runs out moves, after a few seconds anyone can cancel, to the account with most room and carries on. On: it waits for its own account to reset — unless no account has room, when When out of plan still applies."},
 				{Key: "move_at_line", Label: "Move agents at the failover line", Kind: KindBool,
 					Help: "On: a Claude Code agent whose account is past its failover line moves to the account with most room when its turn ends, before it hits the limit."},
 				{Key: "switch_at_limit", Label: "When out of plan", Kind: KindSelect, Options: outOfPlan,

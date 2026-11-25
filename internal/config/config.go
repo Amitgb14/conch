@@ -623,7 +623,8 @@ type AgentsCfg struct {
 	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
 	// NoMoveAtLimit keeps a Claude Code agent its plan stopped on its
 	// account, rather than moving it to the one with most room and
-	// carrying on (internal/server/accountmove.go).
+	// carrying on (internal/server/accountmove.go). It stops the move
+	// only: SwitchAtLimit still applies when no account has room.
 	NoMoveAtLimit bool `toml:"no_move_at_limit,omitempty"`
 	// MoveAtLine moves a Claude Code agent whose account is past its
 	// failover line when its turn ends, before it reaches the limit.

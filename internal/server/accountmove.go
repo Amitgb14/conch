@@ -487,7 +487,8 @@ func atLimit(info proto.PaneInfo, screen []string) bool {
 // moveConfig is whether agents move at their limit (on unless
 // no_move_at_limit) and at the failover line (move_at_line), from the
 // config.toml in the server's own folder — read every few seconds, so a
-// test's server never reads the developer's.
+// test's server never reads the developer's. Whether another agent is
+// offered at a limit is switch_at_limit's alone.
 func (s *Server) moveConfig() (atLimit, atLine bool) {
 	var cfg config.Config
 	if _, err := toml.DecodeFile(filepath.Join(s.configDir, "config.toml"), &cfg); err != nil {
@@ -554,7 +555,10 @@ func (s *Server) lookForMoves(now time.Time) {
 		}
 		reason := ""
 		switch {
-		case byLimit && atLimit(info, e.p.PlainLines()) && s.limitReached(agent, info.Account, now):
+		// The limit is looked for even with moves off: no_move_at_limit
+		// keeps an agent on its account, and another agent is still
+		// offered when no account has room (switchlimit.go).
+		case atLimit(info, e.p.PlainLines()) && s.limitReached(agent, info.Account, now):
 			reason = "limit"
 		case byLine && agent == "claude" && idle && (finished || pendingLine) && s.pastLine(agent, info.Account, now):
 			reason = "line"
@@ -598,9 +602,13 @@ func (s *Server) lookForMoves(now time.Time) {
 		}
 		s.mover.waiting(info.ID, now, true)
 		ranked := s.rankAccounts(agent, info.Account)
-		if len(ranked) == 0 || !ranked[0].Usable || agent != "claude" {
+		noMove := reason == "limit" && !byLimit
+		if len(ranked) == 0 || !ranked[0].Usable || agent != "claude" || noMove {
 			s.mover.hold(info.ID) // nowhere to go: said once, not every tick
 			switch {
+			case len(ranked) > 0 && ranked[0].Usable && noMove:
+				log.Printf("accounts: %s is at its limit on %s and stays there (no_move_at_limit); %s has room", info.ID,
+					accounts.Label(info.Account), accounts.Label(ranked[0].Account))
 			case agent != "claude" && len(ranked) > 0 && ranked[0].Usable:
 				// conch moves only Claude Code between accounts.
 				log.Printf("accounts: %s is at its %s on %s; %s has room, but conch does not move %s", info.ID, reason,

@@ -16,7 +16,7 @@ In the TUI or Conch.app, open the agent's menu (`m`, or right-click its row) and
 switch_at_limit = "codex"  # "" (the default) asks; "wait" offers nothing
 ```
 
-Then the card counts down a few seconds with **Continue Now** and **Cancel**, and the server switches by itself, so it happens with no TUI or app open. An agent that is not installed, is out of plan too, or cannot take a first message is never switched to unasked: the card says why. It is never silent: the switch is said, and the pane's banner offers **Switch back** once the first agent has room again. In Conch.app it is **Settings › Agents › When out of plan**. `[agents] no_move_at_limit` turns off both the move and the offer.
+Then the card counts down a few seconds with **Continue Now** and **Cancel**, and the server switches by itself, so it happens with no TUI or app open. An agent that is not installed, is out of plan too, or cannot take a first message is never switched to unasked: the card says why. It is never silent: the switch is said, and the pane's banner offers **Switch back** once the first agent has room again. In Conch.app it is **Settings › Agents › When out of plan**. `[agents] no_move_at_limit` turns off only the move: with it, an agent waits on its account when another account has room, and is still offered another agent when none has.
 
 **What crosses:** messages word for word; commands as the target's own shell tool, with their output; reads, edits and other tools as one-line notes; the latest plan. Thinking and reasoning do not cross. A conversation too long for the target's context keeps its first request and its latest turns whole, and the turns between are shortened.
 
