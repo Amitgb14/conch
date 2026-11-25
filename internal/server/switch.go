@@ -304,6 +304,13 @@ func (s *Server) switchAgent(p proto.AgentSwitchParams) (proto.AgentSwitchResult
 		res.Preview = true
 		return res, nil
 	}
+	// A switch asked for by hand takes the place of one offered at a plan
+	// limit, so the offer's countdown cannot make a second.
+	if p.Reason != "limit" {
+		if _, offered := s.mover.takeOffer(p.ID); offered {
+			s.mover.hold(p.ID)
+		}
+	}
 	var waits []string
 	if why := midTurn(info); why != "" {
 		if p.Now {

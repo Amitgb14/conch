@@ -185,7 +185,9 @@ func (s *Server) switchOffered(info proto.PaneInfo, now time.Time) bool {
 	if !o.Auto || now.Before(o.At) {
 		return true
 	}
-	s.mover.takeOffer(info.ID)
+	if _, still := s.mover.takeOffer(info.ID); !still {
+		return true // taken meanwhile: switched by hand, or called off
+	}
 	s.mover.hold(info.ID)
 	// Not Now: background commands are waited for, as for any switch.
 	if _, perr := s.switchAgent(proto.AgentSwitchParams{ID: info.ID, To: o.To, Reason: "limit"}); perr != nil {

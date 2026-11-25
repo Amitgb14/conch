@@ -947,6 +947,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case limitPreviewMsg:
+		m.limitPreviewed(msg)
+		return m, nil
+
+	case limitTickMsg:
+		if c, ok := m.overlay.(*limitCard); ok {
+			return m, c.tick(msg.gen)
+		}
+		return m, nil
+
 	case harvestDoneMsg:
 		return m, m.receiveHarvest(msg)
 
@@ -1254,6 +1264,13 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 
 	case proto.EventAgentSwitching, proto.EventAgentSwitched:
 		return m.switchEvent(mach, msg)
+
+	case proto.EventAgentSwitchOffered:
+		var o proto.AgentSwitchOffer
+		if decodeInto(msg, &o) {
+			return m.switchOffered(mach, o)
+		}
+		return nil
 
 	case proto.EventAgentLimits:
 		var l proto.PlanLimits

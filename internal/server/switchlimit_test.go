@@ -172,3 +172,37 @@ func TestAnAccountWithRoomMovesRatherThanSwitches(t *testing.T) {
 		return m.Event == proto.EventAgentMoved && json.Unmarshal(m.Data, &moved) == nil && moved.Replaces == p.ID
 	})
 }
+
+// TestContinueNowTakesTheOffer: switched by hand during the countdown
+// (Continue Now), the server's own switch is not made a second time.
+func TestContinueNowTakesTheOffer(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 800*time.Millisecond))
+	home, log := switchLimitHome(t)
+	c, dir := startServer(t)
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nswitch_at_limit = \"codex\"\n"), 0o600)
+	p := startOutOfPlan(t, c, home, dir)
+	offerEvent(t, c, p.ID, false)
+	var res proto.AgentSwitchResult
+	if err := c.Call(t.Context(), proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "codex", NoContinue: true}, &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Pending || res.Pane.SwitchedFrom == nil {
+		t.Fatalf("switched: %+v", res)
+	}
+	time.Sleep(1500 * time.Millisecond) // past the countdown
+	if got := launches(t, log, 2); len(got) != 2 {
+		t.Fatalf("launched %q", got)
+	}
+	for {
+		select {
+		case m := <-c.Events:
+			var r proto.AgentSwitchResult
+			if m.Event == proto.EventAgentSwitched && json.Unmarshal(m.Data, &r) == nil && r.Error != "" {
+				t.Fatalf("a second switch was tried: %+v", r)
+			}
+			continue
+		default:
+		}
+		break
+	}
+}
