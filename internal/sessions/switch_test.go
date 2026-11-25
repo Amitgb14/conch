@@ -10,20 +10,6 @@ import (
 	"time"
 )
 
-// countKinds is how many of each kind a conversation holds, by role for
-// messages.
-func countKinds(c Conversation) map[string]int {
-	out := map[string]int{}
-	for _, it := range c.Items {
-		k := string(it.Kind)
-		if it.Kind == KindMessage {
-			k += "/" + it.Role
-		}
-		out[k]++
-	}
-	return out
-}
-
 // requests is what the person asked, in order.
 func requests(c Conversation) []string {
 	var out []string

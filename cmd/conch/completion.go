@@ -104,7 +104,7 @@ var compSubcommands = map[string][]compItem{
 	"server": {{"stop", "stop the server and every pane it owns"}, {"reload", "run a new build, keeping panes"}, {"heap", "write the server's heap profile, and say its memory"}},
 	"agent": {
 		{"status", "which agents are installed"}, {"install", "install an agent"},
-		{"explain", "how a pane's agent state was decided"}, {"prompt", "send an agent a prompt"}, {"move", "carry an agent to another account"},
+		{"explain", "how a pane's agent state was decided"}, {"prompt", "send an agent a prompt"}, {"move", "carry an agent to another account"}, {"switch", "switch an agent's conversation to another agent"},
 		{"setup", "what an agent loads in a checkout"}, {"sync", "give the others one agent's setup"},
 		{"library", "servers and skills every agent follows"}, {"skill", "install conch's skills for agents"},
 		{"add", "describe an agent of your own"},

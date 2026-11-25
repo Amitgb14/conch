@@ -81,7 +81,7 @@ func TestCompletionCandidates(t *testing.T) {
 		{[]string{"-m"}, "", []string{"local", "busybox"}},
 		{[]string{"-m", "busybox"}, "up", []string{"upload", "update"}},
 		{[]string{"server"}, "", []string{"stop", "reload", "heap"}},
-		{[]string{"agent"}, "s", []string{"status", "setup", "sync", "skill"}},
+		{[]string{"agent"}, "s", []string{"status", "switch", "setup", "sync", "skill"}},
 		{[]string{"agent", "library"}, "a", []string{"add", "apply"}},
 		{[]string{"agent", "install"}, "co", []string{"codex", "continue", "copilot"}},
 		{[]string{"agent", "install", "codex"}, "", nil},
