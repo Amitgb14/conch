@@ -226,3 +226,16 @@ func waitFor(t *testing.T, ok func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A config from before switch_at_limit, with no_move_at_limit set, loads:
+// moves off, and the offer left to ask.
+func TestOldConfigWithNoMove(t *testing.T) {
+	s := &Server{configDir: t.TempDir()}
+	os.WriteFile(filepath.Join(s.configDir, "config.toml"), []byte("[agents]\ndefault = \"claude\"\nno_move_at_limit = true\nmove_at_line = true\n"), 0o600)
+	if lim, line := s.moveConfig(); lim || !line {
+		t.Errorf("moves: %v %v", lim, line)
+	}
+	if setting, ok := s.switchAtLimit(); !ok || setting != "" {
+		t.Errorf("switch_at_limit: %q %v", setting, ok)
+	}
+}

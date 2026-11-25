@@ -249,3 +249,27 @@ func TestNoMoveAtLimitWithRoomStays(t *testing.T) {
 		t.Errorf("started again: %q", b)
 	}
 }
+
+// TestNoMoveAtLimitStillSwitches: with no_move_at_limit and
+// switch_at_limit both set, an agent out of plan everywhere is switched
+// unasked, and never moved between accounts.
+func TestNoMoveAtLimitStillSwitches(t *testing.T) {
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 300*time.Millisecond))
+	home, log := switchLimitHome(t)
+	c, dir := startServer(t)
+	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nno_move_at_limit = true\nswitch_at_limit = \"codex\"\n"), 0o600)
+	p := startOutOfPlan(t, c, home, dir)
+	var res proto.AgentSwitchResult
+	waitEvent(t, c, func(m proto.Message) bool {
+		if m.Event == proto.EventAgentMoving || m.Event == proto.EventAgentMoved {
+			t.Fatalf("moved with no_move_at_limit: %s %s", m.Event, m.Data)
+		}
+		return m.Event == proto.EventAgentSwitched && json.Unmarshal(m.Data, &res) == nil && res.Pane.ID == p.ID
+	})
+	if res.Error != "" || res.Reason != "limit" || res.To != "codex" {
+		t.Fatalf("switched: %+v", res)
+	}
+	if second := launches(t, log, 2)[1]; !strings.HasPrefix(second, "codex|") {
+		t.Fatalf("started as %q", second)
+	}
+}
