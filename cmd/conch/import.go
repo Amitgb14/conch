@@ -479,7 +479,7 @@ func (imp *importer) writeMarkdown(im sessions.Imported, file string) error {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return err
 	}
-	doc := "_Imported from Conductor by `conch import conductor`._\n\n" + sessions.Handoff(s, im.Turns)
+	doc := "_Imported from Conductor by `conch import conductor`._\n\n" + sessions.Handoff(sessions.ConversationOf(s, im.Turns))
 	return os.WriteFile(file, []byte(doc), 0o600)
 }
 
