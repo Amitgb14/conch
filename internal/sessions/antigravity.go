@@ -248,6 +248,11 @@ func antigravityDelete(ctx context.Context, e Env, s Session, trashDir string) e
 	sql += " COMMIT;"
 	// agy writes to it while it runs: wait a moment for it, not forever.
 	if out, err := exec.CommandContext(ctx, bin, "-bail", "-cmd", ".timeout 2000", s.Path, sql).CombinedOutput(); err != nil {
+		// agy's search table is FTS5; a sqlite3 built without it cannot
+		// touch it, and the transaction leaves the conversation whole.
+		if strings.Contains(string(out), "no such module: fts5") {
+			return fmt.Errorf("deleting an Antigravity conversation needs a sqlite3 with FTS5, and %s has none; nothing was deleted", bin)
+		}
 		return fmt.Errorf("sqlite3: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	root := filepath.Dir(s.Path)

@@ -30,6 +30,12 @@ func agySQL(t *testing.T, db, sql string) {
 	if err := os.MkdirAll(filepath.Dir(db), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// agy's search table is FTS5, which not every sqlite3 is built with
+	// (macOS CI's is not): there it is a plain table of the same columns,
+	// which is all the store asks of it.
+	if exec.Command(bin, ":memory:", "CREATE VIRTUAL TABLE x USING fts5(a);").Run() != nil {
+		sql = strings.ReplaceAll(sql, "CREATE VIRTUAL TABLE conversations_fts USING fts5(", "CREATE TABLE conversations_fts (")
+	}
 	if out, err := exec.Command(bin, db, sql+"PRAGMA wal_checkpoint(TRUNCATE);").CombinedOutput(); err != nil {
 		t.Fatalf("sqlite3: %v: %s", err, out)
 	}
@@ -328,5 +334,34 @@ func TestAntigravityAccounts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(work, "antigravity-cli", "brain", "work1")); !os.IsNotExist(err) {
 		t.Errorf("the account's files stayed: %v", err)
+	}
+}
+
+// agy's search table is FTS5, and a sqlite3 built without it cannot
+// delete from it: the conversation is left whole, and the error says
+// what the sqlite3 lacks rather than SQLite's own words alone.
+func TestAntigravityDeleteWithoutFTS5(t *testing.T) {
+	bin := t.TempDir()
+	fake := "#!/bin/sh\ncase \"$*\" in\n*sqlite_master*) echo conversations_fts;;\n*DELETE*) echo 'Error: stepping, no such module: fts5' >&2; exit 1;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "sqlite3"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":/usr/bin:/bin")
+	home := t.TempDir()
+	root := filepath.Join(home, ".gemini", "antigravity-cli")
+	brain := filepath.Join(root, "brain", "a1")
+	if err := os.MkdirAll(brain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(root, "conversation_summaries.db")
+	if err := os.WriteFile(db, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := Delete(context.Background(), a6Env(home, nil), Session{Agent: "antigravity", ID: "a1", Path: db}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "FTS5") {
+		t.Fatalf("want an FTS5 error, got %v", err)
+	}
+	if _, err := os.Stat(brain); err != nil {
+		t.Fatalf("files moved although the rows stayed: %v", err)
 	}
 }
