@@ -67,6 +67,10 @@ type machine struct {
 	// isn't running (stopped, archived…).
 	sandboxState sandbox.State
 
+	// switching is the switches the server holds for this machine's
+	// panes, waiting for a turn to end (agent.switching), by pane.
+	switching map[string]proto.AgentSwitching
+
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
 	agents   map[string]bool // panes that have run an agent

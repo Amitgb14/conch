@@ -249,7 +249,7 @@ func (m Model) paneCellAt(x, y int) (*leaf, int, int, bool) {
 	if l == nil || l.view.Kind != kindPane {
 		return nil, 0, 0, false
 	}
-	in := m.inner(rects[id])
+	in := m.leafInner(l, rects[id])
 	cx, cy := x-in.x, y-in.y
 	if cx < 0 || cy < 0 || cx >= in.w || cy >= in.h {
 		return nil, 0, 0, false

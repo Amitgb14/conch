@@ -2,9 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -70,5 +73,36 @@ func TestReloadStateNamesTheSwitch(t *testing.T) {
 	json.Unmarshal(b, &m)
 	if _, ok := m["switch"]; ok {
 		t.Fatalf("an empty pane writes a switch: %s", b)
+	}
+}
+
+// Each agent says how a conversation would reach it, so a menu can say
+// "full history" or "handoff document" before anything is asked, and
+// grey out an agent that cannot be given a first message.
+func TestAgentsSayHowASwitchReachesThem(t *testing.T) {
+	a5IsolateEnv(t)
+	s, _ := a5Server(t)
+	agents := filepath.Join(s.configDir, "agents")
+	os.MkdirAll(agents, 0o755)
+	// One somebody described without saying how to pass a first message.
+	if err := os.WriteFile(filepath.Join(agents, "tinker.toml"), []byte("agent = \"tinker\"\n\n[run]\nbinary = \"tinker\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	if s.adapters, err = adapter.New("/usr/local/bin/conch", s.configDir); err != nil {
+		t.Fatal(err)
+	}
+	sh := filepath.Join(t.TempDir(), "finds-nothing")
+	os.WriteFile(sh, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	t.Setenv("SHELL", sh)
+	got := map[string]string{}
+	for _, a := range s.findAgents() {
+		got[a.Name] = a.SwitchTo
+	}
+	for name, want := range map[string]string{"claude": proto.SwitchNative, "codex": proto.SwitchNative,
+		"gemini": proto.SwitchHandoff, "pi": proto.SwitchHandoff, "aider": proto.SwitchNever, "tinker": proto.SwitchNever} {
+		if got[name] != want {
+			t.Errorf("%s: %q, want %q", name, got[name], want)
+		}
 	}
 }

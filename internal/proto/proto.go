@@ -3224,6 +3224,12 @@ type AgentAvailability struct {
 	// for one conch starts on a key. Empty when it cannot tell, for every
 	// agent but Antigravity CLI so far, and from older servers.
 	Auth string `json:"auth,omitempty"`
+	// SwitchTo is how a running conversation would be switched to this
+	// agent (CapAgentSwitch): SwitchNative where conch writes its own
+	// sessions, SwitchHandoff where it is given the handoff document for
+	// its first message, or SwitchNever for one that cannot be given a
+	// first message. Empty from a server that cannot switch.
+	SwitchTo string `json:"switch_to,omitempty"`
 }
 
 // SessionsUnread is an agent conch runs without reading what it saved,

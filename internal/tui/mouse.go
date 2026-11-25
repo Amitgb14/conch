@@ -282,8 +282,9 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				if f := m.frames[paneKey(l.view.Machine, l.view.PaneID)]; f != nil && f.History > 0 {
 					cmd := m.focusLeaf(id)
 					m.scrollDrag = id
-					m.scrollTop = rects[id].y + 1
-					m.scrollH = max(rects[id].h-2, 1)
+					body := m.leafInner(l, rects[id]) // below a switch banner
+					m.scrollTop = body.y
+					m.scrollH = max(body.h, 1)
 					m.scrollTo(msg.Y)
 					return m, cmd
 				}
@@ -316,13 +317,20 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// The switch banner over a pane: Switch back, or × to put it away.
+	if press && left && !(m.sel != nil && m.sel.dragging) {
+		if cmd, ok := m.clickBanner(msg.X, msg.Y); ok {
+			return m, cmd
+		}
+	}
+
 	t := m.tab()
 	var focusCmd tea.Cmd
 	if id := m.leafAt(rects, msg.X, msg.Y); id != 0 && id != t.focus && (press || wheel) && !(m.sel != nil && m.sel.dragging) {
 		focusCmd = m.focusLeaf(id)
 	}
 	f := t.focused()
-	in := m.inner(rects[f.id])
+	in := m.leafInner(f, rects[f.id])
 	x, y := msg.X-in.x, msg.Y-in.y
 	if x < 0 || y < 0 || x >= in.w || y >= in.h {
 		if press && left && f.view.Kind == kindPane {
@@ -723,7 +731,7 @@ func (m *Model) dragSelection(msg tea.MouseMsg) (tea.Cmd, bool) {
 		m.sel, m.click, m.selEdge = nil, nil, 0
 		return nil, false
 	}
-	in := m.inner(r)
+	in := m.leafInner(m.tab().leaf(id), r)
 	x, y := msg.X-in.x, msg.Y-in.y
 	outside := x < 0 || y < 0 || x >= in.w || y >= in.h
 	cx, cy := clamp(x, 0, in.w-1), clamp(y, 0, in.h-1)

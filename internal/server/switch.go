@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/accounts"
+	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
 )
@@ -234,6 +235,24 @@ func (s *Server) planSwitch(e *entry, info proto.PaneInfo, from string, p proto.
 	return pl, nil
 }
 
+// switchTo is how a conversation would be switched to ad: as a session of
+// its own, as the handoff document, or not at all — what planSwitch and
+// switchAgent decide, said ahead for a client's menu.
+func switchTo(ad adapter.Adapter) string {
+	switch {
+	case sessions.WriterFor(ad.Name(), sessions.Env{}) != nil:
+		return proto.SwitchNative
+	case !canPrompt(ad):
+		return proto.SwitchNever
+	}
+	return proto.SwitchHandoff
+}
+
+func canPrompt(ad adapter.Adapter) bool {
+	cp, ok := ad.(interface{ CanPrompt() bool })
+	return !ok || cp.CanPrompt()
+}
+
 func crossingOf(c sessions.Crossing) *proto.SwitchCrossing {
 	return &proto.SwitchCrossing{Messages: c.Messages, Commands: c.Commands, Notes: c.Notes, Shortened: c.Shortened,
 		Fits: c.Fits, Bytes: c.Bytes, Plan: c.Plan, Left: c.Left}
@@ -374,7 +393,12 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 	if info.CustomName || info.Name != from {
 		name = info.Name
 	}
-	origin := &proto.SwitchOrigin{Agent: from, Session: pl.session.ID, At: time.Now()}
+	origin := &proto.SwitchOrigin{Agent: from, Session: pl.session.ID, At: time.Now(), Crossing: res.Crossing}
+	// Back to the agent it came from, by the round trip's own way: a
+	// switch made after that one is a new trip, not a way back.
+	if was := info.SwitchedFrom; was != nil && !was.Back && was.Agent == p.To {
+		origin.Back = true
+	}
 	nw, perr := s.start(proto.PaneCreateParams{Agent: p.To, Account: accounts.Label(acct.Account), AgentArgs: args, Prompt: prompt,
 		Cwd: e.dir, Name: name, Cols: info.Cols, Rows: info.Rows, NoProject: info.ProjectID == ""}, e,
 		func(ne *entry) { ne.switchedFrom = origin })

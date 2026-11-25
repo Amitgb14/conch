@@ -102,8 +102,12 @@ func TestSwitchClaudeToCodexAndBack(t *testing.T) {
 	if res.Pane.ID != p.ID || res.Crossed != proto.SwitchNative || res.Via != "conch" || res.Session == "" || res.Record == "" {
 		t.Fatalf("switched: %+v", res)
 	}
-	if sf := res.Pane.SwitchedFrom; sf == nil || sf.Agent != "claude" || sf.Session != sid {
+	if sf := res.Pane.SwitchedFrom; sf == nil || sf.Agent != "claude" || sf.Session != sid || sf.Back {
 		t.Fatalf("switched from: %+v", res.Pane.SwitchedFrom)
+	}
+	// What crossed is kept with it, for a client's "Continued from" line.
+	if cr := res.Pane.SwitchedFrom.Crossing; cr == nil || cr.Messages != 3 || cr.Commands != 1 {
+		t.Fatalf("switched from carries %+v", cr)
 	}
 	second := launches(t, log, 2)[1]
 	if !strings.HasPrefix(second, "codex|") || !strings.HasSuffix(second, " resume "+res.Session) {
@@ -137,6 +141,11 @@ func TestSwitchClaudeToCodexAndBack(t *testing.T) {
 	}
 	if back.Pane.ID != p.ID || back.Crossed != proto.SwitchNative || back.Pane.SwitchedFrom.Agent != "codex" || back.FromSession != res.Session {
 		t.Fatalf("back: %+v", back)
+	}
+	// Back where it started: the round trip is over, and says so, so a
+	// client offers no Switch back to Codex.
+	if !back.Pane.SwitchedFrom.Back {
+		t.Fatalf("switching back is not marked as back: %+v", back.Pane.SwitchedFrom)
 	}
 	third := launches(t, log, 3)[2]
 	if !strings.HasPrefix(third, "claude|") || !strings.Contains(third, back.Session) {

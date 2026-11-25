@@ -14,14 +14,19 @@ public struct AgentAvailability: Decodable, Equatable, Sendable {
     /// The server reads its saved sessions; none from a server too old to
     /// say, where an agent it only runs is not read.
     public var sessions: Bool?
+    /// How a running conversation would be switched to it: SwitchWay's
+    /// native, handoff or never; none from a server that cannot switch.
+    public var switchTo: String?
 
     enum CodingKeys: String, CodingKey {
         case name, label, installed, tier, version, sessions
         case noInstaller = "no_installer"
+        case switchTo = "switch_to"
     }
 
     public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil,
-                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil) {
+                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil, switchTo: String? = nil) {
+        self.switchTo = switchTo
         self.name = name
         self.label = label
         self.installed = installed
@@ -118,6 +123,12 @@ public enum RowAction: Equatable, Sendable {
     /// An agent carried to another of its accounts (agent.move.v1): account
     /// nil lets conch choose, "default" is the agent's own.
     case moveAgent(pane: String, account: String?)
+    /// An agent's conversation switched to another agent in the same pane
+    /// (agent.switch.v1), after the card; and a waiting switch called off.
+    case switchAgent(pane: String, to: String)
+    case cancelSwitch(pane: String)
+    /// A line that only says something: shown, greyed, doing nothing.
+    case disabled
     /// One message to the running panes of a row (the TUI's broadcast).
     case broadcast(BroadcastScope)
     /// A custom action from config.toml, by its name.

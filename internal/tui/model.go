@@ -270,6 +270,12 @@ type Model struct {
 	filesShowIgnored bool
 	prevView         viewRef         // where the focused split was before the last jump, for ctrl+b b
 	configWeb        *configWebState // the settings page in the browser, once opened (configweb.go)
+	// bannerGone is the switch banners put away with ×, by bannerKey.
+	bannerGone map[string]bool
+	// menuFrom is the menu whose item is running, while it runs: the
+	// menu is already off the screen by then, and a submenu goes back
+	// to it with esc.
+	menuFrom *menu
 }
 
 type (
@@ -619,6 +625,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fresh.sel = min(mu.sel, max(len(fresh.items)-1, 0))
 				m.overlay = fresh
 			}
+			if mu, ok := m.overlay.(*menu); ok && mu.switchOf != "" && strings.HasPrefix(mu.switchOf, mach.id+"|") {
+				_, pane, _ := strings.Cut(mu.switchOf, "|")
+				if fresh := newSwitchMenu(m, mach.id, pane, mu.x-4, mu.y-1, mu.back); fresh != nil {
+					fresh.sel = min(mu.sel, max(len(fresh.items)-1, 0))
+					m.overlay = fresh
+				}
+			}
 		}
 		return m, nil
 
@@ -920,6 +933,18 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case flashMsg:
 		m.setFlash(string(msg), false)
+		return m, nil
+
+	case switchPreviewMsg:
+		return m, m.openSwitchCard(msg)
+
+	case switchMadeMsg:
+		return m, m.switchMade(msg)
+
+	case switchTickMsg:
+		if c, ok := m.overlay.(*switchCard); ok {
+			return m, c.tick(&m, msg.gen)
+		}
 		return m, nil
 
 	case harvestDoneMsg:
@@ -1226,6 +1251,9 @@ func (m *Model) handleEvent(mach *machine, msg proto.Message) tea.Cmd {
 			m.runChanged(mach, r)
 		}
 		return nil
+
+	case proto.EventAgentSwitching, proto.EventAgentSwitched:
+		return m.switchEvent(mach, msg)
 
 	case proto.EventAgentLimits:
 		var l proto.PlanLimits

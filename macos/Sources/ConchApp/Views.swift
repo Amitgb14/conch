@@ -770,6 +770,7 @@ struct MainView: View {
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .sheet(item: $store.moveAsk) { a in MoveAgentSheet(store: store, ask: a) }
+        .sheet(item: $store.switchPick) { p in SwitchPickSheet(store: store, pick: p) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id, cloud: t.cloud) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id, cloud: t.cloud, pick: t.pick) }
@@ -1487,6 +1488,8 @@ struct RowMenuItems: View {
                 Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children) }
             } else if it.action == .divider {
                 Divider()
+            } else if it.action == .disabled {
+                Button(it.title) {}.disabled(true)
             } else if it.picksAgent, let m = node.machine {
                 Menu(it.title) {
                     ForEach(store.startable(on: m), id: \.name) { a in
@@ -2223,6 +2226,10 @@ struct PaneCard: View {
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
+            // Where its conversation came from, after a switch.
+            if let text = store.switchBannerText(pane) {
+                SwitchBannerView(store: store, pane: pane, text: text)
+            }
             TerminalHost(terminal: terminal, paneSize: p.flatMap { i in i.cols.flatMap { c in i.rows.map { CellSize(cols: c, rows: $0) } } })
                 .overlay(alignment: .topTrailing) {
                     if store.find?.pane == pane { FindBar(store: store, terminal: terminal).padding(8) }
@@ -2234,6 +2241,9 @@ struct PaneCard: View {
                     if terminal.linesBelow > 0, terminal.letterbox == nil {
                         LinesBelow(count: terminal.linesBelow) { terminal.scrollToBottom() }.padding(.bottom, 12)
                     }
+                }
+                .overlay(alignment: .bottom) {
+                    if let ask = store.switchCard, ask.pane == pane { SwitchCardView(store: store, ask: ask) }
                 }
         }
         // As far as [app] background_through lets the scene in: solid

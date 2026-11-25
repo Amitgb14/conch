@@ -78,7 +78,12 @@ func (m Model) viewBody() string {
 		}
 		focused := l.id == t.focus
 		in := m.inner(r)
-		content := exactly(m.leafLines(l, in.w, in.h, focused), in.h)
+		body := m.leafInner(l, r)
+		content := exactly(m.leafLines(l, body.w, body.h, focused), body.h)
+		if body != in {
+			banner, _, _, _ := m.switchBanner(l, in.w)
+			content = append([]string{banner}, content...)
+		}
 		if numbers {
 			content = numberBadge(content, n+1, in.w)
 		}
