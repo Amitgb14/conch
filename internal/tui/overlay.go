@@ -584,6 +584,15 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			} else if a.Tier == proto.TierRunsHere {
 				detail += styleMuted.Render("  runs here")
 			}
+			// How it will sign in, where the server can tell: an agent
+			// that is about to ask for a browser sign-in says so before it
+			// is started, not after.
+			switch a.Auth {
+			case "signed-out":
+				detail += styleMuted.Render("  not signed in · it asks when it starts")
+			case "api-key":
+				detail += styleMuted.Render("  Gemini API key")
+			}
 			if a.Name == m.defaultAgent() {
 				detail += styleMuted.Render("  default")
 				sel = len(items)

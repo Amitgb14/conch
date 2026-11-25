@@ -127,9 +127,14 @@ func agentInstall(agent string) error {
 //
 //	conch report claude-hook | gemini-hook | codex-hook   (hook JSON on stdin)
 //	conch report opencode EVENT              (from conch's OpenCode plugin)
+//	conch report agy-title                   (Antigravity CLI's title command; its state on stdin)
 func runReport(args []string) {
 	if len(args) > 0 && args[0] == "claude-status" {
 		runClaudeStatus() // prints the user's status line even outside conch
+		return
+	}
+	if len(args) > 0 && args[0] == "agy-title" {
+		runAgyTitle() // prints the user's own title even outside conch
 		return
 	}
 	paneID, sock := os.Getenv("CONCH_PANE_ID"), os.Getenv("CONCH_SOCKET")

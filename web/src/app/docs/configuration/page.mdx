@@ -119,6 +119,7 @@ permission_mode = "on"  # [[permissions]] rules: on, dry-run (record only) or of
 unrestricted_launch = false  # true lets an agent driving conch start panes with any command, env and flags, and type into shells
 no_auto_resume = false       # true leaves agents interrupted by a reboot or crash in Sessions instead of resuming them
 # claude_idle_compaction = false  # Claude panes conch starts don't compact while idle; unset is Claude's default, ~/.claude/settings.json is untouched
+# antigravity_api_key_env = "GEMINI_API_KEY"  # Antigravity CLI uses the Gemini API key in this variable, not your Google sign-in
 
 [brain]
 provider = "claude"  # claude, anthropic or openai
@@ -258,6 +259,8 @@ Slack, Discord and ntfy also come as [notify integrations](/docs/integrations#no
 ### agents
 
 `claude_idle_compaction = false` stops Claude Code compacting a conversation left idle before its prompt cache expires ("Compacted while idle…"), in the Claude panes conch starts, from each one's next start. It is **Compact Claude while idle** under Agents in Settings, the settings page's and Conch.app's. conch writes it into the settings file it starts Claude with and never `~/.claude/settings.json`, which a Claude started outside conch still reads. Unset is Claude's own default.
+
+`antigravity_api_key_env = "NAME"` starts Antigravity CLI with the Gemini API key in the variable `NAME` instead of your Google sign-in. conch keeps no key: it starts `agy` with `GEMINI_API_KEY="$NAME"`, which your login shell fills in from your profile, and with `--settings '{"modelProvider":"gemini"}'`, which lasts for that launch and is never written to agy's `settings.json`. If `NAME` is empty when an agent starts, the pane says so and stops. It is **Antigravity CLI: variable holding a Gemini API key** under Agents in Settings.
 
 ### brain
 

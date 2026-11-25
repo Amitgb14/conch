@@ -38,10 +38,11 @@ extension Store {
 
     /// Adds agent's account called name, in dir or a folder of conch's,
     /// and offers to sign in to it.
-    func addAccount(agent: String, name: String, dir: String?, on machine: String, signIn: Bool) {
+    func addAccount(agent: String, name: String, dir: String?, keyEnv: String? = nil, on machine: String, signIn: Bool) {
         accountCall(on: machine, done: "Added \(agent)'s \(name) account") { c in
             let d = dir?.trimmingCharacters(in: .whitespaces)
-            try await c.call("account.add", AccountAddParams(agent: agent, name: name, dir: d?.isEmpty == false ? d : nil))
+            let k = keyEnv?.trimmingCharacters(in: .whitespaces)
+            try await c.call("account.add", AccountAddParams(agent: agent, name: name, dir: d?.isEmpty == false ? d : nil, keyEnv: k?.isEmpty == false ? k : nil))
             if signIn { await MainActor.run { self.signIn(agent: agent, account: name, on: machine) } }
         }
     }

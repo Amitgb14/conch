@@ -632,6 +632,12 @@ type AgentsCfg struct {
 	// panes conch starts, written into conch's own --settings file and
 	// never ~/.claude/settings.json. nil leaves Claude's default (on).
 	ClaudeIdleCompaction *bool `toml:"claude_idle_compaction,omitempty"`
+	// AntigravityAPIKeyEnv names the variable your Gemini API key is in,
+	// for Antigravity CLI to use it rather than your Google sign-in. conch
+	// keeps no key: the launch line says GEMINI_API_KEY="$NAME", which
+	// your login shell fills in, and switches agy's modelProvider for
+	// that launch alone. Empty leaves agy signed in as it is.
+	AntigravityAPIKeyEnv string `toml:"antigravity_api_key_env,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.

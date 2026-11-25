@@ -20,7 +20,7 @@ import (
 // machine the agents run on — which is why these go through it, -m and
 // all, rather than writing a file here.
 
-const accountUsage = "usage: conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME | pin [PATH] NAME | unpin [PATH] | failover PERCENT|off|default [-agent AGENT] | suggest [AGENT] | back [ACCOUNT]"
+const accountUsage = "usage: conch account list | add AGENT NAME [-dir DIR] [-key-env VAR] | remove AGENT NAME | pin [PATH] NAME | unpin [PATH] | failover PERCENT|off|default [-agent AGENT] | suggest [AGENT] | back [ACCOUNT]"
 
 // agentAccountCommands are the subcommands of conch account that are about
 // agent accounts; conch account on its own is Conch Cloud's.
@@ -39,7 +39,7 @@ func runAgentAccount(args []string) error {
 	}
 	var params any
 	var method string
-	perAgent := false
+	perAgent, keyed := false, false
 	switch sub {
 	case "list", "ls":
 		if len(rest) > 0 {
@@ -49,14 +49,16 @@ func runAgentAccount(args []string) error {
 	case "add":
 		fs := flag.NewFlagSet("account add", flag.ContinueOnError)
 		dir := fs.String("dir", "", "the account's folder (default: one of conch's own)")
+		keyEnv := fs.String("key-env", "", "antigravity: the variable holding this account's Gemini API key (its name, not the key)")
 		words, err := parseInterspersed(fs, rest)
 		if err != nil {
 			return err
 		}
 		if len(words) != 2 {
-			return errors.New("usage: conch account add AGENT NAME [-dir DIR]")
+			return errors.New("usage: conch account add AGENT NAME [-dir DIR] [-key-env VAR]")
 		}
-		method, params = proto.MethodAccountAdd, proto.AccountAddParams{Agent: words[0], Name: words[1], Dir: *dir}
+		method, params = proto.MethodAccountAdd, proto.AccountAddParams{Agent: words[0], Name: words[1], Dir: *dir, KeyEnv: *keyEnv}
+		keyed = *keyEnv != ""
 	case "remove", "rm":
 		if len(rest) != 2 {
 			return errors.New("usage: conch account remove AGENT NAME")
@@ -83,7 +85,7 @@ func runAgentAccount(args []string) error {
 		method, params = proto.MethodAccountPin, proto.AccountPinParams{Path: path, Account: name}
 	case "failover":
 		fs := flag.NewFlagSet("account failover", flag.ContinueOnError)
-		agent := fs.String("agent", "", "set this agent's own line (claude, codex); default: every agent's")
+		agent := fs.String("agent", "", "set this agent's own line (claude, codex, antigravity); default: every agent's")
 		words, err := parseInterspersed(fs, rest)
 		if err != nil {
 			return err
@@ -123,6 +125,9 @@ func runAgentAccount(args []string) error {
 	if perAgent && len(c.MissingCapabilities([]string{proto.CapAccountFailoverAgent})) > 0 {
 		return errors.New("the conch server there keeps one failover line for every agent; reload it with `conch server reload` to give one agent its own")
 	}
+	if keyed && len(c.MissingCapabilities([]string{proto.CapAccountKeys})) > 0 {
+		return errors.New("the conch server there has no accounts made of API keys; reload it with `conch server reload`")
+	}
 	switch method {
 	case proto.MethodAccountList:
 		var l proto.AccountList
@@ -136,7 +141,11 @@ func runAgentAccount(args []string) error {
 			return err
 		}
 		fmt.Printf("%s account %s in %s\n", a.Agent, a.Name, a.Dir)
-		fmt.Printf("Sign in once: conch new -agent %s -account %s, and log in there.\n", a.Agent, a.Name)
+		if a.KeyEnv != "" {
+			fmt.Printf("It uses the Gemini API key in $%s, which your login shell sets: conch keeps no key.\n", a.KeyEnv)
+		} else {
+			fmt.Printf("Sign in once: conch new -agent %s -account %s, and log in there.\n", a.Agent, a.Name)
+		}
 	default:
 		if err := call(c, method, params, nil); err != nil {
 			return err
@@ -179,6 +188,9 @@ func printAccounts(l proto.AccountList, now time.Time) {
 		name, dir := a.Name, a.Dir
 		if a.Default {
 			name, dir = "default", "(its own)"
+		}
+		if a.KeyEnv != "" {
+			dir += " · key in $" + a.KeyEnv
 		}
 		running := ""
 		if a.Agents > 0 {

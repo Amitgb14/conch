@@ -8,7 +8,7 @@ import (
 )
 
 func TestSupports(t *testing.T) {
-	for agent, want := range map[string]string{"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "gemini": "", "": "", "opencode": ""} {
+	for agent, want := range map[string]string{"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "antigravity": "CONCH_AGY_DIR", "gemini": "", "": "", "opencode": ""} {
 		if got := Var(agent); got != want {
 			t.Errorf("Var(%q) = %q, want %q", agent, got, want)
 		}
@@ -16,7 +16,7 @@ func TestSupports(t *testing.T) {
 			t.Errorf("Supports(%q) = %v", agent, Supports(agent))
 		}
 	}
-	if got := Agents(); strings.Join(got, ",") != "claude,codex" {
+	if got := Agents(); strings.Join(got, ",") != "antigravity,claude,codex" {
 		t.Errorf("Agents() = %v", got)
 	}
 }

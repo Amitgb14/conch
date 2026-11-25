@@ -75,7 +75,7 @@ func TestSyncPlanWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.From != "claude" || len(res.To) != 8 || res.Writes() == 0 {
+	if res.From != "claude" || len(res.To) != 9 || res.Writes() == 0 {
 		t.Fatalf("plan %+v\n%s", res.To, changeLines(res))
 	}
 	for _, p := range []string{"AGENTS.md", "GEMINI.md", ".agents/skills/review", ".codex/config.toml",
@@ -410,7 +410,7 @@ func TestSyncRefusals(t *testing.T) {
 	if _, err := UndoSync(root, "20260101-000001"); err == nil || !strings.Contains(err.Error(), "cannot be read") {
 		t.Fatalf("a record that is nonsense: %v", err)
 	}
-	if got := SyncNames(); strings.Join(got, ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
+	if got := SyncNames(); strings.Join(got, ",") != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose,antigravity" {
 		t.Fatalf("SyncNames %v", got)
 	}
 	if !CanSync("claude") || !CanSync("devin") || CanSync("cursor") {

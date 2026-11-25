@@ -78,7 +78,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch status [-wide] [-json] [-team NAME]` (or `conch ls`) | show server and pane status; `-team` only that [team](/docs/configuration#teams)'s agents. In a terminal it fits the window: a line saying how many agents are working, waiting, done or idle, then each pane's ID, name, agent and its state, what an idle agent [left running](/docs/agents#left-running-in-the-background) (a BACKGROUND column, when any has; the summary line counts them), ssh host (when any pane has one), folder from `~` (cut from the start when it must be, since the end names it) and command (not an agent's, which is the agent; left out when there is no room to say anything). Piped — or with `-wide` — it is the full table scripts read, unchanged: ID, name, state, agent, ssh host, size, folder and command of each pane; `-json` gives the server and its panes as JSON (`{"server": null, "panes": []}` with no server), an agent's background jobs as `agent.background` (how many) and `agent.jobs` (`[{pid, command, since, ports}]`). The ssh column is the host a terminal is logged in to with plain `ssh` right now — the one `-ssh` on `upload` and `download` reaches — and `-` for the rest. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-account NAME] [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking; `-account` starts it on another of its [accounts](/docs/agents#several-accounts) |
-| `conch account list \| add AGENT NAME [-dir DIR] \| remove AGENT NAME` | an agent's other [accounts](/docs/agents#several-accounts) (Claude Code, Codex), each with its plan usage and agents |
+| `conch account list \| add AGENT NAME [-dir DIR] [-key-env VAR] \| remove AGENT NAME` | an agent's other [accounts](/docs/agents#several-accounts) (Claude Code, Codex, Antigravity CLI), each with its plan usage and agents |
 | `conch account pin [PATH] NAME \| unpin [PATH]` | agents started in a project, worktree or task folder use that account |
 | `conch account failover PERCENT\|off\|default [-agent AGENT]` | a new agent whose account is past PERCENT of a plan window starts on the agent's next account; `-agent` sets one agent's own line, `default` puts it back on every agent's |
 | `conch account suggest [AGENT]` | the agent's accounts ranked for a move: signed in, the most room, the fewest agents |
@@ -171,6 +171,19 @@ conch tells who is asking from the operating system — the process at the other
 The names `-agent`, `conch agent install` and `conch new -agent` take. **Supported** — their sessions are read: `claude` (Claude Code), `codex` (Codex), `gemini` (Gemini CLI), `opencode` (OpenCode), `devin` (Devin), `copilot` (Copilot CLI), `cline` (Cline), `qwen` (Qwen Code) and `goose` (Goose).
 
 **Runs here** — from a manifest in `internal/detect/manifests`, which says what was checked for each: `aider` (Aider), `amp` (Amp), `antigravity` (Antigravity CLI, `agy`), `auggie` (Auggie), `continue` (Continue CLI, `cn`), `crush` (Crush), `cursor` (Cursor CLI), `droid` (Droid), `grok` (Grok), `kilo` (Kilo Code), `kimi` (Kimi Code), `kiro` (Kiro CLI, `kiro-cli chat`), `vibe` (Mistral Vibe) and `pi` (Pi). Add your own with `conch agent add`.
+
+Of these, Pi, Grok, Cursor, Kilo Code and Antigravity CLI have their conversations listed in [Sessions](/docs/sessions).
+
+#### Antigravity CLI
+
+What conch does for `agy` (checked against 1.5.16), all read on this computer and nothing sent to Google:
+
+- **Sign-in:** it signs in with Google the first time it starts. On a Mac the agent menu says beforehand when it is not signed in — conch sees whether its Keychain item is there without reading it — or that it will use a [Gemini API key](/docs/configuration).
+- **State:** it reports its own ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)), so working, waiting (sign-in, trusting a folder, approving a command) and done show with no hooks or screen rules.
+- **Chat:** conch starts it with a title command of its own for that session (`--settings`, never written to its `settings.json`). That is where agy names its conversation, so Conch.app's chat shows its tools with what each was given and returned, its context window and its weekly quota. A title command of your own still runs.
+- **Accounts:** each a Gemini API key; see [Agent accounts](#agent-accounts).
+- **Usage:** Conch.app's **Tokens used** counts it by model over the last day, week and month, and its rows in Sessions show each conversation's output tokens.
+- **Setup (`i`):** its `AGENTS.md`, `GEMINI.md` and `.agents/rules`, its skills and plugins, and the servers in `.agents/mcp_config.json` and `~/.gemini/config/mcp_config.json`. Sync gives it instructions (a copy, since its `@path` does not pull a file in) and skills, not servers: add those with `agy mcp add`.
 
 ### project
 
@@ -765,11 +778,14 @@ Once signed in, the account's machines are in conch's machines (`conch machine l
 
 An account is a configuration folder of the agent's own: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex. Its sign-in, settings and conversations live there, so each account is signed in once and keeps its own history. Gemini CLI, OpenCode and Devin keep one account each: conch knows no clean way to give them a second.
 
+An Antigravity CLI account is a **Gemini API key**, named by the variable that holds it (`-key-env`), with a folder of its own for its conversations, given to agy as `--gemini_dir`. Its Google sign-in is one Keychain item whatever the folder, so a second Google account cannot be kept apart; that sign-in is its `default`. conch keeps the variable's name, never the key: your login shell reads it when agy starts, and an empty one stops the start, saying which. `--gemini_dir` is a flag agy does not document, checked on 1.5.16.
+
 <AccountFlow />
 
 ```sh
 conch account add claude work                  # a folder of conch's for it
 conch account add claude home -dir ~/.claude-home
+conch account add antigravity team -key-env TEAM_GEMINI_KEY   # agy on that key
 conch new -agent claude -account work          # start it there, and /login once
 conch account pin ~/src/acme work              # agents started in acme use work
 conch task -account home "Fix the flaky test"  # this task's agent uses home

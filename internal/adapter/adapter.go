@@ -109,6 +109,11 @@ func New(exe, dir string) (Registry, error) {
 	for _, err := range append(errs, shipErrs...) {
 		ManifestProblem(err)
 	}
+	for _, a := range append(append([]Adapter{}, mine...), shipped...) {
+		if ca, ok := a.(*cliAgent); ok && ca.name == "antigravity" {
+			ca.launch = antigravityLaunch(exe, dir)
+		}
+	}
 	return append(append(r, mine...), shipped...), nil
 }
 
@@ -144,6 +149,10 @@ type cliAgent struct {
 	// ~/.config), and an agent started with a --settings file that is no
 	// longer there fails with "Settings file not found".
 	prepare func() error
+	// launch, when set, is asked at every start for what goes before exec
+	// and the flags that follow the binary: a setting read then, rather
+	// than when the server started.
+	launch func() (before, flags string)
 }
 
 // Ensure writes this agent's integration files again, if it has any.
@@ -258,9 +267,15 @@ func (a *cliAgent) pathSetup() string {
 // Command implements Adapter. exec keeps the agent as the pane's foreground
 // process.
 func (a *cliAgent) Command(shell, args string) []string {
-	line := a.pathSetup() + "exec " + a.binary
-	if a.flags != "" {
-		line += " " + a.flags
+	before, flags := "", a.flags
+	if a.launch != nil {
+		var more string
+		before, more = a.launch()
+		flags = strings.TrimSpace(flags + " " + more)
+	}
+	line := a.pathSetup() + before + "exec " + a.binary
+	if flags != "" {
+		line += " " + flags
 	}
 	if args = strings.TrimSpace(args); args != "" {
 		line += " " + args

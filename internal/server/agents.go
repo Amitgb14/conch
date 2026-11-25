@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/detect"
@@ -342,6 +344,15 @@ var refreshEvents = map[string]bool{"PostToolUse": true, "PostToolUseFailure": t
 func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	if rp.Event == "StatusLine" {
 		s.statusLine(e, rp)
+		// Antigravity CLI has no hooks to name its conversation; its
+		// title command does, and that is the only place it is said.
+		if rp.Agent == "antigravity" && rp.SessionID != "" {
+			e.evalMu.Lock()
+			s.evaluate(e, func(t *detect.Tracker) {
+				t.Hook(detect.HookEvent{Agent: rp.Agent, Event: rp.Event, SessionID: rp.SessionID}, time.Now())
+			})
+			e.evalMu.Unlock()
+		}
 		return
 	}
 	e.evalMu.Lock()
@@ -630,9 +641,13 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	wg.Wait()
 	var out []proto.AgentAvailability
 	for i, ad := range s.adapters {
-		out = append(out, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
+		av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())})
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())}
+		if av.Installed && av.Name == "antigravity" {
+			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))
+		}
+		out = append(out, av)
 	}
 	s.agentsSeen.note(out)
 	return out
@@ -694,3 +709,7 @@ func programReport(p *pane.Pane) *detect.ProgramReport {
 	}
 	return &detect.ProgramReport{State: rec.State, Kind: rec.Kind, App: rec.App, Msg: rec.Msg, At: rec.At}
 }
+
+// antigravityAuth says how Antigravity CLI is signed in. A variable, so
+// the tests never ask this machine's Keychain.
+var antigravityAuth = accounts.AntigravityAuth

@@ -58,6 +58,8 @@ func Transcript(ctx context.Context, e Env, s Session) ([]Turn, error) {
 		turns, err = grokTranscript(s.Path)
 	case "cursor":
 		turns, err = cursorTranscript(s.Path)
+	case "antigravity":
+		turns, err = antigravityTranscript(e, s)
 	default:
 		return nil, fmt.Errorf("conch can't read %s sessions", s.Agent)
 	}

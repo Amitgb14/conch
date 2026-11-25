@@ -181,6 +181,12 @@ var writable = map[string]agentFiles{
 	// rewrite.
 	"goose": {instructions: "AGENTS.md",
 		skills: []string{".agents/skills", ".goose/skills", ".claude/skills"}},
+	// Antigravity CLI reads AGENTS.md and GEMINI.md and .agents/skills by
+	// itself. Its "@path" names a file without pulling it in, so a copy is
+	// written rather than an import; and how its mcp_config.json names a
+	// variable is not documented, so servers are read but not written.
+	"antigravity": {instructions: "AGENTS.md",
+		skills: []string{".agents/skills"}, readsInstructions: []string{"GEMINI.md"}},
 }
 
 // withoutDevinCompat drops what Devin reads of other agents' files when its
@@ -308,6 +314,15 @@ func userFiles(e Env, agent string) (agentFiles, bool) {
 		return agentFiles{
 			instructions: filepath.Join(gooseConfigDir(e), "AGENTS.md"),
 			skills:       []string{shared},
+		}, true
+	case "antigravity":
+		// ~/.gemini/config is Antigravity's, the CLI's and the app's;
+		// ~/.gemini/GEMINI.md, which it reads too, is Gemini CLI's.
+		dir := filepath.Join(home, ".gemini", "config")
+		return agentFiles{
+			instructions:      filepath.Join(dir, "AGENTS.md"),
+			skills:            []string{filepath.Join(dir, "skills")},
+			readsInstructions: []string{filepath.Join(home, ".gemini", "GEMINI.md")},
 		}, true
 	}
 	return agentFiles{}, false
