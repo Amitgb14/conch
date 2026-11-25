@@ -78,7 +78,7 @@ A session started on another of the agent's [accounts](/docs/agents#several-acco
 
 conch writes the conversation to `.conch/handoff/<agent>-<session>.md` and asks the agent to read it and continue. The [brain](/docs/brain) does the same from a plain request.
 
-The document begins with **where it stands**: the plan or to-do list still open, the files changed with lines added and removed, and the last error nobody fixed yet. The turns come after it. Messages are copied word for word. Commands are shown with the end of their output. File reads and edits, and other tools, each get a one-line note. The agent's thinking is left out. Claude Code and Codex conversations are read this fully. For every other agent only the messages are included, and the document says so. In a very long conversation the first request and the latest turns are kept whole. The turns between them are shortened to their messages and a count of their steps, and the oldest ones are dropped if it is still too long.
+It opens with what is left of the plan, the files changed and the last error, then gives the turns: messages word for word, commands with the end of their output, reads, edits and tools as notes. Only Claude Code and Codex are read this fully; for the rest it says it holds messages only.
 
 ### On another machine
 
