@@ -44,8 +44,10 @@ func runAgent(args []string) error {
 		return agentTeam(args[1:])
 	case len(args) >= 1 && args[0] == "move":
 		return agentMove(args[1:])
+	case len(args) >= 1 && args[0] == "switch":
+		return agentSwitch(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | question ID | answer [-question QID] ID CHOICE | team ID [TEAM | - | -clear] | move ID [-account NAME] | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | add NAME -command BINARY | " +
+		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | question ID | answer [-question QID] ID CHOICE | team ID [TEAM | - | -clear] | move ID [-account NAME] | switch [-now] [-preview] ID AGENT | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | add NAME -command BINARY | " +
 			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR] | library [list | add | skill | on | off | rm | import | plan | apply | undo]")
 	}
 	c, err := connect(false)

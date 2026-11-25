@@ -105,6 +105,9 @@ type entry struct {
 	// (accountmove.go). Both guarded by mu.
 	movedFrom string
 	replaces  string
+	// switchedFrom is the agent and session its conversation was switched
+	// from (switch.go), guarded by mu.
+	switchedFrom *proto.SwitchOrigin
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -128,6 +131,10 @@ func (e *entry) info() proto.PaneInfo {
 	info.Account = e.account
 	info.Team = e.team
 	info.MovedFrom, info.Replaces = e.movedFrom, e.replaces
+	if e.switchedFrom != nil {
+		sf := *e.switchedFrom
+		info.SwitchedFrom = &sf
+	}
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {

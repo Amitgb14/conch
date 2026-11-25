@@ -1,0 +1,19 @@
+export const metadata = { title: "Switching agents", description: "Carry a running agent's conversation to another agent, in the same pane." }
+
+# Switching agents
+
+`conch agent switch ID AGENT` (or `conch agent switch -preview ID AGENT` first) carries a running agent's conversation to another agent, which resumes it **in the same pane**: same id, tab, branch and row. Use it when a plan runs out, or for a second opinion without retelling the story.
+
+- **Claude Code ↔ Codex:** the target resumes it as a session of its own, with the history. Codex imports a Claude Code session itself where it can (Codex 0.126 and later, a session under `~/.claude/projects`). Otherwise conch writes the session.
+- **Any other agent:** it starts with the [handoff document](/docs/sessions#sharing-with-another-agent) as its first message. An agent that cannot be given one is refused.
+
+**What crosses:** messages word for word; commands as the target's own shell tool, with their output; reads, edits and other tools as one-line notes; the latest plan. Thinking and reasoning do not cross. A conversation too long for the target's context keeps its first request and its latest turns whole, and the turns between are shortened.
+
+**Safely:**
+
+- Never mid-turn. Without `-now` it waits for the turn to end, and up to ten minutes for background commands; `-cancel ID` calls it off.
+- Each session is written to a scratch folder and read back first. If that fails, the document is handed over instead, and the result says why.
+- Only new files are written, and the source session is never touched, so switching back always works: it is just another switch.
+- `-preview` says what would cross; `-undo RECORD` removes what a switch wrote, keeping a file the agent has written to since.
+
+Agents can do the same through the `switch` tool of `conch mcp`, on agents they started.
