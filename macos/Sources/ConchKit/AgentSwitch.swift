@@ -92,8 +92,12 @@ public struct AgentSwitchResult: Decodable, Equatable, Sendable {
     public var waits: [String]?
     public var preview: Bool?
     public var error: String?
+    /// "limit" for a switch the server made itself at a plan limit
+    /// (agent.switch.limit.v1).
+    public var reason: String?
     public init(pane: PaneInfo? = nil, from: String, to: String, crossed: String? = nil, why: String? = nil, crossing: SwitchCrossing? = nil,
-                pending: Bool? = nil, waits: [String]? = nil, preview: Bool? = nil, error: String? = nil) {
+                pending: Bool? = nil, waits: [String]? = nil, preview: Bool? = nil, error: String? = nil, reason: String? = nil) {
+        self.reason = reason
         self.pane = pane
         self.from = from
         self.to = to

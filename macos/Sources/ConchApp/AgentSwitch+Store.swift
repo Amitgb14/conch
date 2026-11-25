@@ -109,6 +109,7 @@ extension Store {
         let k = ConchKit.key(machine, s.pane)
         switchingAgents[k] = s
         if switchCard?.pane == k, switchCard?.stage == .asking { switchCard?.stage = .waiting(s.waits ?? []) }
+        limitSwitchWaits(s, key: k)
     }
 
     func agentSwitched(_ r: AgentSwitchResult, on machine: String) {
@@ -116,6 +117,7 @@ extension Store {
         let k = ConchKit.key(machine, id)
         let waited = switchingAgents.removeValue(forKey: k) != nil
         let onCard = switchCard?.pane == k
+        if !waited, !onCard, limitSwitched(r, key: k, machine: machine) { return }
         if let err = r.error {
             if onCard { switchCard?.stage = .failed(err) } else { say("\(id): the switch to \(agentTitle(r.to)) failed: \(err)", .err) }
             return
