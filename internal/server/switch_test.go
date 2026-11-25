@@ -23,7 +23,7 @@ func switchHome(t *testing.T) (home, log string) {
 	bin := filepath.Join(home, ".local", "bin")
 	os.MkdirAll(bin, 0o755)
 	log = filepath.Join(home, "launches")
-	for _, name := range []string{"claude", "codex", "gemini"} {
+	for _, name := range []string{"claude", "codex", "gemini", "qwen", "copilot"} {
 		script := "#!/bin/sh\n[ \"$1\" = app-server ] && exit 1\nprintf '" + name + "|%s\\n' \"$*\" >> " + log + "\nexec cat\n"
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
@@ -249,17 +249,17 @@ func TestSwitchHandsOverToAnotherAgent(t *testing.T) {
 	}
 
 	var res proto.AgentSwitchResult
-	if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "gemini", Now: true}, &res); err != nil {
+	if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "copilot", Now: true}, &res); err != nil {
 		t.Fatal(err)
 	}
-	if res.Crossed != proto.SwitchHandoff || !strings.Contains(res.Why, "does not write Gemini CLI's sessions") || res.Document == "" || res.Pane.ID != p.ID {
+	if res.Crossed != proto.SwitchHandoff || !strings.Contains(res.Why, "does not write Copilot CLI's sessions") || res.Document == "" || res.Pane.ID != p.ID {
 		t.Fatalf("%+v", res)
 	}
 	if b, err := os.ReadFile(res.Document); err != nil || !strings.Contains(string(b), "Decided: SQS") {
 		t.Fatalf("document: %v", err)
 	}
-	if second := launches(t, log, 2)[1]; !strings.HasPrefix(second, "gemini|") || !strings.Contains(second, ".conch/handoff/") {
-		t.Fatalf("Gemini started as %q", second)
+	if second := launches(t, log, 2)[1]; !strings.HasPrefix(second, "copilot|") || !strings.Contains(second, ".conch/handoff/") {
+		t.Fatalf("Copilot started as %q", second)
 	}
 }
 
@@ -311,4 +311,97 @@ func TestSwitchKeepsTheViewers(t *testing.T) {
 		}
 	}
 	t.Fatal("no frame of the new program reached the client watching the pane")
+}
+
+// TestSwitchThroughGeminiAndQwen: a conversation crosses Claude Code →
+// Gemini CLI → Qwen Code → Claude Code in one pane, each time as the
+// target's own session — found where its --resume looks, and by conch's
+// own lister for the next switch — with the decision made at the start
+// still in what the last agent resumes.
+func TestSwitchThroughGeminiAndQwen(t *testing.T) {
+	home, log := switchHome(t)
+	c, dir := startServer(t)
+	ctx := t.Context()
+	var p proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", Cwd: dir, Cols: 80, Rows: 20}, &p); err != nil {
+		t.Fatal(err)
+	}
+	launches(t, log, 1)
+	_, conv := claudeSession(t, home, dir)
+	report(t, c, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "Stop", TranscriptPath: conv})
+
+	var pre proto.AgentSwitchResult
+	if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "gemini", Preview: true}, &pre); err != nil {
+		t.Fatal(err)
+	}
+	if pre.Crossed != proto.SwitchNative || pre.Crossing == nil || pre.Crossing.Commands != 1 {
+		t.Fatalf("preview: %+v", pre)
+	}
+
+	step := func(to, from string, n int) (proto.AgentSwitchResult, string) {
+		t.Helper()
+		var res proto.AgentSwitchResult
+		if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: to, Now: true, NoContinue: true}, &res); err != nil {
+			t.Fatal(err)
+		}
+		if res.Pane.ID != p.ID || res.Crossed != proto.SwitchNative || res.Via != "conch" || res.Session == "" || res.Record == "" ||
+			res.Pane.SwitchedFrom == nil || res.Pane.SwitchedFrom.Agent != from {
+			t.Fatalf("to %s: %+v", to, res)
+		}
+		line := launches(t, log, n)[n-1]
+		if !strings.HasPrefix(line, to+"|") || !strings.HasSuffix(line, "--resume "+res.Session) {
+			t.Fatalf("%s started as %q", to, line)
+		}
+		report(t, c, proto.AgentReportParams{ID: p.ID, Agent: to, Event: "Stop", SessionID: res.Session})
+		return res, line
+	}
+
+	toGemini, _ := step("gemini", "claude", 2)
+	chats, _ := filepath.Glob(filepath.Join(home, ".gemini", "tmp", "*", "chats", "session-*-"+toGemini.Session[:8]+".jsonl"))
+	if len(chats) != 1 {
+		t.Fatalf("Gemini's chats: %v", chats)
+	}
+	if b, _ := os.ReadFile(chats[0]); !strings.Contains(string(b), "Decided: SQS, since redis is not deployed.") || !strings.Contains(string(b), `"run_shell_command"`) {
+		t.Fatalf("Gemini's chat:\n%s", b)
+	}
+
+	toQwen, _ := step("qwen", "gemini", 3)
+	if toQwen.FromSession != toGemini.Session {
+		t.Fatalf("Qwen's switch read %q, not Gemini's %q", toQwen.FromSession, toGemini.Session)
+	}
+	qwen, _ := filepath.Glob(filepath.Join(home, ".qwen", "projects", "*", "chats", toQwen.Session+".jsonl"))
+	if len(qwen) != 1 {
+		t.Fatalf("Qwen's sessions: %v", qwen)
+	}
+	if b, _ := os.ReadFile(qwen[0]); !strings.Contains(string(b), "Decided: SQS, since redis is not deployed.") || !strings.Contains(string(b), `"run_shell_command"`) {
+		t.Fatalf("Qwen's session:\n%s", b)
+	}
+
+	var back proto.AgentSwitchResult
+	if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "claude", Now: true, NoContinue: true}, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Crossed != proto.SwitchNative || back.FromSession != toQwen.Session || back.Crossing == nil || back.Crossing.Commands != 1 {
+		t.Fatalf("back: %+v", back)
+	}
+	written, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", back.Session+".jsonl"))
+	if len(written) != 1 {
+		t.Fatalf("Claude's session: %v", written)
+	}
+	if b, _ := os.ReadFile(written[0]); !strings.Contains(string(b), "Decided: SQS, since redis is not deployed.") || !strings.Contains(string(b), `"name":"Bash"`) {
+		t.Fatalf("Claude's session:\n%s", b)
+	}
+
+	// Undo of the switch to Gemini removes its chat and the folder's
+	// marker it wrote, nothing else.
+	var undo proto.AgentSwitchUndoResult
+	if err := c.Call(ctx, proto.MethodAgentSwitchUndo, proto.AgentSwitchUndoParams{Record: toGemini.Record}, &undo); err != nil {
+		t.Fatal(err)
+	}
+	if len(undo.Removed) != 2 || undo.Removed[0] != chats[0] || filepath.Base(undo.Removed[1]) != ".project_root" {
+		t.Fatalf("undo: %+v", undo)
+	}
+	if _, err := os.Stat(qwen[0]); err != nil {
+		t.Fatal("undoing one switch removed another's session")
+	}
 }

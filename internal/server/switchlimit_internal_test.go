@@ -190,12 +190,14 @@ func TestSwitchCandidates(t *testing.T) {
 	for _, c := range []struct {
 		from, setting, want string
 	}{
-		{"claude", "", "codex"},
-		{"codex", "", "claude"},
-		{"claude", "wait", "codex"},
-		{"claude", "gemini", "gemini codex"},
-		{"claude", "codex", "codex"},
-		{"claude", "claude", "codex"},
+		{"claude", "", "codex gemini qwen"},
+		{"codex", "", "claude gemini qwen"},
+		{"qwen", "", "claude codex gemini"},
+		{"claude", "wait", "codex gemini qwen"},
+		{"claude", "qwen", "qwen codex gemini"},
+		{"claude", "copilot", "copilot codex gemini qwen"},
+		{"claude", "codex", "codex gemini qwen"},
+		{"claude", "claude", "codex gemini qwen"},
 	} {
 		if got := strings.Join(s.switchCandidates(c.from, c.setting), " "); got != c.want {
 			t.Errorf("%s with %q: %q, want %q", c.from, c.setting, got, c.want)
@@ -204,7 +206,7 @@ func TestSwitchCandidates(t *testing.T) {
 }
 
 func TestLimitWatched(t *testing.T) {
-	for agent, want := range map[string]bool{"claude": true, "codex": true, "gemini": false, "": false} {
+	for agent, want := range map[string]bool{"claude": true, "codex": true, "gemini": true, "qwen": true, "copilot": false, "pi": false, "": false} {
 		if limitWatched(agent) != want {
 			t.Errorf("%q: %v", agent, !want)
 		}

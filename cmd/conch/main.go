@@ -142,9 +142,9 @@ Usage:
                                 it left running stop with it: refused unless -force
   conch agent switch [-now] [-preview] [-handoff] [-no-continue] ID AGENT
                                 switch an agent's conversation to another agent, which resumes it
-                                in the same pane: Claude Code and Codex as a session of their
-                                own (tried and read back first), any other agent with it as a
-                                document for its first message. Never mid-turn: waits for the
+                                in the same pane: Claude Code, Codex, Gemini CLI and Qwen Code
+                                as a session of their own (tried and read back first), any other
+                                agent with it as a document for its first message. Never mid-turn: waits for the
                                 turn to end and up to 10m for background commands (-now: not
                                 for those, which stop). -preview says what would cross.
                                 -cancel ID calls a waiting one off; -undo RECORD removes what it wrote

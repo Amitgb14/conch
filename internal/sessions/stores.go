@@ -403,9 +403,19 @@ func gemini(e Env, dirs []string) []Session {
 	}
 	var out []Session
 	seen := map[string]bool{}
+	var marked map[string]string // a folder's .project_root → its name
 	for _, d := range dirs {
 		sum := sha256.Sum256([]byte(d))
-		for _, name := range []string{registry.Projects[d], hex.EncodeToString(sum[:])} {
+		names := []string{registry.Projects[d], hex.EncodeToString(sum[:])}
+		if registry.Projects[d] == "" {
+			// Not in the registry yet: Gemini CLI looks for the folder
+			// whose .project_root names it, as a switch leaves one.
+			if marked == nil {
+				marked = geminiMarkers(filepath.Join(home, "tmp"))
+			}
+			names = append(names, marked[d])
+		}
+		for _, name := range names {
 			if name == "" {
 				continue
 			}
@@ -421,6 +431,24 @@ func gemini(e Env, dirs []string) []Session {
 					c.Dir = d // the store is keyed by the project directory
 					out = append(out, c)
 				}
+			}
+		}
+	}
+	return out
+}
+
+// geminiMarkers is each folder under tmp that names its project in a
+// .project_root, by that project.
+func geminiMarkers(tmp string) map[string]string {
+	out := map[string]string{}
+	entries, _ := os.ReadDir(tmp)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(tmp, e.Name(), ".project_root")); err == nil {
+			if p := strings.TrimSpace(string(b)); p != "" && out[p] == "" {
+				out[p] = e.Name()
 			}
 		}
 	}

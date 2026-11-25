@@ -20,9 +20,10 @@ import (
 // pane (CapAgentSwitch, #352). It is the account move's way (accountmove.go)
 // with a translation in the middle: never mid-turn, waiting for the turn
 // to end and for background commands; then the conversation is written as
-// a session of the target's own (sessions.ClaudeWriter, CodexWriter) —
-// tried in a scratch home and read back first — the target started in the
-// pane's place resuming it, and sent "continue". Where conch writes no
+// a session of the target's own (sessions.ClaudeWriter, CodexWriter,
+// GeminiWriter, QwenWriter) — tried in a scratch home and read back
+// first — the target started in the pane's place resuming it, and sent
+// "continue". Where conch writes no
 // sessions for the target, or the trial reads back wrong, the target gets
 // the Markdown handoff for its first message instead, and the result says
 // why. The source session is only read, so switching back always works.
