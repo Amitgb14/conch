@@ -95,6 +95,14 @@ func TestSwitchClaudeToCodexAndBack(t *testing.T) {
 		t.Fatalf("a preview started something: %q", got)
 	}
 
+	// Seen as an agent first, so it is in the run log as one: what a
+	// switch must not then keep as an ended agent.
+	for deadline := time.Now().Add(10 * time.Second); panesNow(t, c)[p.ID].Agent == nil; {
+		if time.Now().After(deadline) {
+			t.Fatal("never seen as an agent")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	var res proto.AgentSwitchResult
 	if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "codex", Now: true, NoContinue: true}, &res); err != nil {
 		t.Fatal(err)
@@ -172,6 +180,16 @@ func TestSwitchClaudeToCodexAndBack(t *testing.T) {
 		t.Fatal("undone twice")
 	} else if !errors.As(err, &perr) || perr.Code != proto.ErrNotFound {
 		t.Fatalf("undone twice: %v", err)
+	}
+
+	// The agents switched away from were ended by conch, in a pane that
+	// is still there: not kept as ended agents to resume (pane.ended.v1).
+	var ended proto.EndedList
+	if err := c.Call(ctx, proto.MethodPaneEndedList, nil, &ended); err != nil {
+		t.Fatal(err)
+	}
+	if len(ended.Ended) != 0 {
+		t.Fatalf("a switch left ended agents: %+v", ended.Ended)
 	}
 }
 
