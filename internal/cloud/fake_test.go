@@ -28,6 +28,9 @@ func isolate(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
+	// A pane's access token: client.New presents it, and the test's own
+	// server, which never issued it, refuses the connection.
+	t.Setenv("CONCH_TOKEN", "")
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv(cloud.URLEnv, "")
 	return dir
