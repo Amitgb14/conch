@@ -84,6 +84,14 @@ final class Store: ObservableObject {
     @Published var accountRanks: [String: [AccountRank]] = [:]
     /// The move asked for by hand, while its sheet is up.
     @Published var moveAsk: MoveAsk?
+    /// The agent switch being decided, while its card is up; the switches
+    /// servers hold for a turn to end (agent.switching), by pane key; the
+    /// switch banners put away (switchBannerKey); and Choose… from the
+    /// card, while its sheet is up (AgentSwitch+Store.swift).
+    @Published var switchCard: SwitchAsk?
+    @Published var switchingAgents: [String: AgentSwitching] = [:]
+    @Published var bannerGone: Set<String> = []
+    @Published var switchPick: SwitchPick?
     /// Move-back offers put off with Later, by pane key, for this session.
     @Published var backLater: Set<String> = []
     /// The task being written, while its sheet is up.
@@ -2016,6 +2024,12 @@ final class Store: ObservableObject {
         case "agent.moved":
             if let m = try? dec.decode(AgentMoved.self, from: data) { agentMoved(m, on: machine) }
             return
+        case "agent.switching":
+            if let s = try? dec.decode(AgentSwitching.self, from: data) { agentSwitching(s, on: machine) }
+            return
+        case "agent.switched":
+            if let r = try? dec.decode(AgentSwitchResult.self, from: data) { agentSwitched(r, on: machine) }
+            return
         default:
             return
         }
@@ -3019,6 +3033,13 @@ final class Store: ObservableObject {
             let at = (items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" }).map { $0 + 1 } ?? items.count
             items.insert(switchAccountMenu(pane: k, on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
         }
+        // Its Switch Agent ▸, beside Switch Account where that is there.
+        if case .agent(let k) = node.kind, let sw = switchMenu(for: k) {
+            let at = (items.firstIndex { $0.title == "Switch Account" } ?? items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" })
+                .map { $0 + 1 } ?? items.count
+            if (agentStatus[m] ?? []).isEmpty { checkAgents(on: m) }
+            items.insert(sw, at: min(at, items.count))
+        }
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -3104,6 +3125,9 @@ final class Store: ObservableObject {
         case .rename(let k): renamePane(k)
         case .setTeam(let k, let t): setTeam(k, t)
         case .moveAgent(let k, let acct): askMove(k, to: acct)
+        case .switchAgent(let k, let to): askSwitch(k, to: to)
+        case .cancelSwitch(let k): cancelSwitch(k)
+        case .disabled: break
         case .newTeam(let k): newTeam(k)
         case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)
