@@ -16,7 +16,7 @@ In the TUI or Conch.app, open the agent's menu (`m`, or right-click its row) and
 
 **The card** says what crosses, what fits and what is left behind, then switches after five seconds: **Switch Now** (enter), **Choose…** (`c`) or **Cancel** (esc). A turn under way is waited for, and the card says so. Afterwards a line over the pane says where the conversation came from, with **Switch back**; `×` hides it.
 
-**At a plan limit:** an agent its plan stopped moves to another account of its own first (see **Moving a running agent** under [`conch agent`](/docs/cli#agent)). Only when no account of that agent has room is another agent offered, on a card at the foot of the pane: how full each account is and when the first resets, what would cross, and **Continue in Codex** (enter), **Wait for the reset** (`w`) or **Choose…** (`c`). Claude Code is offered Codex and Codex Claude Code, as long as it is installed and has room itself. To have it done without asking, name the agent in `config.toml`:
+**At a plan limit:** an agent its plan stopped moves to another account of its own first (see **Moving a running agent** under [`conch agent`](/docs/cli#agent)). Only when no account of that agent has room is another agent offered, on a card at the foot of the pane: how full each account is and when the first resets, what would cross, and **Continue in Codex** (enter), **Wait for the reset** (`w`) or **Choose…** (`c`). Claude Code, Codex, Gemini CLI and Qwen Code are offered each other: the first, in the order conch lists agents, that is installed and has room. To have it done without asking, name the agent in `config.toml`:
 
 ```toml
 [agents]
