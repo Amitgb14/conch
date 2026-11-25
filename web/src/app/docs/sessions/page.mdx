@@ -97,15 +97,11 @@ After `conch server stop`, or with `[agents] no_auto_resume = true`, they wait i
 
 ## Agents that ended
 
-An agent that crashed, was killed or lost its server stays in the tree where it was, on its last screen:
+A crashed agent stays put:
 
 ```
 Agents
   ⚠ Release planning        ⚠ ended 3m ago · Resume
 ```
 
-Its title says why. A pane you close leaves nothing.
-
-In Sessions its conversation says why, `ended: killed (SIGKILL)`, and sorts first.
-
-**How:** `enter` or `r` resumes it in the same split and account, `d` or `x` dismisses it. In Sessions, `e` lists only ended and interrupted ones.
+`enter` resumes it there; `d` dismisses. Sessions says why; `e` lists those.
