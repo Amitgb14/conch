@@ -250,9 +250,10 @@ func TestConversationEdgeCases(t *testing.T) {
 
 // Every other agent gets its messages, said to be all there is.
 func TestConversationOtherAgents(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "chat.json")
-	write(t, path, `{"sessionId":"g1","messages":[{"type":"user","content":"hello"},{"type":"gemini","content":"hi there"}]}`)
-	c, err := ReadConversation(context.Background(), Env{}, Session{Agent: "gemini", Path: path})
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	write(t, path, `{"type":"message","message":{"role":"user","content":"hello"}}`+"\n"+
+		`{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"hi there"}]}}`)
+	c, err := ReadConversation(context.Background(), Env{}, Session{Agent: "pi", Path: path})
 	if err != nil || !c.MessagesOnly || itemsText(c) != "message/user \"hello\"\nmessage/assistant \"hi there\"\n" {
 		t.Fatalf("%v %+v", err, c)
 	}
