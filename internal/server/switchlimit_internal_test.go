@@ -72,7 +72,7 @@ func TestSwitchOfferedAtALimit(t *testing.T) {
 			},
 			offered: true, why: "Codex is out of plan too"},
 		{name: "codex not signed in", setting: `"codex"`,
-			prep: func(s *Server) { os.Remove(filepath.Join(os.Getenv("HOME"), ".codex", "auth.json")) },
+			prep:    func(s *Server) { os.Remove(filepath.Join(os.Getenv("HOME"), ".codex", "auth.json")) },
 			offered: true, why: "Codex is not signed in"},
 		{name: "an agent that cannot take a first message", setting: `"aider"`, offered: true, to: "codex",
 			why: "cannot be given a first message"},
