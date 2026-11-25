@@ -175,14 +175,14 @@ func (s *Server) handoffDoc(agent, id, dir string) (sessions.Session, string, *p
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		turns, err := sessions.Transcript(ctx, env, f)
+		conv, err := sessions.ReadConversation(ctx, env, f)
 		if err != nil {
 			return f, "", proto.Errorf(proto.ErrBadRequest, "%v", err)
 		}
-		if len(turns) == 0 {
+		if !conv.HasMessages() {
 			return f, "", proto.Errorf(proto.ErrBadRequest, "the %s session has no messages to share", sessions.AgentName(agent))
 		}
-		return f, sessions.Handoff(f, turns), nil
+		return f, sessions.Handoff(conv), nil
 	}
 	return sessions.Session{}, "", proto.Errorf(proto.ErrNotFound, "no %s session %s in %s", agent, id, dir)
 }

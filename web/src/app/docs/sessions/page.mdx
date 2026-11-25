@@ -79,6 +79,8 @@ A session started on another of the agent's [accounts](/docs/agents#several-acco
 
 conch writes the conversation to `.conch/handoff/<agent>-<session>.md` and asks the agent to read it and continue. The [brain](/docs/brain) does the same from a plain request.
 
+It opens with what is left of the plan, the files changed and the last error, then gives the turns: messages word for word, commands with the end of their output, reads, edits and tools as notes. Only Claude Code and Codex are read this fully; for the rest it says it holds messages only.
+
 ### On another machine
 
 Pick a project on another online machine — or its **home folder**, for one with no project yet — then an agent to start or one already running there. Only the conversation moves, not the code: push the branch first if the agent needs the changes.
