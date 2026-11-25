@@ -1054,6 +1054,7 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("nextTab", "Next Tab", "⇧⌘]"),
     ("previousTab", "Previous Tab", "⇧⌘["),
     ("toggleSidebar", "Show or Hide the Sidebar", "⌃⌘S"),
+    ("toggleInspector", "Show or Hide the Inspector (Branch Changes, Notes, Checks)", "⌃⌘I"),
     ("focusSidebar", "Go to the Sidebar (its keys: ↑↓ ⏎ t c n)", "⌘0"),
     ("biggerFont", "Terminal Text Bigger / Smaller / Default", "⌘+ ⌘− ⌃⌘0"),
     ("biggerText", "Window Text Bigger / Smaller / Default", "⇧⌘+ ⇧⌘− ⌃⇧⌘0"),
