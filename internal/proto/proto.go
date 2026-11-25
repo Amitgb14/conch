@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken, CapArtifactList,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -262,6 +262,13 @@ const CapProjectGitInit = "project.git_init.v1"
 // CapAgentChat is agent.chat: a pane's agent's conversation with the tools
 // it used, from its saved transcript, for a chat drawn beside its terminal.
 const CapAgentChat = "agent.chat.v1"
+
+// CapArtifactList is artifact.list: the claude.ai artifacts Claude Code
+// published on this machine, read from its transcripts, each with the
+// panes whose agent published it and the project it was made in; and the
+// artifact.published event when an agent publishes one. A machine's own
+// server reads its own transcripts, so a remote agent's are listed there.
+const CapArtifactList = "artifact.list.v1"
 
 // CapAgentInterrupt is agent.interrupt: what a chat's Stop sends — the
 // agent's own interrupt key, each on its own so the agent cannot read it
@@ -643,6 +650,9 @@ const (
 	// MethodAgentChat is a pane's agent's conversation, tools and all,
 	// read from its saved transcript (CapAgentChat).
 	MethodAgentChat = "agent.chat"
+	// MethodArtifactList lists the claude.ai artifacts Claude Code
+	// published on this machine (CapArtifactList).
+	MethodArtifactList = "artifact.list"
 	// MethodAgentBackgroundStop ends one of the jobs an agent left running
 	// (AgentStatus.Jobs), and only one of those (agent.background.v1).
 	MethodAgentBackgroundStop = "agent.background.stop"
@@ -797,6 +807,10 @@ const (
 
 	// EventViewShow carries a view.show request to every client.
 	EventViewShow = "view.show"
+
+	// EventArtifactPublished carries an ArtifactPublished: a pane's agent
+	// published an artifact, or a new version of one (CapArtifactList).
+	EventArtifactPublished = "artifact.published"
 )
 
 // Error codes.
@@ -3817,10 +3831,53 @@ type AgentReportParams struct {
 	// TaskDescription is what a SubagentStart's subagent was asked to do,
 	// from Claude builds that say.
 	TaskDescription string `json:"task_description,omitempty"`
+	// Tool is the tool a PostToolUse was about, said only for the ones the
+	// server acts on (the Artifact tool: a publish to tell clients about).
+	Tool string `json:"tool,omitempty"`
 	// From Claude's status line input: plan limits and the context window.
 	Limits      *PlanLimits `json:"limits,omitempty"`
 	ContextUsed int         `json:"context_used,omitempty"`
 	ContextSize int         `json:"context_size,omitempty"`
+}
+
+// Artifact is a claude.ai artifact an agent published, as its session
+// transcript records it.
+type Artifact struct {
+	URL      string    `json:"url"`
+	Title    string    `json:"title"`
+	Kind     string    `json:"kind"`
+	Versions int       `json:"versions"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
+	// Dir is the directory the publishing session ran in.
+	Dir string `json:"dir,omitempty"`
+	// Panes are the panes on this server whose agent published it, and
+	// Project the project whose checkout Dir is in: artifact.list only.
+	Panes   []string `json:"panes,omitempty"`
+	Project string   `json:"project,omitempty"`
+}
+
+// ArtifactListParams narrows artifact.list to one pane's agent: what was
+// published in the sessions of the folder its conversation is saved in.
+// Without it, every artifact on this machine.
+type ArtifactListParams struct {
+	Pane string `json:"pane,omitempty"`
+}
+
+// ArtifactList answers artifact.list, newest first. Note says why a pane's
+// list is empty when that is not merely because nothing was published:
+// an agent that is not Claude Code, or one that has not named its session.
+type ArtifactList struct {
+	Artifacts []Artifact `json:"artifacts"`
+	Note      string     `json:"note,omitempty"`
+}
+
+// ArtifactPublished is EventArtifactPublished: Pane's agent published
+// Artifact, or a new version of it.
+type ArtifactPublished struct {
+	Pane     string   `json:"pane"`
+	Agent    string   `json:"agent,omitempty"`
+	Artifact Artifact `json:"artifact"`
 }
 
 // PaneCreateParams creates a pane running Command in Cwd. When Agent names
