@@ -282,8 +282,8 @@ func TestCodexImporterFallsBack(t *testing.T) {
 		t.Fatalf("%v %s", err, via)
 	}
 	// An agent conch writes no sessions for.
-	if _, _, err := SwitchWrite(context.Background(), codexConv, codexConv, "gemini", Env{Home: t.TempDir()}, t.TempDir()); err == nil {
-		t.Fatal("wrote gemini")
+	if _, _, err := SwitchWrite(context.Background(), codexConv, codexConv, "copilot", Env{Home: t.TempDir()}, t.TempDir()); err == nil {
+		t.Fatal("wrote copilot")
 	}
 }
 

@@ -392,7 +392,15 @@ func WriterFor(agent string, env Env) ConversationWriter {
 		return ClaudeWriter{Env: env}
 	case "codex":
 		return CodexWriter{Env: env}
+	case "gemini":
+		return GeminiWriter{Env: env}
+	case "qwen":
+		return QwenWriter{Env: env}
 	}
+	// Copilot CLI is read whole but not written: a session of its is a
+	// folder — events.jsonl beside workspace.yaml, checkpoints and a
+	// database — and the list of open sessions outside it, more than
+	// conch can write as new files alone.
 	return nil
 }
 
