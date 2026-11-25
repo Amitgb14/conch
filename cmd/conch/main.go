@@ -148,6 +148,8 @@ Usage:
                                 turn to end and up to 10m for background commands (-now: not
                                 for those, which stop). -preview says what would cross.
                                 -cancel ID calls a waiting one off; -undo RECORD removes what it wrote
+                                At a plan limit with no account of its own agent left, another agent
+                                is offered; [agents] switch_at_limit = "codex" switches unasked
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;

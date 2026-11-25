@@ -498,6 +498,12 @@ func (m *Model) switchEvent(mach *machine, msg proto.Message) tea.Cmd {
 		if c := m.switchCardFor(mach.id, sw.Pane); c != nil && c.state == switchAsking {
 			c.state, c.waits = switchWaiting, sw.Waits
 		}
+		// The server's own switch at a plan limit, waiting on background
+		// commands: the card counting down to it says so.
+		if lc := m.limitCardFor(mach.id, sw.Pane); lc != nil {
+			m.overlay = &switchCard{machine: mach.id, pane: sw.Pane, to: sw.To, state: switchWaiting, waits: sw.Waits,
+				preview: proto.AgentSwitchResult{From: sw.From, To: sw.To}}
+		}
 	case proto.EventAgentSwitched:
 		var res proto.AgentSwitchResult
 		if !decodeInto(msg, &res) {
@@ -505,6 +511,9 @@ func (m *Model) switchEvent(mach *machine, msg proto.Message) tea.Cmd {
 		}
 		_, waited := mach.switching[res.Pane.ID]
 		delete(mach.switching, res.Pane.ID)
+		if !waited && m.limitSwitched(mach.id, res) {
+			return nil // made by the server at a plan limit, and said so
+		}
 		c := m.switchCardFor(mach.id, res.Pane.ID)
 		switch {
 		case res.Error != "" && c != nil:

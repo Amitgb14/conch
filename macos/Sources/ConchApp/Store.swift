@@ -92,6 +92,9 @@ final class Store: ObservableObject {
     @Published var switchingAgents: [String: AgentSwitching] = [:]
     @Published var bannerGone: Set<String> = []
     @Published var switchPick: SwitchPick?
+    /// Another agent offered at a plan limit, while its card is up
+    /// (AgentSwitchLimit+Store.swift).
+    @Published var limitCard: LimitOffer?
     /// Move-back offers put off with Later, by pane key, for this session.
     @Published var backLater: Set<String> = []
     /// The task being written, while its sheet is up.
@@ -2029,6 +2032,9 @@ final class Store: ObservableObject {
             return
         case "agent.switched":
             if let r = try? dec.decode(AgentSwitchResult.self, from: data) { agentSwitched(r, on: machine) }
+            return
+        case "agent.switch.offered":
+            if let o = try? dec.decode(AgentSwitchOffer.self, from: data) { agentSwitchOffered(o, on: machine) }
             return
         default:
             return

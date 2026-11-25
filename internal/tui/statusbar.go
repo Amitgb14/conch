@@ -85,6 +85,15 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 		default:
 			items = []statusItem{action("esc", "call it off", c.cancel)}
 		}
+	case m.limitCardUp():
+		c := m.overlay.(*limitCard)
+		chip = styleChip.Background(colorWarn).Render("OUT OF PLAN")
+		if c.offer.Auto {
+			items = []statusItem{action("enter", "continue now", c.carryOn), action("esc", "cancel", c.wait), action("c", "choose", c.choose)}
+		} else {
+			items = []statusItem{action("enter", "continue in "+strings.ToLower(agentLabel(c.offer.To)), c.carryOn), action("w", "wait", c.wait),
+				action("c", "choose", c.choose)}
+		}
 	case m.prefixArmed:
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
 		// The way back first: the bar keeps only its first few hints when

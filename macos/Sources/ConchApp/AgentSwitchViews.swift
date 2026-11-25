@@ -138,3 +138,54 @@ struct SwitchPickSheet: View {
         .padding(20).frame(width: 400)
     }
 }
+
+/// The out-of-plan card at the foot of a pane (mock: AppLimit): every
+/// account full, the agent that could carry on, what would cross, and
+/// Continue in it, Wait for the Reset or Choose… — or, when the server
+/// will switch by itself, its countdown with Continue Now and Cancel.
+struct LimitCardView: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var store: Store
+    let card: LimitOffer
+
+    var body: some View {
+        let _ = look
+        let agents = store.agentStatus[unkey(card.pane).machine] ?? []
+        let buttons = limitButtons(card.offer, agents: agents)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text("⚠").font(.ui(size: 13, weight: .bold)).foregroundStyle(Theme.warn)
+                Text(limitHeading(card.offer, agents: agents)).font(.ui(size: 13, weight: .semibold)).foregroundStyle(Theme.text)
+                Spacer()
+                Text(limitFullness(card.offer)).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(limitLines(card, agents: agents, now: ctx.date).enumerated()), id: \.offset) { i, l in
+                        HStack(spacing: 6) {
+                            if i == 0, let to = card.offer.to { Mark(agent: to) }
+                            Text(l).font(.ui(size: 12)).foregroundStyle(i == 0 ? Theme.text : Theme.text2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                Button(buttons[0]) { store.continueAtLimit() }.buttonStyle(.borderedProminent).tint(Theme.accentDeep).keyboardShortcut(.defaultAction)
+                Button(buttons[1]) { store.waitAtLimit() }.keyboardShortcut(.cancelAction)
+                Button(buttons[2]) { store.chooseAtLimit() }
+            }
+            .controlSize(.small).padding(.top, 6)
+            .focusEffectDisabled()
+            if card.offer.auto != true, (card.offer.setting ?? "").isEmpty, let to = card.offer.to {
+                Text("To do this without asking: Settings › Agents › When out of plan, or [agents] switch_at_limit = \"\(to)\"")
+                    .font(.ui(size: 11)).foregroundStyle(Theme.muted).padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.warn.opacity(0.7)))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+        .padding(16)
+    }
+}

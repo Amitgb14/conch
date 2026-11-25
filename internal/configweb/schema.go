@@ -132,6 +132,12 @@ func Schema(c Choices) []Section {
 		agents = opts("claude", "codex", "gemini", "opencode")
 	}
 	reviewers := append([]Option{{Value: "", Label: "Nobody"}}, agents...)
+	// What happens when an agent is out of plan on every account.
+	outOfPlan := []Option{{Value: "", Label: "Ask"}}
+	for _, a := range agents {
+		outOfPlan = append(outOfPlan, Option{Value: a.Value, Label: "Continue in " + a.Label})
+	}
+	outOfPlan = append(outOfPlan, Option{Value: "wait", Label: "Wait for the reset"})
 
 	provider := []Field{
 		{Key: "api_key", Label: "API key", Kind: KindSecret,
@@ -214,6 +220,8 @@ func Schema(c Choices) []Section {
 					Help: "Off: a Claude Code agent whose plan runs out moves, after a few seconds anyone can cancel, to the account with most room and carries on. On: it waits for its own account to reset."},
 				{Key: "move_at_line", Label: "Move agents at the failover line", Kind: KindBool,
 					Help: "On: a Claude Code agent whose account is past its failover line moves to the account with most room when its turn ends, before it hits the limit."},
+				{Key: "switch_at_limit", Label: "When out of plan", Kind: KindSelect, Options: outOfPlan,
+					Help: "When an agent's plan runs out and no account of that agent has room. Ask: a card offers another agent, which takes the whole conversation and carries on. Continue in an agent: switches to it unasked, after a few seconds anyone can cancel, when it is installed and has room itself. Wait: nothing is offered. Either way its own session stays, and Switch back is offered."},
 				{Key: "claude_idle_compaction", Label: "Compact Claude while idle", Kind: KindBool, Default: true,
 					Help: "Claude Code compacts a conversation left idle before its prompt cache expires. Off stops that in the Claude panes conch starts, from each one's next start; a Claude started outside conch still reads ~/.claude/settings.json."},
 				{Key: "antigravity_api_key_env", Label: "Antigravity CLI: variable holding a Gemini API key", Kind: KindString, Placeholder: "GEMINI_API_KEY",

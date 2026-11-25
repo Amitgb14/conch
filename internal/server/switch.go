@@ -304,6 +304,13 @@ func (s *Server) switchAgent(p proto.AgentSwitchParams) (proto.AgentSwitchResult
 		res.Preview = true
 		return res, nil
 	}
+	// A switch asked for by hand takes the place of one offered at a plan
+	// limit, so the offer's countdown cannot make a second.
+	if p.Reason != "limit" {
+		if _, offered := s.mover.takeOffer(p.ID); offered {
+			s.mover.hold(p.ID)
+		}
+	}
 	var waits []string
 	if why := midTurn(info); why != "" {
 		if p.Now {
@@ -412,6 +419,9 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 		return res, perr
 	}
 	res.Pane = nw
+	if p.Reason == "limit" {
+		res.Reason = p.Reason
+	}
 	reason := p.Reason
 	if reason == "" {
 		reason = "hand"
@@ -470,6 +480,14 @@ func (s *Server) takeOver(old, ne *entry, token string) proto.PaneInfo {
 func (s *Server) cancelSwitch(p proto.AgentSwitchCancelParams) *proto.Error {
 	if _, perr := s.get(p.ID); perr != nil {
 		return perr
+	}
+	// An offer made at a plan limit is called off the same way, and the
+	// agent is not offered one again until it has worked.
+	if _, offered := s.mover.offerOf(p.ID); offered {
+		s.withdrawOffer(p.ID, "called off")
+		s.mover.hold(p.ID)
+		s.switcher.forget(p.ID)
+		return nil
 	}
 	if !s.switcher.forget(p.ID) {
 		return proto.Errorf(proto.ErrBadRequest, "%s has no switch waiting", p.ID)

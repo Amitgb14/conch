@@ -8,6 +8,14 @@ import "time"
 // PaneInfo's SwitchedFrom.
 const CapAgentSwitch = "agent.switch.v1"
 
+// CapAgentSwitchLimit is a switch offered at a plan limit: when an agent
+// stops at its limit and no account of that agent has room, the server
+// says so with agent.switch.offered, and with [agents] switch_at_limit
+// naming an agent it switches by itself once the offer's countdown runs
+// out (AgentSwitchOffer.Auto). agent.switch.cancel calls the offer off.
+// A server without it offers only the account move.
+const CapAgentSwitchLimit = "agent.switch.limit.v1"
+
 const (
 	// MethodAgentSwitch switches pane ID's conversation to agent To: the
 	// conversation written as a session of To's own and resumed in the
@@ -30,6 +38,18 @@ const (
 	// EventAgentSwitched says a switch was made (AgentSwitchResult), or a
 	// waiting one failed when its time came (its Error set).
 	EventAgentSwitched = "agent.switched"
+	// EventAgentSwitchOffered says an agent is out of plan on every
+	// account and could carry on as another agent (AgentSwitchOffer), or
+	// that an offer made earlier is gone (its Gone set).
+	EventAgentSwitchOffered = "agent.switch.offered"
+)
+
+// What [agents] switch_at_limit says besides an agent's name.
+const (
+	// SwitchAtLimitAsk (empty) offers the switch and waits to be told.
+	SwitchAtLimitAsk = ""
+	// SwitchAtLimitWait offers nothing: the agent waits for its reset.
+	SwitchAtLimitWait = "wait"
 )
 
 // How a conversation crossed (AgentSwitchResult.Crossed).
@@ -96,6 +116,38 @@ type AgentSwitchResult struct {
 	// Error is why a waiting switch failed when its time came (only in
 	// the agent.switched event).
 	Error string `json:"error,omitempty"`
+	// Reason is why it was made: "limit" for one the server made by
+	// itself at a plan limit (CapAgentSwitchLimit); empty by hand.
+	Reason string `json:"reason,omitempty"`
+}
+
+// AgentSwitchOffer is a switch offered because an agent is out of plan on
+// every account it has (CapAgentSwitchLimit).
+type AgentSwitchOffer struct {
+	Pane string `json:"pane"`
+	// From is the agent that ran out; To the one offered, empty when no
+	// agent here can take the conversation (Why says why).
+	From string `json:"from"`
+	To   string `json:"to,omitempty"`
+	// Crossed is how it would cross: SwitchNative or SwitchHandoff.
+	Crossed string `json:"crossed,omitempty"`
+	// Accounts is From's accounts as conch weighs them, each full, for a
+	// client to say how full; ResetsAt the soonest any of them turns over.
+	Accounts []AccountRank `json:"accounts,omitempty"`
+	ResetsAt time.Time     `json:"resets_at,omitempty"`
+	// Auto says the server switches by itself at At unless called off
+	// (agent.switch.cancel): switch_at_limit names To.
+	Auto bool      `json:"auto,omitempty"`
+	At   time.Time `json:"at,omitempty"`
+	// Setting is switch_at_limit as the server read it, and Why says why
+	// the switch is not made by itself though it names an agent (that
+	// agent not installed, out of plan too, unable to take a first
+	// message), or why nothing is offered.
+	Setting string `json:"setting,omitempty"`
+	Why     string `json:"why,omitempty"`
+	// Gone says the offer is withdrawn: the agent worked again, switched,
+	// or the offer was called off.
+	Gone bool `json:"gone,omitempty"`
 }
 
 // SwitchCrossing is what a switch carries and leaves behind.

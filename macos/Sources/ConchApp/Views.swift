@@ -2244,6 +2244,7 @@ struct PaneCard: View {
                 }
                 .overlay(alignment: .bottom) {
                     if let ask = store.switchCard, ask.pane == pane { SwitchCardView(store: store, ask: ask) }
+                    if let offer = store.limitCard, offer.pane == pane { LimitCardView(store: store, card: offer) }
                 }
         }
         // As far as [app] background_through lets the scene in: solid
