@@ -40,6 +40,9 @@ const (
 	// SwitchHandoff: handed over as a Markdown document, the target's
 	// first message.
 	SwitchHandoff = "handoff"
+	// SwitchNever: an agent a conversation cannot be switched to, since
+	// it cannot be given a first message (AgentAvailability.SwitchTo).
+	SwitchNever = "never"
 )
 
 // AgentSwitchParams switches pane ID to agent To.
@@ -112,6 +115,13 @@ type SwitchOrigin struct {
 	Agent   string    `json:"agent"`
 	Session string    `json:"session,omitempty"`
 	At      time.Time `json:"at"`
+	// Crossing is what the switch carried, for a client to say beside
+	// Switch back; absent from a server before it was kept.
+	Crossing *SwitchCrossing `json:"crossing,omitempty"`
+	// Back says the switch went back to the agent the conversation had
+	// been switched from: the round trip is over, so a client offers no
+	// Switch back for it.
+	Back bool `json:"back,omitempty"`
 }
 
 // AgentSwitching is a switch waiting for its moment.
