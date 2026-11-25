@@ -168,7 +168,7 @@ func mcpTools() []mcpTool {
 		{
 			Name:        "switch",
 			Title:       "Switch an agent to another agent",
-			Description: "Carry an agent's conversation to another agent — Claude Code to Codex, say, when its plan runs out — which resumes it in the same pane: as a session of its own for Claude Code and Codex, else with the conversation as a document for its first message. Never mid-turn: it waits for the turn to end, and for background commands up to ten minutes, and says so; you may switch only agents you started. Use preview first to see what would cross.",
+			Description: "Carry an agent's conversation to another agent — Claude Code to Codex, say, when its plan runs out — which resumes it in the same pane: as a session of its own for Claude Code, Codex, Gemini CLI and Qwen Code, else with the conversation as a document for its first message. Never mid-turn: it waits for the turn to end, and for background commands up to ten minutes, and says so; you may switch only agents you started. Use preview first to see what would cross.",
 			Schema: schema([]string{"pane", "to"}, map[string]any{
 				"pane":    strProp(paneArg),
 				"to":      strProp("the agent to switch to: claude, codex, gemini, …"),

@@ -4,8 +4,15 @@ export const metadata = { title: "Switching agents", description: "Carry a runni
 
 In the TUI or Conch.app, open the agent's menu (`m`, or right-click its row) and pick **Switch Agent ▸**, then an agent. From a shell, `conch agent switch ID AGENT` (or `-preview` first) carries a running agent's conversation to another agent, which resumes it **in the same pane**: same id, tab, branch and row. Use it when a plan runs out, or for a second opinion without retelling the story.
 
-- **Claude Code ↔ Codex:** the target resumes it as a session of its own, with the history. Codex imports a Claude Code session itself where it can (Codex 0.126 and later, a session under `~/.claude/projects`). Otherwise conch writes the session.
-- **Any other agent:** it starts with the [handoff document](/docs/sessions#sharing-with-another-agent) as its first message. An agent that cannot be given one is refused.
+- **To Claude Code, Codex, Gemini CLI or Qwen Code:** the target resumes it as a session of its own, with the history (the menu says **full history**). Codex imports a Claude Code session itself where it can (Codex 0.126 and later, a session under `~/.claude/projects`). Otherwise conch writes the session: for Gemini CLI in the folder it keeps for the project under `~/.gemini/tmp` (claiming one with a `.project_root` file, as Gemini does, for a project it has not opened yet), for Qwen Code under `~/.qwen/projects`.
+- **To any other agent:** it starts with the [handoff document](/docs/sessions#sharing-with-another-agent) as its first message. An agent that cannot be given one is refused. Copilot CLI is one of these: a session of its is a folder of several files, and more besides, which conch does not write.
+- **From** Claude Code, Codex, Gemini CLI, Qwen Code or Copilot CLI, everything below crosses; from any other agent, only what was said.
+
+| Agent | Switched to it | Switched from it |
+| --- | --- | --- |
+| Claude Code, Codex, Gemini CLI, Qwen Code | full history | full history |
+| Copilot CLI | handoff document | full history |
+| Any other | handoff document | messages only |
 
 **The card** says what crosses, what fits and what is left behind, then switches after five seconds: **Switch Now** (enter), **Choose…** (`c`) or **Cancel** (esc). A turn under way is waited for, and the card says so. Afterwards a line over the pane says where the conversation came from, with **Switch back**; `×` hides it.
 
