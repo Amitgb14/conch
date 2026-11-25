@@ -61,6 +61,17 @@ public enum LucideIcons {
         "search": [svgCircle(11, 11, 8), "m21 21-4.3-4.3"],
         // The System Monitor's: opening it from the resource monitor, and
         // copying a process's command.
+        // The Artifacts tab (Artifacts.swift): an artifact's type, and its bar.
+        "pen-tool": ["M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z",
+                     "m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18",
+                     "m2.3 2.3 7.286 7.286", svgCircle(11, 11, 2)],
+        "app-window": [svgRect(2, 4, 20, 16, 2), "M10 4v4", "M2 8h20", "M6 4v4"],
+        "external-link": ["M15 3h6v6", "M10 14 21 3", "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"],
+        "rotate-cw": ["M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", "M21 3v5h-5"],
+        "chevron-left": ["m15 18-6-6 6-6"],
+        "chevron-right": ["m9 18 6-6-6-6"],
+        "log-in": ["M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4", "m10 17 5-5-5-5", "M15 12H3"],
+        "circle-alert": [svgCircle(12, 12, 10), svgLine(12, 8, 12, 12), svgLine(12, 16, 12.01, 16)],
         "maximize-2": ["M15 3h6v6", "M9 21H3v-6", svgLine(21, 3, 14, 10), svgLine(3, 21, 10, 14)],
         "copy": [svgRect(8, 8, 14, 14, 2), "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"],
         "chevron-up": ["m18 15-6-6-6 6"],

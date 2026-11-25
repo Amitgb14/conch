@@ -324,11 +324,18 @@ final class BrowserModel: ObservableObject {
     /// The address bar or the find field has the keyboard, so ⌘-keys are
     /// the browser's there too.
     var chromeEditing = false
+    /// An Artifacts tab's list: whose artifacts, and the filter typed.
+    @Published var artifactScope: ArtifactScope = .agent
+    @Published var artifactQuery = ""
+    /// The agent an Artifacts tab is for, key(machine, pane): from the
+    /// address it was opened with, which its pane keeps as its key.
+    var artifactsPane: String? { parseBrowserKey(key).flatMap(parseArtifactsAddress) }
 
     init(key: String, store: Store, saved: SavedBrowser? = nil) {
         self.key = key
         self.store = store
         tabs = BrowserTabs(saved: saved, address: parseBrowserKey(key) ?? "")
+        for t in tabs.tabs where parseArtifactsAddress(t.address) != nil { tabs.update(t.id, title: "Artifacts") }
     }
 
     /// A pane made around a tab moved out of another, keeping its page.
@@ -353,6 +360,37 @@ final class BrowserModel: ObservableObject {
     var address: String { tabs.active?.address ?? "" }
     var title: String { tabs.active?.title ?? "" }
 
+    /// The Artifacts list in front: its tab, or a new one first in the strip.
+    func showArtifactList() {
+        guard let pane = artifactsPane else { return }
+        if let t = tabs.tabs.first(where: { parseArtifactsAddress($0.address) != nil }) {
+            tabs.select(t.id)
+        } else {
+            let id = tabs.open(artifactsAddress(pane: pane), title: "Artifacts")
+            tabs.move(id, to: 0)
+        }
+        objectWillChange.send()
+    }
+
+    /// An artifact in a tab of its own after the list; one open already is
+    /// shown, at the artboard asked for when the link names one.
+    func openArtifact(_ url: String) {
+        let base = artifactBase(url)
+        if let t = tabs.tabs.first(where: { artifactBase($0.address) == base }) {
+            tabs.select(t.id)
+            if url != base, t.address != url, let u = URL(string: url) {
+                tabs.update(t.id, address: url)
+                page(t.id).open(u)
+            }
+            showActive()
+            return
+        }
+        let after = tabs.tabs.last?.id
+        let title = store.artifactShelf.find(base)?.artifact.title ?? ""
+        tabs.open(url, title: title, after: after)
+        showActive()
+    }
+
     func page(_ id: Int) -> BrowserPage {
         if let p = pages[id] { return p }
         let t = tabs.tab(id)
@@ -361,7 +399,7 @@ final class BrowserModel: ObservableObject {
         pages[id] = p
         if let t {
             p.web.pageZoom = t.zoom
-            if !t.address.isEmpty, !isViewSource(t.address), let u = URL(string: t.address) { p.open(u) }
+            if webLoads(t.address), let u = URL(string: t.address) { p.open(u) }
         }
         return p
     }
@@ -668,7 +706,13 @@ struct BrowserView: View {
         let _ = look
         VStack(spacing: 0) {
             BrowserTabStrip(model: model)
-            if let p = model.current {
+            if let t = model.tabs.active, let pane = parseArtifactsAddress(t.address) {
+                // An Artifacts tab's list: drawn here, never loaded by WebKit.
+                ArtifactsListView(model: model, store: model.store, pane: pane, close: close)
+            } else if let p = model.current {
+                if model.artifactsPane != nil, isArtifactURL(model.address) {
+                    ArtifactBar(model: model, store: model.store)
+                }
                 BrowserPageView(model: model, page: p, close: close, ownTab: ownTab).id(p.id)
             }
         }
@@ -707,7 +751,9 @@ struct BrowserTabStrip: View {
         let on = t.id == model.tabs.activeID
         return HStack(spacing: 6) {
             Group {
-                if model.busy.contains(t.id) {
+                if parseArtifactsAddress(t.address) != nil {
+                    LucideIcon("layers", color: Theme.accent, size: 12)
+                } else if model.busy.contains(t.id) {
                     ProgressView().controlSize(.mini).scaleEffect(0.7)
                 } else if let img = model.icons[t.id] {
                     Image(nsImage: img).resizable().interpolation(.high)

@@ -109,7 +109,9 @@ public struct SavedLayout: Codable, Equatable, Sendable {
         var addresses = addresses
         for (k, b) in browsers { addresses[k] = b.savedAddress ?? "" }
         var names: [String: String] = [:]
-        for (k, a) in addresses where parseBrowserKey(k) != nil && !a.isEmpty && !a.hasPrefix("about:") { names[k] = browserKey(a) }
+        // An Artifacts tab keeps its name, which says whose artifacts it lists.
+        for (k, a) in addresses where parseBrowserKey(k) != nil && parseBrowserKey(k).flatMap(parseArtifactsAddress) == nil
+            && !a.isEmpty && !a.hasPrefix("about:") { names[k] = browserKey(a) }
         let before = Set(l.tabs.flatMap(\.root.panes))
         l.rename(leaves: names)
         // A pane whose new name another pane had keeps its old one.

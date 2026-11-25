@@ -100,6 +100,10 @@ public enum RowAction: Equatable, Sendable {
     case removeMachine(machine: String)
     /// A web page opened in the browser: a branch's pull request.
     case openURL(String)
+    /// An agent's Artifacts tab, beside it.
+    case artifacts(pane: String)
+    /// One of an agent's artifacts, in its Artifacts tab.
+    case openArtifact(pane: String, url: String)
     /// A branch's linked worktree removed (it must be clean); the branch
     /// stays.
     case removeWorktree(project: String, path: String)
