@@ -76,7 +76,9 @@ func TestGitThroughTheProxy(t *testing.T) {
 	r.startServer()
 	r.run()
 	r.cloud.waitFor("POST /v1/vm/hello", 1, 10*time.Second)
-	deadline := time.Now().Add(10 * time.Second)
+	// Several git config --system calls, one after another: on a busy
+	// machine (a whole `make gate`) they took longer than ten seconds.
+	deadline := time.Now().Add(30 * time.Second)
 	for !strings.Contains(r.log.String(), "git reaches github.com") {
 		if time.Now().After(deadline) {
 			t.Fatalf("git not configured: %s", r.log)
@@ -151,7 +153,9 @@ func TestGitProxyWithAPath(t *testing.T) {
 	os.WriteFile(sys, []byte("[credential \"http://old.example\"]\n\thelper = \n\thelper = !'/usr/bin/conch' cloud git-credential -socket '/run/x'\n[credential \"https://mine.example\"]\n\thelper = store\n"), 0o644)
 	r.startServer()
 	r.run()
-	deadline := time.Now().Add(10 * time.Second)
+	// Several git config --system calls, one after another: on a busy
+	// machine (a whole `make gate`) they took longer than ten seconds.
+	deadline := time.Now().Add(30 * time.Second)
 	for !strings.Contains(r.log.String(), "git reaches github.com") {
 		if time.Now().After(deadline) {
 			t.Fatalf("git not configured: %s", r.log)
