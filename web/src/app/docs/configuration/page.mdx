@@ -118,6 +118,9 @@ default = ""  # what c and t start: claude, codex, gemini, opencode…; "" (the 
 permission_mode = "on"  # [[permissions]] rules: on, dry-run (record only) or off
 unrestricted_launch = false  # true lets an agent driving conch start panes with any command, env and flags, and type into shells
 no_auto_resume = false       # true leaves agents interrupted by a reboot or crash in Sessions instead of resuming them
+no_move_at_limit = false     # true keeps a Claude Code agent on its account at its limit: no move, and no other agent offered
+move_at_line = false         # true moves an agent past its account's failover line when its turn ends
+switch_at_limit = ""         # out of plan on every account: "" offers another agent on a card, "codex" switches to it unasked, "wait" offers nothing
 # claude_idle_compaction = false  # Claude panes conch starts don't compact while idle; unset is Claude's default, ~/.claude/settings.json is untouched
 # antigravity_api_key_env = "GEMINI_API_KEY"  # Antigravity CLI uses the Gemini API key in this variable, not your Google sign-in
 
