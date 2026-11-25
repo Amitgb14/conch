@@ -1377,7 +1377,7 @@ struct RowButtonsView: View {
             } else if let m = buttons.agentMachine {
                 Menu {
                     ForEach(store.startable(on: m), id: \.name) { a in
-                        Button(a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
+                        AgentMenuButton(agent: a.name, title: a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
                     }
                     Divider()
                     Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
@@ -1490,7 +1490,7 @@ struct RowMenuItems: View {
             } else if it.picksAgent, let m = node.machine {
                 Menu(it.title) {
                     ForEach(store.startable(on: m), id: \.name) { a in
-                        Button(a.title) { store.perform(it.action, on: node, agent: a.name) }
+                        AgentMenuButton(agent: a.name, title: a.title) { store.perform(it.action, on: node, agent: a.name) }
                     }
                 }
             } else {
