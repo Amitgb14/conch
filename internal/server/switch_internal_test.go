@@ -100,7 +100,7 @@ func TestAgentsSayHowASwitchReachesThem(t *testing.T) {
 		got[a.Name] = a.SwitchTo
 	}
 	for name, want := range map[string]string{"claude": proto.SwitchNative, "codex": proto.SwitchNative,
-		"gemini": proto.SwitchHandoff, "pi": proto.SwitchHandoff, "aider": proto.SwitchNever, "tinker": proto.SwitchNever} {
+		"gemini": proto.SwitchNative, "qwen": proto.SwitchNative, "copilot": proto.SwitchHandoff, "pi": proto.SwitchHandoff, "aider": proto.SwitchNever, "tinker": proto.SwitchNever} {
 		if got[name] != want {
 			t.Errorf("%s: %q, want %q", name, got[name], want)
 		}
