@@ -83,6 +83,7 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch account failover PERCENT\|off\|default [-agent AGENT]` | a new agent whose account is past PERCENT of a plan window starts on the agent's next account; `-agent` sets one agent's own line, `default` puts it back on every agent's |
 | `conch account suggest [AGENT]` | the agent's accounts ranked for a move: signed in, the most room, the fewest agents |
 | `conch agent move [-account NAME] ID` | carry an agent's conversation to another account and resume it there |
+| `conch agent switch [-now] [-preview] ID AGENT` | switch an agent's conversation to another agent, resumed in the same pane ([Switching agents](/docs/switching)) |
 | `conch account back [ACCOUNT]` | every agent moved off the account moved back, once it has room |
 | `conch ssh TARGET [SSH OPTION...]` | a terminal on this computer logged in to a host with ssh, outside every project — the session the TUI's `H` opens, built the same way (conch's ssh config, a connection of its own), so the tree, the files view and `-ssh` on `upload` and `download` know it as one; options after the target are ssh's (`-p 2222`, `-o Setting=value`); prints its pane ID. Not with `-m`: the session starts here |
 | `conch ssh -copy-key TARGET [SSH OPTION...]` | a terminal that puts this computer's public key on the host (making `~/.ssh/id_ed25519` first when there is none), so later logins need no password — the TUI's `K`. ssh asks for the host's password in that terminal, once; prints the pane's ID |
