@@ -40,7 +40,7 @@ struct AgentAccountsCard: View {
                 Divider()
                 failover(list)
                 Divider()
-                note("Each account is a folder the agent signs in to once. A new one starts empty: copy or link your CLAUDE.md and skills into it. Only Claude Code and Codex can have more than one.")
+                note("Each account is a folder the agent signs in to once. A new one starts empty: copy or link your CLAUDE.md and skills into it. An Antigravity CLI account is a Gemini API key, named by the variable your shell keeps it in.")
             } else {
                 note("Asking \(store.label(machine))…")
             }
@@ -48,8 +48,9 @@ struct AgentAccountsCard: View {
         .onAppear { load() }
         .onChange(of: machine) { _, _ in load() }
         .sheet(isPresented: $adding) {
-            AddAccountSheet(list: list ?? AgentAccountList(), machineLabel: machine == "local" ? "this Mac" : store.label(machine)) { agent, name, dir, signIn in
-                store.addAccount(agent: agent, name: name, dir: dir, on: machine, signIn: signIn)
+            AddAccountSheet(list: list ?? AgentAccountList(), machineLabel: machine == "local" ? "this Mac" : store.label(machine),
+                            keys: store.conns[machine]?.hello?.capabilities?.contains(accountKeysCapability) == true) { agent, name, dir, keyEnv, signIn in
+                store.addAccount(agent: agent, name: name, dir: dir, keyEnv: keyEnv, on: machine, signIn: signIn)
             }
         }
         .sheet(isPresented: $pinning) {
@@ -58,7 +59,7 @@ struct AgentAccountsCard: View {
             }
         }
         .sheet(isPresented: Binding(get: { usageOf != nil }, set: { if !$0 { usageOf = nil } })) {
-            UsageWindow(store: store, start: usageOf)
+            UsageWindow(store: store, machine: machine, start: usageOf)
         }
         .confirmationDialog(removing.map { "Remove \($0.agent)'s \($0.name) account?" } ?? "", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { a in
             Button("Remove", role: .destructive) { store.removeAccount(agent: a.agent, name: a.name, on: machine) }
@@ -72,7 +73,7 @@ struct AgentAccountsCard: View {
         store.loadAccounts(on: machine)
         store.loadAccountUsage(on: machine)
         store.loadRanks(on: machine, agent: "claude")
-        if machine == "local" { store.refreshLimits() }
+        store.refreshLimits(on: machine)
     }
 
     var header: some View {
@@ -98,10 +99,9 @@ struct AgentAccountsCard: View {
             .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
-    /// This machine's accounts with their plans and usage: the plans are
-    /// this computer's alone (agent.limits is asked of it).
+    /// This machine's accounts with their plans and usage.
     func merged(_ list: AgentAccountList) -> [UsageAccount] {
-        usageAccounts(limits: machine == "local" ? store.limits : [], history: store.accountUsage[machine], list: list)
+        usageAccounts(limits: store.plans.on(machine), history: store.accountUsage[machine], list: list)
     }
 
     @ViewBuilder func accounts(_ list: AgentAccountList) -> some View {
@@ -164,7 +164,7 @@ struct AgentAccountsCard: View {
     }
 
     func row(_ a: AgentAccount, _ u: UsageAccount?, line: Int) -> some View {
-        let inView = machine == "local" && store.agentInView.map { $0.agent == a.agent && ($0.account ?? "") == (a.isDefault == true ? "" : a.name) } == true
+        let inView = store.agentInView(on: machine).map { $0.agent == a.agent && ($0.account ?? "") == (a.isDefault == true ? "" : a.name) } == true
         return HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -182,10 +182,16 @@ struct AgentAccountsCard: View {
             .frame(minWidth: 150, maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .leading, spacing: 5) {
                 if let l = u?.limits, l.reportsUse {
-                    if let w = l.fiveHour { bar("5h", w.usedPct, line) }
-                    if let w = l.week { bar("7d", w.usedPct, line) }
+                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                        VStack(alignment: .leading, spacing: 5) {
+                            ForEach(l.bars(now: ctx.date)) { bar($0.label, $0.usedPct, line) }
+                            if l.barsReset(now: ctx.date) { Text("Reset since last reported").font(.ui(size: 11)).foregroundStyle(Theme.muted) }
+                        }
+                    }
                 } else {
-                    Text(machine == "local" ? "No plan reported yet" : "Plans are shown for this Mac").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+                    let gap = store.usageGap(on: machine, needs: agentLimitsCapability)
+                    Text(gap == nil ? "No plan reported yet" : "Can't read its plan").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+                        .help(gap ?? "")
                 }
             }
             .frame(width: 190, alignment: .leading)
@@ -194,7 +200,7 @@ struct AgentAccountsCard: View {
                 Text("tokens this week").font(.ui(size: 10.5)).foregroundStyle(Theme.muted)
             }
             .frame(width: 92, alignment: .trailing)
-            .opacity(u?.usage == nil && !store.keepsAccountUsage ? 0 : 1)
+            .opacity(u?.usage == nil && store.usageGap(on: machine, needs: usageAccountsCapability) != nil ? 0 : 1)
             HStack(spacing: 6) {
                 let off = machine == "local" ? store.movedOff(a.isDefault == true ? "default" : a.name, on: machine).filter { k in store.pane(k)?.agent?.name == a.agent } : []
                 if !off.isEmpty {
@@ -208,7 +214,7 @@ struct AgentAccountsCard: View {
                         .controlSize(.small).help("Start \(store.agentTitle(a.agent)) on \(a.name) and sign in there once with /login")
                 }
                 Menu {
-                    if machine == "local" { Button("Open Usage") { usageOf = u?.id } }
+                    Button("Open Usage") { usageOf = u?.id }
                     if a.isDefault != true {
                         Button(a.signedIn == true ? "Sign In Again" : "Sign In") { store.signIn(agent: a.agent, account: a.name, on: machine) }
                         if machine == "local", let d = a.dir {
@@ -226,7 +232,7 @@ struct AgentAccountsCard: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 8)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { if machine == "local" { usageOf = u?.id } }
+        .onTapGesture(count: 2) { usageOf = u?.id }
     }
 
     func badge(_ s: String, _ fg: Color, _ bg: Color) -> some View {
@@ -306,7 +312,9 @@ struct AgentAccountsCard: View {
 struct AddAccountSheet: View {
     let list: AgentAccountList
     let machineLabel: String
-    let add: (String, String, String?, Bool) -> Void
+    /// Whether the server takes accounts made of API keys (account.keys.v1).
+    let keys: Bool
+    let add: (String, String, String?, String?, Bool) -> Void
     /// Read so the sheet is drawn again when the theme changes (ThemeLook).
     @Environment(\.conchTheme) private var look
     @Environment(\.dismiss) private var dismiss
@@ -314,12 +322,17 @@ struct AddAccountSheet: View {
     @State private var name = ""
     @State private var dir = ""
     @State private var signIn = true
+    @State private var keyEnv = ""
 
-    var agents: [String] { list.agents ?? Array(Set((list.accounts ?? []).map(\.agent))).sorted() }
+    var agents: [String] {
+        let all = list.agents ?? Array(Set((list.accounts ?? []).map(\.agent))).sorted()
+        return keys ? all : all.filter { !agentAccountUsesKey($0) }
+    }
 
     var body: some View {
         let _ = look
-        let problem = agentAccountNameProblem(name, agent: agent, existing: list.accounts ?? [])
+        let keyed = agentAccountUsesKey(agent)
+        let problem = agentAccountNameProblem(name, agent: agent, existing: list.accounts ?? []) ?? agentAccountKeyProblem(keyEnv, agent: agent)
         VStack(alignment: .leading, spacing: 14) {
             Text("Add an Agent Account").font(.ui(size: 15, weight: .semibold))
             Text("A second subscription of an agent on \(machineLabel), with its own sign-in, settings and conversations.")
@@ -330,7 +343,15 @@ struct AddAccountSheet: View {
                 }
                 TextField("Name", text: $name, prompt: Text("work"))
                 TextField("Folder", text: $dir, prompt: Text("optional — conch makes one"))
-                Toggle("Start it now to sign in", isOn: $signIn)
+                if keyed {
+                    TextField("Key variable", text: $keyEnv, prompt: Text("TEAM_GEMINI_KEY"))
+                } else {
+                    Toggle("Start it now to sign in", isOn: $signIn)
+                }
+            }
+            if keyed {
+                Text("Its Gemini API key, by the name of the variable your shell profile sets: conch keeps no key. Its own account is your Google sign-in.")
+                    .font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             }
             if !name.isEmpty, let problem {
                 Text(problem).font(.ui(size: 12)).foregroundStyle(Theme.warn)
@@ -339,7 +360,7 @@ struct AddAccountSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Add") {
-                    add(agent, name.trimmingCharacters(in: .whitespaces), dir.isEmpty ? nil : dir, signIn)
+                    add(agent, name.trimmingCharacters(in: .whitespaces), dir.isEmpty ? nil : dir, keyed ? keyEnv : nil, keyed ? false : signIn)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction).disabled(agent.isEmpty || problem != nil)

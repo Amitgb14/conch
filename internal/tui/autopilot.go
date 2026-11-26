@@ -30,7 +30,7 @@ func (m Model) autopilotPolicy() proto.AutopilotPolicy { return AutopilotPolicy(
 // not the TUI (Conch.app), so it is one rule wherever it is sent from.
 func AutopilotPolicy(v config.VerifyCfg) proto.AutopilotPolicy {
 	pol := proto.AutopilotPolicy{AutoFix: v.AutoFix, AutoMerge: v.AutoMerge, AutoPR: v.AutoPR, AutoResolve: v.AutoResolve,
-		RequireTests: v.RequireTests, MaxDiff: v.MaxDiff}
+		RequireTests: v.RequireTests, MaxDiff: v.MaxDiff, AutoReview: v.AutoReview, ResolveThreads: v.ResolveThreads}
 	for id, cmd := range v.Commands {
 		if cmd = strings.TrimSpace(cmd); cmd != "" {
 			if pol.Checks == nil {

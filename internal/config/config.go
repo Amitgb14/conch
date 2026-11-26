@@ -520,6 +520,16 @@ type VerifyCfg struct {
 	Triage            map[string]string `toml:"triage,omitempty"`
 	TriageAgent       string            `toml:"triage_agent,omitempty"`
 	TriageCommentOnly bool              `toml:"triage_comment_only,omitempty"`
+	// AutoReview sends what reviewers asked for on a branch's pull
+	// request — a review requesting changes, an unresolved thread — to
+	// its agent, each comment once, while auto_fix is on: on with the
+	// autopilot, since a review that only holds the merge leaves the
+	// branch waiting on somebody to pass it on. After the agent pushes,
+	// each thread is answered on GitHub with what changed; with
+	// ResolveThreads (off by default) it is also resolved, where the push
+	// changed its file.
+	AutoReview     bool `toml:"auto_review"`
+	ResolveThreads bool `toml:"resolve_threads,omitempty"`
 }
 
 // RemoteCfg holds settings for panes on remote machines.
@@ -613,11 +623,29 @@ type AgentsCfg struct {
 	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
 	// NoMoveAtLimit keeps a Claude Code agent its plan stopped on its
 	// account, rather than moving it to the one with most room and
-	// carrying on (internal/server/accountmove.go).
+	// carrying on (internal/server/accountmove.go). It stops the move
+	// only: SwitchAtLimit still applies when no account has room.
 	NoMoveAtLimit bool `toml:"no_move_at_limit,omitempty"`
 	// MoveAtLine moves a Claude Code agent whose account is past its
 	// failover line when its turn ends, before it reaches the limit.
 	MoveAtLine bool `toml:"move_at_line,omitempty"`
+	// SwitchAtLimit is what conch does when an agent's plan runs out and
+	// no account of that agent has room (#352): empty offers a switch to
+	// another agent on a card and waits to be told; an agent's name
+	// ("codex") switches to it unasked, when it is installed and has room
+	// itself; "wait" offers nothing and waits for the reset
+	// (internal/server/switchlimit.go).
+	SwitchAtLimit string `toml:"switch_at_limit,omitempty"`
+	// ClaudeIdleCompaction is Claude Code's idleCompaction for the Claude
+	// panes conch starts, written into conch's own --settings file and
+	// never ~/.claude/settings.json. nil leaves Claude's default (on).
+	ClaudeIdleCompaction *bool `toml:"claude_idle_compaction,omitempty"`
+	// AntigravityAPIKeyEnv names the variable your Gemini API key is in,
+	// for Antigravity CLI to use it rather than your Google sign-in. conch
+	// keeps no key: the launch line says GEMINI_API_KEY="$NAME", which
+	// your login shell fills in, and switches agy's modelProvider for
+	// that launch alone. Empty leaves agy signed in as it is.
+	AntigravityAPIKeyEnv string `toml:"antigravity_api_key_env,omitempty"`
 }
 
 // ShellCfg holds settings for terminal panes.
@@ -783,6 +811,7 @@ func Default() Config {
 		Update: UpdateCfg{CheckReleases: true},
 		Remote: RemoteCfg{UploadDrops: true, UploadMaxMB: DefaultUploadMaxMB},
 		Git:    GitCfg{Squash: true},
+		Verify: VerifyCfg{AutoReview: true},
 	}
 }
 
@@ -820,9 +849,13 @@ func ServerLogPath() string {
 }
 
 // Load reads config.toml from Dir(), falling back to defaults when absent.
-func Load() (Config, error) {
+func Load() (Config, error) { return LoadFile(File()) }
+
+// LoadFile is Load for a config.toml somewhere else: an adapter given
+// conch's directory reads the one in it.
+func LoadFile(path string) (Config, error) {
 	cfg := Default()
-	_, err := toml.DecodeFile(File(), &cfg)
+	_, err := toml.DecodeFile(path, &cfg)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Default(), err
 	}

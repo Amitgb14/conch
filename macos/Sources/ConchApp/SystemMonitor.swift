@@ -477,7 +477,8 @@ struct SystemMonitorView: View {
             .padding(14)
             processHeader
             LazyVStack(spacing: 0) {
-                ForEach(rows) { p in processRow(p, cores: s.host.cores) }
+                let tabs = machine == "local" ? browserProcesses() : [:]
+                ForEach(rows) { p in processRow(p, cores: s.host.cores, tabs: tabs) }
             }
             if let pid = selected, let p = s.processes.first(where: { $0.pid == pid }) {
                 detail(p)
@@ -500,7 +501,22 @@ struct SystemMonitorView: View {
         .background(Theme.side)
     }
 
-    private func processRow(_ p: SystemProcess, cores: Int) -> some View {
+    /// The Mac app's own browser tabs, by the WebContent process each
+    /// page runs in: those processes are WebKit's, not conch's server's,
+    /// so the server cannot name them.
+    private func browserProcesses() -> [Int: String] {
+        var labels: [Int: [String]] = [:]
+        for st in AppWindows.shared.stores {
+            for m in st.browserViews.values {
+                for t in m.tabs.tabs {
+                    if let page = m.pages[t.id], let pid = webContentPID(page.web) { labels[Int(pid), default: []].append(t.label) }
+                }
+            }
+        }
+        return labels.mapValues(browserProcessOrigin)
+    }
+
+    private func processRow(_ p: SystemProcess, cores: Int, tabs: [Int: String] = [:]) -> some View {
         let on = selected == p.pid
         return Button { selected = on ? nil : p.pid } label: {
             HStack(spacing: 12) {
@@ -518,7 +534,7 @@ struct SystemMonitorView: View {
                 .frame(width: 170)
                 Text(formatBytes(p.rss)).font(.ui(size: 12, design: .monospaced)).frame(width: 90, alignment: .trailing)
                 Group {
-                    if let o = p.origin {
+                    if let o = p.origin ?? tabs[p.pid] {
                         Text(o).font(.ui(size: 12)).foregroundStyle(SysColor.conch).lineLimit(1).truncationMode(.middle)
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(RoundedRectangle(cornerRadius: 5).fill(SysColor.conch.opacity(0.14)))

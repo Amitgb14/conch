@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken, CapAgentSwitch, CapAgentSwitchLimit,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -337,6 +337,11 @@ const CapIntegrationTeam = "integration.team.v1"
 // branch.previews, branch.deploy_log, branch.redeploy and branch.promote,
 // and branch.ci_log falling back to a failed build when no CI failed.
 const CapBranchPreviews = "branch.previews.v1"
+
+// CapAutopilotReview is AutopilotPolicy.AutoReview and ResolveThreads:
+// a pull request's review comments sent to the branch's agent by the
+// server, each once, and its threads answered after the agent pushes.
+const CapAutopilotReview = "autopilot.review.v1"
 
 // CapAutopilotIntake is AutopilotPolicy.Intake: open GitHub issues with a
 // project's label taken as queued tasks by the server, each once.
@@ -911,6 +916,9 @@ type PaneInfo struct {
 	// client puts it where that one was (CapAgentMove).
 	MovedFrom string `json:"moved_from,omitempty"`
 	Replaces  string `json:"replaces,omitempty"`
+	// SwitchedFrom is the agent and session its conversation was switched
+	// from, so a client can offer to switch it back (CapAgentSwitch).
+	SwitchedFrom *SwitchOrigin `json:"switched_from,omitempty"`
 	// Team is the team the pane was put in by hand (CapPaneTeam), "-" for
 	// kept out of every team; "" leaves it to config.toml's [[teams]]
 	// rules (config.TeamFor), which clients apply.
@@ -3205,6 +3213,30 @@ type AgentAvailability struct {
 	// server too old to say it reads as "conch can install it", which is
 	// what every agent such a server offers.
 	NoInstaller bool `json:"no_installer,omitempty"`
+	// Sessions says the server reads this agent's saved sessions: every
+	// supported agent, and those it only runs whose files it has learnt
+	// to read (Pi, Grok, Cursor, Kilo Code). A server too old to say it
+	// sends none, and an agent it only runs then reads as unread, which is
+	// what that server did.
+	Sessions bool `json:"sessions,omitempty"`
+	// Auth is how the agent is signed in, where the server can tell
+	// without reading a secret: "signed-in", "signed-out", or "api-key"
+	// for one conch starts on a key. Empty when it cannot tell, for every
+	// agent but Antigravity CLI so far, and from older servers.
+	Auth string `json:"auth,omitempty"`
+	// SwitchTo is how a running conversation would be switched to this
+	// agent (CapAgentSwitch): SwitchNative where conch writes its own
+	// sessions, SwitchHandoff where it is given the handoff document for
+	// its first message, or SwitchNever for one that cannot be given a
+	// first message. Empty from a server that cannot switch.
+	SwitchTo string `json:"switch_to,omitempty"`
+}
+
+// SessionsUnread is an agent conch runs without reading what it saved,
+// which a client says rather than show an empty list as if nothing had
+// been.
+func (a AgentAvailability) SessionsUnread() bool {
+	return a.Tier == TierRunsHere && !a.Sessions
 }
 
 // SessionListParams asks for the agent sessions saved for a project (its

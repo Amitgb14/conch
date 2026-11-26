@@ -67,7 +67,7 @@ public func limitKey(_ machine: String, _ agent: String, _ window: String, _ res
 public func limitCrossings(_ seen: inout [String: Int], machine: String, _ l: PlanLimits, thresholds: [Int], now: Date) -> [LimitAlert] {
     var out: [LimitAlert] = []
     for (name, w) in [("5-hour", l.fiveHour), ("week", l.week), ("spend", l.spend)] {
-        guard let w, w.resetsAt.map({ $0 > now }) ?? true else { continue }
+        guard let w, windowLive(w.resetsAt, now: now) else { continue }
         let key = limitKey(machine, l.agent, name, w.resetsAt)
         let passed = thresholds.filter { w.usedPct >= Double($0) }.max() ?? 0
         if passed == 0 {

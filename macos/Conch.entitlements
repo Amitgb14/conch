@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Conch.app under the hardened runtime: a web page in a browser tab may
+     use the camera and microphone once the person allows that site (and
+     macOS asks once for the app). Without these the runtime refuses them
+     silently, whatever the person answers. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.camera</key><true/>
+	<key>com.apple.security.device.audio-input</key><true/>
+</dict>
+</plist>

@@ -36,6 +36,7 @@ public struct AutopilotNote: Decodable, Equatable, Sendable {
         if error == true { return .failed }
         if (kind == "ci" || kind == "check" || kind == "resolve") && text.contains("sent it to") { return .handed }
         if kind == "resolve" && text.contains(" to resolve") { return .handed }
+        if kind == "review" && text.hasPrefix("sent ") { return .handed }
         return .info
     }
 
@@ -48,6 +49,8 @@ public struct AutopilotNote: Decodable, Equatable, Sendable {
         case "resolve": "Conflict"
         case "intake": "Intake"
         case "triage": "Triage"
+        case "review": "Review"
+        case "hook": "Hook"
         default: ""
         }
     }
@@ -102,11 +105,14 @@ public struct AutopilotPolicy: Decodable, Equatable, Sendable {
     public var checks: [String: String]?
     public var intake: [String: String]?
     public var triage: [String: String]?
+    public var autoReview: Bool?
+    public var resolveThreads: Bool?
 
     enum CodingKeys: String, CodingKey {
         case checks, intake, triage
         case autoFix = "auto_fix", autoMerge = "auto_merge", autoPR = "auto_pr", autoResolve = "auto_resolve"
         case requireTests = "require_tests", maxDiff = "max_diff"
+        case autoReview = "auto_review", resolveThreads = "resolve_threads"
     }
 
     /// Whether it does anything on its own at all.
@@ -165,6 +171,11 @@ public func autopilotRules(_ p: AutopilotPolicy, project: String) -> [AutopilotR
     var out = [
         AutopilotRule(on: fix > 0, text: fix > 0 ? "Failed CI and checks go back to the agent, \(fix) times at most" : "Failed CI and checks stay with you"),
         AutopilotRule(on: resolve > 0, text: resolve > 0 ? "Conflicts with the base go to the agent, \(resolve) times at most" : "Conflicts with the base stay with you"),
+        // Review comments ride on auto_fix, as the server sends them.
+        AutopilotRule(on: fix > 0 && p.autoReview == true,
+                      text: fix > 0 && p.autoReview == true
+                          ? "Review comments go to the agent" + (p.resolveThreads == true ? ", and threads its push answered are resolved" : "")
+                          : "Review comments stay with you"),
         AutopilotRule(on: p.autoPR == true, text: "Push finished branches and open their pull requests"),
         AutopilotRule(on: p.autoMerge == true, text: "Merge pull requests when green"),
     ]

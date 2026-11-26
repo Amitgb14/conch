@@ -100,7 +100,7 @@ Usage:
                                 -- --model NAME, and no CMD ([agents] unrestricted_launch lifts it);
                                 -account starts it on another of its accounts (default: the
                                 folder's pin, else its own; "default" is its own)
-  conch account list | add AGENT NAME [-dir DIR] | remove AGENT NAME
+  conch account list | add AGENT NAME [-dir DIR] [-key-env VAR] | remove AGENT NAME
                                 an agent's other accounts (Claude Code, Codex): a work and a
                                 personal subscription, each a folder of its own to sign in to
                                 once; list shows each one's plan usage and agents
@@ -140,6 +140,16 @@ Usage:
                                 no -account: the one with most room. At its limit an agent moves
                                 by itself unless [agents] no_move_at_limit. Background commands
                                 it left running stop with it: refused unless -force
+  conch agent switch [-now] [-preview] [-handoff] [-no-continue] ID AGENT
+                                switch an agent's conversation to another agent, which resumes it
+                                in the same pane: Claude Code, Codex, Gemini CLI and Qwen Code
+                                as a session of their own (tried and read back first), any other
+                                agent with it as a document for its first message. Never mid-turn: waits for the
+                                turn to end and up to 10m for background commands (-now: not
+                                for those, which stop). -preview says what would cross.
+                                -cancel ID calls a waiting one off; -undo RECORD removes what it wrote
+                                At a plan limit with no account of its own agent left, another agent
+                                is offered; [agents] switch_at_limit = "codex" switches unasked
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -147,7 +157,8 @@ Usage:
   conch view                    what the terminal is showing: its tabs, and which pane has the keyboard
   conch show [-name N] ID...    ask the terminal to put those panes in front of the person
   conch skill [-list | NAME]    print conch's skill (or conch-team, conch-review, conch-ship,
-                                conch-factory, conch-autopilot) instead, for an agent conch cannot
+                                conch-factory, conch-autopilot, conch-qa, conch-cicd,
+                                conch-setup, conch-status) instead, for an agent conch cannot
                                 install it for
   conch agent skill [-skill NAMES] [-agent NAMES] [-remove] [-apply]
                                 teach the agents conch: its skills, in each agent's own skills
@@ -155,7 +166,10 @@ Usage:
                                 conch-team (several at once), conch-review (review, fix,
                                 review again), conch-ship (tests, pull request, CI, merge),
                                 conch-factory (a ticket all the way to a merged PR) and
-                                conch-autopilot (set up the automated workflow for a project)
+                                conch-autopilot (set up the automated workflow for a project),
+                                conch-qa (test a branch as a user would), conch-cicd (red CI,
+                                pipelines, deploys), conch-setup (a project ready for agents)
+                                and conch-status (what every agent is doing, and tidying up)
   conch agent add NAME -command BINARY [-label L] [-prompt 'FLAG {prompt}'] [-resume 'FLAG {id}']
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend
@@ -211,6 +225,19 @@ Usage:
                                 -account NAME starts the agents on that account of theirs;
                                 -sandbox P runs it in a new sandbox, the project cloned from origin
   conch schedule [ls | rm ID]   what the server will do later (prompt -at, task -at/-every)
+  conch run ls | new [-cwd DIR] [-manual] NAME | add [-id ID] [-after A,B] [-agent A] [-gate TEXT] RUN SPEC
+                                a job of tasks that depend on one another, kept by the server:
+                                each task starts once the tasks it is -after are done, on a branch
+                                made from the first one's (-manual: only on conch run start);
+                                -gate waits for your approval before the task starts
+  conch run show [-json] RUN | start RUN [TASK] | wait [-timeout D] RUN | rm RUN
+                                where each task is; wait returns on a question to answer, the run
+                                over, or nothing left that can move by itself
+  conch run done RESULT | fail WHY | ask [-option O]... [-default O] [-timeout D] QUESTION
+                                for a task's worker: report once, or ask the run's coordinator and
+                                wait for the answer (-run, -task when not run from the worker's pane)
+  conch run answer RUN QUESTION ANSWER | approve RUN TASK | deny RUN TASK
+                                answer a worker's question; approve a gate (the person's alone)
   conch ticket ls [-mine] | show TICKET | comment TICKET TEXT | status TICKET STATUS | link TICKET URL | check | all
                                 tickets in Linear or Jira ([trackers] in config.toml) or a tickets
                                 integration (Shortcut, GitLab issues: NAME:KEY): list the project's
@@ -287,7 +314,8 @@ Usage:
   conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME
                                 says the hosts your key goes to first, checks the file's hash,
                                 asks for the key (kept in the Keychain on a Mac) and checks it here:
-                                a CI's runs, a tracker's tickets, a test message for a webhook
+                                a CI's runs, a tracker's tickets, a test message for a webhook;
+                                a hook (a command run on events) shows its command first
   conch integration key [-stdin] [-base URL] [-cwd DIR] NAME
                                 give an integration, shipped or installed, its key: without echo,
                                 kept in the Keychain on a Mac (elsewhere it says the variable)
@@ -295,7 +323,8 @@ Usage:
                                 every integration here — built in, shipped, installed — its key's
                                 state and whether this project uses it
   conch integration update [-y] [NAME] | remove NAME | check [-json] NAME|FILE | guide | icons [-json]
-                                take newer versions (new hosts always asked), delete one, check a
+                                take newer versions (new hosts, or a hook's new command, always
+                                asked), delete one, check a
                                 file, or print the format to write one
   conch integration previews [-json] [-cwd DIR] [-branch B] [-head SHA] [NAME]
                                 a branch's deploys on Vercel or Netlify (a deploy integration):
@@ -413,9 +442,15 @@ Usage:
                                 127.0.0.1 until ctrl+c; a TUI that is open edits them live
                                 instead (Settings, then e)
   conch config path             print where config.toml is
-  conch mcp                     an MCP server on stdin and stdout, for an agent that would rather
+  conch mcp [-http ADDRESS]     an MCP server on stdin and stdout, for an agent that would rather
                                 call a tool than a command: start, prompt, wait, read, task, list
-                                and rename, with the scope of the pane it is started in
+                                and rename, with the scope of the pane it is started in; -http
+                                serves them over HTTP at ADDRESS/mcp, to an access token only
+  conch token create [-level read|prompt|drive|full] [-project P]... [-expires 30d|never] NAME
+                                an access token for an agent outside conch, printed once: read
+                                reads, prompt also sends to agents, drive also starts and stops
+                                them, full does what you can; -project limits it to projects
+  conch token ls | revoke NAME  the access tokens you made; revoke ends one at once
   conch completion bash|zsh|fish
                                 print a script that completes commands, panes, machines and agents
                                 on tab; without a shell, says how to turn it on
@@ -571,6 +606,10 @@ func main() {
 		err = runTask(args)
 	case "schedule":
 		err = runScheduleCmd(args)
+	case "run", "runs":
+		err = runRun(args)
+	case "token", "tokens":
+		err = runToken(args)
 	case "ticket", "tickets":
 		err = runTicket(args)
 	case "branch":
@@ -798,6 +837,10 @@ func runServer(args []string) error {
 	if err := withoutAsyncPreemption(); err != nil {
 		return err
 	}
+	// A server started from inside a pane inherited that pane's access
+	// token; anything it connects to later is its own business, not the
+	// pane's.
+	_ = os.Unsetenv(proto.TokenEnv)
 	err := server.New(config.SocketPath(), config.Dir()).Run()
 	if errors.Is(err, server.ErrAlreadyRunning) {
 		return fmt.Errorf("%w on %s", err, config.SocketPath())

@@ -8,7 +8,9 @@ let activityJSON = #"""
  {"project_id":"r1","branch":"conch/phone","text":"merged #234 on GitHub (squash), green","kind":"merge","merged":true,"at":"2026-11-14T11:55:00Z"},
  {"project_id":"r1","branch":"conch/graph","text":"#9 is green but GitHub would not merge it: conflict","kind":"merge","error":true,"at":"2026-11-13T18:00:00Z"},
  {"project_id":"r1","branch":"","text":"took #241 Fix the login as a queued task (label conch)","kind":"intake","at":"2026-11-10T09:12:00Z"},
- {"project_id":"r1","branch":"old","text":"from an older server"}
+ {"project_id":"r1","branch":"old","text":"from an older server"},
+ {"project_id":"r1","branch":"feat","text":"sent 2 review comments on #5 to claude-feat","kind":"review","at":"2026-11-09T09:00:00Z"},
+ {"project_id":"r1","branch":"feat","text":"answered 2 review threads on #5 after claude-feat pushed abc1234","kind":"review","at":"2026-11-09T10:00:00Z"}
 ]}
 """#
 
@@ -16,7 +18,7 @@ let activityJSON = #"""
 // or time and still reads.
 @Test func activityDecodes() throws {
     let a = try conchDecoder().decode(AutopilotActivity.self, from: Data(activityJSON.utf8))
-    #expect(a.notes.count == 5)
+    #expect(a.notes.count == 7)
     #expect(a.notes[1].merged == true && a.notes[1].kind == "merge")
     #expect(a.notes[2].error == true)
     #expect(a.notes[4].kind == nil && a.notes[4].at == nil)
@@ -33,6 +35,17 @@ let activityJSON = #"""
     #expect(a.notes[0].kindLabel == "CI")
     #expect(a.notes[3].kindLabel == "Intake")
     #expect(a.notes[4].kindLabel == "")
+    // Review comments sent to the agent are handed; answering them is said.
+    #expect(a.notes[5].tone == .handed && a.notes[5].kindLabel == "Review")
+    #expect(a.notes[6].tone == .info)
+}
+
+// A hook that failed (#351) is a failure, marked as a hook's.
+@Test func activityHookNote() throws {
+    let json = #"{"notes":[{"project_id":"r1","branch":"b","text":"hook Setup on worktree.created failed (exit 2)","kind":"hook","error":true}]}"#
+    let a = try conchDecoder().decode(AutopilotActivity.self, from: Data(json.utf8))
+    #expect(a.notes[0].kindLabel == "Hook")
+    #expect(a.notes[0].tone == .failed)
 }
 
 // Grouped by day as the person's calendar has it: Today, Yesterday, then
@@ -43,7 +56,7 @@ let activityJSON = #"""
     cal.timeZone = TimeZone(identifier: "UTC")!
     let now = ISO8601DateFormatter().date(from: "2026-11-14T15:00:00Z")!
     let days = activityDays(a.notes, now: now, calendar: cal)
-    #expect(days.map(\.title) == ["Today", "Yesterday", "Nov 10", "Earlier"])
+    #expect(days.map(\.title) == ["Today", "Yesterday", "Nov 10", "Nov 9", "Earlier"])
     #expect(days[0].notes.count == 2 && days[1].notes.count == 1)
     #expect(activityDays([], now: now, calendar: cal).isEmpty)
 }
@@ -63,6 +76,12 @@ let activityJSON = #"""
     #expect(lines.first { $0.text.contains("go test ./...") }?.on == true)
     #expect(lines.first { $0.text.contains("label conch") }?.on == true)
     #expect(lines.first { $0.text.contains("Triage") }?.on == false)
+    #expect(lines.first { $0.text.contains("Review comments") }?.on == false)
+    let review = try conchDecoder().decode(AutopilotPolicy.self, from: Data(#"{"auto_fix":1,"auto_review":true,"resolve_threads":true}"#.utf8))
+    #expect(autopilotRules(review, project: "r1").first { $0.text.contains("threads its push answered are resolved") }?.on == true)
+    // auto_review without auto_fix sends nothing, as the server does.
+    let noFix = try conchDecoder().decode(AutopilotPolicy.self, from: Data(#"{"auto_review":true}"#.utf8))
+    #expect(autopilotRules(noFix, project: "r1").first { $0.text.contains("Review comments") }?.on == false)
     #expect(p.anyOn)
     let off = try conchDecoder().decode(AutopilotPolicy.self, from: Data("{}".utf8))
     #expect(!off.anyOn)

@@ -171,3 +171,32 @@ func TestAFinishedReportIsRaisedOnce(t *testing.T) {
 		t.Fatalf("a new report did not raise done: %+v", st)
 	}
 }
+
+// Antigravity CLI has no hooks conch gives it and no screen rules: its
+// state is what it reports about itself (agy 1.5.16, answered by the
+// pane), from the trust prompt to a finished turn, as a real one did in a
+// conch pane — blocked, working, then done for nobody to have seen yet.
+func TestAntigravityStateIsItsOwnReport(t *testing.T) {
+	agy := Process{PID: 20, Name: "agy", Args: []string{"agy"}}
+	tr := NewTracker(manifests(t), "antigravity")
+	report := func(state, kind, msg string, at time.Time) *ProgramReport {
+		return &ProgramReport{State: state, Kind: kind, App: "antigravity", Msg: msg, At: at}
+	}
+	steps := []struct {
+		rep        *ProgramReport
+		state, msg string
+	}{
+		{report(programBlocked, "permission", "Trust this folder?", t0), StateBlocked, "Trust this folder?"},
+		{report(programWorking, "", "", t0.Add(time.Second)), StateWorking, ""},
+		{report(programBlocked, "permission", "Approve Bash: ls -la", t0.Add(2*time.Second)), StateBlocked, "Approve Bash: ls -la"},
+		{report(programWorking, "", "", t0.Add(3*time.Second)), StateWorking, ""},
+		{report(programIdle, "", "", t0.Add(4*time.Second)), StateDone, ""},
+	}
+	for i, s := range steps {
+		tr.Observe(Observation{Now: s.rep.At, Process: agy, Screen: screen("> ", "? for shortcuts"), Program: s.rep})
+		st := tr.Status()
+		if st.Agent != "antigravity" || st.State != s.state || st.Source != "program" || st.Message != s.msg {
+			t.Fatalf("step %d: %+v", i, st)
+		}
+	}
+}

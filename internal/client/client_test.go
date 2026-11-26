@@ -104,6 +104,7 @@ func a3ShortDir(t *testing.T) string {
 func a3Isolate(t *testing.T) {
 	t.Setenv("CONCH_SOCKET", "")
 	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_TOKEN", "")
 }
 
 // a3Handler answers one non-hello message on the server side. It may write

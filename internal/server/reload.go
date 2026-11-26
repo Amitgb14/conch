@@ -68,6 +68,11 @@ type reloadPane struct {
 	// so the offer to move it back outlives a reload; absent from older
 	// state files.
 	MovedFrom string `json:"moved_from,omitempty"`
+	// SwitchedFrom is where its conversation was switched from, and
+	// Switch a switch of it still waiting (switch.go); absent from older
+	// state files.
+	SwitchedFrom *proto.SwitchOrigin      `json:"switched_from,omitempty"`
+	Switch       *proto.AgentSwitchParams `json:"switch,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -157,11 +162,15 @@ func (s *Server) reload(bin string) {
 		rp.CreatedBy = e.lineage
 		rp.Account = e.account
 		rp.MovedFrom = e.movedFrom
+		rp.SwitchedFrom = e.switchedFrom
 		rp.Team = e.team
 		rp.Subagents, rp.SubagentSession = e.subagents.list, e.subagents.session
 		e.mu.Unlock()
 		if e.transcript != nil {
 			rp.Transcript = e.transcript.Path()
+		}
+		if sw, ok := s.switcher.get(id); ok {
+			rp.Switch = &sw.params
 		}
 		st.Panes = append(st.Panes, rp)
 	}
@@ -178,6 +187,9 @@ func (s *Server) reload(bin string) {
 	s.watcher.stop()
 	log.Printf("reloading into %s with %d pane(s)", bin, len(st.Panes))
 	env := config.MergeEnv(os.Environ(), reloadStateEnv+"="+path)
+	// A hook's output is read by this process, which the new one cannot
+	// take over: it is stopped, and its log says so.
+	s.hooks.stopAll()
 	err = syscall.Exec(bin, []string{bin, "server"}, env)
 	os.Remove(path)
 	fail(fmt.Errorf("exec %s: %w", bin, err))
@@ -233,6 +245,10 @@ func (s *Server) adopt(st *reloadState) {
 		e.lineage = rp.CreatedBy
 		e.account = rp.Account
 		e.movedFrom = rp.MovedFrom
+		e.switchedFrom = rp.SwitchedFrom
+		if rp.Switch != nil {
+			s.switcher.restore(*rp.Switch)
+		}
 		e.team = rp.Team
 		e.subagents = subagents{list: rp.Subagents, session: rp.SubagentSession}
 		if rp.Transcript != "" {

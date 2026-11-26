@@ -82,6 +82,25 @@ func TestScopeHelper(t *testing.T) {
 			fmt.Printf("=> %d ok %v\n", n, who.Scoped)
 			continue
 		}
+		if f[0] == "token" { // the pane's own access token, as given
+			fmt.Printf("=> %d ok %s\n", n, os.Getenv(proto.TokenEnv))
+			continue
+		}
+		if f[0] == "present" { // a new connection holding another token, not its own
+			os.Unsetenv(proto.TokenEnv)
+			nc, err := client.Dial(os.Getenv("CONCH_SOCKET"), "scope-helper")
+			if err != nil {
+				fmt.Printf("=> %d dial\n", n)
+				continue
+			}
+			if err := nc.Present(context.Background(), arg); err != nil {
+				fmt.Printf("=> %d refused\n", n)
+				continue
+			}
+			c = nc
+			fmt.Printf("=> %d ok %s\n", n, c.Token.Pane)
+			continue
+		}
 		if f[0] == proto.MethodPaneCaller {
 			var who proto.CallerInfo
 			if err := c.Call(context.Background(), proto.MethodPaneCaller, nil, &who); err != nil {

@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -267,7 +268,7 @@ func TestHandoff(t *testing.T) {
 		{Role: "user", Text: "Why does deploy fail?", Time: time.Date(2026, 9, 14, 9, 1, 0, 0, time.Local)},
 		{Role: "assistant", Text: "The cross compiler is missing."},
 	}
-	doc := Handoff(s, turns)
+	doc := Handoff(ConversationOf(s, turns))
 	for _, want := range []string{
 		"# Handoff: Deploy fails\n",
 		"Conversation from a Claude Code session (`abc`) in `/src/api` on branch `fix/arm`, 2026-09-14 09:00 – 2026-09-14 11:30.",
@@ -280,7 +281,7 @@ func TestHandoff(t *testing.T) {
 		}
 	}
 
-	if doc := Handoff(Session{Agent: "aider", Dir: "/x"}, nil); !strings.Contains(doc, "# Handoff: untitled session") ||
+	if doc := Handoff(ConversationOf(Session{Agent: "aider", Dir: "/x"}, nil)); !strings.Contains(doc, "# Handoff: untitled session") ||
 		!strings.Contains(doc, "a aider session in `/x`.") || !strings.Contains(doc, "_The session has no messages._") {
 		t.Fatalf("empty:\n%s", doc)
 	}
@@ -288,21 +289,21 @@ func TestHandoff(t *testing.T) {
 	// A long message is cut; a long conversation keeps the first request and
 	// the latest messages.
 	long := strings.Repeat("é", maxHandoffTurn+10)
-	if doc := Handoff(s, []Turn{{Role: "user", Text: long}}); !strings.Contains(doc, "_… message cut …_") || strings.Count(doc, "é") != maxHandoffTurn {
+	if doc := Handoff(ConversationOf(s, []Turn{{Role: "user", Text: long}})); !strings.Contains(doc, "_… message cut …_") || strings.Count(doc, "é") != maxHandoffTurn {
 		t.Fatal("long message not cut at a character")
 	}
 	var many []Turn
 	many = append(many, Turn{Role: "user", Text: "FIRST REQUEST"})
 	for i := 0; i < 200; i++ {
-		many = append(many, Turn{Role: "assistant", Text: strings.Repeat("z", 7000)})
+		many = append(many, Turn{Role: "assistant", Text: strings.Repeat("z", 7000)}, Turn{Role: "user", Text: fmt.Sprint("next ", i)})
 	}
 	many = append(many, Turn{Role: "user", Text: "LAST MESSAGE"})
-	doc = Handoff(s, many)
+	doc = Handoff(ConversationOf(s, many))
 	if len(doc) > maxHandoffBytes || !strings.Contains(doc, "FIRST REQUEST") || !strings.HasSuffix(doc, "LAST MESSAGE\n") ||
-		!strings.Contains(doc, "earlier messages left out") {
+		!strings.Contains(doc, "turns are shortened") || strings.Contains(doc, "left out …") {
 		t.Fatalf("long conversation: %d bytes", len(doc))
 	}
-	if strings.Index(doc, "FIRST REQUEST") > strings.Index(doc, "earlier messages left out") {
+	if strings.Index(doc, "FIRST REQUEST") > strings.Index(doc, "turns are shortened") {
 		t.Fatal("first request not first")
 	}
 }

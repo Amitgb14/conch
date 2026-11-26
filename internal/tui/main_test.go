@@ -22,7 +22,7 @@ import (
 // replaces it again for itself.
 func TestMain(m *testing.M) {
 	sshtest.Main() // this binary run as ssh, by a test of a terminal's ssh host
-	putClipboard = func(text string) { lastClipboard = text }
+	putClipboard = func(text string) clipResult { lastClipboard = text; return clipResult{outcome: clipCopied} }
 	openInBrowser = func(url string) error { lastOpened = url; return nil }
 	runOutward = func(*exec.Cmd) {}
 	startOutward = func(*exec.Cmd) error { return nil }

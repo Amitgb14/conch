@@ -151,8 +151,8 @@ func (m *Model) openClickedLink(msg linkOpenMsg) tea.Cmd {
 		return nil // a double click, or another click since
 	}
 	m.linkClick = nil
-	m.setFlash("opening "+ansi.Truncate(lc.link, 60, "…")+" · also copied", false)
-	return tea.Batch(copyText(lc.link), openURL(lc.link))
+	m.setFlash("opening "+ansi.Truncate(lc.link, 60, "…"), false)
+	return openAndCopy(lc.link)
 }
 
 // linkSpanUnder is the columns a link under x,y covers on its own row, so
@@ -249,7 +249,7 @@ func (m Model) paneCellAt(x, y int) (*leaf, int, int, bool) {
 	if l == nil || l.view.Kind != kindPane {
 		return nil, 0, 0, false
 	}
-	in := m.inner(rects[id])
+	in := m.leafInner(l, rects[id])
 	cx, cy := x-in.x, y-in.y
 	if cx < 0 || cy < 0 || cx >= in.w || cy >= in.h {
 		return nil, 0, 0, false

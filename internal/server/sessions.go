@@ -313,36 +313,13 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 		}
 	}
 
-	// Interrupted runs: mark their sessions, or list the run itself when the
-	// agent saved nothing findable.
+	var runs []agentRun
 	for _, r := range s.runs.interruptedRuns() {
-		if !withinAny(r.Dir, dirs) {
-			continue
+		if withinAny(r.Dir, dirs) {
+			runs = append(runs, r)
 		}
-		best := -1
-		for i, si := range out {
-			if si.Agent != r.Agent || si.PaneID != "" {
-				continue
-			}
-			if r.Session != "" {
-				if si.ID == r.Session {
-					best = i
-					break
-				}
-				continue
-			}
-			if si.Dir == r.Dir && !si.Updated.Before(r.Started.Add(-time.Minute)) && !si.Updated.After(r.Seen.Add(10*time.Minute)) &&
-				(best < 0 || si.Updated.After(out[best].Updated)) {
-				best = i
-			}
-		}
-		if best >= 0 {
-			out[best].Interrupted = true
-			continue
-		}
-		out = append(out, proto.SessionInfo{Agent: r.Agent, ID: r.Session, Dir: r.Dir, Title: "interrupted run · resumes the latest session here",
-			Started: r.Started, Updated: r.Seen, Interrupted: true})
 	}
+	out = dedupeSessions(markInterrupted(out, runs))
 
 	for i := range out {
 		if out[i].Branch == "HEAD" {
@@ -357,6 +334,81 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 	s.stars.mark(out)
 	sortSessions(out)
 	return proto.SessionList{Sessions: out, Partial: !complete}, nil
+}
+
+// markInterrupted marks the sessions interrupted runs were in, or lists a
+// run itself when the agent saved nothing findable. A run whose session is
+// open in a pane again has been picked up, so it is neither marked nor
+// listed a second time beside that session (#346).
+func markInterrupted(out []proto.SessionInfo, runs []agentRun) []proto.SessionInfo {
+	for _, r := range runs {
+		best, open := -1, false
+		for i, si := range out {
+			if si.Agent != r.Agent {
+				continue
+			}
+			if r.Session != "" {
+				if si.ID == r.Session && (r.Account == "" || si.Account == r.Account) {
+					if si.PaneID != "" {
+						open = true
+						break
+					}
+					best = i
+					break
+				}
+				continue
+			}
+			if si.PaneID != "" {
+				continue
+			}
+			if si.Dir == r.Dir && !si.Updated.Before(r.Started.Add(-time.Minute)) && !si.Updated.After(r.Seen.Add(10*time.Minute)) &&
+				(best < 0 || si.Updated.After(out[best].Updated)) {
+				best = i
+			}
+		}
+		if open {
+			continue
+		}
+		if best >= 0 {
+			out[best].Interrupted = true
+			continue
+		}
+		out = append(out, proto.SessionInfo{Agent: r.Agent, Account: r.Account, ID: r.Session, Dir: r.Dir, Title: "interrupted run · resumes the latest session here",
+			Started: r.Started, Updated: r.Seen, Interrupted: true})
+	}
+	return out
+}
+
+// dedupeSessions keeps one entry per agent, account and session id: a
+// client keys its rows on those, and two entries with one key drew as a
+// blank gap in Conch.app's list. The one open in a pane is kept, and an
+// interrupted mark carries over only when neither is open.
+func dedupeSessions(out []proto.SessionInfo) []proto.SessionInfo {
+	type key struct{ agent, account, id string }
+	at := map[key]int{}
+	kept := out[:0]
+	for _, si := range out {
+		if si.ID == "" {
+			kept = append(kept, si)
+			continue
+		}
+		k := key{si.Agent, si.Account, si.ID}
+		i, seen := at[k]
+		if !seen {
+			at[k] = len(kept)
+			kept = append(kept, si)
+			continue
+		}
+		if kept[i].PaneID == "" && si.PaneID != "" {
+			kept[i] = si
+		} else if kept[i].PaneID == "" && si.Interrupted {
+			kept[i].Interrupted = true
+		}
+		if kept[i].PaneID != "" {
+			kept[i].Interrupted = false
+		}
+	}
+	return kept
 }
 
 // sortSessions puts interrupted sessions first, then starred, then

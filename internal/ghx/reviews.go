@@ -13,6 +13,7 @@ import (
 // Line is where it is now; an outdated thread — its lines changed since —
 // has only the line it was written on.
 type Thread struct {
+	ID       string // GitHub's node id, which resolving takes
 	Path     string
 	Line     int
 	Outdated bool
@@ -45,7 +46,7 @@ const reviewsQuery = `query($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       reviewThreads(first: 100) {
         nodes {
-          isResolved isOutdated path line originalLine
+          id isResolved isOutdated path line originalLine
           comments(first: 50) { nodes { databaseId author { login } body diffHunk url createdAt } }
         }
       }
@@ -64,6 +65,7 @@ type rawReviews struct {
 			PullRequest *struct {
 				ReviewThreads struct {
 					Nodes []struct {
+						ID           string `json:"id"`
 						IsResolved   bool   `json:"isResolved"`
 						IsOutdated   bool   `json:"isOutdated"`
 						Path         string `json:"path"`
@@ -128,7 +130,7 @@ func ParseReviews(data []byte) (Reviews, error) {
 		if t.IsResolved || len(t.Comments.Nodes) == 0 {
 			continue
 		}
-		th := Thread{Path: t.Path, Outdated: t.IsOutdated || t.Line == nil, Hunk: t.Comments.Nodes[0].DiffHunk}
+		th := Thread{ID: t.ID, Path: t.Path, Outdated: t.IsOutdated || t.Line == nil, Hunk: t.Comments.Nodes[0].DiffHunk}
 		switch {
 		case t.Line != nil:
 			th.Line = *t.Line
@@ -157,4 +159,88 @@ func login(a *rawAuthor) string {
 		return "ghost"
 	}
 	return a.Login
+}
+
+// conch's own words on GitHub carry a mark, an HTML comment GitHub does
+// not show, so that reading them back they are told from a reviewer's:
+// the autopilot's answers in a thread are not new work for the agent, and
+// a review conch's reviewer agent posted went to the agent already.
+const (
+	AutopilotMark = "<!-- conch:autopilot -->"
+	ReviewerMark  = "<!-- conch:reviewer -->"
+)
+
+// Marked is body with mark put in front of it.
+func Marked(mark, body string) string { return mark + "\n" + body }
+
+// HasMark says whether body carries mark.
+func HasMark(body, mark string) bool { return strings.Contains(body, mark) }
+
+// Unmarked is body without conch's marks, as a person reads it.
+func Unmarked(body string) string {
+	for _, m := range []string{AutopilotMark, ReviewerMark} {
+		if strings.Contains(body, m) {
+			body = strings.TrimSpace(strings.ReplaceAll(body, m, ""))
+		}
+	}
+	return body
+}
+
+// ReplyToComment answers the thread comment id is in, on pull request
+// number, and returns the new comment's id.
+func ReplyToComment(ctx context.Context, dir string, number int, id int64, body string) (int64, error) {
+	if id <= 0 {
+		return 0, fmt.Errorf("no comment to answer")
+	}
+	if strings.TrimSpace(body) == "" {
+		return 0, fmt.Errorf("a reply says something")
+	}
+	in, _ := json.Marshal(map[string]string{"body": body})
+	out, err := runInput(ctx, dir, in, "api", "--method", "POST",
+		"repos/{owner}/{repo}/pulls/"+strconv.Itoa(number)+"/comments/"+strconv.FormatInt(id, 10)+"/replies", "--input", "-")
+	if err != nil {
+		return 0, err
+	}
+	var got struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil || got.ID == 0 {
+		return 0, fmt.Errorf("gh api: the reply's answer could not be read")
+	}
+	return got.ID, nil
+}
+
+const resolveMutation = `mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { isResolved } } }`
+
+// ResolveThread marks a review thread resolved, by its node id.
+func ResolveThread(ctx context.Context, dir, threadID string) error {
+	if threadID == "" {
+		return fmt.Errorf("no thread to resolve")
+	}
+	out, err := run(ctx, dir, "api", "graphql", "-f", "id="+threadID, "-f", "query="+resolveMutation)
+	if err != nil {
+		return err
+	}
+	var got struct {
+		Data struct {
+			Resolve *struct {
+				Thread struct {
+					IsResolved bool `json:"isResolved"`
+				} `json:"thread"`
+			} `json:"resolveReviewThread"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		return fmt.Errorf("parse gh api graphql: %w", err)
+	}
+	if len(got.Errors) > 0 {
+		return fmt.Errorf("gh api graphql: %s", got.Errors[0].Message)
+	}
+	if got.Data.Resolve == nil || !got.Data.Resolve.Thread.IsResolved {
+		return fmt.Errorf("gh api graphql: the thread is still unresolved")
+	}
+	return nil
 }

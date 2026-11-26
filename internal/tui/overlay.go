@@ -119,6 +119,9 @@ type menu struct {
 	agentsOf string
 	// health is the Check conch menu, which a finished run redraws.
 	health bool
+	// switchOf is the pane (machine|pane) whose Switch Agent ▸ list this
+	// is, redrawn when the machine's agent list arrives.
+	switchOf string
 }
 
 func newRowMenu(m Model, r row, x, y int) *menu {
@@ -175,6 +178,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				}
 				items = append(items, menuItem{"", label, func(m *Model) tea.Cmd { return m.openPrompt(mid, pane) }})
 			}
+		}
+		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil && p.State == proto.PaneRunning {
+			items = append(items, m.switchMenuItem(r.machine, r.paneID, x, y))
 		}
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
 		if target := m.sshTargetOfRow(r); target != "" {
@@ -485,6 +491,8 @@ func (mu *menu) run(m *Model, i int) tea.Cmd {
 		return nil // a line that only says something: the menu stays
 	}
 	m.overlay = nil
+	m.menuFrom = mu
+	defer func() { m.menuFrom = nil }()
 	return mu.items[i].run(m)
 }
 
@@ -576,11 +584,22 @@ func newAgentMenu(m Model, mach *machine) *menu {
 				detail = "  " + styleMuted.Render(a.Version)
 			}
 			// An agent conch only runs says so where it is chosen: it
-			// starts and is watched like any other, and its saved
-			// conversations are not read, which is worth knowing before
+			// starts and is watched like any other, and where its saved
+			// conversations are not read that is worth knowing before
 			// rather than when the Sessions view is empty.
-			if a.Tier == proto.TierRunsHere {
+			if a.SessionsUnread() {
 				detail += styleMuted.Render("  runs here · no sessions")
+			} else if a.Tier == proto.TierRunsHere {
+				detail += styleMuted.Render("  runs here")
+			}
+			// How it will sign in, where the server can tell: an agent
+			// that is about to ask for a browser sign-in says so before it
+			// is started, not after.
+			switch a.Auth {
+			case "signed-out":
+				detail += styleMuted.Render("  not signed in · it asks when it starts")
+			case "api-key":
+				detail += styleMuted.Render("  Gemini API key")
 			}
 			if a.Name == m.defaultAgent() {
 				detail += styleMuted.Render("  default")
@@ -1278,6 +1297,7 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "m", what: "menu for the row", more: []string{
 			"on an agent's pane it holds Prompt… — its next message, refused while it waits on an answer of its own, and it says when the work it started ends",
+			"and Switch Agent ▸: its conversation carried to another agent in the same pane, with the whole history for Claude Code, Codex, Gemini CLI and Qwen Code, else as a handoff document; a card says what crosses and counts down (enter now, c another agent, esc cancel), it waits for the turn to end, and the pane then offers Switch back. Out of plan on every account, a card offers another agent (enter continue, w wait for the reset, c choose); [agents] switch_at_limit does it unasked",
 			"Actions… holds your own commands from config.toml ([[actions]]), run in that checkout with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE set",
 		}},
 		{keys: "i", what: "agent setup: instructions, skills, MCP servers, and what a worktree lacks", more: []string{
@@ -1443,6 +1463,7 @@ var helpGroups = []helpGroup{{
 		{keys: "click", what: "select · double-click opens · right-click is the menu · the wheel scrolls"},
 		{keys: "drag", what: "in a pane or a page, copy what you drag over", more: []string{
 			"past the edge, or with the wheel, it scrolls · a double click copies a word",
+			"sent, not copied: your terminal may ignore it — shift-drag uses its own selection",
 		}},
 		{keys: "Y", what: "an agent's conversation: scroll (g top · G bottom), drag over a part, release to copy"},
 		{keys: "alt+click", what: "open a link an agent printed (option+click, or ctrl+click)", more: []string{

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,9 +148,16 @@ func TestCloneFailureDeletesTheBox(t *testing.T) {
 			api := fakeProvider(t, "fakebox", tokenKind)
 			f := fakeSSH(t)
 			c.setup(t, f)
+			// The deadline is ended by hand once ssh has really been
+			// tried: a deadline of a second or two also killed a try that
+			// was merely slow to start, under a loaded machine.
+			ctx := t.Context()
+			if c.name == "never answers" {
+				ctx = endAfterTries(t, f, 2)
+			}
 			var out, errb strings.Builder
-			a := &app{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, wait: 2 * time.Second, retry: 50 * time.Millisecond}
-			code := a.run(t.Context(), []string{"create", "--provider", "fakebox", "--name", "x", "--repo", "https://github.com/o/r"})
+			a := &app{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, wait: time.Minute, retry: 50 * time.Millisecond}
+			code := a.run(ctx, []string{"create", "--provider", "fakebox", "--name", "x", "--repo", "https://github.com/o/r"})
 			if code != 1 || out.Len() != 0 || !strings.Contains(errb.String(), c.want) {
 				t.Fatalf("%d %q", code, errb.String())
 			}
@@ -179,14 +187,15 @@ func TestCloneWaitsForSSH(t *testing.T) {
 func TestCloneKeepsTheTokenOutOfErrors(t *testing.T) {
 	isolate(t)
 	fakeProvider(t, "fakebox", tokenKind)
-	fakeSSH(t)
-	// Down every time, at once: a message to strike however slow the
-	// machine running the test is.
+	f := fakeSSH(t)
+	// Down every time, at once, and the wait ended only after a try has
+	// come back: a message to strike however slow the machine running the
+	// test is.
 	t.Setenv("FAKE_SSH_DOWN", "1")
 	t.Setenv("FAKE_SSH_SAYS", "for tok-secret-box1-1@gw.test")
 	var out, errb strings.Builder
-	a := &app{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, wait: 1500 * time.Millisecond, retry: 20 * time.Millisecond}
-	if code := a.run(t.Context(), []string{"create", "--provider", "fakebox", "--repo", "https://github.com/o/r"}); code != 1 {
+	a := &app{stdin: strings.NewReader(""), stdout: &out, stderr: &errb, wait: time.Minute, retry: 20 * time.Millisecond}
+	if code := a.run(endAfterTries(t, f, 2), []string{"create", "--provider", "fakebox", "--repo", "https://github.com/o/r"}); code != 1 {
 		t.Fatalf("%d", code)
 	}
 	noToken(t, errb.String())
@@ -334,4 +343,30 @@ func TestCloneStopsWhenRefused(t *testing.T) {
 	if n := strings.Count(f.sshCalls(), "\n"); n < 2 || api.has("box1") {
 		t.Fatalf("%d tries, box1 kept: %v", n, api.has("box1"))
 	}
+}
+
+// endAfterTries is a context that ends once ssh has been started n times,
+// so at least n-1 tries have come back with what ssh said: the wait for a
+// sandbox that never answers ends then, rather than at a deadline a slow
+// machine can reach before ssh has said anything.
+func endAfterTries(t *testing.T, f *sshStandIn, n int) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go func() {
+		tick := time.NewTicker(10 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if strings.Count(f.sshCalls(), "\n") >= n {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx
 }

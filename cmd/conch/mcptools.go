@@ -69,7 +69,7 @@ const whenItIsReady = "Wait for it (the wait tool) before prompting it: conch ha
 const agentArg = "which agent: claude, codex, gemini, opencode or devin; leave it out for the person's default"
 
 func mcpTools() []mcpTool {
-	return []mcpTool{
+	return append([]mcpTool{
 		{
 			Name:        "list",
 			Title:       "List panes",
@@ -165,7 +165,49 @@ func mcpTools() []mcpTool {
 			}),
 			run: mcpShow,
 		},
+		{
+			Name:        "switch",
+			Title:       "Switch an agent to another agent",
+			Description: "Carry an agent's conversation to another agent — Claude Code to Codex, say, when its plan runs out — which resumes it in the same pane: as a session of its own for Claude Code, Codex, Gemini CLI and Qwen Code, else with the conversation as a document for its first message. Never mid-turn: it waits for the turn to end, and for background commands up to ten minutes, and says so; you may switch only agents you started. Use preview first to see what would cross.",
+			Schema: schema([]string{"pane", "to"}, map[string]any{
+				"pane":    strProp(paneArg),
+				"to":      strProp("the agent to switch to: claude, codex, gemini, …"),
+				"preview": flagProp("say what would cross and how, changing nothing"),
+				"now":     flagProp("do not wait for background commands, which stop with it (never mid-turn all the same)"),
+				"handoff": flagProp("hand the conversation over as a document even where conch writes the agent's own session"),
+			}),
+			run: mcpSwitch,
+		},
+	}, mcpRunTools()...)
+}
+
+// mcpSwitch switches a pane's conversation to another agent.
+func mcpSwitch(c *client.Client, raw json.RawMessage) (any, error) {
+	var args struct {
+		Pane    string `json:"pane"`
+		To      string `json:"to"`
+		Preview bool   `json:"preview"`
+		Now     bool   `json:"now"`
+		Handoff bool   `json:"handoff"`
 	}
+	if err := mcpArgs(raw, &args); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.To) == "" {
+		return nil, errors.New("say which agent to switch to: claude, codex, gemini, …")
+	}
+	if len(c.MissingCapabilities([]string{proto.CapAgentSwitch})) > 0 {
+		return nil, errors.New("this conch server cannot switch an agent to another agent; the person can reload it with `conch server reload`")
+	}
+	id, err := mcpPane(c, args.Pane)
+	if err != nil {
+		return nil, err
+	}
+	res, err := switchPane(c, proto.AgentSwitchParams{ID: id, To: args.To, Preview: args.Preview, Now: args.Now, Handoff: args.Handoff})
+	if err != nil {
+		return nil, err
+	}
+	return toolResult(describeSwitch(id, res), res), nil
 }
 
 // mcpView answers with the screen the person is looking at.

@@ -172,6 +172,15 @@ func (s *settings) gitItems(m *Model) []settingItem {
 			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
 		}},
 		settingItem{label: styleMuted.Render("  rebased onto the base; a real conflict goes to the agent, and nothing is pushed that loses either side")},
+		settingItem{label: "Review comments go to the agent", detail: autoReviewText(m.cfg.Verify.AutoReview, m.cfg.Verify.AutoFix), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.AutoReview = !m.cfg.Verify.AutoReview
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
+		}},
+		settingItem{label: "A thread its push answered is resolved", detail: resolveThreadsText(m.cfg.Verify.ResolveThreads), run: func(m *Model) tea.Cmd {
+			m.cfg.Verify.ResolveThreads = !m.cfg.Verify.ResolveThreads
+			return tea.Batch(m.saveConfig(), m.pushAutopilotAll())
+		}},
+		settingItem{label: styleMuted.Render("  " + reviewWhere(m))},
 		settingItem{label: styleMuted.Render("  that one merges the pull request on GitHub, the way the repository allows — How a merge lands is conch's own")},
 		settingItem{label: styleMuted.Render("  " + autopilotWhere(m))},
 	)
@@ -561,6 +570,42 @@ func autoResolveText(n int) string {
 	return fmt.Sprintf("the agent asked up to %s, then it's yours", count(n, "time"))
 }
 
+// autoReviewText says what auto_review does: it rides on auto_fix, the
+// autopilot sending work back at all.
+func autoReviewText(on bool, autoFix int) string {
+	switch {
+	case !on:
+		return "off · pass them on yourself (S)"
+	case autoFix <= 0:
+		return "on with auto_fix, which is off"
+	}
+	return "on · each once, to a free agent; answered on GitHub after it pushes"
+}
+
+// resolveThreadsText says what resolve_threads does.
+func resolveThreadsText(on bool) string {
+	if !on {
+		return "off · the reviewer resolves it"
+	}
+	return "on · where the push changed its file"
+}
+
+// reviewWhere says what sending review comments takes, and which
+// machines' servers predate it.
+func reviewWhere(m *Model) string {
+	var old []string
+	for _, mach := range m.machines {
+		if mach.c != nil && m.autopilotOn(mach.id) && !m.hasCapability(mach.id, proto.CapAutopilotReview) {
+			old = append(old, m.machineLabel(mach.id))
+		}
+	}
+	text := "a review asking for changes and each new unresolved thread on its pull request"
+	if len(old) > 0 {
+		text += "; " + strings.Join(old, ", ") + " predates that and sends none (u to update)"
+	}
+	return text
+}
+
 // autoMergeText says what auto_merge does, and what it still will not
 // do: the refusals are the reason it is safe to leave on.
 func autoMergeText(on bool) string {
@@ -945,6 +990,11 @@ func (s *settings) phoneItems(m *Model) []settingItem {
 			m.overlay = newDevicesPanel(s)
 			return nil
 		}},
+		settingItem{label: "Access tokens…", detail: "for agents outside conch · conch token", page: true, run: func(m *Model) tea.Cmd {
+			p, cmd := newTokensPanel(m, s)
+			m.overlay = p
+			return cmd
+		}},
 		settingItem{},
 		copyItem("In front of it", fmt.Sprintf("tailscale serve --bg http://127.0.0.1:%d", w.PortOrDefault())),
 		copyItem("Paired phones, in a terminal", "conch web devices"),
@@ -979,6 +1029,10 @@ func (s *settings) actionItems(m *Model) []settingItem {
 			{label: styleMuted.Render("  It is then on the menu (m, or right-click) of a branch or project,")},
 			{label: styleMuted.Render("  and runs there with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH,")},
 			{label: styleMuted.Render("  CONCH_WORKTREE and CONCH_PANE set.")},
+			{},
+			{label: styleMuted.Render("  With events in on — worktree.created, agent.done, agent.waiting,")},
+			{label: styleMuted.Render("  pr.opened, pr.merged, task.failed — the server runs it when one")},
+			{label: styleMuted.Render("  happens instead, its output in hooks/logs beside config.toml.")},
 		}
 	}
 	items := []settingItem{{header: true, label: "Actions", detail: "your own commands on the row menus"}}
@@ -986,6 +1040,11 @@ func (s *settings) actionItems(m *Model) []settingItem {
 		on := "every row"
 		if len(a.On) > 0 {
 			on = strings.Join(a.On, ", ")
+		}
+		if evs := a.Events(); len(evs) > 0 && len(evs) == len(a.On) {
+			on = "hook on " + strings.Join(evs, ", ") + " · stopped after " + a.HookTimeout().String()
+		} else if len(evs) > 0 {
+			on += " · stopped after " + a.HookTimeout().String()
 		}
 		if !a.Keeps() {
 			on += " · closes when done"
@@ -998,7 +1057,7 @@ func (s *settings) actionItems(m *Model) []settingItem {
 			settingItem{label: styleMuted.Render("    " + a.Run)})
 	}
 	if len(problems) > 0 {
-		items = append(items, settingItem{}, settingItem{header: true, label: "Not offered"})
+		items = append(items, settingItem{}, settingItem{header: true, label: "Problems"})
 		for _, p := range problems {
 			items = append(items, settingItem{label: "  " + styleErr.Render(p)})
 		}

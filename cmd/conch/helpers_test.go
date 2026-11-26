@@ -90,6 +90,7 @@ func a4Env(t *testing.T) string {
 	t.Setenv("CONCH_HOME", dir)
 	t.Setenv("CONCH_SOCKET", filepath.Join(dir, "s.sock")) // nothing listens yet
 	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_TOKEN", "")
 	t.Setenv("CONCH_CLOUD", "") // Conch Cloud hidden, as released
 	t.Setenv("CONCH_MACHINE", "")
 	t.Setenv("CONCH_SSH_CONFIG", "")

@@ -183,7 +183,7 @@ func TestLibraryServers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=pending gemini=differs opencode=off devin=pending copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=pending gemini=differs opencode=off devin=pending copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("cells: %s", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "opencode")); !os.IsNotExist(err) {
@@ -207,7 +207,7 @@ func TestLibraryServers(t *testing.T) {
 		t.Fatalf("devin %v", devin)
 	}
 	_, cs, _ = LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=on gemini=differs opencode=off devin=on copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncMCP, "gh"); got != "claude=off codex=on gemini=differs opencode=off devin=on copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("after apply: %s", got)
 	}
 	// A second apply has nothing to do.
@@ -311,7 +311,7 @@ func TestLibraryPlainServer(t *testing.T) {
 	}
 	_, cs, _ := LibraryStatus(e)
 	// Devin reads OpenCode's servers, so it has this one already.
-	if got := cells(cs, SyncMCP, "wiki"); got != "claude=off codex=on gemini=on opencode=on devin=theirs copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncMCP, "wiki"); got != "claude=off codex=on gemini=on opencode=on devin=theirs copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("after apply: %s", got)
 	}
 	if res, _ := ApplyLibrary(e, false); res.Writes() != 0 {
@@ -342,7 +342,7 @@ func TestLibraryClaudeAndDevin(t *testing.T) {
 	mustSave(t, Library{Servers: []LibServer{{Name: "docs", URL: "https://docs.example/mcp",
 		Headers: map[string]string{"Authorization": "Bearer ${DOCS_TOKEN}"}, Agents: []string{"claude", "devin"}}}})
 	_, cs, _ := LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "docs"); got != "claude=pending codex=off gemini=off opencode=off devin=on copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncMCP, "docs"); got != "claude=pending codex=off gemini=off opencode=off devin=on copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("cells: %s", got)
 	}
 	res := mustApply(t, e)
@@ -370,7 +370,7 @@ func TestLibraryClaudeAndDevin(t *testing.T) {
 	// With Claude not there to give it to, Devin gets its own.
 	os.Remove(filepath.Join(e.get("PATH"), "claude"))
 	_, cs, _ = LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "docs"); got != "claude=cannot codex=off gemini=off opencode=off devin=pending copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncMCP, "docs"); got != "claude=cannot codex=off gemini=off opencode=off devin=pending copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("without claude: %s", got)
 	}
 	mustApply(t, e)
@@ -427,7 +427,7 @@ func TestLibrarySkills(t *testing.T) {
 	_, cs, _ := LibraryStatus(e)
 	// OpenCode, Copilot, Cline, Qwen and Goose read ~/.agents/skills too, so
 	// they have it whether asked or not.
-	if got := cells(cs, SyncSkill, "tide"); got != "claude=on codex=on gemini=on opencode=on devin=on copilot=on cline=on qwen=on goose=on" {
+	if got := cells(cs, SyncSkill, "tide"); got != "claude=on codex=on gemini=on opencode=on devin=on copilot=on cline=on qwen=on goose=on antigravity=off" {
 		t.Fatalf("cells: %s", got)
 	}
 
@@ -471,7 +471,7 @@ func TestLibrarySkills(t *testing.T) {
 	write(t, filepath.Join(home, "skills", "mine", "SKILL.md"), "the library's")
 	mustSave(t, Library{Skills: []LibSkill{{Name: "mine", Path: "~/skills/mine", Agents: []string{"claude"}}}})
 	_, cs, _ = LibraryStatus(e)
-	if got := cells(cs, SyncSkill, "mine"); got != "claude=differs codex=off gemini=off opencode=off devin=off copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncSkill, "mine"); got != "claude=differs codex=off gemini=off opencode=off devin=off copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("occupied: %s", got)
 	}
 }
@@ -523,7 +523,7 @@ func TestLibraryImport(t *testing.T) {
 		t.Fatal("import wrote to an agent")
 	}
 	_, cs, _ := LibraryStatus(e)
-	if got := cells(cs, SyncMCP, "gh"); got != "claude=on codex=on gemini=off opencode=off devin=on copilot=off cline=off qwen=off goose=off" {
+	if got := cells(cs, SyncMCP, "gh"); got != "claude=on codex=on gemini=off opencode=off devin=on copilot=off cline=off qwen=off goose=off antigravity=off" {
 		t.Fatalf("cells %s", got)
 	}
 	// Again: nothing new, the same entries.

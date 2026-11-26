@@ -15,6 +15,8 @@ import (
 	"unicode"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/Amitgb14/conch/internal/config"
 )
 
 // Adapter launches one kind of agent.
@@ -107,6 +109,11 @@ func New(exe, dir string) (Registry, error) {
 	for _, err := range append(errs, shipErrs...) {
 		ManifestProblem(err)
 	}
+	for _, a := range append(append([]Adapter{}, mine...), shipped...) {
+		if ca, ok := a.(*cliAgent); ok && ca.name == "antigravity" {
+			ca.launch = antigravityLaunch(exe, dir)
+		}
+	}
 	return append(append(r, mine...), shipped...), nil
 }
 
@@ -142,6 +149,10 @@ type cliAgent struct {
 	// ~/.config), and an agent started with a --settings file that is no
 	// longer there fails with "Settings file not found".
 	prepare func() error
+	// launch, when set, is asked at every start for what goes before exec
+	// and the flags that follow the binary: a setting read then, rather
+	// than when the server started.
+	launch func() (before, flags string)
 }
 
 // Ensure writes this agent's integration files again, if it has any.
@@ -256,9 +267,15 @@ func (a *cliAgent) pathSetup() string {
 // Command implements Adapter. exec keeps the agent as the pane's foreground
 // process.
 func (a *cliAgent) Command(shell, args string) []string {
-	line := a.pathSetup() + "exec " + a.binary
-	if a.flags != "" {
-		line += " " + a.flags
+	before, flags := "", a.flags
+	if a.launch != nil {
+		var more string
+		before, more = a.launch()
+		flags = strings.TrimSpace(flags + " " + more)
+	}
+	line := a.pathSetup() + before + "exec " + a.binary
+	if flags != "" {
+		line += " " + flags
 	}
 	if args = strings.TrimSpace(args); args != "" {
 		line += " " + args
@@ -342,7 +359,13 @@ func newClaude(exe, dir string) (*cliAgent, error) {
 	// line (if any) so it looks as before.
 	statusLine := map[string]any{"type": "command", "command": ShellQuote(exe) + " report claude-status"}
 	write := func() error {
-		if err := writeJSON(path, map[string]any{"hooks": hooks, "statusLine": statusLine}); err != nil {
+		settings := map[string]any{"hooks": hooks, "statusLine": statusLine}
+		// Read at every launch, so a change in Settings reaches the next
+		// Claude. A file that cannot be read leaves Claude's default.
+		if cfg, err := config.LoadFile(filepath.Join(dir, "config.toml")); err == nil && cfg.Agents.ClaudeIdleCompaction != nil {
+			settings["idleCompaction"] = *cfg.Agents.ClaudeIdleCompaction
+		}
+		if err := writeJSON(path, settings); err != nil {
 			return fmt.Errorf("write claude settings: %w", err)
 		}
 		return nil
@@ -666,6 +689,7 @@ var sessionEnv = []string{
 	"CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
 	"CLAUDE_CODE_SSE_PORT",
 	"CONCH_PANE_ID", // a server started from inside a pane
+	"CONCH_TOKEN",   // that pane's access token, which a new pane is given its own of
 }
 
 // SanitizeEnv drops agent session variables from env.

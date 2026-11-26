@@ -50,6 +50,16 @@ func Transcript(ctx context.Context, e Env, s Session) ([]Turn, error) {
 		turns, err = qwenTranscript(s.Path)
 	case "goose":
 		turns, err = gooseTranscript(ctx, s.Path, s.ID)
+	case "kilo":
+		turns, err = opencodeDBTranscript(ctx, s.Path, s.ID)
+	case "pi":
+		turns, err = piTranscript(s.Path)
+	case "grok":
+		turns, err = grokTranscript(s.Path)
+	case "cursor":
+		turns, err = cursorTranscript(s.Path)
+	case "antigravity":
+		turns, err = antigravityTranscript(e, s)
 	default:
 		return nil, fmt.Errorf("conch can't read %s sessions", s.Agent)
 	}
@@ -142,31 +152,40 @@ func codexTranscript(path string) ([]Turn, error) {
 		return nil, err
 	}
 	defer f.Close()
-	var turns []Turn
+	// A rollout that has the older events may have the items too, saying
+	// the same: those are read only when there are no events.
+	var events, items []Turn
 	lines(f, 1<<30, func(b []byte) bool {
 		var l struct {
 			Type      string    `json:"type"`
 			Timestamp time.Time `json:"timestamp"`
 			Payload   struct {
-				Type    string `json:"type"`
-				Message string `json:"message"`
+				Type    string     `json:"type"`
+				Message string     `json:"message"`
+				Item    *codexItem `json:"item"`
 			} `json:"payload"`
 		}
-		if json.Unmarshal(b, &l) != nil || l.Type != "event_msg" {
+		if json.Unmarshal(b, &l) != nil {
 			return true
 		}
-		switch l.Payload.Type {
-		case "user_message":
-			turns = addTurn(turns, "user", l.Payload.Message, l.Timestamp)
-		case "agent_message":
-			turns = addTurn(turns, "assistant", l.Payload.Message, l.Timestamp)
+		role, text := codexMessage(l.Type, l.Payload.Type, l.Payload.Message, l.Payload.Item)
+		switch {
+		case role == "":
+		case l.Payload.Type == "item_completed":
+			items = addTurn(items, role, text, l.Timestamp)
+		default:
+			events = addTurn(events, role, text, l.Timestamp)
 		}
 		return true
 	})
-	return turns, nil
+	if len(events) > 0 {
+		return events, nil
+	}
+	return items, nil
 }
 
 type geminiMessage struct {
+	ID        string          `json:"id"`
 	Type      string          `json:"type"`
 	Timestamp time.Time       `json:"timestamp"`
 	Content   json.RawMessage `json:"content"`
@@ -177,21 +196,7 @@ func geminiTranscript(path string) ([]Turn, error) {
 	if err != nil {
 		return nil, err
 	}
-	var rec struct {
-		Messages []geminiMessage `json:"messages"`
-	}
-	var msgs []geminiMessage
-	if json.Unmarshal(b, &rec) == nil {
-		msgs = rec.Messages
-	} else {
-		// JSONL: a header line, then one message per line.
-		for _, line := range bytes.Split(b, []byte("\n")) {
-			var m geminiMessage
-			if json.Unmarshal(line, &m) == nil && m.Type != "" {
-				msgs = append(msgs, m)
-			}
-		}
-	}
+	msgs := readGeminiChat(b).Messages
 	var turns []Turn
 	for _, m := range msgs {
 		switch m.Type {

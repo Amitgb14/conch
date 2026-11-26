@@ -27,9 +27,9 @@ func TestAgentSkillMethod(t *testing.T) {
 	claude := filepath.Join(home, ".claude", "skills", "conch", "SKILL.md")
 
 	res, perr := run(&client{}, proto.AgentSkillParams{})
-	// Every one of conch's skills, for each of the three folders, each
+	// Every one of conch's skills, for each of the four folders, each
 	// named — the first is conch's own in Claude's.
-	if perr != nil || res.Applied || len(res.Changes) != 3*len(agentsetup.Skills) || res.Changes[0].Action != proto.SyncCreate ||
+	if perr != nil || res.Applied || len(res.Changes) != 4*len(agentsetup.Skills) || res.Changes[0].Action != proto.SyncCreate ||
 		res.Changes[0].Path != claude || res.Changes[0].Skill != "conch" || res.Changes[1].Skill != "conch-autopilot" {
 		t.Fatalf("plan: %+v %v", res, perr)
 	}

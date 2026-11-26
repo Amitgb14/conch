@@ -79,6 +79,7 @@ var inspectors = []inspector{
 	{"cline", "Cline", inspectCline},
 	{"qwen", "Qwen Code", inspectQwen},
 	{"goose", "Goose", inspectGoose},
+	{"antigravity", "Antigravity CLI", inspectAntigravity},
 }
 
 // Names lists the agents Inspect knows.
@@ -270,7 +271,7 @@ func transport(v any) string {
 	switch t, _ := m["type"].(string); {
 	case t != "":
 		parts = append(parts, t)
-	case m["url"] != nil || m["httpUrl"] != nil:
+	case m["url"] != nil || m["httpUrl"] != nil || m["serverUrl"] != nil: // serverUrl: Antigravity
 		parts = append(parts, "http")
 	default:
 		parts = append(parts, "stdio")

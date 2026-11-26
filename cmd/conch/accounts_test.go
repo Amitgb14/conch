@@ -33,6 +33,7 @@ func accountServer(t *testing.T) (*a4Server, *a4Var[map[string]json.RawMessage])
 					{Agent: "claude", Default: true, Agents: 1, Limits: &proto.PlanLimits{Agent: "claude", FiveHour: &proto.LimitWindow{UsedPct: 42, ResetsAt: soon}, Week: &proto.LimitWindow{UsedPct: 18}}},
 					{Agent: "claude", Name: "work", Dir: "/h/.conch/accounts/claude/work", Agents: 2, Limits: &proto.PlanLimits{Agent: "claude", Account: "work", FiveHour: &proto.LimitWindow{UsedPct: 97}}},
 					{Agent: "codex", Default: true},
+					{Agent: "antigravity", Name: "team", Dir: "/h/.conch/accounts/antigravity/team", KeyEnv: "TEAM_GEMINI_KEY"},
 				},
 				Pins: []proto.AccountPin{{Path: "/src/app", Account: "work"}}}, nil
 		case proto.MethodAccountAdd:
@@ -41,7 +42,7 @@ func accountServer(t *testing.T) (*a4Server, *a4Var[map[string]json.RawMessage])
 			if p.Agent == "gemini" {
 				return nil, proto.Errorf(proto.ErrBadRequest, "gemini keeps one account")
 			}
-			return proto.AccountInfo{Agent: p.Agent, Name: p.Name, Dir: "/h/.conch/accounts/" + p.Agent + "/" + p.Name}, nil
+			return proto.AccountInfo{Agent: p.Agent, Name: p.Name, Dir: "/h/.conch/accounts/" + p.Agent + "/" + p.Name, KeyEnv: p.KeyEnv}, nil
 		case proto.MethodProjectAdd:
 			return proto.ProjectInfo{ID: "api", Name: "api", Path: "/src/api", Git: true, Base: "main"}, nil
 		case proto.MethodTaskCreate:
@@ -193,5 +194,46 @@ func TestNewAndTaskTakeAnAccount(t *testing.T) {
 		return runTask([]string{"-cwd", t.TempDir(), "-account", "work", "-sandbox", "daytona", "fix it"})
 	}); err == nil || !strings.Contains(err.Error(), "-account") {
 		t.Errorf("-account in a sandbox: %v", err)
+	}
+}
+
+// An Antigravity CLI account is a Gemini API key by its variable's name:
+// sent as that, listed with it, and an older server is told about rather
+// than sent a key it would take as nothing.
+func TestAccountAddAntigravityKey(t *testing.T) {
+	srv, seen := accountServer(t)
+	out, _, err := a4Out(t, func() error {
+		return runAccount([]string{"add", "antigravity", "team", "-key-env", "TEAM_GEMINI_KEY"})
+	})
+	if err != nil || !strings.Contains(out, "TEAM_GEMINI_KEY") || strings.Contains(out, "log in") {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	if p := sent[proto.AccountAddParams](t, seen, proto.MethodAccountAdd); p != (proto.AccountAddParams{Agent: "antigravity", Name: "team", KeyEnv: "TEAM_GEMINI_KEY"}) {
+		t.Errorf("add sent %+v", p)
+	}
+	out, _, err = a4Out(t, func() error { return runAccount([]string{"list"}) })
+	if err != nil || !strings.Contains(out, "key in $TEAM_GEMINI_KEY") {
+		t.Errorf("list: %q %v", out, err)
+	}
+
+	seen.Set(map[string]json.RawMessage{})
+	srv.setHello(func(n int) proto.HelloResult {
+		h := currentHello(n)
+		var caps []string
+		for _, c := range h.Capabilities {
+			if c != proto.CapAccountKeys {
+				caps = append(caps, c)
+			}
+		}
+		h.Capabilities = caps
+		return h
+	})
+	if _, _, err := a4Out(t, func() error {
+		return runAccount([]string{"add", "antigravity", "team", "-key-env", "TEAM_GEMINI_KEY"})
+	}); err == nil || !strings.Contains(err.Error(), "server reload") {
+		t.Errorf("older server: %v", err)
+	}
+	if _, ok := seen.Get()[proto.MethodAccountAdd]; ok {
+		t.Error("sent to a server without account keys")
 	}
 }

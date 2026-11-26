@@ -753,11 +753,15 @@ func TestSandboxOpenPort(t *testing.T) {
 		t.Fatalf("the port was not kept: %q", m.machine(mach.id).lastPort)
 	}
 	// The link is opened and copied, and said out loud.
-	if cmd := m.receivePreview(done); cmd == nil {
+	open := m.receivePreview(done)
+	if open == nil {
 		t.Fatal("nothing opened")
 	}
-	if !strings.Contains(m.flash, done.url) || !strings.Contains(m.flash, "copied") {
+	if !strings.Contains(m.flash, done.url) {
 		t.Fatalf("flash %q", m.flash)
+	}
+	if said, _ := open().(flashMsg); !strings.Contains(string(said), "copied") {
+		t.Fatalf("said %q", said)
 	}
 	// A provider that says no is reported, not swallowed.
 	m.receivePreview(previewDoneMsg{machine: mach.id, err: errString("port 3000 is daytona's own (web terminal)")})
@@ -956,8 +960,10 @@ func TestSandboxPreviewTrouble(t *testing.T) {
 	if !ok || done.err == nil || done.url == "" {
 		t.Fatalf("submit: %#v", msgs)
 	}
-	if cmd := m.receivePreview(done); cmd == nil {
-		t.Fatal("the link was not kept")
+	lastClipboard = ""
+	m.receivePreview(done)
+	if lastClipboard != done.url {
+		t.Fatalf("the link was not kept: %q", lastClipboard)
 	}
 	if !strings.Contains(m.flash, "nothing is answering on port 3000") || !strings.Contains(m.flash, "on your clipboard") {
 		t.Fatalf("flash %q", m.flash)

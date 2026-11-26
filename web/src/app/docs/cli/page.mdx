@@ -78,11 +78,12 @@ Inside one of its own panes it refuses, the way tmux refuses a nested session: t
 | `conch status [-wide] [-json] [-team NAME]` (or `conch ls`) | show server and pane status; `-team` only that [team](/docs/configuration#teams)'s agents. In a terminal it fits the window: a line saying how many agents are working, waiting, done or idle, then each pane's ID, name, agent and its state, what an idle agent [left running](/docs/agents#left-running-in-the-background) (a BACKGROUND column, when any has; the summary line counts them), ssh host (when any pane has one), folder from `~` (cut from the start when it must be, since the end names it) and command (not an agent's, which is the agent; left out when there is no room to say anything). Piped — or with `-wide` — it is the full table scripts read, unchanged: ID, name, state, agent, ssh host, size, folder and command of each pane; `-json` gives the server and its panes as JSON (`{"server": null, "panes": []}` with no server), an agent's background jobs as `agent.background` (how many) and `agent.jobs` (`[{pid, command, since, ports}]`). The ssh column is the host a terminal is logged in to with plain `ssh` right now — the one `-ssh` on `upload` and `download` reaches — and `-` for the rest. Its first line gives the server's uptime, which counts from the *first* server of a chain of reloads — its panes have been alive that whole time — and then `(reloaded N ago)` for when the running binary was loaded, which is the one that says whether your last build got there |
 | `conch new [-cwd DIR] [-name N] -- CMD [ARGS...]` | start a pane (default command: your shell; default folder: the current one, or with `-m` that machine's home) and print its ID |
 | `conch new -agent claude [-account NAME] [-cwd DIR] [-- CLAUDE ARGS...]` | start Claude Code with state tracking; `-account` starts it on another of its [accounts](/docs/agents#several-accounts) |
-| `conch account list \| add AGENT NAME [-dir DIR] \| remove AGENT NAME` | an agent's other [accounts](/docs/agents#several-accounts) (Claude Code, Codex), each with its plan usage and agents |
+| `conch account list \| add AGENT NAME [-dir DIR] [-key-env VAR] \| remove AGENT NAME` | an agent's other [accounts](/docs/agents#several-accounts) (Claude Code, Codex, Antigravity CLI), each with its plan usage and agents |
 | `conch account pin [PATH] NAME \| unpin [PATH]` | agents started in a project, worktree or task folder use that account |
 | `conch account failover PERCENT\|off\|default [-agent AGENT]` | a new agent whose account is past PERCENT of a plan window starts on the agent's next account; `-agent` sets one agent's own line, `default` puts it back on every agent's |
 | `conch account suggest [AGENT]` | the agent's accounts ranked for a move: signed in, the most room, the fewest agents |
 | `conch agent move [-account NAME] ID` | carry an agent's conversation to another account and resume it there |
+| `conch agent switch [-now] [-preview] ID AGENT` | switch an agent's conversation to another agent, resumed in the same pane ([Switching agents](/docs/switching)) |
 | `conch account back [ACCOUNT]` | every agent moved off the account moved back, once it has room |
 | `conch ssh TARGET [SSH OPTION...]` | a terminal on this computer logged in to a host with ssh, outside every project — the session the TUI's `H` opens, built the same way (conch's ssh config, a connection of its own), so the tree, the files view and `-ssh` on `upload` and `download` know it as one; options after the target are ssh's (`-p 2222`, `-o Setting=value`); prints its pane ID. Not with `-m`: the session starts here |
 | `conch ssh -copy-key TARGET [SSH OPTION...]` | a terminal that puts this computer's public key on the host (making `~/.ssh/id_ed25519` first when there is none), so later logins need no password — the TUI's `K`. ssh asks for the host's password in that terminal, once; prints the pane's ID |
@@ -160,7 +161,7 @@ conch tells who is asking from the operating system — the process at the other
 | `conch agent question ID` | what a waiting agent asks and its choices, read off its screen as the [phone](/docs/phone) reads them, as JSON: `{"id": "q_…", "text": "Allow command?", "choices": [{"choice": "1", "label": "Yes", "default": true}, …]}`. `null` when the agent is not waiting, which is an answer rather than an error. The [Mac app](/docs/mac-app) shows it as buttons |
 | `conch agent team ID [TEAM \| - \| -clear]` | which [team](/docs/configuration#teams) an agent is in, by hand or by rule, or put it in one: `-` keeps it out of every team, `-clear` leaves it to the rules |
 | `conch agent answer [-question QID] ID CHOICE` | pick one of those choices without opening the pane: the agent's cursor is moved to it and Enter pressed, as the phone does. With `-question` it is refused if the question has changed since it was read, so a late answer cannot land on the next question |
-| `conch agent skill [-skill NAMES] [-agent NAMES] [-remove] [-apply]` | install conch's skills — `conch` (how an agent in a conch pane starts, prompts and reads another), `conch-team`, `conch-review`, `conch-ship`, `conch-factory` and `conch-autopilot` ([agents working together](/docs/agents-together)) — where each agent reads your skills: `~/.claude/skills/conch` and the rest for Claude, `~/.agents/skills/conch` for Codex, Gemini and OpenCode, `~/.config/devin/skills/conch` for Devin. `-skill conch,conch-review` installs only those (a name conch has no skill by is refused before anything is written). Without `-apply` it only says what it would do; `-remove` takes it away again. A `conch` skill there that conch didn't write is left alone. With `-m` it installs on that machine. Not from an agent's pane: it is your setup |
+| `conch agent skill [-skill NAMES] [-agent NAMES] [-remove] [-apply]` | install conch's skills — `conch` (how an agent in a conch pane starts, prompts and reads another), `conch-team`, `conch-review`, `conch-ship`, `conch-factory`, `conch-autopilot`, `conch-qa`, `conch-cicd`, `conch-setup` and `conch-status` ([agents working together](/docs/agents-together)) — where each agent reads your skills: `~/.claude/skills/conch` and the rest for Claude, `~/.agents/skills/conch` for Codex, Gemini and OpenCode, `~/.config/devin/skills/conch` for Devin. `-skill conch,conch-review` installs only those (a name conch has no skill by is refused before anything is written). Without `-apply` it only says what it would do; `-remove` takes it away again. A `conch` skill there that conch didn't write is left alone. With `-m` it installs on that machine. Not from an agent's pane: it is your setup |
 | `conch skill [-list \| NAME]` | print conch's skill (or the one named; `-list` names them) to stdout instead of installing it, for an agent whose skills folder conch does not manage, a system prompt you assemble yourself, or a sandbox where it goes inline. The same bytes the installer writes |
 | `conch agent setup [-agent NAME] [-copy] [-json] [DIR]` | show what each agent loads in a folder; `-agent` limits it to one agent, `-copy` copies missing local files from the main checkout first, `-json` prints JSON |
 | `conch agent sync [-user] [-from NAME] [-to NAMES] [-apply] [-undo [-stamp S]] [DIR]` | give the other agents one agent's setup — instructions, skills, MCP servers — in a checkout, or with `-user` the setup in your home. Without `-apply` it only says what it would do; `-undo` puts a sync back. See [One setup, every agent](/docs/tasks#one-setup-every-agent) |
@@ -171,6 +172,19 @@ conch tells who is asking from the operating system — the process at the other
 The names `-agent`, `conch agent install` and `conch new -agent` take. **Supported** — their sessions are read: `claude` (Claude Code), `codex` (Codex), `gemini` (Gemini CLI), `opencode` (OpenCode), `devin` (Devin), `copilot` (Copilot CLI), `cline` (Cline), `qwen` (Qwen Code) and `goose` (Goose).
 
 **Runs here** — from a manifest in `internal/detect/manifests`, which says what was checked for each: `aider` (Aider), `amp` (Amp), `antigravity` (Antigravity CLI, `agy`), `auggie` (Auggie), `continue` (Continue CLI, `cn`), `crush` (Crush), `cursor` (Cursor CLI), `droid` (Droid), `grok` (Grok), `kilo` (Kilo Code), `kimi` (Kimi Code), `kiro` (Kiro CLI, `kiro-cli chat`), `vibe` (Mistral Vibe) and `pi` (Pi). Add your own with `conch agent add`.
+
+Of these, Pi, Grok, Cursor, Kilo Code and Antigravity CLI have their conversations listed in [Sessions](/docs/sessions).
+
+#### Antigravity CLI
+
+What conch does for `agy` (checked against 1.5.16), all read on this computer and nothing sent to Google:
+
+- **Sign-in:** it signs in with Google the first time it starts. On a Mac the agent menu says beforehand when it is not signed in — conch sees whether its Keychain item is there without reading it — or that it will use a [Gemini API key](/docs/configuration).
+- **State:** it reports its own ([OSC 7501](https://mitchellh.com/writing/program-status-osc7501)), so working, waiting (sign-in, trusting a folder, approving a command) and done show with no hooks or screen rules.
+- **Chat:** conch starts it with a title command of its own for that session (`--settings`, never written to its `settings.json`). That is where agy names its conversation, so Conch.app's chat shows its tools with what each was given and returned, its context window and its weekly quota. A title command of your own still runs.
+- **Accounts:** each a Gemini API key; see [Agent accounts](#agent-accounts).
+- **Usage:** Conch.app's **Tokens used** counts it by model over the last day, week and month, and its rows in Sessions show each conversation's output tokens.
+- **Setup (`i`):** its `AGENTS.md`, `GEMINI.md` and `.agents/rules`, its skills and plugins, and the servers in `.agents/mcp_config.json` and `~/.gemini/config/mcp_config.json`. Sync gives it instructions (a copy, since its `@path` does not pull a file in) and skills, not servers: add those with `agy mcp add`.
 
 ### project
 
@@ -214,6 +228,31 @@ Projects kept together because they change together — an API, its web app, the
 | `-name N` | name the task's pane, to address it by in place of its ID (see [Pane names](#pane-names)). Refused while a running pane has that name, and with more than one attempt |
 | `-issue N` | work on that GitHub issue, read with `gh`: its title and body are the prompt, and any `PROMPT` is added |
 | `-ticket KEY` | work on that Linear or Jira ticket — `ENG-123`, `linear:ENG-123`, `jira:PROJ-42` or its address, or a [tickets integration](/docs/integrations#ticket-trackers)'s `NAME:KEY` (`shortcut:123`) — read by the server with the key in [`[trackers]`](/docs/configuration#trackers) or the integration's: its title, body and comments are the prompt, and the branch is named from its key. Not with `-issue` or `-sandbox` |
+
+### run
+
+A job split into tasks that depend on one another, kept by the server in `graph.json` so a coordinator agent that is restarted — or you — finds it where it was.
+
+| Command | Description |
+| --- | --- |
+| `conch run new [-cwd DIR] [-manual] NAME` | make a run in the project; `-manual` starts tasks only on `conch run start` |
+| `conch run add [-id ID] [-after A,B] [-agent A] [-gate TEXT] RUN SPEC...` | add a task. It starts once the tasks it is `-after` are done, with an agent on a branch `RUN/ID` made from the first one's (told to merge the others'); `-gate` waits for your approval first. A cycle, an unknown task or a repeated id is refused |
+| `conch run ls` / `conch run show [-json] RUN` | every run, or one: each task pending, ready, running, done, failed or blocked, with its pane, branch and result, and the questions |
+| `conch run start RUN [TASK]` | start ready tasks now (for a `-manual` run) |
+| `conch run wait [-timeout D] RUN` | wait until a worker asks something, the run is over, or nothing left can go on by itself. A gate waiting for you does not end it |
+| `conch run done RESULT...` / `conch run fail WHY...` | a worker's report, once; from its pane it needs no `-run`/`-task`. A worker whose pane ends without one has failed, and the tasks after it are blocked |
+| `conch run ask [-option O]... [-default O] [-timeout D] QUESTION...` | a worker asks the run's coordinator and waits; after `-timeout` the default is taken, or with none it fails |
+| `conch run answer RUN QUESTION ANSWER...` | answer a question (`q1`); with options, one of them |
+| `conch run approve RUN TASK` / `conch run deny RUN TASK` | approve a gate, or turn it down so the task fails. Yours alone: an agent is refused |
+| `conch run rm RUN` | forget a run (its panes and branches stay) |
+
+```sh
+conch run new checkout
+conch run add -id model checkout "add the Order model"
+conch run add -id api -after model checkout "add POST /orders"
+conch run add -id ship -after api -gate "release the checkout API?" checkout "write the release notes"
+conch run wait checkout
+```
 
 ### ticket
 
@@ -331,10 +370,10 @@ Committing single hunks is a TUI-only step: see [Finishing a task](/docs/tasks#f
 | --- | --- |
 | `conch integration search [-json] [KIND\|WORDS]` | what the [registries](/docs/integrations#registries) list: each integration's kind, whether a maintainer has run it live, the hosts it reaches and what it can do. An index that is not signed says so, and a sandbox provider with no ssh yet is marked |
 | `conch integration info [-json] NAME` | what it can do and what you supply, what it does in conch, the hosts your key goes to (and the ones it reads without it), how to make its key, who wrote it |
-| `conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME` | say the hosts and the key's variable and ask (`-y` doesn't), check the file's hash and that it reaches nothing else, then ask for the key without echoing it (`-key-stdin` reads it) and keep it in the Keychain on a Mac — elsewhere it says the variable to set; then one read-only call against this project's branch. A revoked version is refused |
+| `conch integration install [-y] [-key-stdin] [-base URL] [-cwd DIR] NAME` | say the hosts and the key's variable and ask (`-y` doesn't), check the file's hash and that it reaches nothing else, then ask for the key without echoing it (`-key-stdin` reads it) and keep it in the Keychain on a Mac — elsewhere it says the variable to set; then one read-only call against this project's branch. A hook has no key: its whole command and events are shown first, `-y` or not. A revoked version is refused |
 | `conch integration key [-stdin] [-base URL] [-cwd DIR] NAME` | give an integration — shipped or installed — its key: without echo (`-stdin` reads it), kept in the Keychain on a Mac, then checked against this project; `-base` keeps the address of a service you run yourself (`[integrations.base]`) |
 | `conch integration ls [-json] [-cwd DIR]` | every integration here: built in (GitHub, GitHub Actions, GitHub Issues, Linear, Jira), shipped with conch, installed or of your own, its version, its key's state and whether the project in `DIR` uses it; a file that is not used says why (revoked, a problem in it) |
-| `conch integration update [-y] [NAME]` | take newer versions of what you installed; a file edited here is left alone, and a version reaching new hosts, or reading the key or user name from another variable, is asked about even with `-y`; a failed update leaves the installed version as it was |
+| `conch integration update [-y] [NAME]` | take newer versions of what you installed; a file edited here is left alone, and a version reaching new hosts, or reading the key or user name from another variable, or a hook running another command or on other events, is asked about even with `-y`; a failed update leaves the installed version as it was |
 | `conch integration remove NAME` | delete an installed integration and its record |
 | `conch integration check [-json] NAME\|FILE` | everything wrong with a file, one line each; exits 1 when anything is |
 | `conch integration guide` | the [file format](/docs/integrations#writing-one), for writing one |
@@ -410,10 +449,13 @@ An agent that would rather call a tool than a command talks to conch through `co
 | `rename` | name a pane, to address it by that instead of its id |
 | `view` | what the person is looking at: the tabs, what is in each, and which pane has the keyboard |
 | `show` | ask the terminal to put panes in front of them — one is revealed, several open side by side in a tab of their own |
+| `run_create`, `run_add` | a [run of tasks](#run) that depend on one another, as `conch run new` and `add` |
+| `run_status`, `run_start`, `run_wait`, `run_answer` | where a run stands, start its ready tasks, wait until it needs you, answer a worker |
+| `run_report`, `run_ask` | for a worker: report done or failed once, or ask the coordinator and wait for the answer |
 
 `view` and `show` are the two that reach past the server to the screen. The server owns panes and the terminal owns the arrangement of them, so conch carries both ways: a TUI publishes what it is showing, and a `show` is passed back to it as a request. A request, not an order — the panes asked for are **gathered side by side in one tab** and nothing else is touched. They move rather than being copied, since a pane is shown in exactly one place, which is the same rule that governs `ctrl+b !` and dragging a pane between tabs. An agent may only show panes it could already type into, by the same scope that governs `prompt`.
 
-The tools are the same work as [`conch agent prompt`](#agent), `conch wait`, `conch task` and the rest — the same server methods with the same payloads — so the two doors cannot drift. Scope comes for free: conch finds the caller from the socket's peer pid walked up to a pane's program, so an MCP server an agent starts inside its own pane reaches only [what that pane may reach](/docs/agents-together#what-an-agent-may-do), and nothing in a tool call can widen it.
+The tools are the same work as [`conch agent prompt`](#agent), `conch wait`, `conch task` and the rest — the same server methods with the same payloads — so the two doors cannot drift. Scope comes for free: conch finds the caller from its pane's [token](#token) or the socket's peer pid walked up to a pane's program, so an MCP server an agent starts inside its own pane reaches only [what that pane may reach](/docs/agents-together#what-an-agent-may-do), and nothing in a tool call can widen it.
 
 Installing it is one action, because the entry is the same for every agent — the [library](/docs/tasks#shared-mcp-servers-and-skills) writes it in each one's own format:
 
@@ -426,7 +468,40 @@ Or in the TUI: `,` → **Agents** → **Shared MCP servers & skills…** → **A
 
 [Three reviewers at once](/docs/agents-together#three-reviewers-at-once) is what this is for: several helpers, several kinds of agent, no shell.
 
+#### Over HTTP
+
+```sh
+conch token create -level prompt -project api remote-agent   # prints the token, once
+conch mcp -http 127.0.0.1:7740                                 # the same tools at http://127.0.0.1:7740/mcp
+```
+
+An agent that is not a process on this computer — in a container, on another machine, in a tool that only speaks HTTP — reaches the same tools over MCP's Streamable HTTP. Every request carries an [access token](#token) as `Authorization: Bearer TOKEN`; without one, or with one conch refuses, the answer is `401`. Each token gets a connection to conch of its own that holds it, so the server decides what each may do, and this door never acts as you. Requests from a web page on another site are refused. It is plain HTTP: keep it on `127.0.0.1`, or put TLS in front of it (`tailscale serve`).
+
 Stdin and stdout are the protocol: notes go to stderr, one request per line (this revision of MCP has no batches), answered one at a time in order, and a `wait` tool holds the session until it ends, as `conch wait` holds a shell. A tool that names a pane refuses a name shaped like a pane id or one another running pane holds, as `conch rename` does — ids win, so such a name would pick out nothing. `timeout_seconds` defaults to 1800, 0 waits with no limit, and anything over a day is capped.
+
+### token
+
+```sh
+conch token create -level prompt -project api -expires 30d reviewer   # prints the token once
+conch token ls                                                         # name, level, projects, expiry, last use
+conch token revoke reviewer                                            # refused from now on, where it is in use too
+conch -m busybox token create -level read watcher                      # a token for that machine
+```
+
+An access token is a limited right for an agent outside conch — an MCP client elsewhere, a script, another tool. It is given to conch in `CONCH_TOKEN` (every `conch` command and `conch mcp` present it), or as a bearer token to [`conch mcp -http`](#over-http).
+
+| Level | What it may do |
+| --- | --- |
+| `read` | read: screens, panes, projects, diffs, sessions, files in its projects |
+| `prompt` | also send to agents — a prompt, a reply, keys — never type into a shell, where what is typed runs |
+| `drive` | also start and stop agents: tasks, agent panes, resumed sessions, closing and interrupting them |
+| `full` | what you can do — within its projects; with none, making and revoking tokens too |
+
+`-project` (name, id or folder; repeat it) limits a token to those projects: every pane, project and folder a call names must be in one of them, and anything about all of them — the server, the library, other tokens — is refused. Lists are not filtered. Without `-project` it reaches every project. Tokens last 30 days unless `-expires` says otherwise (`12h`, `90d`, `never`). A token belongs to the machine whose conch made it; another machine's is refused by name.
+
+The secret is printed once and kept only as a hash, in `tokens.json` beside `config.toml`. A token revoked or expired stops connections already holding it, not only new ones. Every refusal is written to the server's log with the token's name. **Settings → Web → Access tokens…** lists and revokes them too.
+
+Every pane is also given a token of its own in `CONCH_TOKEN`, for the scope its agent already has ([what an agent may do](/docs/agents-together#what-an-agent-may-do)). It keeps a helper the agent detached — or a harness that started it again under launchd — held to that agent, where walking its process tree would find no pane and take it for you. When the walk does find a pane, the walk decides, so a token copied from another pane changes nothing. A pane's token ends with the pane; a connection still holding it stays held. An agent in a pane cannot make, list or revoke tokens.
 
 ### completion
 
@@ -706,11 +781,14 @@ Once signed in, the account's machines are in conch's machines (`conch machine l
 
 An account is a configuration folder of the agent's own: `CLAUDE_CONFIG_DIR` for Claude Code, `CODEX_HOME` for Codex. Its sign-in, settings and conversations live there, so each account is signed in once and keeps its own history. Gemini CLI, OpenCode and Devin keep one account each: conch knows no clean way to give them a second.
 
+An Antigravity CLI account is a **Gemini API key**, named by the variable that holds it (`-key-env`), with a folder of its own for its conversations, given to agy as `--gemini_dir`. Its Google sign-in is one Keychain item whatever the folder, so a second Google account cannot be kept apart; that sign-in is its `default`. conch keeps the variable's name, never the key: your login shell reads it when agy starts, and an empty one stops the start, saying which. `--gemini_dir` is a flag agy does not document, checked on 1.5.16.
+
 <AccountFlow />
 
 ```sh
 conch account add claude work                  # a folder of conch's for it
 conch account add claude home -dir ~/.claude-home
+conch account add antigravity team -key-env TEAM_GEMINI_KEY   # agy on that key
 conch new -agent claude -account work          # start it there, and /login once
 conch account pin ~/src/acme work              # agents started in acme use work
 conch task -account home "Fix the flaky test"  # this task's agent uses home
@@ -721,11 +799,11 @@ An agent starts on the account it is asked for (`-account`, `default` for the ag
 
 A pin names an account by name: a project pinned to `work` uses Claude's `work` and Codex's `work`, and an agent with none by that name keeps its own.
 
-**Plan limits are per account.** The status bar shows the account of the agent in view (`✳✳ work 5h 88%`), its panel has a tab per account with the tokens each used by day and model, and an alert says which account passed the line. **Settings → Agents → Agent accounts…** in the TUI lists each machine's accounts with their usage and how many agents run on each; Conch.app's **Settings → Agents → Agent accounts** also adds and removes them, starts one to sign in, pins folders and sets failover.
+**Plan limits are per account.** The status bar shows the account of the agent in view, on whichever machine it runs (`✳✳ work 5h 88%`), its panel has a tab per account with the tokens each used by day and model, and an alert says which account passed the line. **Settings → Agents → Agent accounts…** in the TUI lists each machine's accounts with their usage and how many agents run on each; Conch.app's **Settings → Agents → Agent accounts** also adds and removes them, starts one to sign in, pins folders and sets failover. A window whose reset has passed shows no percentage until the agent reports again.
 
 **Failover.** With `conch account failover 90` (or the Failover row in Settings), a new agent whose account is past 90% of a plan window starts on the agent's next account: its own first, then the others in the order added. A running agent is never moved, since its conversation lives in its account's folder. Failover never crosses agents: Claude's accounts for Claude, Codex's for Codex. `conch account failover 95 -agent codex` gives Codex a line of its own (`off` for none); `conch account failover default -agent codex` puts it back on every agent's.
 
-**Moving a running agent.** A Claude Code agent whose plan runs out moves by itself to the account with the most room and carries on: conch stops it, copies its conversation into that account's folder, resumes it there in a pane that takes the old one's place, and sends "continue". A card counts down a few seconds first, with **Move Now**, **Choose…** and **Keep on default**. `[agents] no_move_at_limit = true` turns it off; `move_at_line = true` moves agents past the failover line too, when their turn ends. An agent sitting idle never moves; at the line, only one in use moves, as its turn ends. By hand: **Switch Account ▸** on an agent's menu, or `conch agent move p12 [-account NAME]`; once the account it came off has room again, **Move Back** is offered, for all of them at once with **Move All Back** or `conch account back default`. conch picks among signed-in accounts the one with the most room, then the fewest agents (`conch account suggest` shows its ranking). Never mid-turn, and never with background commands it started still running: those stop with it and the resumed agent cannot reach them, so an automatic move waits up to ten minutes for them, then says which will stop; by hand it is refused without `-force`. Start a dev server in a terminal of its own and a move leaves it running. Claude Code only for now.
+**Moving a running agent.** A Claude Code agent whose plan runs out moves by itself to the account with the most room and carries on: conch stops it, copies its conversation into that account's folder, resumes it there in a pane that takes the old one's place, and sends "continue". A card counts down a few seconds first, with **Move Now**, **Choose…** and **Keep on default**. `[agents] no_move_at_limit = true` turns it off; `move_at_line = true` moves agents past the failover line too, when their turn ends. An agent sitting idle never moves; at the line, only one in use moves, as its turn ends. By hand: **Switch Account ▸** on an agent's menu, or `conch agent move p12 [-account NAME]`; once the account it came off has room again, **Move Back** is offered, for all of them at once with **Move All Back** or `conch account back default`. conch picks among signed-in accounts the one with the most room, then the fewest agents (`conch account suggest` shows its ranking). Never mid-turn, and never with background commands it started still running: those stop with it and the resumed agent cannot reach them, so an automatic move waits up to ten minutes for them, then says which will stop; by hand it is refused without `-force`. Start a dev server in a terminal of its own and a move leaves it running. Claude Code only for now. When no account of the agent has room, another agent is offered instead, or switched to unasked with `[agents] switch_at_limit` (see [Switching agents](/docs/switching)).
 
 ```sh
 conch account suggest            # the ranking, conch's pick first

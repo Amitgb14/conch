@@ -315,7 +315,7 @@ struct SessionRow: View {
                 Button(session.starred == true ? "Unstar" : "Star") { model.star(session) }
                 Menu("Hand Off To") {
                     ForEach(model.store.startable(on: model.machine), id: \.name) { a in
-                        Button(a.title) { model.handOff(session, to: a.name) }
+                        AgentMenuButton(agent: a.name, title: a.title) { model.handOff(session, to: a.name) }
                     }
                 }
             }

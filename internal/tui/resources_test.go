@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,116 +17,24 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
+	"github.com/Amitgb14/conch/internal/procs"
 	"github.com/Amitgb14/conch/internal/proto"
 )
-
-func TestMonitorParseCPUTime(t *testing.T) {
-	for _, c := range []struct {
-		in   string
-		want time.Duration
-	}{
-		{"00:00:00", 0},
-		{"00:01:02", 62 * time.Second}, // Linux
-		{"01:02:03", time.Hour + 2*time.Minute + 3*time.Second},
-		{"2-01:00:00", 49 * time.Hour},                          // Linux, over a day
-		{"0:00.03", 30 * time.Millisecond},                      // macOS
-		{"0:00.29", 290 * time.Millisecond},                     // no float noise
-		{"123:45.67", 123*time.Minute + 45670*time.Millisecond}, // macOS minutes pass 59
-		{"1:02:03.50", time.Hour + 2*time.Minute + 3500*time.Millisecond},
-	} {
-		got, ok := parseCPUTime(c.in)
-		if !ok || got != c.want {
-			t.Errorf("parseCPUTime(%q) = %v, %v; want %v", c.in, got, ok, c.want)
-		}
-	}
-	for _, bad := range []string{"", "12", "1:2:3:4", "a:00", "00:xx", "-1:00", "x-00:00", "1:-5", "0:NaN", "0:+Inf", "1-2-00:00"} {
-		if got, ok := parseCPUTime(bad); ok {
-			t.Errorf("parseCPUTime(%q) = %v, want a failure", bad, got)
-		}
-	}
-}
-
-func TestMonitorParsePS(t *testing.T) {
-	out := "    1     0  12000 00:00:05 systemd\n" + // Linux
-		"  200     1   4096 0:01.50 /Applications/Some App.app/Contents/MacOS/Some App\n" + // macOS, spaces
-		"garbage line\n" +
-		"  300   200   notnum 0:00.00 x\n" +
-		"  301   200   10 bad y\n" +
-		"  -4    1   10 0:00.00 neg\n" +
-		"  400   200   2048 0:00.00\n" + // no comm
-		"\n"
-	procs := parsePS([]byte(out))
-	if len(procs) != 3 {
-		t.Fatalf("parsed %d processes: %+v", len(procs), procs)
-	}
-	if p := procs[1]; p.ppid != 0 || p.rss != 12000 || p.cpu != 5*time.Second || p.comm != "systemd" {
-		t.Errorf("pid 1: %+v", p)
-	}
-	if p := procs[200]; p.comm != "/Applications/Some App.app/Contents/MacOS/Some App" || p.cpu != 1500*time.Millisecond {
-		t.Errorf("pid 200: %+v", p)
-	}
-	if p := procs[400]; p.rss != 2048 || p.comm != "" {
-		t.Errorf("pid 400: %+v", p)
-	}
-	if got := parsePS(nil); len(got) != 0 {
-		t.Errorf("nil: %v", got)
-	}
-	// An overlong line is skipped along with the rest; nothing panics.
-	if got := parsePS([]byte(strings.Repeat("x", 2<<20))); len(got) != 0 {
-		t.Errorf("overlong: %v", got)
-	}
-}
-
-// The real ps, read-only: its format must parse on macOS and Linux alike.
-func TestMonitorRealPS(t *testing.T) {
-	if _, err := exec.LookPath("ps"); err != nil {
-		t.Skip("no ps")
-	}
-	// What is checked is ps's format, not its speed: under the whole race
-	// suite ps has taken longer than the monitor's own sampling interval,
-	// and was killed by it (signal: killed). So it is given time here.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := runPS(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	procs := parsePS(out)
-	me, ok := procs[os.Getpid()]
-	if !ok || me.rss <= 0 || me.ppid != os.Getppid() {
-		t.Fatalf("this process: %+v (found %v) among %d", me, ok, len(procs))
-	}
-}
 
 func fakePS(t *testing.T, out string, err error) *atomic.Int32 {
 	t.Helper()
 	var calls atomic.Int32
-	was := runPS
-	runPS = func(context.Context) ([]byte, error) { calls.Add(1); return []byte(out), err }
-	t.Cleanup(func() { runPS = was })
+	was := procs.RunPS
+	procs.RunPS = func(context.Context) ([]byte, error) { calls.Add(1); return []byte(out), err }
+	t.Cleanup(func() { procs.RunPS = was })
 	return &calls
 }
 
-func TestMonitorTakeSample(t *testing.T) {
-	fakePS(t, "1 0 10 0:00.00 init\n", errors.New("exit status 1"))
-	if s := takeSample(); s.err != nil || len(s.procs) != 1 {
-		t.Errorf("failed ps with a list: %+v", s)
-	}
-	fakePS(t, "", errors.New("exec: ps not found"))
-	if s := takeSample(); s.err == nil || !strings.Contains(s.err.Error(), "not found") {
-		t.Errorf("missing ps: %+v", s)
-	}
-	fakePS(t, "", nil)
-	if s := takeSample(); s.err == nil {
-		t.Errorf("empty list: %+v", s)
-	}
-}
-
 // monSample builds a sample from "pid ppid rssKiB cpuMillis" rows.
-func monSample(at time.Time, rows ...[4]int) *procSample {
-	s := &procSample{at: at, procs: map[int]proc{}}
+func monSample(at time.Time, rows ...[4]int) *procs.Sample {
+	s := &procs.Sample{At: at, Procs: map[int]procs.Proc{}}
 	for _, r := range rows {
-		s.procs[r[0]] = proc{pid: r[0], ppid: r[1], rss: int64(r[2]), cpu: time.Duration(r[3]) * time.Millisecond}
+		s.Procs[r[0]] = procs.Proc{PID: r[0], PPID: r[1], RSS: int64(r[2]), CPU: time.Duration(r[3]) * time.Millisecond}
 	}
 	return s
 }
@@ -205,7 +112,7 @@ func TestMonitorClock(t *testing.T) {
 		}
 	}
 	// A failed sample before leaves CPU unknown rather than wild.
-	mon := &monitor{prev: &procSample{at: t0, err: errors.New("x")}, cur: monSample(t0.Add(time.Second), [4]int{me, 1, 10, 500})}
+	mon := &monitor{prev: &procs.Sample{At: t0, Err: errors.New("x")}, cur: monSample(t0.Add(time.Second), [4]int{me, 1, 10, 500})}
 	if _, total := mon.rows(m); total.cpu >= 0 {
 		t.Errorf("after an error: cpu %v", total.cpu)
 	}
@@ -243,12 +150,6 @@ func TestMonitorParentLoop(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("rows never returned on a parent loop")
-	}
-	// tree on its own, straight into a loop.
-	claimed := map[int]bool{}
-	got := tree(200, map[int][]int{200: {201}, 201: {200}}, mon.cur.procs, claimed)
-	if len(got) != 2 {
-		t.Errorf("loop tree: %v", got)
 	}
 }
 
@@ -395,7 +296,7 @@ func TestMonitorRenderSizes(t *testing.T) {
 	if got := ansi.Strip(strings.Join((&monitor{}).render(m).lines, "\n")); !strings.Contains(got, "reading processes") {
 		t.Errorf("waiting:\n%s", got)
 	}
-	failed := &monitor{cur: &procSample{err: errors.New("exec: \"ps\": not found")}}
+	failed := &monitor{cur: &procs.Sample{Err: errors.New("exec: \"ps\": not found")}}
 	if got := ansi.Strip(strings.Join(failed.render(m).lines, "\n")); !strings.Contains(got, "ps: exec") {
 		t.Errorf("error:\n%s", got)
 	}
@@ -436,7 +337,7 @@ func TestMonitorSamplingStopsWhenClosed(t *testing.T) {
 	}
 	for _, other := range []overlay{nil, newHelp(), newVersionInfo(), &monitor{}} {
 		m.overlay = other
-		for _, late := range []tea.Msg{monitorTickMsg{mon: mon}, monitorSampleMsg{mon: mon, sample: procSample{}}} {
+		for _, late := range []tea.Msg{monitorTickMsg{mon: mon}, monitorSampleMsg{mon: mon, sample: procs.Sample{}}} {
 			if _, cmd := m.Update(late); cmd != nil {
 				t.Errorf("late %T with %T open gave a command", late, other)
 			}

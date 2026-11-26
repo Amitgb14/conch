@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -339,6 +340,56 @@ type launcherRun struct {
 	env   []string
 	stdin string
 	limit time.Duration // the watchdog's; 0 is 30s
+	// maxProcs, when set, kills the group as soon as it holds more
+	// processes than that: how a launcher calling itself is told from
+	// one that is merely slow on a busy machine, which a short limit
+	// could not do (it once failed under a loaded `make gate`).
+	maxProcs int
+}
+
+// groupSize is how many processes are in process group pgid, or -1 when
+// pgrep cannot say.
+func groupSize(pgid int) int {
+	out, err := exec.Command("pgrep", "-g", strconv.Itoa(pgid)).Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 { // none matched
+			return 0
+		}
+		return -1
+	}
+	return len(strings.Fields(string(out)))
+}
+
+// watchGroup waits for cmd, started in a process group of its own, and
+// kills the whole group when ctx ends or, with maxProcs set, when the
+// group grows past it; killed says which, and is "" when cmd ended by
+// itself. Whatever cmd left in its group is killed either way.
+func watchGroup(ctx context.Context, cmd *exec.Cmd, maxProcs int) (killed string, err error) {
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var tick <-chan time.Time
+	if maxProcs > 0 {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		tick = ticker.C
+	}
+	pgid := cmd.Process.Pid
+	defer syscall.Kill(-pgid, syscall.SIGKILL)
+	for {
+		select {
+		case err = <-done:
+			return "", err
+		case <-tick:
+			if n := groupSize(pgid); n > maxProcs {
+				syscall.Kill(-pgid, syscall.SIGKILL)
+				return fmt.Sprintf("%d processes in its group, more than %d", n, maxProcs), <-done
+			}
+		case <-ctx.Done():
+			syscall.Kill(-pgid, syscall.SIGKILL)
+			return "still running when the watchdog's time ran out", <-done
+		}
+	}
 }
 
 func (r launcherRun) do(t *testing.T) (int, string, string) {
@@ -357,18 +408,10 @@ func (r launcherRun) do(t *testing.T) (int, string, string) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	var err error
-	select {
-	case err = <-done:
-	case <-ctx.Done():
-		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		<-done
-		t.Fatalf("still running after %v (%v): %q %q", limit, r.argv, out.String(), errb.String())
+	killed, err := watchGroup(ctx, cmd, r.maxProcs)
+	if killed != "" {
+		t.Fatalf("%s (limit %v, %v): %q %q", killed, limit, r.argv, out.String(), errb.String())
 	}
-	// Anything it left in its group goes too.
-	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
 		if ee.ExitCode() < 0 {
@@ -399,14 +442,70 @@ func TestLauncherOnPathIsNotAForkBomb(t *testing.T) {
 		{argv: []string{filepath.Join(onPath, "conch-sandbox"), "get", "--json"}},
 	} {
 		// A launcher calling itself makes hundreds of processes a second:
-		// the watchdog is short, and kills the whole group.
+		// the watchdog counts them and kills the whole group, rather than
+		// a short limit that a slow machine also trips.
 		home := t.TempDir()
-		run.env, run.limit = launcherEnv(home, "file://"+r.dir, onPath), 5*time.Second
+		run.env, run.limit, run.maxProcs = launcherEnv(home, "file://"+r.dir, onPath), 60*time.Second, 40
 		code, out, errs := run.do(t)
 		if code != 0 || out != "downloaded 1.2.3 "+hostPlatform()+": get --json\n" {
 			t.Fatalf("%v: %d %q %q", run.argv, code, out, errs)
 		}
 	}
+}
+
+// The watchdog that test leans on: a group that grows past its count is
+// killed at once, long before its time limit, and a quiet one that ends
+// by itself is let be.
+func TestWatchGroup(t *testing.T) {
+	start := func(script string) *exec.Cmd {
+		cmd := exec.Command("/bin/sh", "-c", script)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		return cmd
+	}
+	t.Run("many processes", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		defer cancel()
+		// Sixty sleepers, as a launcher calling itself would pile up.
+		cmd := start(`i=0; while [ $i -lt 60 ]; do sleep 60 & i=$((i+1)); done; wait`)
+		began := time.Now()
+		killed, _ := watchGroup(ctx, cmd, 40)
+		if !strings.Contains(killed, "more than 40") {
+			t.Fatalf("killed = %q", killed)
+		}
+		if took := time.Since(began); took > 30*time.Second {
+			t.Fatalf("took %v: it waited for the limit", took)
+		}
+		// The killed sleepers are reaped by whoever adopts them, in a moment.
+		for end := time.Now().Add(10 * time.Second); groupSize(cmd.Process.Pid) != 0; time.Sleep(50 * time.Millisecond) {
+			if time.Now().After(end) {
+				t.Fatalf("%d processes left in the group", groupSize(cmd.Process.Pid))
+			}
+		}
+	})
+	t.Run("quiet", func(t *testing.T) {
+		cmd := start(`sleep 0.3; exit 3`)
+		killed, err := watchGroup(t.Context(), cmd, 40)
+		var ee *exec.ExitError
+		if killed != "" || !errors.As(err, &ee) || ee.ExitCode() != 3 {
+			t.Fatalf("killed %q, err %v", killed, err)
+		}
+	})
+	t.Run("time runs out", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+		cmd := start(`sleep 60`)
+		if killed, _ := watchGroup(ctx, cmd, 0); !strings.Contains(killed, "time ran out") {
+			t.Fatalf("killed = %q", killed)
+		}
+	})
+	t.Run("no such group", func(t *testing.T) {
+		if n := groupSize(1 << 22); n != 0 {
+			t.Fatalf("groupSize of nothing = %d", n)
+		}
+	})
 }
 
 // What stops it: a launcher started under another (CONCH_SANDBOX_LAUNCHER

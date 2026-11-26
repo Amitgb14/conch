@@ -591,6 +591,10 @@ func tomlName(f reflect.StructField) string {
 func TestSchemaDefaultsMatchConfig(t *testing.T) {
 	for _, s := range Schema(Choices{}) {
 		for _, f := range s.Fields {
+			// Unset is Claude's own default, which compacts.
+			if s.Key == "agents" && f.Key == "claude_idle_compaction" && (f.Default != true || f.Kind != KindBool) {
+				t.Errorf("claude_idle_compaction: %s, default %v", f.Kind, f.Default)
+			}
 			if f.Kind == KindSelect && len(f.Options) == 0 {
 				t.Errorf("%s.%s offers nothing", s.Key, f.Key)
 			}
@@ -963,4 +967,31 @@ func TestPhoneSectionTitle(t *testing.T) {
 		}
 	}
 	t.Fatal("no phone section")
+}
+
+// When out of plan offers Ask, each agent and Wait, Ask first: a config
+// that never set it asks.
+func TestWhenOutOfPlan(t *testing.T) {
+	var f *Field
+	for _, sec := range Schema(Choices{}) {
+		for i := range sec.Fields {
+			if sec.Key == "agents" && sec.Fields[i].Key == "switch_at_limit" {
+				f = &sec.Fields[i]
+			}
+		}
+	}
+	if f == nil || f.Kind != KindSelect || len(f.Options) < 3 {
+		t.Fatalf("switch_at_limit: %+v", f)
+	}
+	first, last := f.Options[0], f.Options[len(f.Options)-1]
+	if first.Value != "" || first.Label != "Ask" || last.Value != "wait" {
+		t.Fatalf("options: %+v", f.Options)
+	}
+	found := false
+	for _, o := range f.Options {
+		found = found || (o.Value == "codex" && o.Label == "Continue in codex")
+	}
+	if !found {
+		t.Fatalf("no Codex in %+v", f.Options)
+	}
 }

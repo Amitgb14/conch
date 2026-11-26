@@ -73,6 +73,38 @@ const skills: Skill[] = [
     asks: ["Set up an automated workflow for this project.", "Every morning, have an agent update dependencies and fix what breaks."],
     slash: "/conch-autopilot",
   },
+  {
+    name: "conch-qa",
+    tagline: "Test it like a user",
+    body: "Tests a branch the way its user would: on a port of its own, on a phone simulator through conch preview, or on the branch's deploy preview — and reports each bug with steps to reproduce, on its line for the author.",
+    steps: ["Writes a test plan from the acceptance criteria", "Runs the suite, then uses the change for real", "Leaves each bug on its line, with steps", "Ends with pass or fail in TEST-REPORT.md"],
+    asks: ["QA the signup branch on the iPhone simulator before I merge.", "Try the new export on its Vercel preview and tell me what breaks."],
+    slash: "/conch-qa",
+  },
+  {
+    name: "conch-cicd",
+    tagline: "Red CI and deploys",
+    body: "Reads a failed run and tells a real failure from a flake or a broken runner, sends it to the branch's agent or reruns it once, reads a deploy's build log — and hands you the command when a deploy should go to production.",
+    steps: ["Checks what the autopilot already does", "Reads the failed run's log", "Real failure → the branch's agent; a flake → found, not retried", "Deploys followed; production only when you ask"],
+    asks: ["CI has been red on main since this morning — what's going on?", "The Vercel preview for my branch failed. Why?"],
+    slash: "/conch-cicd",
+  },
+  {
+    name: "conch-setup",
+    tagline: "A project ready for agents",
+    body: "Looks at conch, your agents and the project — local files tasks need, installing dependencies in new worktrees, one setup for every agent, integrations — and asks where agents run: this computer, a machine you connected, or a new sandbox.",
+    steps: ["Runs conch doctor and reads the project", "Lists what is missing, a command each, for you to run", "Asks: this computer, a connected machine, or a new sandbox", "Checks again once you ran them"],
+    asks: ["Set up conch for this repo.", "Why don't my agents see the .env file in their worktrees?"],
+    slash: "/conch-setup",
+  },
+  {
+    name: "conch-status",
+    tagline: "What's going on",
+    body: "One short report across conch: who waits on you and what they ask, what is red, what is done and what is still working — then tidies up finished worktrees and idle helpers, only what you say yes to.",
+    steps: ["Reads every pane, review and pull request", "Says what needs you first", "Then red, done, working and scheduled", "Offers to tidy up; does only what you agree to"],
+    asks: ["Morning — what's going on?", "Which agents are waiting on me, and for what?"],
+    slash: "/conch-status",
+  },
 ]
 
 const line = ["ticket", "spec", "build", "review", "fix", "test", "pull request", "CI", "merge", "retro"]
@@ -184,7 +216,7 @@ export function Skills() {
                 ))}
               </TerminalWindow>
               <p className="px-2 pt-3 text-xs text-muted-foreground">
-                The same six skills, named /conch:conch-factory and so on. Use either this or conch&apos;s own install for Claude
+                The same skills, named /conch:conch-factory and so on. Use either this or conch&apos;s own install for Claude
                 Code, not both. They still need conch: they act inside a conch pane.
               </p>
             </TabsContent>

@@ -5,14 +5,18 @@
 # Verified against kilo.ai/docs/cli:
 #   - `kilo` starts the TUI; `kilo run MESSAGE` answers and exits, so it is
 #     not a first message and there is no prompt line here.
-#   - --continue resumes the most recent session in this folder. There is
-#     no documented flag to resume one by id; `kilo session` and the TUI's
-#     /sessions do that instead.
+#   - --continue resumes the most recent session in this folder, and
+#     -s/--session <id> one by id: not in those docs, but in `kilo --help`
+#     of kilo 7.8.18, beside `kilo session list|delete`.
+#   - its sessions are OpenCode's session table in
+#     ~/.local/share/kilo/kilo.db, which conch reads as it reads
+#     OpenCode's (internal/sessions, `kilo`).
 agent = "kilo"
 label = "Kilo Code"
 process_names = ["kilo"]
 
 [run]
 binary = "kilo"
+resume = "--session {id}"
 resume_last = "--continue"
 install = "npm install -g @kilocode/cli"

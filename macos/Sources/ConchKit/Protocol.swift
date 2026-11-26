@@ -152,10 +152,14 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var movedFrom: String?
     public var replaces: String?
     public var listening: [Int]?
+    /// The agent its conversation was switched from, and what crossed
+    /// (agent.switch.v1), for the banner with Switch back.
+    public var switchedFrom: SwitchOrigin?
 
     enum CodingKeys: String, CodingKey {
         case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team, account, replaces
         case movedFrom = "moved_from"
+        case switchedFrom = "switched_from"
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"
@@ -477,6 +481,11 @@ public struct PlanLimits: Decodable, Equatable, Sendable {
             self.usedPct = usedPct
             self.resetsAt = resetsAt
         }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            usedPct = try c.decode(Double.self, forKey: .usedPct)
+            resetsAt = knownTime(try c.decodeIfPresent(Date.self, forKey: .resetsAt))
+        }
     }
     /// One window under the name its agent gave it (five_hour, seven_day,
     /// seven_day_opus, spend_limit…).
@@ -493,6 +502,12 @@ public struct PlanLimits: Decodable, Equatable, Sendable {
             self.key = key
             self.usedPct = usedPct
             self.resetsAt = resetsAt
+        }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            key = try c.decode(String.self, forKey: .key)
+            usedPct = try c.decode(Double.self, forKey: .usedPct)
+            resetsAt = knownTime(try c.decodeIfPresent(Date.self, forKey: .resetsAt))
         }
     }
     public var agent: String

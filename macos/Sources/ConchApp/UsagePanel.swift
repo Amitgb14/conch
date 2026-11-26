@@ -53,21 +53,32 @@ struct MarkStack: View {
 struct AccountUsageChip: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var store: Store
+    let machine: String
 
     var body: some View {
         let _ = look
-        let accounts = store.usageAccountsHere
-        let view = store.agentInView
+        let accounts = store.accountsWithUsage(on: machine)
+        let view = store.agentInView(on: machine)
         let shown = chipAccount(accounts, agent: view?.agent, account: view?.account)
         HStack(spacing: 8) {
             MarkStack(accounts: chipMarks(accounts), raised: shown?.id)
+            if machine != "local" {
+                Text(store.usageName(machine)).font(.ui(size: 11)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
             if let a = shown, let l = a.limits {
                 Text(a.tabLabel).font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
-                let line = failoverLine(store.agentAccounts["local"], agent: a.agent)
-                if let w = l.fiveHour { window("5h", w.usedPct, line) }
-                if let w = l.week {
-                    if l.fiveHour != nil { Rectangle().fill(Theme.line).frame(width: 1, height: 10) }
-                    window("7d", w.usedPct, line)
+                let line = failoverLine(store.agentAccounts[machine], agent: a.agent)
+                // A window turns over with no report to redraw the chip.
+                TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                    let bars = l.bars(now: ctx.date)
+                    HStack(spacing: 8) {
+                        ForEach(bars) { w in
+                            if w.id != bars.first?.id { Rectangle().fill(Theme.line).frame(width: 1, height: 10) }
+                            window(w.label, w.usedPct, line)
+                        }
+                        if l.barsReset(now: ctx.date) { Text("reset").foregroundStyle(Theme.muted) }
+                    }
+                    .help(store.plans.on(machine).map { usageHelp($0, now: ctx.date) }.joined(separator: "\n") + "\nClick for each account's usage")
                 }
             }
         }
@@ -120,22 +131,26 @@ struct PlanBar: View {
 
     var body: some View {
         let _ = look
-        let level = usageLevel(pct, line: line)
-        HStack(spacing: 8) {
-            Text(label).foregroundStyle(Theme.text2).frame(width: 96, alignment: .leading).lineLimit(1)
-            LevelBar(pct: pct, line: line, color: levelColor(level), width: 170, height: 7)
-            Text("\(Int(pct.rounded()))%").monospacedDigit().frame(width: 38, alignment: .trailing)
-                .foregroundStyle(level == .room ? Theme.text : levelColor(level))
-            if level != .room {
-                Text(level.words).font(.ui(size: 11, weight: .semibold)).foregroundStyle(levelColor(level)).lineLimit(1)
-            } else if let r = resets, r.timeIntervalSince1970 > 0 {
-                TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(Theme.muted).lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+            let live = windowLive(resets, now: ctx.date)
+            let used = "\(Int(pct.rounded()))%"
+            let level = live ? usageLevel(pct, line: line) : .room
+            HStack(spacing: 8) {
+                Text(label).foregroundStyle(Theme.text2).frame(width: 96, alignment: .leading).lineLimit(1)
+                LevelBar(pct: live ? pct : 0, line: line, color: levelColor(level), width: 170, height: 7)
+                Text(live ? used : "—").monospacedDigit().frame(width: 38, alignment: .trailing)
+                    .foregroundStyle(level == .room ? Theme.text : levelColor(level))
+                if level != .room {
+                    Text(level.words).font(.ui(size: 11, weight: .semibold)).foregroundStyle(levelColor(level)).lineLimit(1)
+                } else if let r = resets {
+                    Text(live ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }
+            .help(live
+                  ? "\(label): \(used) used · \(level.words)\(line > 0 ? " · failover at \(line)%" : "")\(resets.map { " · resets in \(elapsed(ctx.date, $0))" } ?? "")"
+                  : "\(label): reset since it was last reported at \(used)")
         }
         .font(.ui(size: 12))
-        .help("\(label): \(Int(pct.rounded()))% used · \(level.words)\(line > 0 ? " · failover at \(line)%" : "")\(resets.map { $0 > Date() ? " · resets in \(elapsed(Date(), $0))" : "" } ?? "")")
     }
 }
 
@@ -347,12 +362,13 @@ struct SpanPicker: View {
 struct AccountUsageDetail: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var store: Store
+    let machine: String
     let account: UsageAccount
     @Binding var span: UsageSpan
 
     var body: some View {
         let _ = look
-        let line = failoverLine(store.agentAccounts["local"], agent: account.agent)
+        let line = failoverLine(store.agentAccounts[machine], agent: account.agent)
         VStack(alignment: .leading, spacing: 16) {
             section("Plan", line > 0 ? "failover at \(line)% · the tick on each bar" : "failover off") {
                 if let l = account.limits, l.reportsUse {
@@ -362,12 +378,13 @@ struct AccountUsageDetail: View {
                         }
                     }
                 } else {
-                    Text("No plan reported yet. It shows once \(store.agentTitle(account.agent)) on \(account.tabLabel) has had a few replies.")
+                    Text(store.usageGap(on: machine, needs: agentLimitsCapability)
+                         ?? "No plan reported yet. It shows once \(store.agentTitle(account.agent)) on \(account.tabLabel) has had a few replies.")
                         .font(.ui(size: 12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if account.usage == nil && !store.keepsAccountUsage {
-                Text("conch here is older and cannot say what each account used: reload its server.")
+            if account.usage == nil, let gap = store.usageGap(on: machine, needs: usageAccountsCapability) {
+                Text(gap)
                     .font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
             } else {
                 let total = spanTotal(account.usage, span)
@@ -405,21 +422,22 @@ struct AccountUsageDetail: View {
 struct UsagePanel: View {
     @Environment(\.conchTheme) private var look
     @ObservedObject var store: Store
+    let machine: String
     let maximize: () -> Void
     @State private var tab: String?
     @State private var span: UsageSpan = .week
 
     var body: some View {
         let _ = look
-        let accounts = store.usageAccountsHere
-        let view = store.agentInView
+        let accounts = store.accountsWithUsage(on: machine)
+        let view = store.agentInView(on: machine)
         let chip = chipAccount(accounts, agent: view?.agent, account: view?.account)
         let current = accounts.first { $0.id == (tab ?? panelTab(accounts, chip: chip)) } ?? accounts.first
         VStack(spacing: 0) {
             HStack(alignment: .bottom, spacing: 0) {
                 ForEach(accounts) { a in
                     tabButton(a, selected: a.id == current?.id, inView: a.id == chip?.id && view != nil,
-                              line: failoverLine(store.agentAccounts["local"], agent: a.agent))
+                              line: failoverLine(store.agentAccounts[machine], agent: a.agent))
                 }
                 Spacer(minLength: 4)
                 Button(action: maximize) { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11, weight: .semibold)) }
@@ -427,19 +445,24 @@ struct UsagePanel: View {
             }
             .padding(.horizontal, 8).padding(.top, 6)
             Divider()
+            if machine != "local" {
+                Text("On \(store.usageName(machine))").font(.ui(size: 11)).foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.top, 10)
+            }
             if let a = current {
-                AccountUsageDetail(store: store, account: a, span: $span).padding(14)
+                AccountUsageDetail(store: store, machine: machine, account: a, span: $span).padding(14)
             } else {
                 Text("No agent has reported its plan or saved a conversation yet.").font(.ui(size: 12)).foregroundStyle(Theme.muted).padding(14)
             }
         }
         .frame(width: 520)
         .focusEffectDisabled()
-        .onAppear { store.refreshAccountUsage() }
+        .onChange(of: machine) { _, m in store.refreshAccountUsage(on: m) }
+        .onAppear { store.refreshAccountUsage(on: machine) }
     }
 
     func tabButton(_ a: UsageAccount, selected: Bool, inView: Bool, line: Int) -> some View {
-        let near = (a.limits?.allWindows.map(\.usedPct).max()).map { usageLevel($0, line: line) != .room } ?? false
+        let near = agentAccountUsed(a.limits).map { usageLevel($0, line: line) != .room } ?? false
         return Button { tab = a.id } label: {
             HStack(spacing: 5) {
                 Mark(agent: a.agent).frame(width: 14, height: 14)
@@ -462,21 +485,23 @@ struct UsageWindow: View {
     @Environment(\.conchTheme) private var look
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: Store
+    let machine: String
     @State private var chosen: String?
     @State private var span: UsageSpan = .week
 
-    init(store: Store, start: String? = nil) {
+    init(store: Store, machine: String, start: String? = nil) {
         self.store = store
+        self.machine = machine
         _chosen = State(initialValue: start)
     }
 
     var body: some View {
         let _ = look
-        let accounts = store.usageAccountsHere
+        let accounts = store.accountsWithUsage(on: machine)
         let current = accounts.first { $0.id == chosen } ?? accounts.first
         VStack(spacing: 0) {
             HStack {
-                Text("Usage · This Mac").font(.ui(size: 14, weight: .semibold))
+                Text("Usage · \(store.usageName(machine))").font(.ui(size: 14, weight: .semibold))
                 Spacer()
                 SpanPicker(span: $span)
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -487,8 +512,8 @@ struct UsageWindow: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         compare("Room left · fullest window", accounts) { a in
-                            let line = failoverLine(store.agentAccounts["local"], agent: a.agent)
-                            let f = a.limits?.allWindows.map(\.usedPct).max()
+                            let line = failoverLine(store.agentAccounts[machine], agent: a.agent)
+                            let f = agentAccountUsed(a.limits)
                             return (f.map { "\(Int($0.rounded()))%" } ?? "—",
                                     AnyView(LevelBar(pct: f ?? 0, line: line, color: f.map { levelColor(usageLevel($0, line: line)) } ?? Theme.line2, width: 130, height: 8)))
                         }
@@ -510,7 +535,7 @@ struct UsageWindow: View {
                                 Mark(agent: a.agent)
                                 Text("\(store.agentTitle(a.agent)) · \(a.isOwn ? "default" : a.name)").font(.ui(size: 13, weight: .semibold))
                             }
-                            AccountUsageDetail(store: store, account: a, span: $span)
+                            AccountUsageDetail(store: store, machine: machine, account: a, span: $span)
                         }
                         .padding(16)
                     }
@@ -519,7 +544,7 @@ struct UsageWindow: View {
         }
         .frame(minWidth: 860, minHeight: 600)
         .focusEffectDisabled()
-        .onAppear { store.refreshAccountUsage() }
+        .onAppear { store.refreshAccountUsage(on: machine) }
     }
 
     func compare(_ title: String, _ accounts: [UsageAccount], row: @escaping (UsageAccount) -> (String, AnyView)) -> some View {
@@ -543,9 +568,4 @@ struct UsageWindow: View {
             }
         }
     }
-}
-
-extension Store {
-    /// Whether this computer's server says what each account used.
-    var keepsAccountUsage: Bool { conns["local"]?.hello?.capabilities?.contains(usageAccountsCapability) == true }
 }

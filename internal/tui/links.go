@@ -219,7 +219,7 @@ func (m *Model) openLinks(r row) tea.Cmd {
 			key = string(rune('1' + i))
 		}
 		mu.items = append(mu.items, menuItem{key, ansi.Truncate(link, 72, "…"), func(m *Model) tea.Cmd {
-			return tea.Batch(copyText(link), openURL(link))
+			return openAndCopy(link)
 		}})
 	}
 	m.overlay = mu

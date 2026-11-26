@@ -54,8 +54,10 @@ type Server struct {
 	sockPath  string
 	sockID    os.FileInfo // the socket file this server bound; see noteSocket
 	configDir string
-	started   time.Time // kept across reloads, for uptime
-	loaded    time.Time // this program's start
+	// hooks runs the person's actions on events (hooks.go).
+	hooks   *hooks
+	started time.Time // kept across reloads, for uptime
+	loaded  time.Time // this program's start
 
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
@@ -78,6 +80,7 @@ type Server struct {
 	autopilot *autopilot
 	intake    *intakeBook
 	triage    *triageBook
+	graph     *graphBook // runs of tasks that depend on one another (graph.go)
 
 	rulesMu  sync.Mutex // whether permission rules are in use, read now and then
 	rulesAt  time.Time
@@ -92,6 +95,9 @@ type Server struct {
 	// mover holds the agent moves scheduled between accounts
 	// (accountmove.go).
 	mover *mover
+	// switcher holds the switches to another agent waiting for their
+	// moment (switch.go).
+	switcher *switcher
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent and account (limitKey)
@@ -109,6 +115,7 @@ type Server struct {
 	watcher *worktreeWatcher // nil when the machine gives no watches
 	views   *viewBook        // what each TUI says it is showing (view.go)
 	stars   *starBook        // the sessions somebody means to come back to (star.go)
+	tokens  *tokenBook       // access tokens, the panes' own among them (tokens.go)
 
 	quit     chan struct{}
 	quitOnce sync.Once
@@ -132,6 +139,13 @@ type client struct {
 	// actFor is the agent on another machine the connection is held to
 	// (scope.act_for), guarded by mu.
 	actFor proto.ActForParams
+	// token is the id of the token the connection presented (auth.token),
+	// grant the token itself when the person made it, and paneToken that
+	// pane was set from a pane's own token rather than by the walk; all
+	// guarded by mu, as is pane once a token can set it (tokens.go).
+	token     string
+	grant     *tokenRec
+	paneToken bool
 
 	mu   sync.Mutex
 	subs map[string]*subscription // by pane ID
@@ -149,6 +163,7 @@ func New(sockPath, configDir string) *Server {
 	now := time.Now()
 	s := &Server{
 		mover:     newMover(),
+		switcher:  newSwitcher(),
 		usage:     usage.NewHistory(),
 		system:    sysstat.New(systemSource()),
 		sockPath:  sockPath,
@@ -165,11 +180,15 @@ func New(sockPath, configDir string) *Server {
 	s.ports = loadPortBook(configDir)
 	s.views = newViewBook()
 	s.stars = loadStars(configDir)
+	s.tokens = loadTokens(configDir)
 	s.schedules = loadSchedule(configDir)
 	s.intake = loadIntake(configDir)
 	s.triage = loadTriage(configDir)
+	s.graph = loadGraph(configDir)
 	s.reviews = loadReviews(configDir)
 	s.autopilot = loadAutopilot(configDir)
+	s.hooks = loadHooks(configDir, sockPath)
+	s.hooks.note = s.autopilotNote
 	if os.Getenv(reloadStateEnv) == "" {
 		s.autopilot.freshStart()
 	}
@@ -255,9 +274,11 @@ func (s *Server) Run() error {
 	s.keep("schedule", func() { s.runSchedule(s.quit) })
 	s.keep("autopilot", func() { s.runAutopilot(s.quit) })
 	s.keep("intake", func() { s.runIntake(s.quit) })
+	s.keep("runs", func() { s.runGraph(s.quit) })
 	s.keep("listening ports", func() { s.runListening(s.quit) })
 	s.keep("shell theme", func() { s.runShellTheme(s.quit) })
 	s.keep("account moves", s.watchMoves)
+	s.keep("agent switches", s.watchSwitches)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -269,7 +290,11 @@ func (s *Server) Run() error {
 		}
 		s.noteSocket(ln)
 		s.adopt(reloaded)
+		// The panes adopted keep their tokens; any other's pane is gone.
+		s.tokens.keepPanes(func(id string) bool { _, perr := s.get(id); return perr == nil })
 	} else {
+		// Nothing survives a restart, so no pane token does either.
+		s.tokens.keepPanes(func(string) bool { return false })
 		_ = os.Remove(s.sockPath) // stale socket from a crashed server
 		if ln, err = net.Listen("unix", s.sockPath); err != nil {
 			return err
@@ -362,6 +387,7 @@ func (s *Server) unlinkSocket() {
 // and on macOS a CoreFoundation thread each, behind for good.
 func (s *Server) Stop() {
 	s.quitOnce.Do(func() { close(s.quit) })
+	s.hooks.stopAll()
 	s.watcher.stop()
 	s.system.Stop()
 }
@@ -482,6 +508,7 @@ var slowMethods = map[string]bool{
 	proto.MethodServerHeap:  true, // a garbage collection and two files
 	proto.MethodFSSearch:    true, proto.MethodFSReplace: true, proto.MethodFSRename: true, proto.MethodFSCopy: true,
 	proto.MethodFSDelete: true, proto.MethodFSLines: true, proto.MethodFSWriteRange: true,
+	proto.MethodRunStart: true, // starts agents on worktrees of their own
 }
 
 // repanic makes a recovered panic panic again in a test, so a test meets
@@ -575,6 +602,9 @@ func withPane[T any](s *Server, msg proto.Message, id func(T) string) (T, *entry
 }
 
 func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
+	if perr := s.tokenAllows(c, msg); perr != nil {
+		return nil, perr
+	}
 	if perr := s.inScope(c, msg); perr != nil {
 		return nil, perr
 	}
@@ -619,6 +649,42 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return proto.CloudAgentRegisterResult{Capabilities: s.capabilities()}, nil
+
+	case proto.MethodAuthToken:
+		ap, perr := decode[proto.AuthTokenParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.authenticate(c, ap)
+
+	case proto.MethodTokenCreate:
+		tp, perr := decode[proto.TokenCreateParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		projects, perr := s.resolveTokenProjects(tp.Projects)
+		if perr != nil {
+			return nil, perr
+		}
+		res, perr := s.tokens.create(tp, projects)
+		if perr == nil {
+			log.Printf("token %q (%s) made, id %s", res.Info.Name, res.Info.Level, res.Info.ID)
+		}
+		return res, perr
+
+	case proto.MethodTokenList:
+		return proto.TokenListResult{Tokens: s.tokens.list()}, nil
+
+	case proto.MethodTokenRevoke:
+		rp, perr := decode[proto.TokenRevokeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		info, perr := s.tokens.revoke(rp.Name)
+		if perr == nil {
+			log.Printf("token %q (%s) revoked", info.Name, info.ID)
+		}
+		return info, perr
 
 	case proto.MethodActFor:
 		ap, perr := decode[proto.ActForParams](msg)
@@ -1121,7 +1187,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if perr != nil {
 			return nil, perr
 		}
-		return s.projects.reviewBranch(rp)
+		return s.projects.reviewBranch(rp, s.callerIsReviewer(c))
 
 	case proto.MethodProjectDiff:
 		dp, perr := decode[proto.DiffParams](msg)
@@ -1365,6 +1431,27 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		}
 		return s.moveAgent(mp)
 
+	case proto.MethodAgentSwitch:
+		sp, perr := decode[proto.AgentSwitchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.switchAgent(sp)
+
+	case proto.MethodAgentSwitchCancel:
+		cp, perr := decode[proto.AgentSwitchCancelParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.cancelSwitch(cp)
+
+	case proto.MethodAgentSwitchUndo:
+		up, perr := decode[proto.AgentSwitchUndoParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.undoSwitch(up)
+
 	case proto.MethodAgentMoveCancel:
 		cp, perr := decode[proto.AgentMoveCancelParams](msg)
 		if perr != nil {
@@ -1547,6 +1634,63 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.decidePermission(ask)
+
+	case proto.MethodRunCreate:
+		rp, perr := decode[proto.RunCreateParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runCreate(c, rp)
+	case proto.MethodRunAdd:
+		ap, perr := decode[proto.RunAddParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runAdd(c, ap)
+	case proto.MethodRunList:
+		return s.graph.list(), nil
+	case proto.MethodRunGet:
+		rp, perr := decode[proto.RunRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.graph.get(rp.Run)
+	case proto.MethodRunStart:
+		sp, perr := decode[proto.RunStartParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runStart(c, sp)
+	case proto.MethodRunReport:
+		rp, perr := decode[proto.RunReportParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runReport(c, rp)
+	case proto.MethodRunAsk:
+		ap, perr := decode[proto.RunAskParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runAsk(c, ap)
+	case proto.MethodRunAnswer:
+		ap, perr := decode[proto.RunAnswerParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runAnswer(c, ap)
+	case proto.MethodRunApprove:
+		ap, perr := decode[proto.RunApproveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.runApprove(c, ap)
+	case proto.MethodRunRemove:
+		rp, perr := decode[proto.RunRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.runRemove(c, rp)
 
 	case proto.MethodProjectTickets:
 		tp, perr := decode[proto.TicketsParams](msg)
@@ -1821,6 +1965,15 @@ func (s *Server) get(id string) (*entry, *proto.Error) {
 }
 
 func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error) {
+	return s.start(cp, nil, nil)
+}
+
+// start starts a pane's program: a new pane, or with old set a new program
+// in old's place — same id, so the pane stays where every client shows
+// it — which takes over old's clients' views and leaves old's program to
+// end (switch.go). prep, when set, is given the new entry before anybody
+// can see it.
+func (s *Server) start(cp proto.PaneCreateParams, old *entry, prep func(*entry)) (proto.PaneInfo, *proto.Error) {
 	cp.Name = gitx.Printable(cp.Name) // drawn by every client (entry.info)
 	if cp.SSH != "" {
 		if perr := s.overSSH(&cp); perr != nil {
@@ -1908,14 +2061,22 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		}
 	}
 
-	s.mu.Lock()
-	s.nextID++
-	id := "p" + strconv.Itoa(s.nextID)
-	s.mu.Unlock()
+	var id string
+	if old != nil {
+		id = old.p.ID()
+	} else {
+		s.mu.Lock()
+		s.nextID++
+		id = "p" + strconv.Itoa(s.nextID)
+		s.mu.Unlock()
+	}
 
-	// The library's tokens first, then a cloud machine's secrets for an
-	// agent, so anything the caller set wins.
-	env := append([]string{"CONCH_SOCKET=" + s.sockPath}, s.secretEnv()...)
+	// The pane's own token (tokens.go) — set even where the server's own
+	// environment carried one, which is somebody else's — and the
+	// library's tokens, then a cloud machine's secrets for an agent, so
+	// anything the caller set wins.
+	token := s.tokens.issuePane(id)
+	env := append([]string{"CONCH_SOCKET=" + s.sockPath, proto.TokenEnv + "=" + token}, s.secretEnv()...)
 	if cp.Agent != "" {
 		env = append(env, s.cloud.env()...)
 	}
@@ -1926,12 +2087,25 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		Cols: cp.Cols, Rows: cp.Rows,
 	})
 	if err != nil {
+		if old != nil {
+			s.tokens.dropPaneExcept(id, "", token)
+		} else {
+			s.tokens.dropPane(id)
+		}
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "start %q: %v", cp.Command[0], err)
 	}
 	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
 	e.launched = cp.Agent
 	e.account = acct.Account
+	if prep != nil {
+		prep(e)
+	}
 
+	if old != nil {
+		info := s.takeOver(old, e, token)
+		log.Printf("pane %s restarted: %v in %s", id, cp.Command, cp.Cwd)
+		return info, nil
+	}
 	s.mu.Lock()
 	s.panes[id] = e
 	s.order = append(s.order, id)
@@ -1953,6 +2127,15 @@ func (s *Server) createTask(tp proto.TaskCreateParams) (proto.PaneInfo, *proto.E
 // startTask is createTask saying the branch the task is on, which it may
 // have named itself: a task waiting for this one starts from it.
 func (s *Server) startTask(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
+	info, branch, perr := s.startTaskOnce(tp)
+	if perr != nil {
+		s.hookTaskFailed(tp, perr.Message)
+	}
+	return info, branch, perr
+}
+
+// startTaskOnce is startTask without saying a failure.
+func (s *Server) startTaskOnce(tp proto.TaskCreateParams) (proto.PaneInfo, string, *proto.Error) {
 	tp.Ticket = strings.TrimSpace(tp.Ticket)
 	if strings.TrimSpace(tp.Prompt) == "" && tp.Issue <= 0 && tp.Ticket == "" {
 		return proto.PaneInfo{}, "", proto.Errorf(proto.ErrBadRequest, "a task needs a prompt")
@@ -2056,6 +2239,7 @@ func (s *Server) close(id string) *proto.Error {
 	if !ok {
 		return proto.Errorf(proto.ErrNotFound, "no pane %q", id)
 	}
+	s.tokens.dropPane(id) // its token ends with it
 	for _, c := range clients {
 		s.unsubscribe(c, id)
 	}

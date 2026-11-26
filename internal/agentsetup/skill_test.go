@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -74,7 +75,8 @@ func TestSkillTargets(t *testing.T) {
 	// Claude and Devin have folders of their own; the rest share one.
 	want := " " + filepath.Join(e.Home, ".claude", "skills", "conch", "SKILL.md") + " claude\n" +
 		" " + filepath.Join(e.Home, ".agents", "skills", "conch", "SKILL.md") + " codex,gemini,opencode,copilot,cline,qwen,goose\n" +
-		" " + filepath.Join(e.Home, ".config", "devin", "skills", "conch", "SKILL.md") + " devin\n"
+		" " + filepath.Join(e.Home, ".config", "devin", "skills", "conch", "SKILL.md") + " devin\n" +
+		" " + filepath.Join(e.Home, ".gemini", "config", "skills", "conch", "SKILL.md") + " antigravity\n"
 	if summary(got) != want {
 		t.Fatalf("targets:\n%s\nwant\n%s", summary(got), want)
 	}
@@ -112,7 +114,7 @@ func TestInstallSkill(t *testing.T) {
 
 	// Asked what it would do, it writes nothing.
 	got, err := InstallSkill(e, nil, false, false)
-	if err != nil || actions(got) != "create,create,create" {
+	if err != nil || actions(got) != "create,create,create,create" {
 		t.Fatalf("plan: %s %v", summary(got), err)
 	}
 	if _, err := os.Stat(filepath.Join(e.Home, ".claude")); err == nil {
@@ -120,7 +122,7 @@ func TestInstallSkill(t *testing.T) {
 	}
 
 	got, _ = InstallSkill(e, nil, false, true)
-	if actions(got) != "create,create,create" {
+	if actions(got) != "create,create,create,create" {
 		t.Fatalf("install: %s", summary(got))
 	}
 	for _, p := range []string{claude, shared} {
@@ -131,14 +133,14 @@ func TestInstallSkill(t *testing.T) {
 			t.Fatalf("%s: the temporary copy was left", p)
 		}
 	}
-	if got, _ = InstallSkill(e, nil, false, true); actions(got) != "same,same,same" {
+	if got, _ = InstallSkill(e, nil, false, true); actions(got) != "same,same,same,same" {
 		t.Fatalf("again: %s", summary(got))
 	}
 
 	// An older conch's copy is brought up to date.
 	os.WriteFile(shared, []byte("---\nname: conch\nmetadata:\n  installed-by: conch\n---\nold\n"), 0o644)
 	got, _ = InstallSkill(e, nil, false, true)
-	if actions(got) != "same,update,same" || got[1].Detail != "from an older conch" {
+	if actions(got) != "same,update,same,same" || got[1].Detail != "from an older conch" {
 		t.Fatalf("update: %s", summary(got))
 	}
 	if b, _ := os.ReadFile(shared); !bytes.Equal(b, Skill) {
@@ -209,7 +211,7 @@ func TestInstallSkillFailures(t *testing.T) {
 	os.MkdirAll(locked, 0o555)
 	t.Cleanup(func() { os.Chmod(locked, 0o755) })
 	got, _ = InstallSkill(e, nil, false, true)
-	if len(got) != 3 || got[0].Error != "" || got[1].Error == "" || got[2].Error != "" {
+	if len(got) != 4 || got[0].Error != "" || got[1].Error == "" || got[2].Error != "" || got[3].Error != "" {
 		t.Fatalf("read-only folder: %+v", got)
 	}
 	if b, err := os.ReadFile(got[0].Path); err != nil || !bytes.Equal(b, Skill) {
@@ -338,7 +340,7 @@ func TestInstallSkillLeftoverCopy(t *testing.T) {
 // that is its folder's, a description under the cut, and conch's mark —
 // without which conch could never update or remove it.
 func TestBundledSkills(t *testing.T) {
-	want := []string{"conch", "conch-autopilot", "conch-factory", "conch-review", "conch-ship", "conch-team"}
+	want := []string{"conch", "conch-autopilot", "conch-cicd", "conch-factory", "conch-qa", "conch-review", "conch-setup", "conch-ship", "conch-status", "conch-team"}
 	var names []string
 	for _, sk := range Skills {
 		names = append(names, sk.Name)
@@ -409,6 +411,68 @@ func TestBundledSkills(t *testing.T) {
 	}
 }
 
+// The skills for a day's work in conch: testing a branch and CI (roles a
+// helper is started as), setting a project up and seeing what is going
+// on. Each does its job with conch's own pieces, and promises what the
+// person relies on: QA never changes the author's code, nothing goes to
+// production unasked, setup proposes what conch keeps for the person and
+// asks where agents run, status changes nothing without a yes.
+func TestRoleSkills(t *testing.T) {
+	roles := map[string][]string{
+		"conch-qa": {"git checkout --detach BRANCH", "Acceptance criteria", "$CONCH_PORT", "conch preview run", "conch preview shot",
+			"conch integration previews", "conch review add -branch BRANCH", "TEST-REPORT.md", "Steps to reproduce",
+			"Don't fix the author's code", "never against production"},
+		"conch-cicd": {"conch config path", "auto_merge", "conch integration ls", "--log-failed", "conch branch fix-ci",
+			"conch branch rerun-ci", "A flaky test is a bug", "conch integration previews", "conch integration promote",
+			"only when the person asked", "for the person to run: conch refuses it from an agent", "Never disable a check"},
+		// Where agents run is asked, with three answers: here, a machine
+		// already connected (listed), or a new sandbox — made only after
+		// a yes to what it costs.
+		"conch-setup": {"conch doctor", "conch agent setup", "conch project files ID", "replaces the list", "conch agent skill -apply",
+			"Propose; the person runs", "This computer", "A machine already connected", "conch machine ls", "A new sandbox",
+			"conch sandbox providers", "conch sandbox provider install NAME", "never\n  ask for it yourself", "said yes to its cost",
+			"conch task -sandbox"},
+		"conch-status": {"conch status -json", "conch agent question", "conch schedule ls", "conch worktree ls", "conch review -branch BRANCH",
+			"Needs you", "Never answer a waiting agent's question", "conch worktree clean -y", "conch branch prune -merged",
+			"only what they say yes to", "Never add\n`-force`"},
+	}
+	// Six different conch commands at least: a role that could be
+	// followed without conch belongs in somebody's own skills, not here.
+	cmds := regexp.MustCompile("conch ((?:agent |branch |review |preview |integration |ticket )?[a-z][a-z-]*)")
+	for name, wants := range roles {
+		sk, ok := BundledSkillNamed(name)
+		if !ok {
+			t.Errorf("no %s skill", name)
+			continue
+		}
+		text := string(sk.Body)
+		for _, w := range wants {
+			if !strings.Contains(text, w) {
+				t.Errorf("%s no longer says %q", name, w)
+			}
+		}
+		if !strings.Contains(text, "## Rules") {
+			t.Errorf("%s has no rules", name)
+		}
+		// Only code counts: prose says "conch started you" without a command.
+		code := strings.Join(regexp.MustCompile("(?s)```[a-z]*\n.*?```|`[^`\n]+`").FindAllString(text, -1), "\n")
+		seen := map[string]bool{}
+		for _, m := range cmds.FindAllStringSubmatch(code, -1) {
+			seen[m[1]] = true
+		}
+		if len(seen) < 6 {
+			t.Errorf("%s uses %d of conch's commands (%v); a role here is how to do the job with conch", name, len(seen), seen)
+		}
+	}
+	// conch's own skill points a helper at the role it was started for.
+	own, _ := BundledSkillNamed("conch")
+	for _, name := range []string{"conch-qa", "conch-cicd"} {
+		if !strings.Contains(string(own.Body), "`"+name+"`") {
+			t.Errorf("conch's skill doesn't name the %s role", name)
+		}
+	}
+}
+
 func TestInstallSkills(t *testing.T) {
 	e := skillEnv(t, nil)
 	got, err := InstallSkills(e, nil, false, false)
@@ -417,10 +481,11 @@ func TestInstallSkills(t *testing.T) {
 	}
 	// A change per skill per folder, a folder's together and in
 	// SkillTargets' order of folders.
-	if len(got) != len(Skills)*3 {
+	if len(got) != len(Skills)*4 {
 		t.Fatalf("%d changes:\n%s", len(got), summary(got))
 	}
-	folders := []string{filepath.Join(e.Home, ".claude", "skills"), filepath.Join(e.Home, ".agents", "skills"), filepath.Join(e.Home, ".config", "devin", "skills")}
+	folders := []string{filepath.Join(e.Home, ".claude", "skills"), filepath.Join(e.Home, ".agents", "skills"), filepath.Join(e.Home, ".config", "devin", "skills"),
+		filepath.Join(e.Home, ".gemini", "config", "skills")}
 	for i, c := range got {
 		f, sk := folders[i/len(Skills)], Skills[i%len(Skills)]
 		if c.Path != filepath.Join(f, sk.Name, "SKILL.md") || c.Skill != sk.Name || c.Action != ActionCreate {

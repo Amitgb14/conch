@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/detect"
@@ -16,6 +18,7 @@ import (
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/remote"
+	"github.com/Amitgb14/conch/internal/sessions"
 	"github.com/Amitgb14/conch/internal/usage"
 )
 
@@ -102,6 +105,9 @@ type entry struct {
 	// (accountmove.go). Both guarded by mu.
 	movedFrom string
 	replaces  string
+	// switchedFrom is the agent and session its conversation was switched
+	// from (switch.go), guarded by mu.
+	switchedFrom *proto.SwitchOrigin
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -125,6 +131,10 @@ func (e *entry) info() proto.PaneInfo {
 	info.Account = e.account
 	info.Team = e.team
 	info.MovedFrom, info.Replaces = e.movedFrom, e.replaces
+	if e.switchedFrom != nil {
+		sf := *e.switchedFrom
+		info.SwitchedFrom = &sf
+	}
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {
@@ -318,6 +328,7 @@ func (s *Server) evaluate(e *entry, fn func(*detect.Tracker)) {
 			s.autopilotFinished(info)
 		}
 		s.notifyAgent(info, prevState)
+		s.hookAgent(info, prevState)
 	}
 	s.broadcast(proto.EventPaneUpdated, info)
 }
@@ -340,6 +351,15 @@ var refreshEvents = map[string]bool{"PostToolUse": true, "PostToolUseFailure": t
 func (s *Server) report(e *entry, rp proto.AgentReportParams) {
 	if rp.Event == "StatusLine" {
 		s.statusLine(e, rp)
+		// Antigravity CLI has no hooks to name its conversation; its
+		// title command does, and that is the only place it is said.
+		if rp.Agent == "antigravity" && rp.SessionID != "" {
+			e.evalMu.Lock()
+			s.evaluate(e, func(t *detect.Tracker) {
+				t.Hook(detect.HookEvent{Agent: rp.Agent, Event: rp.Event, SessionID: rp.SessionID}, time.Now())
+			})
+			e.evalMu.Unlock()
+		}
 		return
 	}
 	e.evalMu.Lock()
@@ -628,9 +648,13 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	wg.Wait()
 	var out []proto.AgentAvailability
 	for i, ad := range s.adapters {
-		out = append(out, proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
+		av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-			NoInstaller: strings.TrimSpace(ad.InstallScript()) == ""})
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name()), SwitchTo: switchTo(ad)}
+		if av.Installed && av.Name == "antigravity" {
+			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))
+		}
+		out = append(out, av)
 	}
 	s.agentsSeen.note(out)
 	return out
@@ -692,3 +716,7 @@ func programReport(p *pane.Pane) *detect.ProgramReport {
 	}
 	return &detect.ProgramReport{State: rec.State, Kind: rec.Kind, App: rec.App, Msg: rec.Msg, At: rec.At}
 }
+
+// antigravityAuth says how Antigravity CLI is signed in. A variable, so
+// the tests never ask this machine's Keychain.
+var antigravityAuth = accounts.AntigravityAuth

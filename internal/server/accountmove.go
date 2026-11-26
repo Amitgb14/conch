@@ -15,6 +15,7 @@ import (
 	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/sessions"
 	"github.com/BurntSushi/toml"
 )
 
@@ -75,6 +76,9 @@ type mover struct {
 	// background commands running.
 	jobWait  time.Duration
 	waitFrom map[string]time.Time
+	// offers is the switch to another agent offered to each agent out of
+	// plan on every account (switchlimit.go).
+	offers map[string]proto.AgentSwitchOffer
 }
 
 // finishedTurn says whether the agent has finished a turn since the last
@@ -90,7 +94,7 @@ func (m *mover) finishedTurn(pane string, turns int) bool {
 
 func newMover() *mover {
 	return &mover{tick: moveTick, delay: moveDelay, pending: map[string]proto.AgentMoving{}, held: map[string]bool{}, turns: map[string]int{},
-		jobWait: moveJobWait, waitFrom: map[string]time.Time{}}
+		jobWait: moveJobWait, waitFrom: map[string]time.Time{}, offers: map[string]proto.AgentSwitchOffer{}}
 }
 
 // rankAccounts is agent's accounts other than exclude ("" its own; "-"
@@ -472,7 +476,8 @@ func atLimit(info proto.PaneInfo, screen []string) bool {
 	}
 	for _, l := range screen[start:] {
 		low := strings.ToLower(l)
-		if strings.Contains(low, "hit your limit") || strings.Contains(low, "usage limit reached") {
+		// Claude Code's words, then Codex's ("You've hit your usage limit").
+		if strings.Contains(low, "hit your limit") || strings.Contains(low, "usage limit reached") || strings.Contains(low, "hit your usage limit") {
 			return true
 		}
 	}
@@ -482,7 +487,8 @@ func atLimit(info proto.PaneInfo, screen []string) bool {
 // moveConfig is whether agents move at their limit (on unless
 // no_move_at_limit) and at the failover line (move_at_line), from the
 // config.toml in the server's own folder — read every few seconds, so a
-// test's server never reads the developer's.
+// test's server never reads the developer's. Whether another agent is
+// offered at a limit is switch_at_limit's alone.
 func (s *Server) moveConfig() (atLimit, atLine bool) {
 	var cfg config.Config
 	if _, err := toml.DecodeFile(filepath.Join(s.configDir, "config.toml"), &cfg); err != nil {
@@ -520,10 +526,14 @@ func (s *Server) lookForMoves(now time.Time) {
 	s.mu.Unlock()
 	for _, e := range entries {
 		info := e.info()
-		if info.Agent == nil || info.Agent.Name != "claude" || info.State != proto.PaneRunning {
+		if info.Agent == nil || !limitWatched(info.Agent.Name) || info.State != proto.PaneRunning {
+			if _, ok := s.mover.offerOf(info.ID); ok {
+				s.withdrawOffer(info.ID, "no longer the agent that ran out")
+			}
 			s.mover.drop(info.ID)
 			continue
 		}
+		agent := info.Agent.Name
 		if info.Agent.State == proto.AgentWorking {
 			// Working again: a move called off may be scheduled anew.
 			s.mover.release(info.ID)
@@ -545,10 +555,18 @@ func (s *Server) lookForMoves(now time.Time) {
 		}
 		reason := ""
 		switch {
-		case byLimit && atLimit(info, e.p.PlainLines()) && s.limitReached("claude", info.Account, now):
+		// The limit is looked for even with moves off: no_move_at_limit
+		// keeps an agent on its account, and another agent is still
+		// offered when no account has room (switchlimit.go).
+		case atLimit(info, e.p.PlainLines()) && s.limitReached(agent, info.Account, now):
 			reason = "limit"
-		case byLine && idle && (finished || pendingLine) && s.pastLine("claude", info.Account, now):
+		case byLine && agent == "claude" && idle && (finished || pendingLine) && s.pastLine(agent, info.Account, now):
 			reason = "line"
+		}
+		if reason != "limit" {
+			s.withdrawOffer(info.ID, "not at its limit any more")
+		} else if s.switchOffered(info, now) {
+			continue
 		}
 		if reason == "" {
 			s.mover.waiting(info.ID, now, true)
@@ -583,13 +601,25 @@ func (s *Server) lookForMoves(now time.Time) {
 			}
 		}
 		s.mover.waiting(info.ID, now, true)
-		ranked := s.rankAccounts("claude", info.Account)
-		if len(ranked) == 0 || !ranked[0].Usable {
+		ranked := s.rankAccounts(agent, info.Account)
+		noMove := reason == "limit" && !byLimit
+		if len(ranked) == 0 || !ranked[0].Usable || agent != "claude" || noMove {
 			s.mover.hold(info.ID) // nowhere to go: said once, not every tick
-			log.Printf("accounts: %s is at its %s on %s, and no other account has room", info.ID, reason, accounts.Label(info.Account))
+			switch {
+			case len(ranked) > 0 && ranked[0].Usable && noMove:
+				log.Printf("accounts: %s is at its limit on %s and stays there (no_move_at_limit); %s has room", info.ID,
+					accounts.Label(info.Account), accounts.Label(ranked[0].Account))
+			case agent != "claude" && len(ranked) > 0 && ranked[0].Usable:
+				// conch moves only Claude Code between accounts.
+				log.Printf("accounts: %s is at its %s on %s; %s has room, but conch does not move %s", info.ID, reason,
+					accounts.Label(info.Account), accounts.Label(ranked[0].Account), sessions.AgentName(agent))
+			case reason == "limit" && s.offerSwitch(info, now):
+			default:
+				log.Printf("accounts: %s is at its %s on %s, and no other account has room", info.ID, reason, accounts.Label(info.Account))
+			}
 			continue
 		}
-		m := proto.AgentMoving{Pane: info.ID, Agent: "claude", From: accounts.Label(info.Account), To: accounts.Label(ranked[0].Account),
+		m := proto.AgentMoving{Pane: info.ID, Agent: agent, From: accounts.Label(info.Account), To: accounts.Label(ranked[0].Account),
 			At: now.Add(s.mover.delay), Reason: reason, Stops: jobs}
 		s.mover.schedule(m)
 		log.Printf("accounts: %s will move from %s to %s in %v (%s)", info.ID, m.From, m.To, s.mover.delay, reason)
@@ -666,6 +696,7 @@ func (m *mover) drop(pane string) {
 	delete(m.held, pane)
 	delete(m.turns, pane)
 	delete(m.waitFrom, pane)
+	delete(m.offers, pane)
 }
 
 // waiting says how long the agent has been waiting on its background

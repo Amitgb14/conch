@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,11 @@ import (
 // writes running totals in token_count events, so what a turn used is
 // the difference from the total before it, which also keeps a total
 // repeated with nothing new (a rate-limit update) from counting twice.
+//
+// Antigravity CLI (agy) writes each model step's own usage — its model,
+// input, cached and output tokens — on that step's line of the
+// conversation's transcript.jsonl; a step written again is the same step,
+// the latest winning.
 //
 // Files are read once and then from where they were left, so asking again
 // costs only what was appended. Only files changed within the longest
@@ -125,6 +131,33 @@ func (h *History) Summary(home string, env func(string) string, now time.Time, o
 	}
 	if len(codex) > 0 {
 		out.Agents = append(out.Agents, summarise("codex", codex, now))
+	}
+	// An account of agy's is a folder given as --gemini_dir (#367).
+	var agy []message
+	for _, root := range rootsOf("antigravity", filepath.Join(home, ".gemini"), others) {
+		for _, f := range antigravityFiles(root, since) {
+			for _, m := range h.read(f, readAntigravity).byID {
+				agy = append(agy, m)
+			}
+		}
+	}
+	if len(agy) > 0 {
+		out.Agents = append(out.Agents, summarise("antigravity", agy, now))
+	}
+	return out
+}
+
+// antigravityFiles is each of agy's conversations' transcript changed
+// since then, under root (~/.gemini, or an account's --gemini_dir). Only
+// transcript.jsonl: transcript_full.jsonl and the chunks beside it hold
+// the same steps again.
+func antigravityFiles(root string, since time.Time) []string {
+	files, _ := filepath.Glob(filepath.Join(root, "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"))
+	var out []string
+	for _, f := range files {
+		if info, err := os.Stat(f); err == nil && !info.ModTime().Before(since) {
+			out = append(out, f)
+		}
 	}
 	return out
 }
@@ -268,6 +301,30 @@ func readCodex(hf *histFile, b []byte) {
 	hf.turns = append(hf.turns, message{at: l.Timestamp, model: model, tok: d})
 }
 
+// readAntigravity takes one line of an agy transcript: a model step's
+// usage. Cached tokens are counted apart from input, as Claude's are: a
+// real second turn read 2,309 in and 9,579 cached for a prompt the size of
+// the first turn's 11,628 in.
+func readAntigravity(hf *histFile, b []byte) {
+	if !strings.Contains(string(b), `"output_tokens"`) {
+		return
+	}
+	var l struct {
+		Step    *int      `json:"step_index"`
+		Type    string    `json:"type"`
+		Created time.Time `json:"created_at"`
+		Model   string    `json:"model"`
+		Input   int       `json:"input_tokens"`
+		Cached  int       `json:"cache_read_tokens"`
+		Output  int       `json:"output_tokens"`
+	}
+	if json.Unmarshal(b, &l) != nil || l.Type != "PLANNER_RESPONSE" || l.Step == nil || l.Model == "" || l.Created.IsZero() {
+		return
+	}
+	hf.byID[strconv.Itoa(*l.Step)] = message{at: l.Created, model: l.Model,
+		tok: proto.UsageTokens{Input: l.Input, CacheRead: l.Cached, Output: l.Output, Messages: 1}}
+}
+
 // summarise is one agent's periods.
 func summarise(agent string, msgs []message, now time.Time) proto.AgentUsage {
 	a := proto.AgentUsage{Agent: agent}
@@ -322,10 +379,13 @@ func (h *History) ByAccount(home string, env func(string) string, now time.Time,
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	seen := map[string]bool{}
-	for _, agent := range []string{"claude", "codex"} {
+	for _, agent := range []string{"claude", "codex", "antigravity"} {
 		own := claudeRoot
-		if agent == "codex" {
+		switch agent {
+		case "codex":
 			own = codexRoot
+		case "antigravity":
+			own = filepath.Join(home, ".gemini")
 		}
 		done := map[string]bool{}
 		roots := append([]Root{{Agent: agent, Dir: own}}, others...)
@@ -335,7 +395,14 @@ func (h *History) ByAccount(home string, env func(string) string, now time.Time,
 			}
 			done[filepath.Clean(r.Dir)] = true
 			var msgs []message
-			if agent == "claude" {
+			switch agent {
+			case "antigravity":
+				for _, f := range antigravityFiles(r.Dir, since) {
+					for _, m := range h.read(f, readAntigravity).byID {
+						msgs = append(msgs, m)
+					}
+				}
+			case "claude":
 				for _, f := range recentFiles(filepath.Join(r.Dir, "projects"), since) {
 					for id, m := range h.read(f, readClaude).byID {
 						if !seen[id] {
@@ -344,7 +411,7 @@ func (h *History) ByAccount(home string, env func(string) string, now time.Time,
 						}
 					}
 				}
-			} else {
+			default:
 				for _, f := range recentFiles(filepath.Join(r.Dir, "sessions"), since) {
 					msgs = append(msgs, h.read(f, readCodex).turns...)
 				}

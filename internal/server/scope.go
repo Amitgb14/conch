@@ -109,6 +109,9 @@ var scoped = map[string]scopeKind{
 	proto.MethodAgentPrompt: scopePane,
 	// Moving an agent to another account restarts it: changing that pane.
 	proto.MethodAgentMove: scopePane, proto.MethodAgentMoveCancel: scopePane,
+	// So does switching it to another agent; undoing a switch removes
+	// session files in the person's own agents' folders.
+	proto.MethodAgentSwitch: scopePane, proto.MethodAgentSwitchCancel: scopePane, proto.MethodAgentSwitchUndo: scopeHome,
 	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
 	// Ending what an agent left running is changing that pane.
 	proto.MethodAgentBackgroundStop: scopePane,
@@ -165,6 +168,8 @@ var scoped = map[string]scopeKind{
 	// an agent on an account stays open, as choosing the agent does.
 	proto.MethodAccountAdd: scopeHome, proto.MethodAccountRemove: scopeHome,
 	proto.MethodAccountPin: scopeHome, proto.MethodAccountFailover: scopeHome,
+	// Who else may reach conch, and how far: the person's to hand out.
+	proto.MethodTokenCreate: scopeHome, proto.MethodTokenList: scopeHome, proto.MethodTokenRevoke: scopeHome,
 	// A ticket is changed with the person's key, as their own pull
 	// request is: an agent may for its own project's tracker.
 	proto.MethodTicketUpdate: scopeProject,
@@ -331,18 +336,39 @@ func (s *Server) scopedCaller(c *client) (scopeCaller, bool) {
 		}
 		return scopeCaller{id: actFor.ID, label: label, agent: actFor.Agent, remote: true}, true
 	}
-	if c.pane == "" {
+	pane, byToken := c.paneOf()
+	if pane == "" {
 		return scopeCaller{}, false
 	}
-	e, perr := s.get(c.pane)
+	e, perr := s.get(pane)
 	if perr != nil {
-		return scopeCaller{}, false
+		// Placed by its pane's token, a connection whose pane has since
+		// closed is held to what that pane was: the token said it is an
+		// agent's, and nothing has said it is the person's since.
+		return scopeCaller{id: pane, label: pane}, byToken
 	}
 	info := e.info()
+	if info.State != proto.PaneRunning && byToken {
+		return scopeCaller{id: info.ID, label: info.ID, project: info.ProjectID}, true
+	}
 	if info.State != proto.PaneRunning || info.Agent == nil {
 		return scopeCaller{}, false
 	}
 	return scopeCaller{id: info.ID, label: info.ID, agent: info.Agent.Name, project: info.ProjectID}, true
+}
+
+// paneOf is the pane the connection comes from, and whether its token
+// said so rather than the walk.
+func (c *client) paneOf() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.pane, c.paneToken
+}
+
+// paneID is the pane the connection comes from, "" from outside them.
+func (c *client) paneID() string {
+	id, _ := c.paneOf()
+	return id
 }
 
 // startedBy reports whether caller started e, or started what started it.
@@ -433,7 +459,7 @@ var verbs = map[string]string{
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename", proto.MethodPaneTeam: "put in a team",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
-	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentMove: "move to another account", proto.MethodAgentMoveCancel: "call off the move of", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
+	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentMove: "move to another account", proto.MethodAgentMoveCancel: "call off the move of", proto.MethodAgentSwitch: "switch to another agent", proto.MethodAgentSwitchCancel: "call off the switch of", proto.MethodAgentSwitchUndo: "undo a switch", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
 	proto.MethodAgentPermission: "answer a permission request for",
 	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
@@ -464,6 +490,7 @@ var verbs = map[string]string{
 	proto.MethodAutopilotSet: "change what merges and what is sent back on its own", proto.MethodAutopilotCheck: "report a check's result",
 	proto.MethodAccountAdd: "add an agent account", proto.MethodAccountRemove: "remove an agent account",
 	proto.MethodAccountPin: "pin a folder to an agent account", proto.MethodAccountFailover: "change when agents move to another account",
+	proto.MethodTokenCreate: "make an access token", proto.MethodTokenList: "list the access tokens", proto.MethodTokenRevoke: "revoke an access token",
 }
 
 // madeBy records that the connection's pane started pane id: it and the
@@ -471,7 +498,7 @@ var verbs = map[string]string{
 // outside any pane have no creator.
 func (s *Server) madeBy(c *client, id string) {
 	c.mu.Lock()
-	actFor := c.actFor.ID
+	actFor, pane := c.actFor.ID, c.pane
 	c.mu.Unlock()
 	var lineage []string
 	switch {
@@ -479,11 +506,11 @@ func (s *Server) madeBy(c *client, id string) {
 		return
 	case actFor != "": // an agent on another machine
 		lineage = []string{actFor}
-	case c.pane == "" || id == c.pane:
+	case pane == "" || id == pane:
 		return
 	default:
-		lineage = []string{c.pane}
-		if by, perr := s.get(c.pane); perr == nil {
+		lineage = []string{pane}
+		if by, perr := s.get(pane); perr == nil {
 			lineage = append(lineage, by.creators()...)
 		}
 	}
@@ -531,10 +558,11 @@ func (s *Server) infoOf(info proto.PaneInfo) proto.PaneInfo {
 // callerInfo answers pane.caller: the connection's pane, and the name its
 // agent goes by on other machines.
 func (s *Server) callerInfo(c *client) proto.CallerInfo {
-	if c.pane == "" {
+	pane := c.paneID()
+	if pane == "" {
 		return proto.CallerInfo{}
 	}
-	e, perr := s.get(c.pane)
+	e, perr := s.get(pane)
 	if perr != nil {
 		return proto.CallerInfo{}
 	}
@@ -556,11 +584,11 @@ func (s *Server) actFor(c *client, p proto.ActForParams) *proto.Error {
 	if p.ID == "" {
 		return proto.Errorf(proto.ErrBadRequest, "scope.act_for needs the caller's id")
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.pane != "" {
 		return proto.Errorf(proto.ErrBadRequest, "this connection comes from pane %s here, and is scoped as that", c.pane)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.actFor.ID != "" && c.actFor.ID != p.ID {
 		return proto.Errorf(proto.ErrBadRequest, "this connection already acts for %s", c.actFor.ID)
 	}

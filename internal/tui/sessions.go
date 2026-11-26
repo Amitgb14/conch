@@ -963,7 +963,7 @@ func (m Model) hasCapability(mid, cap string) bool {
 }
 
 // runsHereAgents names the agents this machine offers that conch only
-// runs — the ones whose saved conversations it does not read. Empty when
+// runs and whose saved conversations it does not read. Empty when
 // every agent here is supported, which is the usual case and says nothing.
 func (m Model) runsHereAgents() string {
 	mach := m.machine(m.viewMachine)
@@ -975,7 +975,7 @@ func (m Model) runsHereAgents() string {
 	}
 	var names []string
 	for _, a := range mach.agentList {
-		if a.Tier == proto.TierRunsHere {
+		if a.SessionsUnread() {
 			label := a.Label
 			if label == "" {
 				label = a.Name

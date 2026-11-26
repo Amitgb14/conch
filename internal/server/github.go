@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"maps"
@@ -43,6 +45,14 @@ type prReviews struct {
 	read              time.Time
 	comments          []proto.ReviewComment
 	last              map[string]string // comment ID → its thread's newest comment
+	// What the autopilot needs of each (autopilot_review.go): its thread's
+	// node id, a sum of what the thread says less conch's own answers in
+	// it, whether a review asked for changes, and whether conch's reviewer
+	// agent wrote it.
+	threads   map[string]string
+	sums      map[string]string
+	requested map[string]bool
+	ours      map[string]bool
 }
 
 // handedTo is a pull request's comment that went to the agent, as it
@@ -107,11 +117,14 @@ func (b *reviewBook) setGitHub(projectID, branch string, number int, rv *ghx.Rev
 	if rv == nil {
 		if old != nil {
 			pr.comments, pr.last = old.comments, old.last
+			pr.threads, pr.sums, pr.requested, pr.ours = old.threads, old.sums, old.requested, old.ours
 		}
 		b.github[key] = pr
 		return false
 	}
-	pr.comments, pr.last = prComments(projectID, branch, *rv)
+	read := prComments(projectID, branch, *rv)
+	read.number, read.updated, read.read = number, updated, now
+	pr = read
 	b.github[key] = pr
 	// A thread resolved since is gone for good: so is its handing over.
 	pruned := false
@@ -149,33 +162,54 @@ func (b *reviewBook) forgetGitHub(projectID string, open map[string]bool) []stri
 }
 
 // prComments is a pull request's threads and reviews as review comments,
-// and each one's newest comment, by which a thread added to is told from
-// one handed over already.
-func prComments(projectID, branch string, rv ghx.Reviews) ([]proto.ReviewComment, map[string]string) {
-	var out []proto.ReviewComment
-	last := map[string]string{}
+// with each one's newest comment, by which a thread added to is told from
+// one handed over already, and what the autopilot tells them apart by.
+func prComments(projectID, branch string, rv ghx.Reviews) *prReviews {
+	pr := &prReviews{projectID: projectID, branch: branch, last: map[string]string{},
+		threads: map[string]string{}, sums: map[string]string{}, requested: map[string]bool{}, ours: map[string]bool{}}
 	for _, th := range rv.Threads {
 		first := th.Comments[0]
 		c := proto.ReviewComment{
 			ID: "gh" + strconv.FormatInt(first.ID, 10), ProjectID: projectID, Branch: branch,
-			File: th.Path, Line: th.Line, Hunk: githubHunk(th.Hunk), Note: clipNote(first.Body),
+			File: th.Path, Line: th.Line, Hunk: githubHunk(th.Hunk), Note: clipNote(ghx.Unmarked(first.Body)),
 			By: first.Author, At: first.At, Source: proto.ReviewGitHub, URL: first.URL, Outdated: th.Outdated,
 		}
+		said := []string{first.Body}
 		for _, r := range th.Comments[1:] {
-			c.Replies = append(c.Replies, proto.ReviewReply{By: r.Author, Note: clipNote(r.Body), At: r.At})
+			c.Replies = append(c.Replies, proto.ReviewReply{By: r.Author, Note: clipNote(ghx.Unmarked(r.Body)), At: r.At})
+			// conch's answer is not the reviewer saying more.
+			if !ghx.HasMark(r.Body, ghx.AutopilotMark) {
+				said = append(said, r.Body)
+			}
 		}
-		out = append(out, c)
-		last[c.ID] = strconv.FormatInt(th.Comments[len(th.Comments)-1].ID, 10)
+		pr.comments = append(pr.comments, c)
+		pr.last[c.ID] = strconv.FormatInt(th.Comments[len(th.Comments)-1].ID, 10)
+		pr.threads[c.ID] = th.ID
+		pr.sums[c.ID] = sumOf(said)
+		pr.ours[c.ID] = ghx.HasMark(first.Body, ghx.ReviewerMark)
 	}
 	for _, r := range rv.Reviews {
 		c := proto.ReviewComment{
 			ID: "ghr" + strconv.FormatInt(r.ID, 10), ProjectID: projectID, Branch: branch,
-			Note: clipNote(r.Body), By: r.Author, At: r.At, Source: proto.ReviewGitHub, URL: r.URL,
+			Note: clipNote(ghx.Unmarked(r.Body)), By: r.Author, At: r.At, Source: proto.ReviewGitHub, URL: r.URL,
 		}
-		out = append(out, c)
-		last[c.ID] = strconv.FormatInt(r.ID, 10)
+		pr.comments = append(pr.comments, c)
+		pr.last[c.ID] = strconv.FormatInt(r.ID, 10)
+		pr.sums[c.ID] = sumOf([]string{r.Body})
+		pr.requested[c.ID] = r.State == "CHANGES_REQUESTED"
+		pr.ours[c.ID] = ghx.HasMark(r.Body, ghx.ReviewerMark)
 	}
-	return out, last
+	return pr
+}
+
+// sumOf is a short fingerprint of what was said: an edit changes it.
+func sumOf(said []string) string {
+	h := sha256.New()
+	for _, s := range said {
+		h.Write([]byte(strings.TrimSpace(s)))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)[:12])
 }
 
 // githubHunk keeps the header of GitHub's hunk and the lines just above

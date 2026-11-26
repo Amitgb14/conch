@@ -770,6 +770,7 @@ struct MainView: View {
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .sheet(item: $store.moveAsk) { a in MoveAgentSheet(store: store, ask: a) }
+        .sheet(item: $store.switchPick) { p in SwitchPickSheet(store: store, pick: p) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id, cloud: t.cloud) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id, cloud: t.cloud, pick: t.pick) }
@@ -1377,7 +1378,7 @@ struct RowButtonsView: View {
             } else if let m = buttons.agentMachine {
                 Menu {
                     ForEach(store.startable(on: m), id: \.name) { a in
-                        Button(a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
+                        AgentMenuButton(agent: a.name, title: a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
                     }
                     Divider()
                     Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
@@ -1487,10 +1488,12 @@ struct RowMenuItems: View {
                 Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children) }
             } else if it.action == .divider {
                 Divider()
+            } else if it.action == .disabled {
+                Button(it.title) {}.disabled(true)
             } else if it.picksAgent, let m = node.machine {
                 Menu(it.title) {
                     ForEach(store.startable(on: m), id: \.name) { a in
-                        Button(a.title) { store.perform(it.action, on: node, agent: a.name) }
+                        AgentMenuButton(agent: a.name, title: a.title) { store.perform(it.action, on: node, agent: a.name) }
                     }
                 }
             } else {
@@ -2026,10 +2029,14 @@ struct SplitArea: View {
             } else if parseFilesKey(id) != nil {
                 FilesView(model: store.files(for: id), store: store).id(id)
             } else if parseBrowserKey(id) != nil {
-                BrowserView(model: store.browser(for: id),
-                            close: { store.closeBrowser(id) },
-                            ownTab: (store.layout.tab(showing: id).map { store.layout.tabs[$0].root.panes.count > 1 } ?? false)
-                                ? { store.browserToItsOwnTab(id) } : nil).id(id)
+                if let model = store.browser(for: id) {
+                    BrowserView(model: model,
+                                close: { store.closeBrowser(id) },
+                                ownTab: (store.layout.tab(showing: id).map { store.layout.tabs[$0].root.panes.count > 1 } ?? false)
+                                    ? { store.browserToItsOwnTab(id) } : nil).id(id)
+                } else {
+                    Color.clear // closed, and drawn once more on its way out
+                }
             } else if parseMobileKey(id) != nil {
                 MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
             } else if parseTaskKey(id) != nil {
@@ -2219,6 +2226,10 @@ struct PaneCard: View {
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
+            // Where its conversation came from, after a switch.
+            if let text = store.switchBannerText(pane) {
+                SwitchBannerView(store: store, pane: pane, text: text)
+            }
             TerminalHost(terminal: terminal, paneSize: p.flatMap { i in i.cols.flatMap { c in i.rows.map { CellSize(cols: c, rows: $0) } } })
                 .overlay(alignment: .topTrailing) {
                     if store.find?.pane == pane { FindBar(store: store, terminal: terminal).padding(8) }
@@ -2230,6 +2241,10 @@ struct PaneCard: View {
                     if terminal.linesBelow > 0, terminal.letterbox == nil {
                         LinesBelow(count: terminal.linesBelow) { terminal.scrollToBottom() }.padding(.bottom, 12)
                     }
+                }
+                .overlay(alignment: .bottom) {
+                    if let ask = store.switchCard, ask.pane == pane { SwitchCardView(store: store, ask: ask) }
+                    if let offer = store.limitCard, offer.pane == pane { LimitCardView(store: store, card: offer) }
                 }
         }
         // As far as [app] background_through lets the scene in: solid
@@ -2406,7 +2421,8 @@ struct AnswerStrip: View {
 struct StatusBar: View {
     @ObservedObject var store: Store
     @State private var showLimits = false
-    @State private var showUsageWindow = false
+    /// The machine whose usage window is open.
+    @State private var usageWindowOf: String?
     @State private var showMonitor = false
     @State private var monitorHover = false
 
@@ -2471,23 +2487,23 @@ struct StatusBar: View {
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;
             // a click lists every window, as the TUI's limits view does.
-            if !chipMarks(store.usageAccountsHere).isEmpty {
+            let usageOn = store.machineInView
+            if !chipMarks(store.accountsWithUsage(on: usageOn)).isEmpty {
                 // One chip for every account: a mark each, and the account
                 // in view's windows; a click opens a tab per account
                 // (UsagePanel.swift), which maximizes into a window.
-                Button { showLimits.toggle() } label: { AccountUsageChip(store: store).contentShape(Rectangle()) }
+                Button { showLimits.toggle() } label: { AccountUsageChip(store: store, machine: usageOn).contentShape(Rectangle()) }
                     .buttonStyle(.plain).focusEffectDisabled()
-                    .help(store.limits.map(usageHelp).joined(separator: "\n") + "\nClick for each account's usage")
+                    .help("Click for each account's usage")
                     .barPopover(isPresented: $showLimits) {
-                        UsagePanel(store: store) { showLimits = false; showUsageWindow = true }
+                        UsagePanel(store: store, machine: usageOn) { showLimits = false; usageWindowOf = usageOn }
                     }
-                    .sheet(isPresented: $showUsageWindow) { UsageWindow(store: store) }
             } else if store.connected {
                 // No plan reported yet: what was used is still a click away.
                 Button { showLimits.toggle() } label: { Text("Usage").foregroundStyle(Theme.muted) }
                     .buttonStyle(.plain).help("Tokens used in the last day, week and month, by model")
-                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store) }
-                    .onChange(of: showLimits) { if $0 { store.refreshLimits(); store.refreshUsageHistory() } }
+                    .barPopover(isPresented: $showLimits) { LimitsPopover(store: store, machine: usageOn) }
+                    .onChange(of: showLimits) { if $0 { store.refreshLimits(on: usageOn); store.refreshUsageHistory() } }
             }
             // ✦ Ask, report a problem and pair a phone, as the TUI's bar has.
             StatusExtras(store: store)
@@ -2540,6 +2556,11 @@ struct StatusBar: View {
             .barPopover(isPresented: $showMonitor) { MonitorPopover(store: store, close: { showMonitor = false }) }
             .onChange(of: showMonitor) { if $0 { store.startMonitor() } else { store.stopMonitor() } }
         }
+        // On the bar, not the chip: the chip goes when the machine in view
+        // has no plan, and would take the window with it.
+        .sheet(isPresented: Binding(get: { usageWindowOf != nil }, set: { if !$0 { usageWindowOf = nil } })) {
+            UsageWindow(store: store, machine: usageWindowOf ?? "local")
+        }
         .font(.ui(size: 12, weight: Theme.ink ? .semibold : .regular))
         .padding(.horizontal, 12).frame(height: Theme.ink ? 28 : 26)
         .background { ZStack { Frost(color: Theme.side); if Theme.ink { Screentone() } } }
@@ -2559,14 +2580,17 @@ struct StatusBar: View {
 /// limits view.
 struct LimitsPopover: View {
     @ObservedObject var store: Store
+    let machine: String
 
     var body: some View {
+        let limits = store.plans.on(machine)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Plan limits").font(.ui(size: 13, weight: .semibold))
-            if store.limits.isEmpty {
-                Text("No agent has reported its plan yet.").foregroundStyle(.secondary)
+            Text("Plan limits · \(store.usageName(machine))").font(.ui(size: 13, weight: .semibold))
+            if limits.isEmpty {
+                Text(store.usageGap(on: machine, needs: agentLimitsCapability) ?? "No agent has reported its plan yet.")
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(store.limits, id: \.usageKey) { l in
+            ForEach(limits, id: \.usageKey) { l in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Mark(agent: l.agent)
@@ -2579,13 +2603,14 @@ struct LimitsPopover: View {
                         }
                     }
                     ForEach(l.allWindows, id: \.key) { w in
-                        HStack(spacing: 8) {
-                            Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
-                            Meter(fraction: w.usedPct / 100)
-                            Text("\(Int(w.usedPct.rounded()))%").frame(width: 38, alignment: .trailing).monospacedDigit()
-                            if let r = w.resetsAt, r.timeIntervalSince1970 > 0 {
-                                TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                                    Text(r > ctx.date ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
+                        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                            let live = windowLive(w.resetsAt, now: ctx.date)
+                            HStack(spacing: 8) {
+                                Text(PlanLimits.label(w.key)).frame(width: 110, alignment: .leading)
+                                Meter(fraction: live ? w.usedPct / 100 : 0)
+                                Text(live ? "\(Int(w.usedPct.rounded()))%" : "—").frame(width: 38, alignment: .trailing).monospacedDigit()
+                                if let r = w.resetsAt {
+                                    Text(live ? "resets in \(elapsed(ctx.date, r))" : "reset").foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -2832,12 +2857,12 @@ struct UsageChip: View {
 @MainActor func usageColor(_ pct: Double) -> Color { pct >= 100 ? Theme.err : pct >= 80 ? Theme.warn : Theme.text2 }
 
 /// An agent's windows and when each resets, for the chip's tooltip.
-@MainActor func usageHelp(_ l: PlanLimits) -> String {
+@MainActor func usageHelp(_ l: PlanLimits, now: Date) -> String {
     var name = l.agent.prefix(1).uppercased() + l.agent.dropFirst()
     if let a = l.account, !a.isEmpty { name += " (\(a))" }
     let parts = l.allWindows.map { w -> String in
-        var s = "\(PlanLimits.label(w.key)) \(Int(w.usedPct.rounded()))%"
-        if let r = w.resetsAt, r > Date() { s += ", resets in \(elapsed(Date(), r))" }
+        var s = planWindowText(w, now: now)
+        if let r = w.resetsAt, r > now { s += ", resets in \(elapsed(now, r))" }
         return s
     }
     return "\(name): " + parts.joined(separator: " · ")

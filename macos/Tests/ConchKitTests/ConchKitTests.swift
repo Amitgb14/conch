@@ -2488,6 +2488,20 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(s.starred == true && s.snippet == "…the race in…")
 }
 
+// Rows are keyed on id, so the same session under two accounts, and two
+// interrupted runs with no session id, must not share one (#346).
+@Test func sessionIDsAreUnique() throws {
+    let now = Date()
+    let mine = SessionInfo(agent: "claude", sessionID: "s1", dir: "/d", title: "t")
+    let work = SessionInfo(agent: "claude", account: "work", sessionID: "s1", dir: "/d", title: "t")
+    #expect(mine.id != work.id)
+    let r1 = SessionInfo(agent: "codex", dir: "/d", title: "run", updated: now, interrupted: true)
+    let r2 = SessionInfo(agent: "codex", dir: "/d", title: "run", updated: now.addingTimeInterval(-60), interrupted: true)
+    #expect(r1.id != r2.id)
+    let d = try conchDecoder().decode(SessionInfo.self, from: Data(#"{"agent":"claude","account":"work","id":"s1","dir":"/d","title":"t"}"#.utf8))
+    #expect(d.account == "work" && d.id == work.id)
+}
+
 // A conch's attach takes -hold only when its usage says so: one from
 // before it would refuse the flag, and every pane with it.
 @Test func attachHoldIsAskedFor() throws {

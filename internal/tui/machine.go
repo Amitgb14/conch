@@ -67,6 +67,10 @@ type machine struct {
 	// isn't running (stopped, archived…).
 	sandboxState sandbox.State
 
+	// switching is the switches the server holds for this machine's
+	// panes, waiting for a turn to end (agent.switching), by pane.
+	switching map[string]proto.AgentSwitching
+
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
 	agents   map[string]bool // panes that have run an agent
@@ -112,6 +116,9 @@ type machine struct {
 	limits map[string]proto.PlanLimits
 	// schedule is what its server will do later (schedule.go).
 	schedule []proto.ScheduledItem
+	// gates are the run tasks there waiting for the person's approval
+	// (runs.go), by run/task, so each is said once.
+	gates map[string]bool
 	// reviews are the comments on its branches' diffs (review.go).
 	reviews []proto.ReviewComment
 

@@ -150,3 +150,24 @@ import Testing
     #expect(!PlanLimits(agent: "codex").reportsUse)
     #expect(PlanLimits(agent: "codex", windows: [.init(key: "primary", usedPct: 3)]).reportsUse)
 }
+
+// An Antigravity CLI account is a Gemini API key, named by its variable:
+// asked for only there, checked as the server checks it, sent and read
+// back as key_env.
+@Test func antigravityAccountsAreKeys() throws {
+    func json(_ v: some Encodable) throws -> String {
+        let e = JSONEncoder()
+        e.outputFormatting = .sortedKeys
+        return String(decoding: try e.encode(v), as: UTF8.self)
+    }
+    #expect(agentAccountUsesKey("antigravity"))
+    #expect(!agentAccountUsesKey("claude"))
+    #expect(agentAccountKeyProblem("", agent: "antigravity") != nil)
+    #expect(agentAccountKeyProblem("1KEY", agent: "antigravity") != nil)
+    #expect(agentAccountKeyProblem("AIza-SyD", agent: "antigravity") != nil)
+    #expect(agentAccountKeyProblem(" TEAM_KEY ", agent: "antigravity") == nil)
+    #expect(agentAccountKeyProblem("", agent: "claude") == nil)
+    #expect(try json(AccountAddParams(agent: "antigravity", name: "team", keyEnv: "TEAM_KEY")) == #"{"agent":"antigravity","key_env":"TEAM_KEY","name":"team"}"#)
+    let a = try JSONDecoder().decode(AgentAccount.self, from: Data(#"{"agent":"antigravity","name":"team","dir":"/d","key_env":"TEAM_KEY"}"#.utf8))
+    #expect(a.keyEnv == "TEAM_KEY")
+}

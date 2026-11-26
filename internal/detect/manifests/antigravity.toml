@@ -7,10 +7,19 @@
 #     open; -p/--print is the one that answers and exits.
 #   - --conversation ID reopens a conversation and --continue the most
 #     recent.
-#   - where it keeps conversations is not documented (its settings are in
-#     ~/.gemini/antigravity-cli), so conch does not read them.
-#   - it leaves the window title alone and its prompts are not quoted in
-#     its docs, so there are no screen rules yet.
+#   - where it keeps conversations is not documented; conch reads them
+#     from ~/.gemini/antigravity-cli as agy 1.5.16 wrote them on a Mac
+#     (2026-11-24, internal/sessions/antigravity.go), and resuming one by
+#     the id there with --conversation was checked with the real CLI.
+#   - its state needs no screen rules: agy 1.5.16 asks OSC 7501 ; ? and,
+#     answered as a conch pane answers it, reports blocked (kind=auth while
+#     signing in, kind=permission to trust a folder or approve a command,
+#     with its own words in msg), working and idle — seen in a conch pane
+#     on 2026-11-24.
+#   - conch starts it with --settings naming conch's own title command
+#     (internal/adapter/antigravity.go), since the JSON agy gives that
+#     command is the only place it names its conversation; the person's
+#     own title command still runs, after it.
 agent = "antigravity"
 label = "Antigravity CLI"
 process_names = ["agy"]

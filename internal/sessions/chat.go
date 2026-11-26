@@ -151,6 +151,9 @@ func (l *chatLog) reset() {
 }
 
 func (l *chatLog) refresh(ctx context.Context, e Env) error {
+	if l.s.Agent == "antigravity" {
+		return l.refreshAntigravity(e)
+	}
 	if l.s.Agent != "claude" {
 		st, statErr := os.Stat(l.s.Path)
 		if statErr == nil && l.ver > 0 && st.Size() == l.size && st.ModTime().Equal(l.mod) {

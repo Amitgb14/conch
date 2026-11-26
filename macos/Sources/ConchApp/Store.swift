@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import Combine
 import ConchKit
 import Foundation
@@ -83,6 +84,17 @@ final class Store: ObservableObject {
     @Published var accountRanks: [String: [AccountRank]] = [:]
     /// The move asked for by hand, while its sheet is up.
     @Published var moveAsk: MoveAsk?
+    /// The agent switch being decided, while its card is up; the switches
+    /// servers hold for a turn to end (agent.switching), by pane key; the
+    /// switch banners put away (switchBannerKey); and Choose… from the
+    /// card, while its sheet is up (AgentSwitch+Store.swift).
+    @Published var switchCard: SwitchAsk?
+    @Published var switchingAgents: [String: AgentSwitching] = [:]
+    @Published var bannerGone: Set<String> = []
+    @Published var switchPick: SwitchPick?
+    /// Another agent offered at a plan limit, while its card is up
+    /// (AgentSwitchLimit+Store.swift).
+    @Published var limitCard: LimitOffer?
     /// Move-back offers put off with Later, by pane key, for this session.
     @Published var backLater: Set<String> = []
     /// The task being written, while its sheet is up.
@@ -107,6 +119,9 @@ final class Store: ObservableObject {
             // here does not run didSet again.
             if !offersChat, layout.showsChat { layout.hideChat() }
             claimPanes(since: oldValue)
+            // After this turn: a move takes a pane out and puts it back,
+            // and a workspace's tabs are put away, all within one.
+            if !browserViews.isEmpty { DispatchQueue.main.async { [weak self] in self?.endClosedBrowsers() } }
         }
     }
     @Published var workspaces: [Workspace] = [Workspace(name: "")]
@@ -137,7 +152,8 @@ final class Store: ObservableObject {
     @Published var keyLogin: [String: Bool] = [:]
     var keyAsked: Set<String> = []
     @Published var folds: [String: Bool] = (UserDefaults.standard.dictionary(forKey: "folds") as? [String: Bool]) ?? [:]
-    @Published var limits: [PlanLimits] = [] { didSet { alertLimits() } }
+    /// Each machine's plans, as its own server heard them (agent.limits).
+    @Published var plans = MachinePlans() { didSet { alertLimits() } }
     /// Plan limit alerts already raised (limitCrossings), kept with the
     /// app's preferences so a restart does not raise them again.
     private var limitSeen: [String: Int] = (UserDefaults.standard.dictionary(forKey: "conch.limitSeen") as? [String: Int]) ?? [:]
@@ -322,6 +338,7 @@ final class Store: ObservableObject {
         watchConfig()
         watchQuestions()
         watchTreeKeys()
+        watchBrowserKeys()
         watchAppearance()
     }
 
@@ -793,8 +810,6 @@ final class Store: ObservableObject {
 
     // MARK: the status bar's own: limits, settings, what conch uses
 
-    /// Asks again what each agent's plan has used, as the limits popover
-    /// opens: a report from minutes ago is not what anyone opened it for.
     /// What the agents on each machine used over the last day, week and
     /// month (usage.history.v1), in the sidebar's order of machines; asked
     /// when the usage popover opens.
@@ -820,10 +835,19 @@ final class Store: ObservableObject {
         }
     }
 
-    func refreshLimits() {
-        guard let c = conns["local"] else { return }
+    /// Asks machine again what each agent's plan has used, as it connects
+    /// and as its usage opens: a report from minutes ago is not what anyone
+    /// opened it for.
+    func refreshLimits(on machine: String) {
+        guard let c = conns[machine] else { return }
+        guard c.hello?.capabilities?.contains(agentLimitsCapability) == true else {
+            plans.set([], on: machine) // not what a newer server there once said
+            return
+        }
         Task {
-            if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
+            guard let l = try? await c.call("agent.limits", as: AgentLimitsResult.self),
+                  conns[machine] === c else { return } // a connection since let go
+            plans.set(l.limits ?? [], on: machine)
         }
     }
 
@@ -1287,9 +1311,45 @@ final class Store: ObservableObject {
                 // screen (Cel hides it behind its column of projects).
                 guard let self, !self.terminalHasKeyboard, !self.paletteOpen, self.taskDraft == nil, self.sidebarVisible,
                       let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
-                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField) else { return false }
+                      !(win.firstResponder is NSText), !(win.firstResponder is NSTextField),
+                      !Self.typingInWebPage(win.firstResponder) else { return false }
                 self.treeKey(k)
                 return true
+            }
+            return taken ? nil : e
+        }]
+    }
+
+    /// Whether the keyboard is in a web page — a browser tab's page, its
+    /// fields included, which are views inside the WKWebView rather than
+    /// NSText. The tree's one-letter keys took them: `t` typed into a
+    /// page's search box opened New Task.
+    static func typingInWebPage(_ r: NSResponder?) -> Bool {
+        var v = r as? NSView
+        while let view = v {
+            if view is WKWebView { return true }
+            v = view.superview
+        }
+        return false
+    }
+
+    /// A browser's keys (⌘T, ⌘W, ⌘L, ⌃Tab…) while one has the keyboard —
+    /// its page, its address or find field — ahead of the menus, where ⌘T
+    /// and ⌘W are a terminal's. A key without ⌘ or ⌃ is never taken: what
+    /// is typed into a page is the page's.
+    private func watchBrowserKeys() {
+        eventMonitors += [NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            let f = e.modifierFlags
+            guard let a = browserKeyAction(characters: e.charactersIgnoringModifiers ?? "", keyCode: e.keyCode,
+                                           command: f.contains(.command), shift: f.contains(.shift),
+                                           option: f.contains(.option), control: f.contains(.control)) else { return e }
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard let self, !self.terminalHasKeyboard, !self.paletteOpen,
+                      let win = NSApp.keyWindow, win === self.mainWindow, win.attachedSheet == nil,
+                      let k = self.layout.focused, parseBrowserKey(k) != nil, let m = self.browserViews[k],
+                      m.hasKeyboard(win.firstResponder) else { return false }
+                if [.find, .findNext, .findPrevious].contains(a), m.inspectorHasKeyboard(win.firstResponder) { return false }
+                return m.perform(a)
             }
             return taken ? nil : e
         }]
@@ -1391,6 +1451,7 @@ final class Store: ObservableObject {
             c.shutdown()
         }
         machines = next
+        plans.keep(only: kept)
         for m in machines where conns[m.id] == nil { Task { await connect(m.id) } }
         if next.contains(where: { $0.provider.map { sandboxCaps[$0] == nil } ?? false }) { loadSandboxCaps() }
     }
@@ -1462,8 +1523,8 @@ final class Store: ObservableObject {
             if machine == "local" {
                 error = nil
                 status = ""
-                if let l = try? await c.call("agent.limits", as: AgentLimitsResult.self) { limits = l.limits ?? [] }
             }
+            refreshLimits(on: machine)
             for p in panes.panes where p.agent?.state == .blocked { ask(key(machine, p.id)) }
             if machine == "local" { detectMobile(projects.projects.flatMap(mobileDirs), force: true) }
             countSessions(machine)
@@ -1965,9 +2026,8 @@ final class Store: ObservableObject {
             }
             return
         case "agent.limits":
-            if machine == "local", let l = try? dec.decode(PlanLimits.self, from: data) {
-                limits.removeAll { $0.usageKey == l.usageKey }
-                limits.append(l)
+            if let l = try? dec.decode(PlanLimits.self, from: data) {
+                plans.report(l, on: machine)
                 loadRanks(on: machine, agent: l.agent)
             }
             return
@@ -1976,6 +2036,15 @@ final class Store: ObservableObject {
             return
         case "agent.moved":
             if let m = try? dec.decode(AgentMoved.self, from: data) { agentMoved(m, on: machine) }
+            return
+        case "agent.switching":
+            if let s = try? dec.decode(AgentSwitching.self, from: data) { agentSwitching(s, on: machine) }
+            return
+        case "agent.switched":
+            if let r = try? dec.decode(AgentSwitchResult.self, from: data) { agentSwitched(r, on: machine) }
+            return
+        case "agent.switch.offered":
+            if let o = try? dec.decode(AgentSwitchOffer.self, from: data) { agentSwitchOffered(o, on: machine) }
             return
         default:
             return
@@ -2189,7 +2258,7 @@ final class Store: ObservableObject {
         let now = Date()
         var seen = pruneLimitAlerts(limitSeen, now: now)
         var alerts: [LimitAlert] = []
-        for l in limits { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
+        for l in plans.on("local") { alerts += limitCrossings(&seen, machine: "local", l, thresholds: s.limitAt, now: now) }
         if seen != limitSeen {
             limitSeen = seen
             UserDefaults.standard.set(seen, forKey: "conch.limitSeen")
@@ -2450,12 +2519,50 @@ final class Store: ObservableObject {
 
     private(set) var browserViews: [String: BrowserModel] = [:]
     private var blankBrowsers = 0
+    /// Browser panes' tabs as saved, by pane, taken by each pane the first
+    /// time it is shown.
+    var savedBrowsers: [String: SavedBrowser] = [:]
 
-    func browser(for k: String) -> BrowserModel {
+    /// A pane's browser, to draw; nil for a pane that has been closed.
+    func browser(for k: String) -> BrowserModel? {
         if let m = browserViews[k] { return m }
-        let m = BrowserModel(key: k, store: self)
+        guard mayMakeBrowser(k, in: layout, windowClosed: windowClosed) else { return nil }
+        let m = BrowserModel(key: k, store: self, saved: savedBrowsers.removeValue(forKey: k))
         browserViews[k] = m
         return m
+    }
+
+    /// Shuts down every browser whose pane was closed, however it was.
+    private func endClosedBrowsers() {
+        for k in browsersClosed(made: Set(browserViews.keys), layouts: [layout] + Array(parkedTabs.values)) {
+            browserViews.removeValue(forKey: k)?.shutdown()
+        }
+    }
+
+    /// The window is gone for good: so are its browsers.
+    func endBrowsers() {
+        for m in browserViews.values { m.shutdown() }
+        browserViews = [:]
+    }
+
+    /// Every browser pane's tabs, for saving.
+    var browserTabs: [String: BrowserTabs] { browserViews.mapValues(\.tabs) }
+
+    /// A browser tab moved out to a pane of its own beside its browser —
+    /// a tab of its own in a workbench, which has one browser — with its
+    /// page and history.
+    func browserTabToOwnPane(from k: String, tab: BrowserTab, page: BrowserPage?) {
+        blankBrowsers += 1
+        let n = browserKey("about:blank#\(blankBrowsers)")
+        let m = BrowserModel(key: n, store: self, moving: tab, page: page)
+        browserViews[n] = m
+        if let i = layout.tab(showing: k), layout.tabs[i].benchAgent == nil {
+            layout.focus(k)
+            layout.split(.horizontal, with: n)
+        } else {
+            layout.open(n)
+        }
+        m.showActive()
     }
 
     /// A page in a tab of its own beside the agents; nil for an empty one
@@ -2507,7 +2614,7 @@ final class Store: ObservableObject {
         } else {
             layout.close(k)
         }
-        browserViews.removeValue(forKey: k)
+        browserViews.removeValue(forKey: k)?.shutdown()
     }
 
     /// A browser out of a workbench or split, in a tab of its own.
@@ -2633,7 +2740,8 @@ final class Store: ObservableObject {
         if !leafHasTerminal(p) { terminalHasKeyboard = false }
         DispatchQueue.main.async {
             if let v = self.terminals[p]?.view, v.window?.makeFirstResponder(v) == true { self.terminalHasKeyboard = true }
-            if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w {
+            if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w,
+               self.browserViews[p]?.chromeEditing != true {
                 win.makeFirstResponder(w)
             }
         }
@@ -2660,12 +2768,18 @@ final class Store: ObservableObject {
     /// A new shell where the focused pane is — its machine and its folder,
     /// so its project — in a split beside it or a tab of its own.
     func newTerminal(split axis: SplitNode.Axis?) {
-        let machine = layout.focused.map { parseChangesKey($0)?.machine ?? unkey($0).machine } ?? "local"
-        guard let c = conns[machine] else { return }
-        struct Create: Encodable { var cwd: String? }
-        let cwd = layout.focused.flatMap { k in
-            pane(k)?.cwd ?? parseChangesKey(k).flatMap { c in changeViews[k]?.changes?.worktree ?? snapshots[c.machine]?.project(c.project)?.path }
+        let from = layout.focused
+        let at = terminalPlace(focused: from, tab: layout.current?.root.panes ?? [], agent: layout.current?.benchAgent, window: projectScope)
+        let machine = at.machine
+        guard let c = conns[machine] else {
+            error = "Could not open a terminal: \(label(machine)) is not connected"
+            return
         }
+        struct Create: Encodable { var cwd: String? }
+        let cwd = at.pane.flatMap { pane($0)?.cwd }
+            ?? at.dir
+            ?? from.flatMap { changeViews[$0]?.changes?.worktree } // the branch's checkout, not the project's
+            ?? at.project.flatMap { snapshots[machine]?.project($0)?.path }
         Task {
             do {
                 let p = try await c.call("pane.create", Create(cwd: cwd), as: PaneInfo.self)
@@ -2694,7 +2808,7 @@ final class Store: ObservableObject {
         layout.close(p)
         terminals.removeValue(forKey: p)?.stop()
         changeViews.removeValue(forKey: p)
-        if let b = browserViews.removeValue(forKey: p) { b.web.stopLoading(); b.web.loadHTMLString("", baseURL: nil) } // its page goes quiet
+        browserViews.removeValue(forKey: p)?.shutdown() // its pages go quiet
         focusTerminal()
     }
 
@@ -2836,6 +2950,7 @@ final class Store: ObservableObject {
 
     func command(_ id: String) {
         switch id {
+        case let b where b.hasPrefix("browser:"): browserCommand(String(b.dropFirst("browser:".count)))
         case "focusSidebar": focusSidebar()
         case "settings": openSettings()
         case "systemMonitor": openSystemMonitor()
@@ -2934,6 +3049,13 @@ final class Store: ObservableObject {
             let at = (items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" }).map { $0 + 1 } ?? items.count
             items.insert(switchAccountMenu(pane: k, on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
         }
+        // Its Switch Agent ▸, beside Switch Account where that is there.
+        if case .agent(let k) = node.kind, let sw = switchMenu(for: k) {
+            let at = (items.firstIndex { $0.title == "Switch Account" } ?? items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" })
+                .map { $0 + 1 } ?? items.count
+            if (agentStatus[m] ?? []).isEmpty { checkAgents(on: m) }
+            items.insert(sw, at: min(at, items.count))
+        }
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
            let at = items.firstIndex(where: { $0.action == .newSandbox }) {
@@ -3019,6 +3141,9 @@ final class Store: ObservableObject {
         case .rename(let k): renamePane(k)
         case .setTeam(let k, let t): setTeam(k, t)
         case .moveAgent(let k, let acct): askMove(k, to: acct)
+        case .switchAgent(let k, let to): askSwitch(k, to: to)
+        case .cancelSwitch(let k): cancelSwitch(k)
+        case .disabled: break
         case .newTeam(let k): newTeam(k)
         case .showTogether(let keys, let name): showTogether(keys, name: name)
         case .prompt(let k): promptAgent(k)

@@ -132,6 +132,12 @@ func Schema(c Choices) []Section {
 		agents = opts("claude", "codex", "gemini", "opencode")
 	}
 	reviewers := append([]Option{{Value: "", Label: "Nobody"}}, agents...)
+	// What happens when an agent is out of plan on every account.
+	outOfPlan := []Option{{Value: "", Label: "Ask"}}
+	for _, a := range agents {
+		outOfPlan = append(outOfPlan, Option{Value: a.Value, Label: "Continue in " + a.Label})
+	}
+	outOfPlan = append(outOfPlan, Option{Value: "wait", Label: "Wait for the reset"})
 
 	provider := []Field{
 		{Key: "api_key", Label: "API key", Kind: KindSecret,
@@ -211,9 +217,15 @@ func Schema(c Choices) []Section {
 				{Key: "no_auto_resume", Label: "Don't resume agents after a restart", Kind: KindBool,
 					Help: "Off: after a reboot or a crash, the agents that were running come back by themselves, each on its own conversation. On: they wait in Sessions for I. conch server stop never brings them back."},
 				{Key: "no_move_at_limit", Label: "Keep agents on their account at its limit", Kind: KindBool,
-					Help: "Off: a Claude Code agent whose plan runs out moves, after a few seconds anyone can cancel, to the account with most room and carries on. On: it waits for its own account to reset."},
+					Help: "Off: a Claude Code agent whose plan runs out moves, after a few seconds anyone can cancel, to the account with most room and carries on. On: it waits for its own account to reset — unless no account has room, when When out of plan still applies."},
 				{Key: "move_at_line", Label: "Move agents at the failover line", Kind: KindBool,
 					Help: "On: a Claude Code agent whose account is past its failover line moves to the account with most room when its turn ends, before it hits the limit."},
+				{Key: "switch_at_limit", Label: "When out of plan", Kind: KindSelect, Options: outOfPlan,
+					Help: "When an agent's plan runs out and no account of that agent has room. Ask: a card offers another agent, which takes the whole conversation and carries on. Continue in an agent: switches to it unasked, after a few seconds anyone can cancel, when it is installed and has room itself. Wait: nothing is offered. Either way its own session stays, and Switch back is offered."},
+				{Key: "claude_idle_compaction", Label: "Compact Claude while idle", Kind: KindBool, Default: true,
+					Help: "Claude Code compacts a conversation left idle before its prompt cache expires. Off stops that in the Claude panes conch starts, from each one's next start; a Claude started outside conch still reads ~/.claude/settings.json."},
+				{Key: "antigravity_api_key_env", Label: "Antigravity CLI: variable holding a Gemini API key", Kind: KindString, Placeholder: "GEMINI_API_KEY",
+					Help: "The name of a variable your login shell sets, not the key: Antigravity CLI panes conch starts then use that Gemini API key instead of your Google sign-in. conch keeps no key and leaves agy's settings.json alone. Empty: agy signs in as it is."},
 			}},
 		{ID: "verify", Key: "verify", Title: "Checks & Autopilot", Icon: "shield-check", Description: "What runs when an agent finishes, and what conch does with the result.",
 			Fields: []Field{
@@ -223,6 +235,9 @@ func Schema(c Choices) []Section {
 				{Key: "auto_pr", Label: "Open a pull request when it passes", Kind: KindBool, Help: "Publishes the agent's work."},
 				{Key: "auto_merge", Label: "Merge when CI is green", Kind: KindBool, Help: "Writes to the base branch. Held back for drafts, conflicts and requested changes."},
 				{Key: "auto_resolve", Label: "Resolve conflicts (times)", Kind: KindInt, Min: intp(0)},
+				{Key: "auto_review", Label: "Send review comments to the agent", Kind: KindBool,
+					Help: "While a failed check goes back (auto_fix): a review asking for changes and each new unresolved thread on its pull request, once each. After it pushes, each thread is answered on GitHub with what changed."},
+				{Key: "resolve_threads", Label: "Resolve a thread the push answered", Kind: KindBool, Help: "Only where the push changed the thread's file. Off: the reviewer resolves it."},
 				{Key: "require_tests", Label: "Draft a PR that changes code and no test", Kind: KindBool},
 				{Key: "max_diff", Label: "Draft past this many changed lines", Kind: KindInt, Min: intp(0), Help: "0: no limit."},
 				{Key: "reviewer", Label: "Reviewer agent", Kind: KindSelect, Options: reviewers, Help: "Asked to read a branch's diff and report. Every review spends plan usage."},
@@ -359,13 +374,15 @@ func Schema(c Choices) []Section {
 					{Key: "key", Label: "Team or project key", Kind: KindString, Placeholder: "ENG"},
 				}},
 			}},
-		{ID: "actions", Key: "", Title: "Actions", Icon: "zap", Description: "Commands of your own on the row menus (m, or right-click).",
+		{ID: "actions", Key: "", Title: "Actions", Icon: "zap", Description: "Commands of your own on the row menus (m, or right-click), or run by the server on events.",
 			Fields: []Field{
 				{Key: "actions", Label: "Actions", Kind: KindTables, Fields: []Field{
 					{Key: "name", Label: "Name", Kind: KindString, Placeholder: "Run tests"},
 					{Key: "run", Label: "Command", Kind: KindText, Placeholder: "go test ./...", Help: "Whatever sh -lc takes. CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE are set."},
-					{Key: "on", Label: "Offered on", Kind: KindList, Options: opts(config.ActionPlaces...), Help: "None is every kind of row."},
+					{Key: "on", Label: "Offered on, or run on", Kind: KindList, Options: opts(append(append([]string(nil), config.ActionPlaces...), config.HookEvents...)...),
+						Help: "Rows (pane, branch, project, machine) put it on their menus; none is every kind of row. Events (worktree.created, agent.done, agent.waiting, pr.opened, pr.merged, task.failed) make it a hook the server runs when one happens, with CONCH_EVENT, CONCH_BRANCH, CONCH_PANE and the rest set; an action naming only events is on no menu."},
 					{Key: "keep", Label: "Keep the terminal open after", Kind: KindBool, Default: true},
+					{Key: "timeout", Label: "Hook timeout (seconds)", Kind: KindInt, Min: intp(0), Placeholder: "300", Help: "How long a run on an event may take before it is stopped, with what it started. Empty is 5 minutes. Menus ignore it."},
 				}},
 			}},
 		{ID: "teams", Key: "", Title: "Teams", Icon: "users", Description: "Group agents by what they work on. A new agent joins the first team whose project or branch matches; one put in a team by hand stays there.",

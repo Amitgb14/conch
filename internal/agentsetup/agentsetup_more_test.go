@@ -29,7 +29,7 @@ func a6Item(a proto.AgentSetup, group, name string) (proto.SetupItem, bool) {
 }
 
 func TestA6NamesCurrentEnvUnknown(t *testing.T) {
-	if got := strings.Join(Names(), ","); got != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose" {
+	if got := strings.Join(Names(), ","); got != "claude,codex,gemini,opencode,devin,copilot,cline,qwen,goose,antigravity" {
 		t.Fatalf("Names: %s", got)
 	}
 	home := t.TempDir()
@@ -58,6 +58,14 @@ func TestA6EmptyHomeEveryAgent(t *testing.T) {
 			t.Fatalf("%s: %+v", name, a)
 		}
 		// Only conch's own entry is reported, and no notes without config.
+		// conch adds nothing to Antigravity CLI: its state is its own
+		// report, so there it is nothing at all.
+		if name == "antigravity" {
+			if len(a.Groups) != 0 || len(a.Notes) != 0 {
+				t.Fatalf("%s empty setup: %+v", name, a)
+			}
+			continue
+		}
 		if len(a.Groups) != 1 || a.Groups[0].Title != GroupConch || len(a.Notes) != 0 {
 			t.Fatalf("%s empty setup: %+v", name, a)
 		}

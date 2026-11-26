@@ -433,3 +433,30 @@ func labelsOf(items []menuItem) []string {
 	}
 	return out
 }
+
+// The Actions tab says which actions are hooks, on what and for how long,
+// and says a misspelt event among the problems.
+func TestActionsTabShowsHooks(t *testing.T) {
+	m, _ := a4Actions(t, false)
+	m.cfg.Actions = append(m.cfg.Actions,
+		config.Action{Name: "Setup", Run: "make setup", On: []string{"worktree.created"}, Timeout: 60},
+		config.Action{Name: "Typo", Run: "x", On: []string{"agent.finished"}})
+	var b strings.Builder
+	for _, it := range (&settings{}).actionItems(m) {
+		b.WriteString(it.label + " | " + it.detail + "\n")
+	}
+	got := b.String()
+	for _, want := range []string{"Setup", "hook on worktree.created · stopped after 1m0s", "Typo runs on agent.finished, which is not one of", "Problems"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("tab lacks %q:\n%s", want, got)
+		}
+	}
+	m.cfg.Actions = nil
+	b.Reset()
+	for _, it := range (&settings{}).actionItems(m) {
+		b.WriteString(it.label + "\n")
+	}
+	if !strings.Contains(b.String(), "worktree.created") {
+		t.Errorf("the empty tab says nothing of hooks:\n%s", b.String())
+	}
+}

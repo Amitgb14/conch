@@ -44,8 +44,10 @@ func runAgent(args []string) error {
 		return agentTeam(args[1:])
 	case len(args) >= 1 && args[0] == "move":
 		return agentMove(args[1:])
+	case len(args) >= 1 && args[0] == "switch":
+		return agentSwitch(args[1:])
 	case len(args) != 2 || args[0] != "explain":
-		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | question ID | answer [-question QID] ID CHOICE | team ID [TEAM | - | -clear] | move ID [-account NAME] | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | add NAME -command BINARY | " +
+		return errors.New("usage: conch agent explain ID | status | install NAME | prompt [-wait] ID TEXT | question ID | answer [-question QID] ID CHOICE | team ID [TEAM | - | -clear] | move ID [-account NAME] | switch [-now] [-preview] ID AGENT | skill [-remove] [-apply] | setup [-agent NAME] [-copy] [DIR] | add NAME -command BINARY | " +
 			"sync [-from NAME] [-to NAMES] [-apply] [-undo [STAMP]] [DIR] | library [list | add | skill | on | off | rm | import | plan | apply | undo]")
 	}
 	c, err := connect(false)
@@ -127,9 +129,14 @@ func agentInstall(agent string) error {
 //
 //	conch report claude-hook | gemini-hook | codex-hook   (hook JSON on stdin)
 //	conch report opencode EVENT              (from conch's OpenCode plugin)
+//	conch report agy-title                   (Antigravity CLI's title command; its state on stdin)
 func runReport(args []string) {
 	if len(args) > 0 && args[0] == "claude-status" {
 		runClaudeStatus() // prints the user's status line even outside conch
+		return
+	}
+	if len(args) > 0 && args[0] == "agy-title" {
+		runAgyTitle() // prints the user's own title even outside conch
 		return
 	}
 	paneID, sock := os.Getenv("CONCH_PANE_ID"), os.Getenv("CONCH_SOCKET")
@@ -402,7 +409,7 @@ func printSetup(w io.Writer, res proto.AgentSetupResult) {
 func agentSkill(args []string) error {
 	fs := flag.NewFlagSet("agent skill", flag.ContinueOnError)
 	agents := fs.String("agent", "", "only these agents, separated by commas (default: all)")
-	skills := fs.String("skill", "", "only these of conch's skills, separated by commas: conch, conch-team, conch-review, conch-ship, conch-factory, conch-autopilot (default: all)")
+	skills := fs.String("skill", "", "only these of conch's skills, separated by commas: conch, conch-team, conch-review, conch-ship, conch-factory, conch-autopilot, conch-qa, conch-cicd, conch-setup, conch-status (default: all)")
 	remove := fs.Bool("remove", false, "take conch's skill away again")
 	apply := fs.Bool("apply", false, "write the changes; without it, only say what they would be")
 	if err := fs.Parse(args); err != nil {
