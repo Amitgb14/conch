@@ -14,13 +14,20 @@ import (
 // pane.unsubscribe ends either; a connection takes a pane one way or the
 // other, not both.
 func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.Error) {
+	return s.streamRaw(c, e, false)
+}
+
+// streamRaw is subscribeRaw. With resend, the replay is also sent first as
+// an EventPaneOutput with Reset — for a client whose raw view of the pane
+// now shows another program in it (takeOver), and so asked for nothing.
+func (s *Server) streamRaw(c *client, e *entry, resend bool) (proto.PaneRawStart, *proto.Error) {
 	p := e.p
 	c.mu.Lock()
 	if _, ok := c.subs[p.ID()]; ok {
 		c.mu.Unlock()
 		return proto.PaneRawStart{}, proto.Errorf(proto.ErrBadRequest, "pane %s is already subscribed on this connection", p.ID())
 	}
-	sub := &subscription{stop: make(chan struct{}), kick: make(chan struct{}, 1)}
+	sub := &subscription{stop: make(chan struct{}), kick: make(chan struct{}, 1), raw: true}
 	c.subs[p.ID()] = sub
 	c.mu.Unlock()
 	s.setWatchers(e, +1)
@@ -28,6 +35,12 @@ func (s *Server) subscribeRaw(c *client, e *entry) (proto.PaneRawStart, *proto.E
 	replay, cols, rows, raw := p.SubscribeRaw()
 	goSafe("pane output", func() {
 		defer func() { p.UnsubscribeRaw(raw) }()
+		if resend {
+			out := proto.PaneOutput{ID: p.ID(), Data: []byte(replay), Reset: true, Cols: cols, Rows: rows}
+			if !c.sendWait(proto.Message{Event: proto.EventPaneOutput, Data: proto.Marshal(out)}) {
+				return
+			}
+		}
 		for {
 			select {
 			case b := <-raw.C:

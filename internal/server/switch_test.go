@@ -423,3 +423,118 @@ func TestSwitchThroughGeminiAndQwen(t *testing.T) {
 		t.Fatal("undoing one switch removed another's session")
 	}
 }
+
+// titledAgents makes Claude Code's stand-in title its window with a task,
+// as Claude Code does ("✳ Pick a queue"), and Codex's with one of its own.
+func titledAgents(t *testing.T, home, log string) {
+	t.Helper()
+	for name, title := range map[string]string{"claude": `\342\234\263 Pick a queue`, "codex": "Codex own title"} {
+		script := "#!/bin/sh\n[ \"$1\" = app-server ] && exit 1\nprintf '" + name + "|%s\\n' \"$*\" >> " + log + "\nprintf '\\033]0;" + title + "\\007'\nexec cat\n"
+		if err := os.WriteFile(filepath.Join(home, ".local", "bin", name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestSwitchKeepsTheName: a pane is shown by the same name after a switch
+// — the task title its agent gave it, or a name the person gave it — not
+// by what the new agent calls itself or its window. Only a pane known by
+// nothing but its agent's name takes the new agent's.
+func TestSwitchKeepsTheName(t *testing.T) {
+	home, log := switchHome(t)
+	titledAgents(t, home, log)
+	c, dir := startServer(t)
+	ctx := t.Context()
+	_, conv := claudeSession(t, home, dir)
+	start := func(n int) proto.PaneInfo {
+		t.Helper()
+		var p proto.PaneInfo
+		if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", Cwd: dir, Cols: 80, Rows: 20}, &p); err != nil {
+			t.Fatal(err)
+		}
+		launches(t, log, n)
+		for deadline := time.Now().Add(10 * time.Second); panesNow(t, c)[p.ID].Title != "Pick a queue"; {
+			if time.Now().After(deadline) {
+				t.Fatalf("the task title was never seen: %+v", panesNow(t, c)[p.ID])
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		report(t, c, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "Stop", TranscriptPath: conv})
+		return p
+	}
+	switched := func(p proto.PaneInfo, n int) proto.PaneInfo {
+		t.Helper()
+		if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "codex", Now: true, NoContinue: true}, nil); err != nil {
+			t.Fatal(err)
+		}
+		launches(t, log, n)
+		// Long enough for the new agent's own title to be read.
+		for deadline := time.Now().Add(10 * time.Second); panesNow(t, c)[p.ID].Title != "Codex own title"; {
+			if time.Now().After(deadline) {
+				t.Fatalf("Codex's title was never seen: %+v", panesNow(t, c)[p.ID])
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return panesNow(t, c)[p.ID]
+	}
+
+	// Its agent's task title.
+	p := start(1)
+	if got := switched(p, 2); got.DisplayName() != "Pick a queue" {
+		t.Errorf("the task title went with the switch: shown as %q (name %q, title %q)", got.DisplayName(), got.Name, got.Title)
+	}
+
+	// A name the person gave it.
+	q := start(3)
+	if err := c.Call(ctx, proto.MethodPaneRename, proto.PaneRenameParams{ID: q.ID, Name: "uploads"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := switched(q, 4); got.DisplayName() != "uploads" || !got.CustomName {
+		t.Errorf("the name given went with the switch: shown as %q (name %q, title %q, given %v)", got.DisplayName(), got.Name, got.Title, got.CustomName)
+	}
+}
+
+// TestSwitchKeepsARawViewer: Conch.app's panes take the program's own
+// output (pane.raw), and go on taking it from the new agent: a fresh
+// replay, then what it prints — never frames, which such a view cannot
+// draw, so it froze on the old agent and seemed to take no typing.
+func TestSwitchKeepsARawViewer(t *testing.T) {
+	home, log := switchHome(t)
+	c, dir := startServer(t)
+	col := a5Collect(c)
+	ctx := t.Context()
+	var p proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", Cwd: dir, Cols: 80, Rows: 20}, &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Call(ctx, proto.MethodPaneRaw, proto.PaneRef{ID: p.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	launches(t, log, 1)
+	_, conv := claudeSession(t, home, dir)
+	report(t, c, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "Stop", TranscriptPath: conv})
+	if err := c.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "codex", Now: true, NoContinue: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	launches(t, log, 2)
+	if err := c.Call(ctx, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: p.ID, Text: "after-" + "the-switch\r"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	waitRaw(t, col, p.ID, "after-the-switch")
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	reset := false
+	for _, m := range col.msgs {
+		var f proto.Frame
+		if m.Event == proto.EventPaneFrame && json.Unmarshal(m.Data, &f) == nil && f.ID == p.ID {
+			t.Fatal("a raw viewer was sent frames after the switch")
+		}
+		var o proto.PaneOutput
+		if m.Event == proto.EventPaneOutput && json.Unmarshal(m.Data, &o) == nil && o.ID == p.ID && o.Reset {
+			reset = true
+		}
+	}
+	if !reset {
+		t.Error("no fresh replay of the new agent: the view would draw it over the old one's screen")
+	}
+}
