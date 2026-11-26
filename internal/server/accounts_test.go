@@ -237,6 +237,42 @@ func TestLimitsPerAccount(t *testing.T) {
 	if info, _ := startOn(t, c, proto.PaneCreateParams{Agent: "claude", Account: "work", Cwd: dir}); info.Account != "work" {
 		t.Errorf("asked for work, got %q", info.Account)
 	}
+
+	// Removed in Settings, work is no longer among the limits — not even
+	// when an agent still running on it reports again.
+	if err := c.Call(ctx, proto.MethodAccountRemove, proto.AccountRef{Agent: "claude", Name: "work"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	limitsNow := func() map[string]float64 {
+		t.Helper()
+		var res proto.AgentLimitsResult
+		if err := c.Call(ctx, proto.MethodAgentLimits, nil, &res); err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]float64{}
+		for _, l := range res.Limits {
+			got[l.Agent+"/"+l.Account] = l.FiveHour.UsedPct
+		}
+		return got
+	}
+	if got := limitsNow(); len(got) != 1 || got["claude/"] != 10 {
+		t.Fatalf("limits after removing work: %v", got)
+	}
+	report(work.ID, 97)
+	report(own.ID, 12) // an event after work's, to know work's has been taken
+	waitEvent(t, c, func(m proto.Message) bool {
+		var l proto.PlanLimits
+		if m.Event != proto.EventAgentLimits || json.Unmarshal(m.Data, &l) != nil {
+			return false
+		}
+		if l.Account == "work" {
+			t.Errorf("a removed account's limits were sent: %+v", l)
+		}
+		return l.Account == "" && l.FiveHour.UsedPct == 12
+	})
+	if got := limitsNow(); len(got) != 1 || got["claude/"] != 12 {
+		t.Fatalf("limits after work reported again: %v", got)
+	}
 }
 
 // A task starts its agent on the account asked for, and one that cannot

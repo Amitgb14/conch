@@ -1322,7 +1322,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return e.explainAll(), nil
 
 	case proto.MethodAgentLimits:
-		return s.allLimits(), nil
+		return s.listedLimits(), nil
 
 	case proto.MethodAccountList:
 		return s.listAccounts(), nil

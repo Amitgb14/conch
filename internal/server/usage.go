@@ -123,6 +123,9 @@ func (s *Server) setLimits(l proto.PlanLimits) {
 	old, had := s.limits[key]
 	s.limits[key] = l
 	s.limitsMu.Unlock()
+	if !s.accountListed(l.Agent, l.Account) {
+		return // kept for failover, but no longer the person's to see
+	}
 	if had && sameWindow(old.FiveHour, l.FiveHour) && sameWindow(old.Week, l.Week) &&
 		sameWindow(old.Spend, l.Spend) && sameNamed(old.Windows, l.Windows) {
 		return
@@ -149,6 +152,26 @@ func sameWindow(a, b *proto.LimitWindow) bool {
 		return a == b
 	}
 	return int(a.UsedPct) == int(b.UsedPct) && a.ResetsAt.Equal(b.ResetsAt)
+}
+
+// listedLimits is agent.limits: every agent's own account and the ones in
+// the book. An account removed in Settings is not shown, though an agent
+// still running on it goes on reporting.
+func (s *Server) listedLimits() proto.AgentLimitsResult {
+	b := s.accountBook()
+	all := s.allLimits()
+	out := proto.AgentLimitsResult{Limits: []proto.PlanLimits{}}
+	for _, l := range all.Limits {
+		if l.Account == "" || b.Has(l.Agent, l.Account) {
+			out.Limits = append(out.Limits, l)
+		}
+	}
+	return out
+}
+
+// accountListed reports whether agent's account is its own or in the book.
+func (s *Server) accountListed(agent, account string) bool {
+	return account == "" || s.accountBook().Has(agent, account)
 }
 
 func (s *Server) allLimits() proto.AgentLimitsResult {

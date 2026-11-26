@@ -179,7 +179,14 @@ func (s *Server) addAccount(p proto.AccountAddParams) (proto.AccountInfo, *proto
 }
 
 func (s *Server) removeAccount(r proto.AccountRef) *proto.Error {
-	return s.changeAccounts(func(b *accounts.Book) error { return b.Remove(r.Agent, r.Name) })
+	if perr := s.changeAccounts(func(b *accounts.Book) error { return b.Remove(r.Agent, r.Name) }); perr != nil {
+		return perr
+	}
+	// Its limits go too: a usage panel shows the accounts in Settings.
+	s.limitsMu.Lock()
+	delete(s.limits, limitKey(r.Agent, r.Name))
+	s.limitsMu.Unlock()
+	return nil
 }
 
 func (s *Server) pinAccount(p proto.AccountPinParams) *proto.Error {
