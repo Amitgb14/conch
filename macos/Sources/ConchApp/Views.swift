@@ -763,6 +763,11 @@ struct MainView: View {
                 ScratchLayer(store: store, pane: k, terminal: store.terminal(for: k))
                     .padding(.leading, store.sidebarVisible ? shownSidebar + 1 : 0).padding(.bottom, 26)
             }
+            if let t = store.artifactToast {
+                ArtifactToastView(store: store, toast: t)
+                    .padding(.trailing, 18).padding(.bottom, 40)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
             if store.paletteOpen {
                 Palette(store: store)
             }
@@ -1267,6 +1272,7 @@ struct NodeView: View {
                         pill.fixedSize().layoutPriority(1)
                     }
                     if paneEndBadge(p) == nil { BackgroundPill(store: store, pane: id).layoutPriority(1) }
+                    if p.agent != nil { ArtifactCount(store: store, pane: id, dim: dim).layoutPriority(1) }
                 }
             }
         case .machine(let m):
@@ -1856,6 +1862,10 @@ struct TabButton: View {
         if let s = parseSetupKey(tab.focused) { return "Agent setup · " + project(s.machine, s.project) }
         if let p = parseMobileKey(tab.focused) { return "Preview · " + project(p.machine, p.project) }
         if let t = parseTaskKey(tab.focused) { return "\(t.branch) · \(t.group)" }
+        if let u = parseBrowserKey(tab.focused), let a = parseArtifactsAddress(u) {
+            // An Artifacts tab is named by its agent, whichever tab is in front.
+            return "Artifacts · " + (store.pane(a)?.displayName ?? "agent")
+        }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
             if !t.isEmpty { return t }
@@ -1893,6 +1903,8 @@ struct TabButton: View {
                     LucideIcon("bot", color: Theme.accent, size: 12)
                 } else if parseFilesKey(tab.focused) != nil {
                     LucideIcon("folder-open", color: Theme.accent, size: 12)
+                } else if parseBrowserKey(tab.focused).flatMap(parseArtifactsAddress) != nil {
+                    LucideIcon("layers", color: Theme.accent, size: 12)
                 } else if parseBrowserKey(tab.focused) != nil {
                     LucideIcon(browserIcon, color: Theme.accent, size: 12)
                 } else if parseMobileKey(tab.focused) != nil {
@@ -2212,6 +2224,10 @@ struct PaneCard: View {
                 // place, the way back to the chat — unless the chat is off.
                 if store.offersChat, let t = store.layout.current, t.benchAgent == pane, t.bench != .agent {
                     ChatTerminalSwitch(store: store, chat: false)
+                }
+                // What a Claude agent published, beside it (artifact.list.v1).
+                if p?.agent?.name == "claude", store.listsArtifacts(unkey(pane).machine) {
+                    ArtifactsChip(store: store, pane: pane)
                 }
                 // What conch's commands call it — conch read p12 — a click away.
                 if let ref = store.paneRef(key: pane) { PaneIDChip(store: store, ref: ref) }

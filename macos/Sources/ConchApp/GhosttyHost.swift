@@ -56,7 +56,10 @@ final class GhosttyRuntime {
                 let bytes = UnsafeRawBufferPointer(start: p, count: Int(action.action.open_url.len))
                 let text = String(decoding: bytes, as: UTF8.self)
                 guard let url = openableURL(text) else { return true }
-                DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                // A claude.ai artifact opens in its agent's Artifacts tab.
+                DispatchQueue.main.async {
+                    if let s = AppWindows.shared.keyStore { s.openLink(url) } else { NSWorkspace.shared.open(url) }
+                }
                 return true
             },
             read_clipboard_cb: { ud, loc, state, mimes, n, list in

@@ -21,12 +21,16 @@ public func conchBinary(env: [String: String] = ProcessInfo.processInfo.environm
 /// The environment a conch the app starts runs with: this one, without a
 /// pane it may have been started from (a conch inside a pane refuses some
 /// things, and this is not inside one), with a terminal type every
-/// terminal view understands.
+/// terminal view understands. That pane's access token goes too: the app
+/// is the person, not the pane, and the token ends when the pane does —
+/// after which every `conch attach` the app ran was refused with
+/// "that token is unknown or revoked".
 public func conchEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment,
                              source: String? = Bundle.main.object(forInfoDictionaryKey: "ConchSource") as? String,
                              exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String: String] {
     var out = env
     out.removeValue(forKey: "CONCH_PANE_ID")
+    out.removeValue(forKey: "CONCH_TOKEN")
     out["TERM"] = "xterm-256color"
     out["COLORTERM"] = "truecolor"
     // Upgrading a machine builds conch for it from source, which the conch

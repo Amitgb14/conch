@@ -385,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Split Down", "d", [.command, .shift], "splitDown"),
             item("Split Right with Browser", "d", [.command, .option], "splitRightBrowser"),
             item("Split Down with Browser", "d", [.command, .option, .shift], "splitDownBrowser"),
+            item("Show Artifacts", "a", [.command, .option], "artifacts"),
             item("Split Right with Agent", "", [], "splitRightAgent"),
             item("Split Down with Agent", "", [], "splitDownAgent"),
             item("Zoom Split", "\r", [.command, .shift], "zoomSplit"),

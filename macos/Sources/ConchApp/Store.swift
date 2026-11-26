@@ -808,7 +808,9 @@ final class Store: ObservableObject {
             p += b
             pl += c
         }
-        return w + p + pl + paletteCommandItems(chat: offersChat)
+        let arts = artifactPaletteItems(artifactShelf, machines: machines.map(\.id), label: { many ? self.machineLabel($0) : nil },
+                                        agent: { m, p in self.pane(key(m, p))?.displayName }, now: Date())
+        return w + p + pl + arts + paletteCommandItems(chat: offersChat)
     }
 
     // MARK: the status bar's own: limits, settings, what conch uses
@@ -1535,6 +1537,7 @@ final class Store: ObservableObject {
                 agents[machine] = (a.agents ?? []).filter(\.installed)
                 agentStatus[machine] = a.agents ?? []
             }
+            loadArtifacts(machine)
             // The tabs the TUI is showing here, once a launch: the window
             // opens on the same work, with nothing given the keyboard.
             if primary, !viewAdopted.contains(machine), c.hello?.capabilities?.contains("view.v1") == true,
@@ -1984,6 +1987,9 @@ final class Store: ObservableObject {
             questions.removeValue(forKey: k)
         case "autopilot.note":
             autopilotTick[machine, default: 0] += 1
+        case "artifact.published":
+            artifactPublished(machine, data)
+            return
         case "project.updated":
             if let p = try? dec.decode(ProjectInfo.self, from: data) {
                 // A project added since the connection was counted, or one
@@ -2528,6 +2534,13 @@ final class Store: ObservableObject {
     }
 
     private(set) var browserViews: [String: BrowserModel] = [:]
+    /// Every machine's claude.ai artifacts (Artifacts+Store.swift).
+    @Published var artifactShelf = ArtifactShelf()
+    /// A publish said in the window's corner, with Open.
+    @Published var artifactToast: ArtifactToast?
+    /// Whether Conch's browser holds a claude.ai sign-in, as last looked;
+    /// nil before the first look.
+    @Published var claudeSignedIn: Bool?
     private var blankBrowsers = 0
     /// Browser panes' tabs as saved, by pane, taken by each pane the first
     /// time it is shown.
@@ -2955,6 +2968,7 @@ final class Store: ObservableObject {
         case .project(let id): openProject(id)
         case .branch(let pr, let name): openChanges(project: pr, branch: name)
         case .command(let id): command(id)
+        case .artifact(_, let url): openArtifact(url)
         }
     }
 
@@ -3014,6 +3028,8 @@ final class Store: ObservableObject {
                 workbenchForFocused()
             }
         case "newBrowser": openBrowser(nil)
+        case "artifacts": showArtifacts()
+        case "artifactsAll": showArtifacts(scope: .machine)
         case "closeWorkspace":
             if workspace > 0 { closeWorkspace(workspace) } else { say("The first workspace stays: it holds what no other has", .info) }
         case "biggerFont": stepFontSize(bigger: true)
@@ -3065,6 +3081,12 @@ final class Store: ObservableObject {
                 .map { $0 + 1 } ?? items.count
             if (agentStatus[m] ?? []).isEmpty { checkAgents(on: m) }
             items.insert(sw, at: min(at, items.count))
+        }
+        // A Claude agent's Artifacts ▸: what it published, newest first.
+        if case .agent(let k) = node.kind, pane(k)?.agent?.name == "claude", listsArtifacts(m) {
+            let mine = artifactsShown(artifactShelf.list(m), scope: .agent, pane: unkey(k).id, project: nil)
+            let at = items.firstIndex { $0.title == "Open Workbench" }.map { $0 + 1 } ?? min(2, items.count)
+            items.insert(artifactsMenu(pane: k, artifacts: mine), at: min(at, items.count))
         }
         // The machines this workspace does not list, to bring one here.
         if case .machine = node.kind, workspaces.count > 1, !hiddenMachines.isEmpty,
@@ -3148,6 +3170,8 @@ final class Store: ObservableObject {
     func perform(_ a: RowAction, on node: TreeNode, agent: String? = nil) {
         switch a {
         case .open, .divider: activate(node)
+        case .artifacts(let k): showArtifacts(pane: k)
+        case .openArtifact(let k, let url): openArtifact(url, pane: k)
         case .rename(let k): renamePane(k)
         case .setTeam(let k, let t): setTeam(k, t)
         case .moveAgent(let k, let acct): askMove(k, to: acct)

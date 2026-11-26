@@ -1010,6 +1010,8 @@ public enum PaletteAction: Equatable, Sendable {
     case project(String) // key(machine, project)
     case branch(project: String, name: String)
     case command(String) // a menu command's identifier
+    /// A claude.ai artifact, opened in its agent's Artifacts tab.
+    case artifact(machine: String, url: String)
 }
 
 public struct PaletteItem: Equatable, Sendable {
@@ -1033,6 +1035,8 @@ public let paletteCommands: [(id: String, title: String, keys: String)] = [
     ("splitDown", "Split Down", "⇧⌘D"),
     ("splitRightBrowser", "Split Right with Browser", "⌥⌘D"),
     ("splitDownBrowser", "Split Down with Browser", "⌥⇧⌘D"),
+    ("artifacts", "Show Artifacts of This Agent", "⌥⌘A"),
+    ("artifactsAll", "Show Artifacts on This Mac", ""),
     ("splitRightAgent", "Split Right with Agent", ""),
     ("closeSplit", "Close Split", "⌘W"),
     ("workbench", "Open Workbench (Files, Terminal, Chat and Agent)", "⌥⌘B"),

@@ -15,7 +15,7 @@ struct ShortcutsSheet: View {
     static let others: [(String, String)] = [
         ("⇧PgUp  ⇧PgDn", "scroll a pane's history a page"),
         ("⇧Home  ⇧End", "a pane's oldest line, and back to the live screen"),
-        ("⌘-click", "open a link a pane printed"),
+        ("⌘-click", "open a link a pane printed; a claude.ai artifact opens in its agent's Artifacts tab"),
         ("drag in an agent's pane", "select and copy; ⌥-drag is the agent's"),
         ("drag a split's edge", "resize the splits"),
         ("drag a tab onto another", "move it there"),

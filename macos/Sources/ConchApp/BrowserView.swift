@@ -34,6 +34,13 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// What went wrong on the page since it last started loading: the
     /// errors chip.
     @Published var issues = PageIssues()
+
+    /// An issue on the page: into the errors chip, and to its browser,
+    /// which hands an artifact WebKit cannot show to the person's own.
+    func report(_ i: PageIssue) {
+        issues.add(i)
+        owner?.pageIssue(i, page: web.url?.absoluteString ?? "")
+    }
     private var mixedSaid = false
     private let sink = BrowserIssueSink()
     private var watching: [NSKeyValueObservation] = []
@@ -253,9 +260,11 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// attachment is downloaded rather than shown.
     nonisolated func webView(_ w: WKWebView, decidePolicyFor r: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
         MainActor.assumeIsolated {
+            // An artifact's frame is refused once before its token: no error.
             if let h = r.response as? HTTPURLResponse,
+               !isArtifactFrameFirstTry(status: h.statusCode, url: h.url?.absoluteString ?? "", mainFrame: r.isForMainFrame),
                let i = PageIssue.http(status: h.statusCode, url: h.url?.absoluteString ?? "", mainFrame: r.isForMainFrame) {
-                issues.add(i)
+                report(i)
             }
             let attachment = ((r.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().hasPrefix("attachment")
             decisionHandler(r.isForMainFrame && (attachment || !r.canShowMIMEType) ? .download : .allow)
@@ -325,11 +334,21 @@ final class BrowserModel: ObservableObject {
     /// The address bar or the find field has the keyboard, so ⌘-keys are
     /// the browser's there too.
     var chromeEditing = false
+    /// An Artifacts tab's list: whose artifacts, and the filter typed.
+    @Published var artifactScope: ArtifactScope = .agent
+    @Published var artifactQuery = ""
+    /// The agent an Artifacts tab is for, key(machine, pane): from the
+    /// address it was opened with, which its pane keeps as its key.
+    var artifactsPane: String? { parseBrowserKey(key).flatMap(parseArtifactsAddress) }
+    /// The artifact last opened or shown here: what a sign-in it led to
+    /// was for, for the passkey notice's Open in Browser.
+    @Published var lastArtifact: String?
 
     init(key: String, store: Store, saved: SavedBrowser? = nil) {
         self.key = key
         self.store = store
         tabs = BrowserTabs(saved: saved, address: parseBrowserKey(key) ?? "")
+        for t in tabs.tabs where parseArtifactsAddress(t.address) != nil { tabs.update(t.id, title: "Artifacts") }
     }
 
     /// A pane made around a tab moved out of another, keeping its page.
@@ -354,6 +373,38 @@ final class BrowserModel: ObservableObject {
     var address: String { tabs.active?.address ?? "" }
     var title: String { tabs.active?.title ?? "" }
 
+    /// The Artifacts list in front: its tab, or a new one first in the strip.
+    func showArtifactList() {
+        guard let pane = artifactsPane else { return }
+        if let t = tabs.tabs.first(where: { parseArtifactsAddress($0.address) != nil }) {
+            tabs.select(t.id)
+        } else {
+            let id = tabs.open(artifactsAddress(pane: pane), title: "Artifacts")
+            tabs.move(id, to: 0)
+        }
+        objectWillChange.send()
+    }
+
+    /// An artifact in a tab of its own after the list; one open already is
+    /// shown, at the artboard asked for when the link names one.
+    func openArtifact(_ url: String) {
+        lastArtifact = url
+        let base = artifactBase(url)
+        if let t = tabs.tabs.first(where: { artifactBase($0.address) == base }) {
+            tabs.select(t.id)
+            if url != base, t.address != url, let u = URL(string: url) {
+                tabs.update(t.id, address: url)
+                page(t.id).open(u)
+            }
+            showActive()
+            return
+        }
+        let after = tabs.tabs.last?.id
+        let title = store.artifactShelf.find(base)?.artifact.title ?? ""
+        tabs.open(url, title: title, after: after)
+        showActive()
+    }
+
     func page(_ id: Int) -> BrowserPage {
         if let p = pages[id] { return p }
         let t = tabs.tab(id)
@@ -362,7 +413,7 @@ final class BrowserModel: ObservableObject {
         pages[id] = p
         if let t {
             p.web.pageZoom = t.zoom
-            if !t.address.isEmpty, !isViewSource(t.address), let u = URL(string: t.address) { p.open(u) }
+            if webLoads(t.address), let u = URL(string: t.address) { p.open(u) }
         }
         return p
     }
@@ -513,6 +564,12 @@ final class BrowserModel: ObservableObject {
         if !showWebInspector(w) { say("This macOS’s WebKit has no inspector to open: use Safari’s Develop menu") }
     }
 
+    /// A page's issue: an artifact whose own files did not load here goes
+    /// to the person's browser (Store.artifactWontLoadHere).
+    func pageIssue(_ i: PageIssue, page: String) {
+        if store.artifactWontLoadHere(page, issue: i) { objectWillChange.send() }
+    }
+
     func say(_ s: String) {
         notice = s
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.notice == s { self?.notice = "" } }
@@ -571,6 +628,9 @@ final class BrowserModel: ObservableObject {
 
     func pageMoved(_ id: Int, _ address: String) {
         tabs.update(id, address: address)
+        if isArtifactURL(address) { lastArtifact = address }
+        // Somewhere on claude.ai: a sign-in may have just been made here.
+        if URL(string: address)?.host?.lowercased() == "claude.ai" { store.checkClaudeSignIn() }
         if id == tabs.activeID { store.objectWillChange.send() }
     }
 
@@ -669,7 +729,20 @@ struct BrowserView: View {
         let _ = look
         VStack(spacing: 0) {
             BrowserTabStrip(model: model)
-            if let p = model.current {
+            if let t = model.tabs.active, let pane = parseArtifactsAddress(t.address) {
+                // An Artifacts tab's list: drawn here, never loaded by WebKit.
+                ArtifactsListView(model: model, store: model.store, pane: pane)
+            } else if let p = model.current {
+                if model.artifactsPane != nil, isArtifactURL(model.address) {
+                    ArtifactBar(model: model, store: model.store)
+                }
+                if isArtifactURL(model.address), model.store.artifactHandOvers.contains(model.address) {
+                    ArtifactWebKitNotice(model: model)
+                }
+                if isPasskeyChallenge(model.address) { PasskeyNotice(model: model) }
+                if model.artifactsPane != nil, isClaudeSignInPage(model.address), model.store.claudeSignedIn != true {
+                    ClaudeSignInBar(model: model)
+                }
                 BrowserPageView(model: model, page: p, close: close, ownTab: ownTab).id(p.id)
             }
         }
@@ -708,7 +781,9 @@ struct BrowserTabStrip: View {
         let on = t.id == model.tabs.activeID
         return HStack(spacing: 6) {
             Group {
-                if model.busy.contains(t.id) {
+                if parseArtifactsAddress(t.address) != nil {
+                    LucideIcon("layers", color: Theme.accent, size: 12)
+                } else if model.busy.contains(t.id) {
                     ProgressView().controlSize(.mini).scaleEffect(0.7)
                 } else if let img = model.icons[t.id] {
                     Image(nsImage: img).resizable().interpolation(.high)
