@@ -230,6 +230,15 @@ func limitHome(t *testing.T) (home, log string) {
 // out, with its conversation known, and the work account ready for it.
 func startAtLimit(t *testing.T, c *client.Client, home, dir string) proto.PaneInfo {
 	t.Helper()
+	return startAtUse(t, c, home, dir, 100)
+}
+
+// startAtUse is startAtLimit with its plan reported at used percent from
+// the first report. A test of a plan far from full says so here, not in a
+// later report: the server looks every tick, and one look between a 100%
+// report and the next was enough to schedule a move under load.
+func startAtUse(t *testing.T, c *client.Client, home, dir string, used float64) proto.PaneInfo {
+	t.Helper()
 	ctx := t.Context()
 	if err := c.Call(ctx, proto.MethodAccountAdd, proto.AccountAddParams{Agent: "claude", Name: "work"}, nil); err != nil {
 		t.Fatal(err)
@@ -246,10 +255,26 @@ func startAtLimit(t *testing.T, c *client.Client, home, dir string) proto.PaneIn
 		t.Fatal(err)
 	}
 	if err := c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "StatusLine",
-		Limits: &proto.PlanLimits{FiveHour: &proto.LimitWindow{UsedPct: 100, ResetsAt: time.Now().Add(2 * time.Hour)}}}, nil); err != nil {
+		Limits: &proto.PlanLimits{FiveHour: &proto.LimitWindow{UsedPct: used, ResetsAt: time.Now().Add(2 * time.Hour)}}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// waitAgentState waits until the server reports pane id's agent in state.
+// The server counts a turn only when it sees the agent working, so a turn
+// reported and ended within a fixed sleep goes unseen when the machine is
+// busy; waiting for the state is what a real agent's turn gives it.
+func waitAgentState(t *testing.T, c *client.Client, id, state string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if p, ok := panesNow(t, c)[id]; ok && p.Agent != nil && p.Agent.State == state {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("pane %s's agent never was %s", id, state)
 }
 
 // TestAnAgentAtItsLimitMovesByItself: the server sees Claude Code say its
@@ -337,12 +362,8 @@ func TestAtTheLineOnlyAnAgentInUseMoves(t *testing.T) {
 	if err := c.Call(ctx, proto.MethodAccountFailover, proto.AccountFailoverParams{At: 70}, nil); err != nil {
 		t.Fatal(err)
 	}
-	p := startAtLimit(t, c, home, dir) // done, its conversation known, its account at 100%
-	if err := c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "StatusLine",
-		Limits: &proto.PlanLimits{FiveHour: &proto.LimitWindow{UsedPct: 80, ResetsAt: time.Now().Add(2 * time.Hour)}}}, nil); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(time.Second) // many looks
+	p := startAtUse(t, c, home, dir, 80) // done, its conversation known, its account past the line
+	time.Sleep(time.Second)              // many looks
 	if _, ok := panesNow(t, c)[p.ID]; !ok {
 		t.Fatal("an idle agent past the line was moved")
 	}
@@ -353,7 +374,9 @@ func TestAtTheLineOnlyAnAgentInUseMoves(t *testing.T) {
 		if err := c.Call(ctx, proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: ev, TranscriptPath: conv}, nil); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(300 * time.Millisecond)
+		if ev == "UserPromptSubmit" {
+			waitAgentState(t, c, p.ID, proto.AgentWorking)
+		}
 	}
 	var moved proto.AgentMoved
 	waitEvent(t, c, func(m proto.Message) bool {
@@ -416,12 +439,7 @@ func TestLimitWordsOnScreenAloneMoveNothing(t *testing.T) {
 	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 200*time.Millisecond))
 	home, log := limitHome(t)
 	c, dir := startServer(t)
-	p := startAtLimit(t, c, home, dir)
-	// The plan as it really is: 3% of five hours.
-	if err := c.Call(t.Context(), proto.MethodAgentReport, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "StatusLine",
-		Limits: &proto.PlanLimits{FiveHour: &proto.LimitWindow{UsedPct: 3, ResetsAt: time.Now().Add(2 * time.Hour)}}}, nil); err != nil {
-		t.Fatal(err)
-	}
+	p := startAtUse(t, c, home, dir, 3) // the plan as it really is: 3% of five hours
 	time.Sleep(1200 * time.Millisecond)
 	if _, ok := panesNow(t, c)[p.ID]; !ok {
 		t.Fatal("moved on the words alone")
