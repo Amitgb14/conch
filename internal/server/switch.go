@@ -12,6 +12,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/accounts"
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/gitx"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sessions"
 )
@@ -396,10 +397,16 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 		res.Crossed = proto.SwitchHandoff
 	}
 
-	// A name the pane was given stays; the agent's own name goes with it.
-	name := ""
+	// The pane is shown by the same name after it: one the person gave
+	// it, or the task title its agent gave it, kept as given so the new
+	// agent's own title does not take its place. Only a pane known by its
+	// agent's name alone takes the new agent's.
+	name, keep := "", info.DisplayName()
 	if info.CustomName || info.Name != from {
 		name = info.Name
+	}
+	if !info.CustomName && keep == from {
+		keep = ""
 	}
 	origin := &proto.SwitchOrigin{Agent: from, Session: pl.session.ID, At: time.Now(), Crossing: res.Crossing}
 	// Back to the agent it came from, by the round trip's own way: a
@@ -409,7 +416,12 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 	}
 	nw, perr := s.start(proto.PaneCreateParams{Agent: p.To, Account: accounts.Label(acct.Account), AgentArgs: args, Prompt: prompt,
 		Cwd: e.dir, Name: name, Cols: info.Cols, Rows: info.Rows, NoProject: info.ProjectID == ""}, e,
-		func(ne *entry) { ne.switchedFrom = origin })
+		func(ne *entry) {
+			ne.switchedFrom = origin
+			if keep != "" {
+				ne.p.Rename(gitx.Printable(keep))
+			}
+		})
 	if perr != nil {
 		// The old agent runs on, untouched; what was written for the new
 		// one goes.
@@ -452,13 +464,20 @@ func (s *Server) takeOver(old, ne *entry, token string) proto.PaneInfo {
 		clients = append(clients, c)
 	}
 	s.mu.Unlock()
-	var watching []*client
+	// Each goes on watching it the way it was: frames, or the program's
+	// own output, which a terminal like Conch.app's draws and frames are
+	// not (sent frames, it froze on the old program).
+	var watching, rawWatching []*client
 	for _, c := range clients {
 		c.mu.Lock()
-		_, ok := c.subs[id]
+		sub, ok := c.subs[id]
 		c.mu.Unlock()
 		if ok {
-			watching = append(watching, c)
+			if sub.raw {
+				rawWatching = append(rawWatching, c)
+			} else {
+				watching = append(watching, c)
+			}
 			s.unsubscribe(c, id)
 		}
 	}
@@ -470,6 +489,9 @@ func (s *Server) takeOver(old, ne *entry, token string) proto.PaneInfo {
 	old.p.Close()
 	for _, c := range watching {
 		s.subscribe(c, ne)
+	}
+	for _, c := range rawWatching {
+		_, _ = s.streamRaw(c, ne, true) // refused only if already subscribed, which unsubscribe ruled out
 	}
 	info := ne.info()
 	s.broadcast(proto.EventPaneUpdated, info)

@@ -2365,6 +2365,7 @@ func (s *Server) subscribe(c *client, e *entry) {
 type subscription struct {
 	stop chan struct{}
 	kick chan struct{} // re-render now
+	raw  bool          // the program's own output (pane.raw), not frames
 
 	mu      sync.Mutex
 	offset  int // lines scrolled back into history
