@@ -283,3 +283,33 @@ public func teamsOnlyOnAgents(listed: [String], panes: [PaneInfo]) -> [String] {
     }
     return out
 }
+
+/// A team's agents summed by kind, for Settings → Teams: one mark and a
+/// count each rather than a mark per agent, and how many of them are at
+/// work, which is what turns the spinner. In the order first seen; a pane
+/// with no agent is left out.
+public struct TeamAgentCount: Equatable, Sendable {
+    public var agent: String
+    public var count: Int
+    public var working: Int
+    public init(agent: String, count: Int, working: Int) {
+        self.agent = agent
+        self.count = count
+        self.working = working
+    }
+}
+
+public func teamAgentCounts(_ panes: [PaneInfo]) -> [TeamAgentCount] {
+    var out: [TeamAgentCount] = []
+    for p in panes {
+        guard let a = p.agent else { continue }
+        let w = a.state == .working ? 1 : 0
+        if let i = out.firstIndex(where: { $0.agent == a.name }) {
+            out[i].count += 1
+            out[i].working += w
+        } else {
+            out.append(TeamAgentCount(agent: a.name, count: 1, working: w))
+        }
+    }
+    return out
+}
