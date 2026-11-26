@@ -182,6 +182,11 @@ type AppCfg struct {
 	// It was off unless true in 0.2.0, a pointer since so that false is
 	// written down. The app reads it; conch only keeps it.
 	Chat *bool `toml:"chat,omitempty"`
+	// WebViews draws a branch's Changes in Conch.app with conch-ui (the
+	// views in ui/, in a web view) rather than SwiftUI. On unless false
+	// (CONCH_WEB_VIEWS=0 turns it off too); the SwiftUI view stays for as
+	// long as the web one is new. The app reads it; conch only keeps it.
+	WebViews *bool `toml:"web_views,omitempty"`
 	// CheckUpdates makes Conch.app ask GitHub once a day whether a newer
 	// release of itself is out ([update] is the command line's). On
 	// unless false; a development build never asks.
@@ -209,6 +214,9 @@ func (a AppCfg) TakesPrefix() bool { return a.PrefixKeys == nil || *a.PrefixKeys
 
 // ShowsChat reports whether the app's workbench offers its chat.
 func (a AppCfg) ShowsChat() bool { return a.Chat == nil || *a.Chat }
+
+// DrawsWebViews reports whether the app draws a branch's Changes with conch-ui.
+func (a AppCfg) DrawsWebViews() bool { return a.WebViews == nil || *a.WebViews }
 
 // TextSizeOrDefault is the window's text size in percent, kept in range.
 func (a AppCfg) TextSizeOrDefault() int {
