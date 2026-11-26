@@ -1214,7 +1214,7 @@ final class Store: ObservableObject {
 
     /// config.toml changed by edit, the rest of the file kept, then read
     /// back so the window takes it; what names the setting if it fails.
-    private func changeConfig(_ what: String, _ edit: (String) -> String) {
+    func changeConfig(_ what: String, _ edit: (String) -> String) {
         let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
         let next = edit(toml)
         guard next != toml else { return }
@@ -3149,6 +3149,8 @@ final class Store: ObservableObject {
         case .disabled: break
         case .newTeam(let k): newTeam(k)
         case .showTogether(let keys, let name): showTogether(keys, name: name)
+        case .renameTeam(let name): renameTeam(name)
+        case .deleteTeam(let name): deleteTeam(name)
         case .prompt(let k): promptAgent(k)
         case .workbench(let k): openWorkbench(k)
         case .close(let k): closePane(k)
@@ -4107,7 +4109,7 @@ struct TaskDraft: Identifiable {
     var team = ""
 }
 
-private struct PaneRefParams: Encodable { var id: String }
+struct PaneRefParams: Encodable { var id: String }
 
 /// The theme on screen, apart from the store, so that what observes it is
 /// not redrawn by everything else the store publishes.

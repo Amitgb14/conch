@@ -170,7 +170,8 @@ import Testing
         let teamRow = TreeNode(id: "t:local|r1:Backend", kind: .team(project: "local|r1", name: "Backend"), title: "Backend",
                                children: [TreeNode(id: "pane:local|p1", kind: .agent("local|p1"), title: "p1")])
         let items = s.menu(for: teamRow, machine: "local")
-        #expect(items.map(\.title) == ["Show Side by Side", "Broadcast to This Team…"])
+        #expect(items.map(\.title) == ["Show Side by Side", "Broadcast to This Team…", "", "Rename Team…", "Delete Team…"])
+        #expect(items[3].action == .renameTeam(name: "Backend") && items[4].action == .deleteTeam(name: "Backend"))
         #expect(items[0].action == .showTogether(panes: ["local|p1"], name: "Backend · conch"))
         #expect(s.broadcastTargets(.panes(machine: "local", keys: ["local|p1"])).map(\.key) == ["local|p1"])
         #expect(teamRow.machine == "local")
