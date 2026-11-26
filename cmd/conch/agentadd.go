@@ -22,11 +22,13 @@ import (
 // exists so nobody has to learn the format to try an agent once.
 
 const agentAddUsage = "usage: conch agent add NAME -command BINARY [-label LABEL] [-prompt 'FLAG {prompt}'] " +
-	"[-resume 'FLAG {id}'] [-resume-last FLAGS] [-flags FLAGS] [-dir DIR] [-env NAME=VALUE] [-force]"
+	"[-resume 'FLAG {id}'] [-resume-last FLAGS] [-flags FLAGS] [-dir DIR] [-env NAME=VALUE] [-force]\n" +
+	"       conch agent add NAME -acp 'COMMAND [ARGS]' [-label LABEL] [-dir DIR] [-env NAME=VALUE] [-force]"
 
 func agentAdd(args []string) error {
 	fs := flag.NewFlagSet("agent add", flag.ContinueOnError)
-	command := fs.String("command", "", "the program to run (required)")
+	command := fs.String("command", "", "the program to run (required, unless -acp)")
+	acpCommand := fs.String("acp", "", "the command that speaks the Agent Client Protocol on stdio, e.g. 'gemini --experimental-acp'")
 	label := fs.String("label", "", "the name people know it by, e.g. \"Robo Coder\"")
 	prompt := fs.String("prompt", "", "how a first message is passed, with {prompt} where it goes; the default appends it as an argument")
 	resume := fs.String("resume", "", "how a saved session is reopened, with {id} where it goes; left out, conch will not offer to resume it")
@@ -47,8 +49,12 @@ func agentAdd(args []string) error {
 	if err := fs.Parse(rest[1:]); err != nil {
 		return err
 	}
-	if fs.NArg() > 0 || *command == "" {
+	if fs.NArg() > 0 || (*command == "") == (strings.TrimSpace(*acpCommand) == "") {
 		return errors.New(agentAddUsage)
+	}
+	if *acpCommand != "" && (*prompt != "" || *resume != "" || *resumeLast != "" || *flagsFor != "") {
+		return errors.New("-acp runs the agent over the protocol, which passes a first message and reopens a session itself: " +
+			"-prompt, -resume, -resume-last and -flags are for -command")
 	}
 	if !agentNameOK(name) {
 		return fmt.Errorf("%q is not an agent name: lower-case letters, digits and dashes", name)
@@ -66,6 +72,10 @@ func agentAdd(args []string) error {
 	path := filepath.Join(dir, name+".toml")
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already describes %q; -force overwrites it", path, name)
+	}
+
+	if *acpCommand != "" {
+		return writeACPManifest(path, name, *label, strings.TrimSpace(*acpCommand), dirs.values, env.values)
 	}
 
 	var b strings.Builder
@@ -159,4 +169,32 @@ func supportedAgent(name string) bool {
 		}
 	}
 	return false
+}
+
+// writeACPManifest is `conch agent add -acp`: an [acp] table, and what
+// running an agent over the protocol does and does not give.
+func writeACPManifest(path, name, label, command string, dirs, env []string) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s, added by `conch agent add -acp`. It speaks the Agent Client\n", name)
+	fmt.Fprintf(&b, "# Protocol; conch runs `conch acp` in its pane as the client.\n")
+	fmt.Fprintf(&b, "agent = %q\n", name)
+	if label != "" {
+		fmt.Fprintf(&b, "label = %q\n", label)
+	}
+	fmt.Fprintf(&b, "\n[acp]\ncommand = %q\n", command)
+	if len(dirs) > 0 {
+		fmt.Fprintf(&b, "dirs = [%s]\n", quoteList(dirs))
+	}
+	if len(env) > 0 {
+		fmt.Fprintf(&b, "env = [%s]\n", quoteList(env))
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s\n", path)
+	fmt.Printf("%s runs over ACP: conch draws its conversation, takes its first message, and reads its\n", name)
+	fmt.Println("state and permission requests from the protocol rather than its screen. Its sessions are")
+	fmt.Println("listed only if it offers session/list, and reopened only if it offers loadSession.")
+	fmt.Println("Reload the server to pick it up: `conch server reload` (or r in the version box).")
+	return nil
 }

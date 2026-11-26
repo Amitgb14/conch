@@ -46,7 +46,17 @@ type Manifest struct {
 	// process_names. They are not work it left running in the background.
 	Helpers []string `toml:"helpers"`
 	Rules   []Rule   `toml:"rules"`
+	// ACP is the [acp] table of an agent run over the Agent Client
+	// Protocol: conch acp reports its state from the protocol, so it has
+	// no screen rules — any written are dropped rather than let a guess
+	// stand beside the agent's own word.
+	ACP *struct {
+		Command string `toml:"command"`
+	} `toml:"acp"`
 }
+
+// IsACP reports whether the agent runs over the Agent Client Protocol.
+func (m *Manifest) IsACP() bool { return m != nil && m.ACP != nil && strings.TrimSpace(m.ACP.Command) != "" }
 
 // InterruptKeys is the keys that stop the agent: its manifest's, or escape.
 func (m *Manifest) InterruptKeys() []string {
@@ -136,6 +146,9 @@ func parseManifest(b []byte) (*Manifest, error) {
 	}
 	if m.ScreenLines <= 0 {
 		m.ScreenLines = 30
+	}
+	if m.IsACP() {
+		m.Rules = nil
 	}
 	for i := range m.Rules {
 		r := &m.Rules[i]
