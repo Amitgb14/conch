@@ -126,8 +126,10 @@ public enum ArtifactOpening: String, CaseIterable, Sendable {
     case conch
     case browser
 
-    /// A saved choice; anything else is automatic.
-    public init(setting: String?) { self = ArtifactOpening(rawValue: setting ?? "") ?? .automatic }
+    /// A saved choice; none (or anything else) is here: the person signs
+    /// in to claude.ai once in Conch's browser and every artifact opens
+    /// beside its agent.
+    public init(setting: String?) { self = ArtifactOpening(rawValue: setting ?? "") ?? .conch }
 
     public var label: String {
         switch self {
@@ -145,6 +147,24 @@ public enum ArtifactOpening: String, CaseIterable, Sendable {
         case .browser: return true
         }
     }
+}
+
+/// Whether a page is claude.ai's sign-in: where the Artifacts tab offers
+/// to take the link claude.ai emails.
+public func isClaudeSignInPage(_ s: String) -> Bool {
+    guard let u = URL(string: s), u.scheme?.lowercased() == "https", u.host?.lowercased() == "claude.ai" else { return false }
+    let first = u.path.split(separator: "/").first.map(String.init) ?? ""
+    return first == "login" || first == "magic-link"
+}
+
+/// The sign-in link someone pasted, when it is claude.ai's over https:
+/// opened in Conch's browser so the sign-in lands there rather than in
+/// the browser Mail opens links in. Anything else is refused, since the
+/// box loads what it is given.
+public func claudeSignInLink(_ pasted: String) -> URL? {
+    let t = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let u = URL(string: t), u.scheme?.lowercased() == "https", u.host?.lowercased() == "claude.ai" else { return nil }
+    return u
 }
 
 /// Whether a link is a claude.ai artifact's: what ⌘-click in a pane

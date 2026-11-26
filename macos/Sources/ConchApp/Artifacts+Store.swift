@@ -130,9 +130,24 @@ extension Store {
         WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
             let on = cookies.contains { isClaudeSession(name: $0.name, domain: $0.domain) }
             MainActor.assumeIsolated {
-                if self?.claudeSignedIn != on { self?.claudeSignedIn = on }
+                guard let self else { return }
+                if self.claudeSignedIn != on {
+                    let was = self.claudeSignedIn
+                    self.claudeSignedIn = on
+                    if on, was == false { self.signedInToClaude() }
+                }
                 then?(on)
             }
+        }
+    }
+
+    /// Just signed in here: an Artifacts tab left on claude.ai on its way
+    /// to an artifact goes on to it.
+    func signedInToClaude() {
+        for m in browserViews.values where m.artifactsPane != nil {
+            guard let a = m.lastArtifact, let t = m.tabs.active, !isArtifactURL(t.address),
+                  URL(string: t.address)?.host?.lowercased() == "claude.ai" else { continue }
+            m.go(a)
         }
     }
 

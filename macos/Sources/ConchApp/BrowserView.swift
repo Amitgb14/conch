@@ -721,6 +721,9 @@ struct BrowserView: View {
                     ArtifactBar(model: model, store: model.store)
                 }
                 if isPasskeyChallenge(model.address) { PasskeyNotice(model: model) }
+                if model.artifactsPane != nil, isClaudeSignInPage(model.address), model.store.claudeSignedIn != true {
+                    ClaudeSignInBar(model: model)
+                }
                 BrowserPageView(model: model, page: p, close: close, ownTab: ownTab).id(p.id)
             }
         }

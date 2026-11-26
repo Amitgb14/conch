@@ -330,7 +330,7 @@ struct PasskeyNotice: View {
         let _ = look
         HStack(spacing: 8) {
             LucideIcon("circle-alert", color: Theme.warn, size: 13)
-            Text("Passkeys can't be used in Conch's browser. Choose **Try another way** (a password or your phone), or sign in to claude.ai with email.")
+            Text("Passkeys can't be used in Conch's browser. Choose **Try another way** (a password or your phone), or go back and sign in to claude.ai with **Continue with email**.")
                 .font(.ui(size: 12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 6)
             if let a = model.lastArtifact, let u = URL(string: a) {
@@ -345,5 +345,49 @@ struct PasskeyNotice: View {
         .background(Theme.warn.opacity(0.12))
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Over claude.ai's sign-in in an Artifacts tab while Conch's browser is
+/// signed out: the email link claude.ai sends would open in the browser
+/// Mail uses, so it is pasted here instead, and the sign-in lands in
+/// Conch's browser. Signed in once, it stays.
+struct ClaudeSignInBar: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: BrowserModel
+    @State private var link = ""
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        let _ = look
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                LucideIcon("log-in", color: Theme.accent, size: 12)
+                Text("Sign in once here and every artifact opens in this tab. Choose **Continue with email**, then paste the sign-in link from the email:")
+                    .font(.ui(size: 12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                TextField("https://claude.ai/magic-link#…", text: $link)
+                    .textFieldStyle(.roundedBorder).font(.ui(size: 12)).focused($typing)
+                    .onSubmit(signIn)
+                    .onChange(of: typing) { _, t in model.chromeEditing = t }
+                    .accessibilityLabel("The sign-in link from claude.ai's email")
+                Button("Sign In", action: signIn).disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Text("In Mail, right-click the link → Copy Link. A code in the email goes into the page itself. Google works too, with Try another way rather than a passkey.")
+                .font(.ui(size: 11)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(Theme.accent.opacity(0.08))
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+
+    func signIn() {
+        guard let u = claudeSignInLink(link) else {
+            model.say("That isn't a claude.ai link: copy the link from claude.ai's email")
+            return
+        }
+        link = ""
+        model.go(u.absoluteString)
     }
 }

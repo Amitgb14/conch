@@ -211,6 +211,31 @@ private func art(_ url: String, _ title: String = "T", kind: String = "Design", 
     #expect(ArtifactOpening.browser.outside(signedIn: true), "chosen: always the person's browser")
     // A saved choice; anything else (none, an older build's) is automatic.
     #expect(ArtifactOpening(setting: "browser") == .browser && ArtifactOpening(setting: "conch") == .conch)
-    #expect(ArtifactOpening(setting: nil) == .automatic && ArtifactOpening(setting: "safari") == .automatic)
+    // None saved (or an older build's word): here, signing in here once.
+    #expect(ArtifactOpening(setting: nil) == .conch && ArtifactOpening(setting: "safari") == .conch)
+    #expect(ArtifactOpening(setting: "automatic") == .automatic)
     #expect(ArtifactOpening.allCases.map(\.label) == ["Automatically", "In Conch", "In My Browser"])
+}
+
+@Test func claudesSignInPagesAreKnown() {
+    for yes in ["https://claude.ai/login", "https://claude.ai/login?returnTo=%2Fartifact%2FX", "https://claude.ai/login/", "https://claude.ai/magic-link#abc"] {
+        #expect(isClaudeSignInPage(yes), "\(yes)")
+    }
+    for no in ["https://claude.ai/artifact/X", "https://claude.ai/new", "https://claude.ai/loginx", "https://evil.example/login",
+               "https://accounts.google.com/v3/signin/identifier", ""] {
+        #expect(!isClaudeSignInPage(no), "\(no)")
+    }
+}
+
+@Test func aPastedSignInLinkIsClaudesOnly() {
+    // The link claude.ai emails, as copied: loaded in Conch's browser.
+    #expect(claudeSignInLink("https://claude.ai/magic-link#a1b2c3:ZW1haWw=")?.absoluteString == "https://claude.ai/magic-link#a1b2c3:ZW1haWw=")
+    #expect(claudeSignInLink("  https://claude.ai/magic-link#t \n")?.host == "claude.ai", "trimmed")
+    // Loaded through the address bar's own reading, its token (after #) kept.
+    #expect(browserURL(claudeSignInLink("https://claude.ai/magic-link#a1b2c3:ZW1haWw=")!.absoluteString)?.fragment == "a1b2c3:ZW1haWw=")
+    // Anything that is not claude.ai over https is not loaded from this box.
+    for no in ["http://claude.ai/magic-link#t", "https://claude.ai.evil.example/magic-link#t", "https://evil.example/?u=https://claude.ai/",
+               "javascript:alert(1)", "file:///etc/passwd", "claude.ai/magic-link#t", "123456", ""] {
+        #expect(claudeSignInLink(no) == nil, "\(no)")
+    }
 }
