@@ -12,6 +12,17 @@ extension Store {
         conns[machine]?.hello?.capabilities?.contains(agentSwitchCapability) == true
     }
 
+    /// Asks, as the pointer comes onto an agent's row, for what its menu's
+    /// Switch Account ▸ and Switch Agent ▸ are drawn from, so the menu
+    /// opens with them rather than changing under the pointer as answers
+    /// arrive — which looked like flickering.
+    func prepareMenu(for node: TreeNode) {
+        guard case .agent(let k) = node.kind, let p = pane(k), p.running, let a = p.agent?.name else { return }
+        let m = unkey(k).machine
+        if a == "claude" { loadRanks(on: m, agent: a, fresh: 30) }
+        if (agentStatus[m] ?? []).isEmpty, canSwitchAgents(on: m) { checkAgents(on: m) }
+    }
+
     /// Pane k's Switch Agent ▸.
     func switchMenu(for k: String) -> RowMenuItem? {
         guard let p = pane(k), let a = p.agent?.name, p.running else { return nil }

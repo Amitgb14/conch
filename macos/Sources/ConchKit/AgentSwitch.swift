@@ -150,11 +150,11 @@ public func switchAgentMenu(pane key: String, from: String, agents: [AgentAvaila
     for a in agents where a.installed && a.name != from {
         switch a.switchTo {
         case SwitchWay.never?:
-            kids.append(RowMenuItem("\(a.title)  ·  can't take a first message", .disabled))
+            kids.append(RowMenuItem("\(a.title)  ·  can't take a first message", .disabled, agent: a.name))
         case SwitchWay.native?:
-            kids.append(RowMenuItem("\(a.title)  ·  Full history", .switchAgent(pane: key, to: a.name)))
+            kids.append(RowMenuItem("\(a.title)  ·  Full history", .switchAgent(pane: key, to: a.name), agent: a.name))
         default:
-            kids.append(RowMenuItem("\(a.title)  ·  Handoff document", .switchAgent(pane: key, to: a.name)))
+            kids.append(RowMenuItem("\(a.title)  ·  Handoff document", .switchAgent(pane: key, to: a.name), agent: a.name))
         }
     }
     if !kids.contains(where: { if case .switchAgent = $0.action { return true }; return false }) {

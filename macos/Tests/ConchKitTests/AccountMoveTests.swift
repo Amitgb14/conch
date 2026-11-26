@@ -19,9 +19,14 @@ private let ranks = [
     #expect(!titles.contains { $0.hasPrefix("default") })
     #expect(titles.first == "backup2  ·  96% room  ·  conch's pick")
     #expect(titles.filter { $0.contains("conch's pick") }.count == 1)
-    // One it cannot go to is said, and does nothing.
+    // One it cannot go to is said, greyed — .divider drew it as a line.
     let work = m.children.first { $0.title.hasPrefix("work") }
-    #expect(work?.action == .divider && work?.title.contains("not signed in") == true)
+    #expect(work?.action == .disabled && work?.title.contains("not signed in") == true)
+    // Every account carries the agent's mark: "backup2" alone does not
+    // say whose account it is. Letting conch choose is not an account.
+    #expect(m.children.filter { $0.title.hasPrefix("backup") || $0.title.hasPrefix("work") }.allSatisfy { $0.agent == "claude" })
+    #expect(m.children.last?.agent == nil)
+    #expect(m.children.filter { $0.action == .divider }.allSatisfy { $0.title.isEmpty })
     #expect(m.children.first { $0.title.hasPrefix("backup2") }?.action == .moveAgent(pane: "local|p12", account: "backup2"))
     #expect(m.children.last?.action == .moveAgent(pane: "local|p12", account: nil))
     #expect(!titles.contains { $0.hasPrefix("Move Back") })
@@ -50,6 +55,13 @@ private let ranks = [
     #expect(m.children.map(\.title) == ["No Other Account"])
     let none = switchAccountMenu(pane: "local|p1", on: nil, ranks: [], movedFrom: nil)
     #expect(none.children.map(\.title) == ["No Other Account"])
+    #expect(none.children.first?.action == .disabled)
+}
+
+@Test func moveBackCarriesTheAgentsMarkToo() {
+    let reset = [AccountRank(account: "", room: 97, reported: true, usable: true, why: "97% room")]
+    let m = switchAccountMenu(pane: "local|p20", agent: "claude", on: "backup2", ranks: reset, movedFrom: "default")
+    #expect(m.children.first { $0.title == "Move Back to default" }?.agent == "claude")
 }
 
 @Test func theCountdown() {
