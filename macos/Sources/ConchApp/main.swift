@@ -461,7 +461,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let benchItem = NSMenuItem(title: "Workbench", action: nil, keyEquivalent: "")
         benchItem.submenu = bench
         menu("View", [item("Show or Hide Sidebar", "s", [.command, .control], "toggleSidebar"),
-                      item("Show or Hide Inspector", "i", [.command, .control], "toggleInspector"), .separator(), benchItem, .separator(), styleItem, themeItem,
+                      item("Show or Hide Inspector", "i", [.command, .control], "toggleInspector"),
+                      item("Agents Overview", "a", [.command, .control], "agentsOverview"), .separator(), benchItem, .separator(), styleItem, themeItem,
                       .separator(),
                       // The usual Mac keys; ⌘0 is the sidebar's, so the
                       // defaults are control-command-0.

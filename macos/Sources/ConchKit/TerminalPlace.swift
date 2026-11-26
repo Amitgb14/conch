@@ -45,6 +45,7 @@ private func placeOf(_ k: String) -> TerminalPlace {
     if let c = parseChangesKey(k) { return on(c.machine, project: c.project) }
     if let c = parseSetupKey(k) { return on(c.machine, project: c.project, dir: c.dir) }
     if let t = parseTaskKey(k) { return on(t.machine) }
+    if isAgentsKey(k) { return on("local") }
     if let c = parseFilesKey(k) ?? parseCommitsKey(k) ?? parseSessionsKey(k) ?? parseMobileKey(k) {
         return on(c.machine, project: c.project)
     }

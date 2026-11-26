@@ -25,6 +25,8 @@ final class ChangesModel: ObservableObject {
     /// The view chosen; nil until a choice is made, when it follows what
     /// there is: changes when there are some, the overview when not.
     @Published var chosen: Mode?
+    /// The Changes view's web view (ChangesWeb.swift), kept with the tab.
+    private(set) lazy var webHost = ConchUIHost(kind: .changes)
 
     @Published var changes: Changes?
     @Published var selected: String?

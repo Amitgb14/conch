@@ -1908,6 +1908,7 @@ struct TabButton: View {
             // An Artifacts tab is named by its agent, whichever tab is in front.
             return "Artifacts · " + (store.pane(a)?.displayName ?? "agent")
         }
+        if isAgentsKey(tab.focused) { return "Agents" }
         if let u = parseBrowserKey(tab.focused) {
             let t = store.browserViews[tab.focused]?.title ?? ""
             if !t.isEmpty { return t }
@@ -1951,6 +1952,8 @@ struct TabButton: View {
                     LucideIcon(browserIcon, color: Theme.accent, size: 12)
                 } else if parseMobileKey(tab.focused) != nil {
                     LucideIcon("smartphone", color: Theme.accent, size: 12)
+                } else if isAgentsKey(tab.focused) {
+                    LucideIcon("users", color: Theme.accent, size: 12)
                 } else if parseTaskKey(tab.focused) != nil {
                     LucideIcon("layout-grid", color: Theme.accent, size: 12)
                 } else if changes == nil {
@@ -2115,6 +2118,8 @@ struct SplitArea: View {
                 }
             } else if parseMobileKey(id) != nil {
                 MobilePreviewView(model: store.mobilePreview(for: id), store: store).id(id)
+            } else if isAgentsKey(id) {
+                AgentsTab(store: store).id(id)
             } else if parseTaskKey(id) != nil {
                 TaskPageView(store: store, key: id).id(id)
             } else if parseChatKey(id) != nil {
