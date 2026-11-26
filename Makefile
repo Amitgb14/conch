@@ -6,7 +6,7 @@ LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION) -X $(MODULE)/internal/
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
 
-.PHONY: build conch-sandbox sandbox-release install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check
+.PHONY: build conch-sandbox sandbox-release install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check conch-ui conch-ui-check
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/conch ./cmd/conch
@@ -54,6 +54,19 @@ settings-ui:
 settings-ui-check: settings-ui
 	@changed=$$(git status --porcelain -- internal/configweb/dist); \
 	if [ -n "$$changed" ]; then echo "internal/configweb/dist is not the build of app/: run make settings-ui and commit what it writes"; echo "$$changed"; exit 1; fi
+
+# conch-ui (ui/: React), the views the desktop app draws with HTML. Its
+# build is committed as Swift (macos/Sources/ConchKit/ConchUIBundle.swift),
+# so Conch.app builds with swift alone; run this after changing ui/ and
+# commit what it writes.
+conch-ui:
+	cd ui && pnpm install --frozen-lockfile && pnpm test && pnpm build
+
+# What CI runs: the logic's tests, a rebuild, and a failure if the
+# committed bundle is not the build of ui/.
+conch-ui-check: conch-ui
+	@changed=$$(git status --porcelain -- macos/Sources/ConchKit/ConchUIBundle.swift); \
+	if [ -n "$$changed" ]; then echo "macos/Sources/ConchKit/ConchUIBundle.swift is not the build of ui/: run make conch-ui and commit what it writes"; echo "$$changed"; exit 1; fi
 
 release:
 	scripts/release.sh $(VERSION)
