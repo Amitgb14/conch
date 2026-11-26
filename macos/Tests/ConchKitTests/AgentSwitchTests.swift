@@ -26,6 +26,12 @@ private let agents = [
     #expect(m.children.first { $0.title.hasPrefix("Aider") }?.title.contains("can't take a first message") == true)
     // The footnote.
     #expect(titles.suffix(2) == ["Switches when this turn ends.", "Claude Code's own session is kept, so you can switch back."])
+    // Each agent offered carries its own mark, greyed ones too; the
+    // footnote carries none.
+    #expect(m.children.first { $0.title.hasPrefix("Codex") }?.agent == "codex")
+    #expect(m.children.first { $0.title.hasPrefix("Gemini") }?.agent == "gemini")
+    #expect(m.children.first { $0.title.hasPrefix("Aider") }?.agent == "aider")
+    #expect(m.children.suffix(2).allSatisfy { $0.agent == nil })
 }
 
 @Test func theSwitchMenuOnAnOlderServerOrWithNowhereToGo() {

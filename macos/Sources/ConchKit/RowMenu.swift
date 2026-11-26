@@ -212,11 +212,15 @@ public struct RowMenuItem: Equatable, Sendable {
     public var action: RowAction
     /// A submenu's items; its own action is then never performed.
     public var children: [RowMenuItem]
+    /// The agent whose mark is drawn beside it: the agent an account in
+    /// Switch Account ▸ belongs to, the agent a switch goes to.
+    public var agent: String?
 
-    public init(_ title: String, _ action: RowAction, children: [RowMenuItem] = []) {
+    public init(_ title: String, _ action: RowAction, children: [RowMenuItem] = [], agent: String? = nil) {
         self.title = title
         self.action = action
         self.children = children
+        self.agent = agent
     }
 
     static let divider = RowMenuItem("", .divider)
