@@ -550,3 +550,150 @@ func TestFindAXe(t *testing.T) {
 		t.Errorf("axe in ~/.local/bin: %q", got)
 	}
 }
+
+// A simulator left running after its preview closed is stopped from the
+// tab's list: simctl for iOS, the emulator's console for Android.
+func TestShutdown(t *testing.T) {
+	f := &fake{fails: map[string]string{"xcrun simctl shutdown B": "simctl: Unable to shutdown device in current state: Shutdown"}}
+	tl := f.tools("xcrun", "adb", "emulator", "")
+	ctx := context.Background()
+	if err := tl.Shutdown(ctx, Device{ID: "A", Platform: "ios", State: "booted"}); err != nil {
+		t.Fatal(err)
+	}
+	// Shut down meanwhile: not an error.
+	if err := tl.Shutdown(ctx, Device{ID: "B", Platform: "ios", State: "booted"}); err != nil {
+		t.Errorf("already shut down: %v", err)
+	}
+	// Not running: nothing to do, nothing run.
+	if err := tl.Shutdown(ctx, Device{ID: "C", Platform: "ios", State: "shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Shutdown(ctx, Device{ID: "emulator-5554", Platform: "android", Kind: "emulator", State: "booted"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"xcrun simctl shutdown A", "xcrun simctl shutdown B", "adb -s emulator-5554 emu kill"}
+	if !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if err := tl.Shutdown(ctx, Device{ID: "R5", Name: "Pixel 8", Platform: "android", Kind: "device", State: "booted"}); err == nil || !strings.Contains(err.Error(), "on the phone") {
+		t.Errorf("a real phone: %v", err)
+	}
+	if err := (&fake{}).tools("", "", "", "").Shutdown(ctx, Device{ID: "A", Platform: "ios", State: "booted"}); err == nil || !strings.Contains(err.Error(), "Xcode") {
+		t.Errorf("no xcrun: %v", err)
+	}
+	if err := (&fake{}).tools("", "", "", "").Shutdown(ctx, Device{ID: "emulator-1", Platform: "android", Kind: "emulator", State: "booted"}); err == nil || !strings.Contains(err.Error(), "adb") {
+		t.Errorf("no adb: %v", err)
+	}
+	if err := tl.Shutdown(ctx, Device{ID: "X", Platform: "tv", State: "booted"}); err == nil {
+		t.Error("unknown platform shut down")
+	}
+}
+
+// Deleting a simulator that is running stops it first, since simctl
+// will not delete a booted one; an Android emulator is Android Studio's.
+func TestDelete(t *testing.T) {
+	f := &fake{}
+	tl := f.tools("xcrun", "adb", "emulator", "")
+	ctx := context.Background()
+	if err := tl.Delete(ctx, Device{ID: "A", Platform: "ios", Kind: "simulator", State: "booted"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Delete(ctx, Device{ID: "B", Platform: "ios", Kind: "simulator", State: "shutdown"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"xcrun simctl shutdown A", "xcrun simctl delete A", "xcrun simctl delete B"}
+	if !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if err := tl.Delete(ctx, Device{ID: "avd:Pixel_9", Name: "Pixel 9", Platform: "android", Kind: "emulator", State: "shutdown"}); err == nil || !strings.Contains(err.Error(), "Android Studio") {
+		t.Errorf("android: %v", err)
+	}
+	// A shutdown that fails is not followed by a delete.
+	g := &fake{fails: map[string]string{"xcrun simctl shutdown A": "simctl: busy"}}
+	if err := g.tools("xcrun", "", "", "").Delete(ctx, Device{ID: "A", Platform: "ios", Kind: "simulator", State: "booted"}); err == nil || len(g.ran) != 1 {
+		t.Errorf("failed shutdown: %v, ran %q", err, g.ran)
+	}
+	if err := (&fake{}).tools("", "", "", "").Delete(ctx, Device{ID: "A", Platform: "ios", Kind: "simulator", State: "shutdown"}); err == nil || !strings.Contains(err.Error(), "Xcode") {
+		t.Errorf("no xcrun: %v", err)
+	}
+}
+
+// Lock and the side button, beside Home: AXe's and idb's names for them,
+// and Android's power key, which is both on a phone.
+func TestLockAndSideButtons(t *testing.T) {
+	ctx := context.Background()
+	ios := Device{ID: "U", Platform: "ios", State: "booted"}
+	and := Device{ID: "E", Platform: "android", State: "booted"}
+	f := &fake{}
+	tl := f.tools("xcrun", "adb", "", "idb")
+	tl.Axe = "axe"
+	for _, b := range []string{"lock", "side"} {
+		if err := tl.Button(ctx, ios, b); err != nil {
+			t.Fatal(b, err)
+		}
+		if err := tl.Button(ctx, and, b); err != nil {
+			t.Fatal(b, err)
+		}
+	}
+	g := &fake{}
+	idb := g.tools("xcrun", "", "", "idb")
+	for _, b := range []string{"lock", "side"} {
+		if err := idb.Button(ctx, ios, b); err != nil {
+			t.Fatal(b, err)
+		}
+	}
+	want := []string{
+		"axe button lock --udid U", "adb -s E shell input keyevent KEYCODE_POWER",
+		"axe button side-button --udid U", "adb -s E shell input keyevent KEYCODE_POWER",
+	}
+	if !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	if want := []string{"idb ui button --udid U LOCK", "idb ui button --udid U SIDE_BUTTON"}; !reflect.DeepEqual(g.ran, want) {
+		t.Errorf("idb ran %q, want %q", g.ran, want)
+	}
+	if err := tl.Button(ctx, ios, "siri"); err == nil || !strings.Contains(err.Error(), "home, lock or side") {
+		t.Errorf("unknown iOS button: %v", err)
+	}
+}
+
+// A simulator that has seen a hardware keyboard (AXe's typing is one)
+// hides its own. The setting alone reaches a running app one time in
+// eight; with the notification after it, every time.
+func TestKeyboard(t *testing.T) {
+	ctx := context.Background()
+	ios := Device{ID: "U", Name: "iPhone", Platform: "ios", Kind: "simulator", State: "booted"}
+	f := &fake{}
+	tl := f.tools("xcrun", "adb", "", "")
+	if err := tl.Keyboard(ctx, ios, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := tl.Keyboard(ctx, ios, false); err != nil {
+		t.Fatal(err)
+	}
+	const write = "xcrun simctl spawn U defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool "
+	const tell = "xcrun simctl spawn U notifyutil -p AppleKeyboardsPreferencesChangedNotification"
+	if want := []string{write + "false", tell, write + "true", tell}; !reflect.DeepEqual(f.ran, want) {
+		t.Errorf("ran %q, want %q", f.ran, want)
+	}
+	// A write that failed is not announced.
+	g := &fake{fails: map[string]string{write + "false": "simctl: not booted"}}
+	if err := g.tools("xcrun", "", "", "").Keyboard(ctx, ios, true); err == nil || len(g.ran) != 1 {
+		t.Errorf("failed write: %v, ran %q", err, g.ran)
+	}
+	for _, c := range []struct {
+		d     Device
+		xcrun string
+		want  string
+	}{
+		{Device{ID: "U", Name: "iPhone", Platform: "ios", Kind: "simulator", State: "shutdown"}, "xcrun", "conch preview boot"},
+		{Device{ID: "E", Name: "Pixel", Platform: "android", Kind: "emulator", State: "booted"}, "xcrun", "not an iOS simulator"},
+		{Device{ID: "P", Name: "Phone", Platform: "ios", Kind: "device", State: "booted"}, "xcrun", "not an iOS simulator"},
+		{ios, "", "install Xcode"},
+	} {
+		h := &fake{}
+		if err := h.tools(c.xcrun, "", "", "").Keyboard(ctx, c.d, true); err == nil || !strings.Contains(err.Error(), c.want) || len(h.ran) != 0 {
+			t.Errorf("%+v: %v, ran %q", c.d, err, h.ran)
+		}
+	}
+}

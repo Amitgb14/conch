@@ -44,6 +44,8 @@ Every key binding in the TUI, grouped by where it applies. Press `?` in conch to
 | `d` | on a saved ssh host: [duplicate it](/docs/interface#ssh-sessions) — the same name, folder and ssh options under a host of its own |
 | `d` | on an ssh session: [another session](/docs/interface#ssh-sessions) to the same host, with the same ssh options |
 | `r` | rename an agent, terminal or machine |
+| `enter` `r` | on an ended agent (`⚠ ended … · Resume`): resume it where it was |
+| `d` `x` | on an ended agent: dismiss it (its conversation stays in Sessions) |
 | `x` | close / remove (a branch: its worktree, or the branch itself once that is gone) |
 | `R` | refresh git and PRs, or reconnect a machine |
 
@@ -119,7 +121,8 @@ Other keys on tree items:
 | `a` | filter by agent |
 | `R` | reload |
 | `I` | resume all interrupted runs |
-| `x` | dismiss an interrupted run |
+| `x` | dismiss an interrupted run, or why a session's agent ended |
+| `e` | list only sessions whose agent ended or was interrupted (again: all) |
 
 ## Files
 
@@ -214,7 +217,7 @@ These follow tmux's default bindings; `ctrl+b 1` is the first tab and `0` the te
 - Click to select; click a selected folder (or its arrow) to fold. A click on a branch shows its changes; `b` or `$` opens the [git window](/docs/interface#git-panel) over them.
 - Double-click to open.
 - With `[ui] hover` on (Settings → Theme), the row or tab under the pointer is tinted before you click it, a link in a pane is underlined while alt or ctrl is held, and in Ghostty or kitty the pointer becomes a hand over it. It asks the terminal to report every pointer move rather than only drags — a message per cell crossed — so it is off until asked for, and a program in a pane still receives only the mouse it asked for.
-- Right-click for a context menu. On an agent's pane it holds **Prompt…**, which sends that agent its next message and tells you when the work it started ends (see [Agents working together](/docs/agents-together)).
+- Right-click for a context menu. On an agent's pane it holds **Prompt…**, which sends that agent its next message and tells you when the work it started ends (see [Agents working together](/docs/agents-together)), and **Switch Agent ▸**, which carries its conversation to another agent in the same pane (see [Switching agents](/docs/switching)). When an agent is out of plan on every account, a card offers another agent: enter continues in it, `w` waits for the reset, `c` chooses another, and each is a button to click.
 - A row's menu also holds **Actions…** when you have configured any: your own commands from `config.toml`, run in that row's checkout on that row's machine. See [`[[actions]]`](/docs/configuration#actions).
 - Wheel to scroll; over a pane, the wheel scrolls back through its history.
 - Drag the sidebar's edge to resize, or a border between splits.

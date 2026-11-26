@@ -1026,7 +1026,7 @@ final class SettingsWindow {
                              styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
             w.title = "conch Settings"
             w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look, store: model.store))
+            w.contentView = NSHostingView(rootView: SettingsView(model: model, look: model.store.look, store: model.store).noFocusRings())
             look = model.store.look.$theme.sink { [weak w] t in
                 w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
                 w?.backgroundColor = Theme.ns(t.chrome)

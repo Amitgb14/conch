@@ -210,6 +210,28 @@ func (b *tokenBook) dropPane(pane string) {
 	}
 }
 
+// dropPaneExcept ends a pane's tokens but keep, or only drop when drop is
+// set: a pane whose program was replaced keeps the new program's token
+// alone, and one whose new program failed to start loses only the token
+// made for it.
+func (b *tokenBook) dropPaneExcept(pane, keep, drop string) {
+	_, _, keepID, _, _ := parseToken(keep)
+	_, _, dropID, _, _ := parseToken(drop)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	changed := false
+	for id, t := range b.byID {
+		if t.Level != proto.TokenPane || t.Pane != pane || (keep != "" && id == keepID) || (drop != "" && id != dropID) {
+			continue
+		}
+		delete(b.byID, id)
+		changed = true
+	}
+	if changed {
+		b.saveLocked()
+	}
+}
+
 // keepPanes drops the pane tokens of panes that are not alive: after a
 // restart nothing is, and after a reload only what was adopted. Pane ids
 // start again from p1 after a restart, so a token left behind would
@@ -449,7 +471,7 @@ var tokenReads = map[string]bool{
 	proto.MethodBranchCILog: true, proto.MethodAutopilotActivity: true, proto.MethodCIStats: true, proto.MethodBranchRebased: true,
 	proto.MethodIntegrationDetect: true, proto.MethodBranchPreviews: true, proto.MethodBranchDeployLog: true,
 	proto.MethodWorktreeStale: true, proto.MethodBranchStale: true, proto.MethodWorktreeDescribe: true,
-	proto.MethodSystemStats: true, proto.MethodAccountList: true, proto.MethodAccountSuggest: true,
+	proto.MethodSystemStats: true, proto.MethodAccountList: true, proto.MethodAccountSuggest: true, proto.MethodPaneEndedList: true,
 }
 
 // tokenPrompts send to an agent: what a person replying to it does.
@@ -462,6 +484,7 @@ var tokenPrompts = map[string]bool{
 var tokenDrives = map[string]bool{
 	proto.MethodPaneCreate: true, proto.MethodTaskCreate: true, proto.MethodSessionResume: true,
 	proto.MethodPaneClose: true, proto.MethodAgentInterrupt: true, proto.MethodWorktreeAdd: true,
+	proto.MethodAgentSwitch: true, proto.MethodAgentSwitchCancel: true,
 }
 
 // tokenUnlimited are the methods only a full token limited to no project

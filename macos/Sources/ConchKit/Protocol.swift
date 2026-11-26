@@ -152,10 +152,14 @@ public struct PaneInfo: Decodable, Identifiable, Equatable, Sendable {
     public var movedFrom: String?
     public var replaces: String?
     public var listening: [Int]?
+    /// The agent its conversation was switched from, and what crossed
+    /// (agent.switch.v1), for the banner with Switch back.
+    public var switchedFrom: SwitchOrigin?
 
     enum CodingKeys: String, CodingKey {
         case id, name, cwd, cols, rows, state, agent, title, branch, alert, pid, command, created, monitor, listening, team, account, replaces
         case movedFrom = "moved_from"
+        case switchedFrom = "switched_from"
         case exitCode = "exit_code"
         case customName = "custom_name"
         case projectID = "project_id"

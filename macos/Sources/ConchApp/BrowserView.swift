@@ -53,6 +53,7 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         let configuration = given ?? Self.configuration(private: p)
         prepareContent(configuration, private: p, sink: sink, noImages: develop.disableImages)
         allowWebInspector(configuration) // here, so a window a page opened has it too
+        configuration.applicationNameForUserAgent = BrowserShared.applicationName // Safari's words, so sites see a browser
         web = FocusingWebView(frame: .zero, configuration: configuration)
         web.customUserAgent = develop.responsive?.userAgent
         web.allowsBackForwardNavigationGestures = true

@@ -48,6 +48,42 @@ import Testing
     #expect(previewChoice([], chosen: "A") == nil)
 }
 
+// ▶ Run (Expo, or a build) started a simulator other than the one the
+// tab was showing: the tab goes to it, or the app is never seen.
+@Test func previewFollowsASimulatorThatStarted() {
+    func d(_ id: String, _ state: String) -> MobileDevice { MobileDevice(id: id, name: id, platform: "ios", state: state) }
+    let before = [d("A", "shutdown"), d("B", "shutdown"), d("C", "booted")]
+    // Picked A (shut down); B starts: shown.
+    #expect(previewFollow(old: before, new: [d("A", "shutdown"), d("B", "booted"), d("C", "booted")], chosen: "A") == "B")
+    // Showing C (running); B starts: shown too — it is where the app went.
+    #expect(previewFollow(old: before, new: [d("A", "shutdown"), d("B", "booted"), d("C", "booted")], chosen: nil) == "B")
+    // Nothing started: the pick stands, whatever it is.
+    #expect(previewFollow(old: before, new: before, chosen: "A") == "A")
+    #expect(previewFollow(old: before, new: before, chosen: nil) == nil)
+    // The one picked is the one that started: nothing changes.
+    #expect(previewFollow(old: before, new: [d("A", "booted"), d("B", "shutdown"), d("C", "booted")], chosen: "A") == "A")
+    // C shut down: not a start, the pick stands.
+    #expect(previewFollow(old: before, new: [d("A", "shutdown"), d("B", "shutdown"), d("C", "shutdown")], chosen: "C") == "C")
+    // The first listing is not a start: everything running was before.
+    #expect(previewFollow(old: [], new: before, chosen: "A") == "A")
+    // A simulator new to the list and running (made by a build) counts.
+    #expect(previewFollow(old: before, new: before + [d("N", "booted")], chosen: "A") == "N")
+    // Two start at once: the first listed.
+    #expect(previewFollow(old: before, new: [d("A", "booted"), d("B", "booted"), d("C", "booted")], chosen: "C") == "A")
+}
+
+/// The list beside the phone: running ones, then the rest, and how many
+/// are running, for "Shut Down All".
+@Test func previewListGroups() {
+    let a = MobileDevice(id: "A", name: "iPhone SE", platform: "ios", os: "iOS 18.2", state: "shutdown")
+    let b = MobileDevice(id: "B", name: "iPhone 16", platform: "ios", os: "iOS 18.2", state: "booted")
+    let c = MobileDevice(id: "C", name: "iPad", platform: "ios", os: "iOS 17.0", state: "creating")
+    let g = previewListGroups([a, b, c])
+    #expect(g.running.map(\.id) == ["B"])
+    #expect(g.other.map(\.id) == ["A", "C"])
+    #expect(previewListGroups([]).running.isEmpty && previewListGroups([]).other.isEmpty)
+}
+
 @Test func aspectFitLetterboxes() {
     // A tall phone in a wide box: bars left and right.
     let r = aspectFit(CGSize(width: 1000, height: 2000), in: CGSize(width: 400, height: 400))
@@ -202,4 +238,154 @@ import Testing
     #expect(previewRunCommand(kind: "xcode", device: d, conch: "/Users/a b/conch") == "'/Users/a b/conch' preview run -device U-1")
     #expect(previewRunCommand(kind: "", device: d) == nil)
     #expect(previewRunCommand(kind: "android", device: d) == nil)
+}
+
+// The buttons beside the phone are conch preview button's names, which
+// the command refuses otherwise; back is Android's and not shown.
+@Test func previewHardwareButtons() {
+    #expect(previewButtons.map(\.name) == ["home", "lock", "side"])
+    #expect(Set(previewButtons.map(\.symbol)).count == 3)
+    #expect(previewButtons.allSatisfy { !$0.help.isEmpty })
+    #expect(previewButtons.filter(\.folds).map(\.name) == ["lock", "side"])
+}
+
+private let runProject = ProjectInfo(id: "r1", name: "app", path: "/w/app", worktrees: [
+    WorktreeInfo(path: "/w/app", branch: "master", main: true),
+    WorktreeInfo(path: "/w/app.wt/beta", branch: "app/beta"),
+    WorktreeInfo(path: "/w/app.wt/fix", branch: "app/fix"),
+    WorktreeInfo(path: "/w/app.wt/fix-2", branch: nil),
+])
+private let runKinds = ["/w/app": "", "/w/app.wt/beta": "xcode", "/w/app.wt/fix": "expo", "/w/app.wt/fix-2": "xcode"]
+
+@Test func previewCheckoutsHoldingTheApp() {
+    let c = previewCheckouts(runProject, kinds: runKinds)
+    #expect(c.map(\.path) == ["/w/app.wt/beta", "/w/app.wt/fix", "/w/app.wt/fix-2"])
+    #expect(c.map(\.kind) == ["xcode", "expo", "xcode"])
+    // The project's own prefix says nothing in a narrow column; a detached
+    // checkout is named by its folder.
+    #expect(c.map(\.short) == ["beta", "fix", "fix-2"])
+    #expect(c.map(\.branch) == ["app/beta", "app/fix", "fix-2"])
+    #expect(previewCheckouts(runProject, kinds: [:]).isEmpty)
+    let bare = ProjectInfo(id: "r2", name: "solo", path: "/w/solo")
+    #expect(previewCheckouts(bare, kinds: ["/w/solo": "flutter"]).map(\.branch) == ["solo"])
+    let other = ProjectInfo(id: "r3", name: "app", path: "/w/o", worktrees: [WorktreeInfo(path: "/w/o", branch: "team/app/x")])
+    #expect(previewCheckouts(other, kinds: ["/w/o": "xcode"]).map(\.short) == ["team/app/x"])
+}
+
+// ▶ built the first checkout with an app whichever agent it was beside;
+// now it builds the one named, and never guesses past an agent's own.
+@Test func previewTargetIsTheBranchSaid() {
+    func target(_ picked: String?, _ agent: String?, _ kinds: [String: String] = runKinds) -> String? {
+        previewTarget(runProject, kinds: kinds, picked: picked, agentCwd: agent)?.path
+    }
+    #expect(target(nil, nil) == "/w/app.wt/beta")                        // alone: the first
+    #expect(target("/w/app.wt/fix", nil) == "/w/app.wt/fix")              // picked
+    #expect(target(nil, "/w/app.wt/fix") == "/w/app.wt/fix")              // the agent's
+    #expect(target(nil, "/w/app.wt/fix/ios/App") == "/w/app.wt/fix")      // in a folder of it
+    #expect(target(nil, "/w/app.wt/fix-2") == "/w/app.wt/fix-2")          // not fix, by prefix
+    #expect(target("/w/app.wt/beta", "/w/app.wt/fix") == "/w/app.wt/beta") // picked over the agent's
+    #expect(target(nil, "/w/app") == nil)                                // its agent has no app: asked
+    #expect(target(nil, "") == nil)                                      // an agent of no known folder
+    #expect(target(nil, "/elsewhere") == nil)
+    #expect(target("/w/app.wt/gone", nil) == nil)                        // the pick went: not another
+    #expect(target(nil, "/w/app", ["/w/app.wt/fix": "expo"]) == "/w/app.wt/fix") // only one it can be
+    #expect(target(nil, nil, [:]) == nil)
+}
+
+@Test func checkoutHoldingAFolder() {
+    let dirs = ["/w/app", "/w/app/.worktrees/x"]
+    #expect(checkoutHolding("/w/app/src", dirs) == "/w/app")
+    #expect(checkoutHolding("/w/app/.worktrees/x/src", dirs) == "/w/app/.worktrees/x")
+    #expect(checkoutHolding("/w/app", dirs) == "/w/app")
+    #expect(checkoutHolding("/w/apple", dirs) == nil)
+    #expect(checkoutHolding("", dirs) == nil)
+    #expect(checkoutHolding("/w/app", []) == nil)
+}
+
+// Typed into a terminal somebody may have cd'd elsewhere in, the command
+// names its folder itself.
+@Test func previewRunNamesItsFolder() {
+    let d = MobileDevice(id: "U-1", name: "iPhone", platform: "ios", state: "booted")
+    #expect(previewRunCommand(kind: "xcode", device: d, dir: "/w/app") == "conch preview run -device U-1 /w/app")
+    #expect(previewRunCommand(kind: "xcode", device: nil, dir: "/w/my app") == "conch preview run '/w/my app'")
+    #expect(previewRunCommand(kind: "expo", device: d, dir: "/w/app") == "/bin/sh -c 'cd /w/app && npx expo start --ios'")
+    #expect(previewRunCommand(kind: "flutter", device: nil, dir: "/w/my app") == #"/bin/sh -c 'cd '\''/w/my app'\'' && flutter run'"#)
+    #expect(previewRunCommand(kind: "", device: d, dir: "/w/app") == nil)
+}
+
+// One project's phone can be in two agents' workbenches: the one on
+// screen says whose branch it is.
+@Test func previewTabIsTheOneOnScreen() {
+    let k = mobileKey("local", "r1")
+    var l = Layout()
+    #expect(l.previewTab(k) == nil)
+    var a = Tab(pane: k), b = Tab(pane: k)
+    a.benchAgent = "local|p1"
+    b.benchAgent = "local|p2"
+    l.tabs = [a, b, Tab(pane: "local|p9")]
+    l.active = 1
+    #expect(l.previewTab(k)?.benchAgent == "local|p2")
+    l.active = 2
+    #expect(l.previewTab(k)?.benchAgent == "local|p1")
+}
+
+// The keyboard is asked for once a boot: again after a shutdown, and not
+// with every screenshot.
+@Test func previewKeyboardOnceABoot() {
+    func d(_ id: String, _ state: String) -> MobileDevice { MobileDevice(id: id, name: id, platform: "ios", state: state) }
+    #expect(previewStillBooted(["A", "B"], [d("A", "booted"), d("B", "shutdown")]) == ["A"])
+    #expect(previewStillBooted(["A"], []) == [])
+    #expect(previewStillBooted([], [d("A", "booted")]) == [])
+}
+
+// ▶ Run's word in the status bar, from the click to how it ended.
+@Test func previewRunIsSaidUntilItEnds() {
+    func says(_ step: String?, failed: String? = nil, error: String? = nil, device: String? = "iPhone 12 mini",
+              alive: Bool = true, waited: TimeInterval = 1) -> PreviewRunSays {
+        let r = step.map { PreviewRunReport(pid: 42, step: $0, device: device, failed: failed, error: error) }
+        return previewRunSays(r, branch: "beta", alive: alive, waited: waited)
+    }
+    #expect(says(nil) == .busy("Running beta"))
+    #expect(says("") == .busy("Running beta"))
+    #expect(says("starting") == .busy("Starting iPhone 12 mini for beta"))
+    #expect(says("building", waited: 600) == .busy("Building beta for iPhone 12 mini"))
+    #expect(says("installing") == .busy("Installing beta on iPhone 12 mini"))
+    #expect(says("opening") == .busy("Opening beta on iPhone 12 mini"))
+    #expect(says("a later conch's step") == .busy("Running beta"))
+    #expect(says("building", device: nil) == .busy("Building beta for the simulator"))
+    // It writes its last word and exits, so that wins over being gone.
+    #expect(says("open", alive: false) == .over("beta is open on iPhone 12 mini", .ok))
+    #expect(says("failed", failed: "building", error: "exit status 65", alive: false)
+        == .over("Building beta failed: the errors are in its terminal", .err))
+    #expect(says("failed", failed: "installing", error: "no room\nmore lines")
+        == .over("Running beta failed: no room", .err))
+    #expect(says("failed", error: "") == .over("Running beta failed: see its terminal", .err))
+    // Ctrl-C, or its terminal closed.
+    #expect(says("building", alive: false) == .over("Running beta stopped before it finished", .err))
+    // Typed at a terminal that was busy with something else.
+    #expect(says(nil, waited: previewRunStartLimit - 0.1) == .busy("Running beta"))
+    #expect(says(nil, waited: previewRunStartLimit) == .over("beta hasn't started: its terminal may be busy", .err))
+    #expect(says("building", waited: previewRunLimit) == .over("Running beta is taking too long: see its terminal", .err))
+}
+
+@Test func previewRunReportsDecode() throws {
+    let r = try JSONDecoder().decode(PreviewRunReport.self, from: Data(#"{"pid":7,"step":"building","device":"iPhone"}"#.utf8))
+    #expect(r == PreviewRunReport(pid: 7, step: "building", device: "iPhone"))
+    let first = try JSONDecoder().decode(PreviewRunReport.self, from: Data(#"{"pid":7}"#.utf8))
+    #expect(first == PreviewRunReport(pid: 7))
+    for bad in ["", "{\"pid\":", "{}"] {
+        #expect((try? JSONDecoder().decode(PreviewRunReport.self, from: Data(bad.utf8))) == nil, "\(bad)")
+    }
+}
+
+// Only conch preview run reports: a dev server never ends.
+@Test func previewRunCommandWithStatus() {
+    let d = MobileDevice(id: "U1", name: "iPhone", platform: "ios", state: "booted")
+    #expect(previewReported("xcode"))
+    for k in ["expo", "react-native", "flutter", ""] { #expect(!previewReported(k), "\(k)") }
+    #expect(previewRunCommand(kind: "xcode", device: d, status: "/t mp/run.json")
+        == "conch preview run -device U1 -status '/t mp/run.json'")
+    #expect(previewRunCommand(kind: "xcode", device: d, status: "/r.json", dir: "/w")
+        == "conch preview run -device U1 -status /r.json /w")
+    #expect(previewRunCommand(kind: "flutter", device: d, status: "/r.json") == "flutter run -d U1")
 }

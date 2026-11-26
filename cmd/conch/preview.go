@@ -23,7 +23,7 @@ import (
 // It is this computer's alone: the phones run where Xcode and the Android
 // SDK are, and no server is asked.
 
-const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back | run [-device D] [-scheme S] [DIR] | detect [DIR...]"
+const previewUsage = "usage: conch preview devices [-json] | boot DEVICE | shutdown DEVICE|-all | delete DEVICE | shot [-device D] [-o FILE] | tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side | keyboard [-device D] show|hide | run [-device D] [-scheme S] [-status FILE] [DIR] | detect [DIR...]"
 
 // previewTools is how the command finds the platforms' programs; a test
 // gives its own.
@@ -91,6 +91,56 @@ func runPreview(args []string) error {
 		}
 		fmt.Fprintf(previewOut, "%s is starting\n", d.Name)
 		return nil
+	case "shutdown", "stop":
+		if len(rest) != 1 {
+			return errors.New("usage: conch preview shutdown DEVICE|-all")
+		}
+		if rest[0] == "-all" {
+			t := previewTools()
+			devs, _, err := t.Devices(ctx)
+			if err != nil {
+				return err
+			}
+			var errs []error
+			for _, d := range devs {
+				if !d.Booted() || d.Kind == "device" {
+					continue
+				}
+				if err := t.Shutdown(ctx, d); err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				fmt.Fprintf(previewOut, "%s is shut down\n", d.Name)
+			}
+			return errors.Join(errs...)
+		}
+		t, d, err := previewDevice(ctx, rest[0], true)
+		if err != nil {
+			return err
+		}
+		if err := t.Shutdown(ctx, d); err != nil {
+			return err
+		}
+		fmt.Fprintf(previewOut, "%s is shut down\n", d.Name)
+		return nil
+	case "delete", "rm":
+		if len(rest) != 1 {
+			return errors.New("usage: conch preview delete DEVICE")
+		}
+		t := previewTools()
+		devs, _, err := t.Devices(ctx)
+		if err != nil {
+			return err
+		}
+		d, err := previewOnly(devs, rest[0])
+		if err != nil {
+			return err
+		}
+		if err := t.Delete(ctx, d); err != nil {
+			return err
+		}
+		fmt.Fprintf(previewOut, "%s is deleted\n", d.Name)
+		return nil
 	case "shot", "screenshot":
 		fs := flag.NewFlagSet("preview shot", flag.ContinueOnError)
 		dev := fs.String("device", "", "the device, by ID or name (default: the one running)")
@@ -151,49 +201,22 @@ func runPreview(args []string) error {
 			return err
 		}
 		return t.Type(ctx, d, strings.Join(fs.Args(), " "))
-	case "run":
-		fs := flag.NewFlagSet("preview run", flag.ContinueOnError)
+	case "keyboard":
+		fs := flag.NewFlagSet("preview keyboard", flag.ContinueOnError)
 		dev := fs.String("device", "", "the simulator, by ID or name (default: the one running)")
-		scheme := fs.String("scheme", "", "the scheme to build (default: the project's own)")
 		if err := fs.Parse(rest); err != nil {
 			return err
 		}
-		if fs.NArg() > 1 {
-			return errors.New("usage: conch preview run [-device D] [-scheme S] [DIR]")
+		if fs.NArg() != 1 || (fs.Arg(0) != "show" && fs.Arg(0) != "hide") {
+			return errors.New("usage: conch preview keyboard [-device D] show|hide")
 		}
-		dir := "."
-		if fs.NArg() == 1 {
-			dir = fs.Arg(0)
-		}
-		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-			return fmt.Errorf("%s is not a folder", dir)
-		}
-		if abs, err := filepath.Abs(dir); err == nil {
-			dir = abs
-		}
-		if p := preview.Detect(dir); p.Kind != "xcode" {
-			what := "no mobile app conch knows"
-			if p.Label != "" {
-				what = "a " + p.Label + " app"
-			}
-			if p.Dev != "" {
-				what += "; its own " + p.Dev + " runs it"
-			}
-			return fmt.Errorf("conch preview run builds Xcode projects, and %s holds %s", dir, what)
-		}
-		// A build takes minutes, not the two the other subcommands get.
-		bctx, bcancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer bcancel()
-		t, d, err := previewDevice(bctx, *dev, false)
+		t, d, err := previewDevice(ctx, *dev, false)
 		if err != nil {
 			return err
 		}
-		app, err := t.XcodeRun(bctx, dir, d, *scheme, previewOut)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(previewOut, "conch: %s (%s) is open on %s\n", app.Scheme, app.BundleID, d.Name)
-		return nil
+		return t.Keyboard(ctx, d, fs.Arg(0) == "show")
+	case "run":
+		return previewRun(rest)
 	case "button":
 		fs := flag.NewFlagSet("preview button", flag.ContinueOnError)
 		dev := fs.String("device", "", "the device, by ID or name")
@@ -229,6 +252,32 @@ func previewDevice(ctx context.Context, want string, named bool) (*preview.Tools
 		err = fmt.Errorf("%w (%s)", err, strings.Join(notes, "; "))
 	}
 	return t, d, err
+}
+
+// previewOnly is the one device want names, for what cannot be undone:
+// by ID, or by a name no other device has — Pick would take the running
+// one of several, which is a guess nobody should have deleted for them.
+func previewOnly(devs []preview.Device, want string) (preview.Device, error) {
+	var found []preview.Device
+	for _, d := range devs {
+		if d.ID == want {
+			return d, nil
+		}
+		if strings.EqualFold(d.Name, want) {
+			found = append(found, d)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return preview.Device{}, fmt.Errorf("no device %q (conch preview devices lists them)", want)
+	case 1:
+		return found[0], nil
+	}
+	ids := make([]string, len(found))
+	for i, d := range found {
+		ids[i] = d.ID + " (" + d.OS + ")"
+	}
+	return preview.Device{}, fmt.Errorf("%d devices are named %q; name one by its ID: %s", len(found), want, strings.Join(ids, ", "))
 }
 
 func previewDevices(ctx context.Context, args []string) error {
@@ -271,5 +320,102 @@ func previewDevices(ctx context.Context, args []string) error {
 	for _, n := range notes {
 		fmt.Fprintln(os.Stderr, "conch:", n)
 	}
+	return nil
+}
+
+// How a run ends in its status file; until then Step is one of the
+// preview package's.
+const (
+	previewRunOpen   = "open"
+	previewRunFailed = "failed"
+)
+
+// previewRunStatus is what conch preview run -status writes for whoever
+// pressed Run and is not looking at its terminal: Conch.app's status bar.
+type previewRunStatus struct {
+	// PID says whether the run is still there to write the next step.
+	PID    int    `json:"pid"`
+	Step   string `json:"step,omitempty"`
+	Device string `json:"device,omitempty"`
+	// Failed is the step it failed at, "" before the first.
+	Failed string `json:"failed,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// write replaces the file whole, so a reader never meets half of one. A
+// status that cannot be written is no reason to stop a build.
+func (s previewRunStatus) write(path string) {
+	if path == "" {
+		return
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, b, 0o600) == nil {
+		_ = os.Rename(tmp, path)
+	}
+}
+
+// previewRun builds an Xcode project's app and opens it on a simulator.
+func previewRun(args []string) (err error) {
+	fs := flag.NewFlagSet("preview run", flag.ContinueOnError)
+	dev := fs.String("device", "", "the simulator, by ID or name (default: the one running)")
+	scheme := fs.String("scheme", "", "the scheme to build (default: the project's own)")
+	status := fs.String("status", "", "a file kept saying which step it is at and how it ended, as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st := previewRunStatus{PID: os.Getpid()}
+	st.write(*status)
+	defer func() {
+		if err != nil {
+			st.Step, st.Failed, st.Error = previewRunFailed, st.Step, err.Error()
+		} else {
+			st.Step = previewRunOpen
+		}
+		st.write(*status)
+	}()
+	if fs.NArg() > 1 {
+		return errors.New("usage: conch preview run [-device D] [-scheme S] [-status FILE] [DIR]")
+	}
+	dir := "."
+	if fs.NArg() == 1 {
+		dir = fs.Arg(0)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return fmt.Errorf("%s is not a folder", dir)
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if p := preview.Detect(dir); p.Kind != "xcode" {
+		what := "no mobile app conch knows"
+		if p.Label != "" {
+			what = "a " + p.Label + " app"
+		}
+		if p.Dev != "" {
+			what += "; its own " + p.Dev + " runs it"
+		}
+		return fmt.Errorf("conch preview run builds Xcode projects, and %s holds %s", dir, what)
+	}
+	// A build takes minutes, not the two the other subcommands get.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	t, d, err := previewDevice(ctx, *dev, false)
+	if err != nil {
+		return err
+	}
+	st.Device = d.Name
+	t.Step = func(step string) {
+		st.Step = step
+		st.write(*status)
+	}
+	app, err := t.XcodeRun(ctx, dir, d, *scheme, previewOut)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(previewOut, "conch: %s (%s) is open on %s\n", app.Scheme, app.BundleID, d.Name)
 	return nil
 }

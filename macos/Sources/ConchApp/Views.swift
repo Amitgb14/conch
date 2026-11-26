@@ -387,7 +387,7 @@ struct WorkspacesControl: View {
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
-    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+    var body: some View { content.environment(\.conchTheme, store.themeLook).noFocusRings() }
 
     @ViewBuilder var content: some View {
         if let p = store.projectScope { projectLabel(p) } else { switcher }
@@ -508,7 +508,7 @@ struct SearchField: View {
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
-    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+    var body: some View { content.environment(\.conchTheme, store.themeLook).noFocusRings() }
 
     @ViewBuilder var content: some View {
         Button { store.paletteOpen = true } label: {
@@ -533,7 +533,7 @@ struct Counts: View {
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
-    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+    var body: some View { content.environment(\.conchTheme, store.themeLook).noFocusRings() }
 
     /// Waiting, done and to review, always there — quieter at nothing, so the
     /// corner says "nothing needs you" rather than looking unfinished. Each
@@ -775,6 +775,7 @@ struct MainView: View {
         .background { GeometryReader { g in Color.clear.onAppear { size = g.size }.onChange(of: g.size) { size = $0 } } }
         .sheet(item: $store.taskDraft) { d in TaskSheet(store: store, draft: d) }
         .sheet(item: $store.moveAsk) { a in MoveAgentSheet(store: store, ask: a) }
+        .sheet(item: $store.switchPick) { p in SwitchPickSheet(store: store, pick: p) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id, cloud: t.cloud) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id, cloud: t.cloud, pick: t.pick) }
@@ -1062,7 +1063,10 @@ struct NodeView: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(cursor ? (Theme.ink ? Theme.spot : Theme.accent) : .clear, lineWidth: Theme.ink ? 2 : 1))
         .contentShape(Rectangle())
         .id(node.id)
-        .onHover { hovering = $0 }
+        .onHover { over in
+            hovering = over
+            if over { store.prepareMenu(for: node) }
+        }
         .onTapGesture { activateRow() }
         // A click is a tap gesture, which accessibility cannot see: the row
         // is a button to VoiceOver and the rest, pressed as a click is.
@@ -1365,7 +1369,7 @@ struct RowButtonsView: View {
     var body: some View {
         HStack(spacing: 1) {
             if let p = buttons.primary, !p.children.isEmpty {
-                Menu { RowMenuItems(store: store, node: node, items: p.children) } label: { glyph(buttons.primaryIcon) }
+                Menu { RowMenuItems(store: store, node: node, items: p.children, startable: node.machine.map { store.startable(on: $0) } ?? []) } label: { glyph(buttons.primaryIcon) }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
                     .help(p.title + "…")
                     .accessibilityLabel(p.title)
@@ -1376,7 +1380,7 @@ struct RowButtonsView: View {
                     .accessibilityLabel(p.title)
             }
             if !buttons.tasks.isEmpty {
-                Menu { RowMenuItems(store: store, node: node, items: buttons.tasks) } label: { glyph("bot") }
+                Menu { RowMenuItems(store: store, node: node, items: buttons.tasks, startable: node.machine.map { store.startable(on: $0) } ?? []) } label: { glyph("bot") }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
                     .help("New Task in a Project")
                     .accessibilityLabel("New Task in a Project")
@@ -1478,27 +1482,48 @@ struct RowMenu: View {
     @ObservedObject var store: Store
     let node: TreeNode
 
-    var body: some View { RowMenuItems(store: store, node: node, items: store.menu(for: node)) }
+    var body: some View {
+        // Equatable, so the store's every change — a frame, an agent's
+        // state — redraws an open menu only when what it says has changed:
+        // redrawing it each time made its open submenus flicker.
+        RowMenuItems(store: store, node: node, items: store.menu(for: node),
+                     startable: node.machine.map { store.startable(on: $0) } ?? [])
+            .equatable()
+    }
 }
 
 /// A menu's items, a submenu for one that has its own.
-struct RowMenuItems: View {
-    @ObservedObject var store: Store
+struct RowMenuItems: View, Equatable {
+    // Not observed: RowMenu is, and hands down what the items show.
+    let store: Store
     let node: TreeNode
     let items: [RowMenuItem]
+    let startable: [AgentAvailability]
+
+    nonisolated static func == (a: RowMenuItems, b: RowMenuItems) -> Bool {
+        a.node.id == b.node.id && a.items == b.items && a.startable == b.startable
+    }
 
     var body: some View {
         ForEach(Array(items.enumerated()), id: \.offset) { _, it in
             if !it.children.isEmpty {
-                Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children) }
+                Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children, startable: startable) }
             } else if it.action == .divider {
                 Divider()
-            } else if it.picksAgent, let m = node.machine {
+            } else if it.action == .disabled {
+                if let a = it.agent {
+                    AgentMenuButton(agent: a, title: it.title) {}.disabled(true)
+                } else {
+                    Button(it.title) {}.disabled(true)
+                }
+            } else if it.picksAgent {
                 Menu(it.title) {
-                    ForEach(store.startable(on: m), id: \.name) { a in
+                    ForEach(startable, id: \.name) { a in
                         AgentMenuButton(agent: a.name, title: a.title) { store.perform(it.action, on: node, agent: a.name) }
                     }
                 }
+            } else if let a = it.agent {
+                AgentMenuButton(agent: a, title: it.title) { store.perform(it.action, on: node) }
             } else {
                 Button(it.title) { store.perform(it.action, on: node) }
             }
@@ -2239,6 +2264,10 @@ struct PaneCard: View {
             if let q = store.questions[pane], !q.choices.isEmpty {
                 AnswerStrip(store: store, pane: pane, question: q)
             }
+            // Where its conversation came from, after a switch.
+            if let text = store.switchBannerText(pane) {
+                SwitchBannerView(store: store, pane: pane, text: text)
+            }
             TerminalHost(terminal: terminal, paneSize: p.flatMap { i in i.cols.flatMap { c in i.rows.map { CellSize(cols: c, rows: $0) } } })
                 .overlay(alignment: .topTrailing) {
                     if store.find?.pane == pane { FindBar(store: store, terminal: terminal).padding(8) }
@@ -2250,6 +2279,10 @@ struct PaneCard: View {
                     if terminal.linesBelow > 0, terminal.letterbox == nil {
                         LinesBelow(count: terminal.linesBelow) { terminal.scrollToBottom() }.padding(.bottom, 12)
                     }
+                }
+                .overlay(alignment: .bottom) {
+                    if let ask = store.switchCard, ask.pane == pane { SwitchCardView(store: store, ask: ask) }
+                    if let offer = store.limitCard, offer.pane == pane { LimitCardView(store: store, card: offer) }
                 }
         }
         // As far as [app] background_through lets the scene in: solid
@@ -2469,7 +2502,8 @@ struct StatusBar: View {
                     .lineLimit(1).truncationMode(.tail)
                     .onTapGesture { store.dismissFlash() }
                     .help(f.text)
-            } else {
+            } else if store.jobs.isEmpty {
+                // A job has the keys' place: its words can be long.
                 HStack(spacing: 12) {
                     ForEach(inPane ? Self.paneKeys : Self.treeKeys, id: \.0) { key, what in
                         HStack(spacing: 5) {
@@ -2484,9 +2518,9 @@ struct StatusBar: View {
             if let j = jobSummary(store.jobs.map(\.what)) {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text(j).foregroundStyle(Theme.text2).lineLimit(1)
+                    Text(j).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
                 }
-                .fixedSize()
+                .help(j)
             }
             Spacer()
             // The plan the agents run on, as the TUI's status bar shows it;

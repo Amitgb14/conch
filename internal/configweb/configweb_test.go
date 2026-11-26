@@ -968,3 +968,30 @@ func TestPhoneSectionTitle(t *testing.T) {
 	}
 	t.Fatal("no phone section")
 }
+
+// When out of plan offers Ask, each agent and Wait, Ask first: a config
+// that never set it asks.
+func TestWhenOutOfPlan(t *testing.T) {
+	var f *Field
+	for _, sec := range Schema(Choices{}) {
+		for i := range sec.Fields {
+			if sec.Key == "agents" && sec.Fields[i].Key == "switch_at_limit" {
+				f = &sec.Fields[i]
+			}
+		}
+	}
+	if f == nil || f.Kind != KindSelect || len(f.Options) < 3 {
+		t.Fatalf("switch_at_limit: %+v", f)
+	}
+	first, last := f.Options[0], f.Options[len(f.Options)-1]
+	if first.Value != "" || first.Label != "Ask" || last.Value != "wait" {
+		t.Fatalf("options: %+v", f.Options)
+	}
+	found := false
+	for _, o := range f.Options {
+		found = found || (o.Value == "codex" && o.Label == "Continue in codex")
+	}
+	if !found {
+		t.Fatalf("no Codex in %+v", f.Options)
+	}
+}

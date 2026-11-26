@@ -68,7 +68,8 @@ func (m Model) inner(r rect) rect {
 
 func (m *Model) focusedRect() rect {
 	rects, _ := m.leafRects()
-	return m.inner(rects[m.tab().focused().id])
+	f := m.tab().focused()
+	return m.leafInner(f, rects[f.id])
 }
 
 // paneArea is the size of the focused leaf's content.
@@ -132,13 +133,13 @@ func (m *Model) syncView() tea.Cmd {
 		if !shown || v.Kind != kindPane || mach == nil || mach.c == nil {
 			continue
 		}
-		if m.isOwnPane(v.Machine, v.PaneID) {
-			continue // ours: never resized, never subscribed to
+		if m.isOwnPane(v.Machine, v.PaneID) || strings.HasPrefix(v.PaneID, endedPrefix) {
+			continue // ours, or an ended agent's record: never resized, never subscribed to
 		}
 		key := paneKey(v.Machine, v.PaneID)
 		want[key] = true
 		if p := mach.pane(v.PaneID); p != nil && p.State == proto.PaneRunning && m.width > 0 {
-			in := m.inner(r)
+			in := m.leafInner(l, r)
 			want, at := [2]int{in.w, in.h}, [2]int{p.Cols, p.Rows}
 			// Resize when the pane is not the size this layout wants —
 			// not when it differs from what this TUI last asked for.

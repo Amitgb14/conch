@@ -73,6 +73,27 @@ func (m Model) statusHints() (chip string, items []statusItem) {
 	toTree := func(m *Model) tea.Cmd { m.focus, m.prefixArmed = focusSidebar, false; return nil }
 	scrollMode := func(m *Model) tea.Cmd { m.enterScrollMode(); return nil }
 	switch {
+	case m.switchCardUp():
+		c := m.overlay.(*switchCard)
+		chip = styleChip.Background(colorAccent).Render("SWITCH")
+		switch c.state {
+		case switchCounting:
+			items = []statusItem{action("enter", "switch now", c.switchNow), action("c", "choose another agent", c.choose),
+				action("esc", "cancel", c.cancel)}
+		case switchFailed:
+			items = []statusItem{action("enter", "close", c.cancel), action("c", "choose another agent", c.choose)}
+		default:
+			items = []statusItem{action("esc", "call it off", c.cancel)}
+		}
+	case m.limitCardUp():
+		c := m.overlay.(*limitCard)
+		chip = styleChip.Background(colorWarn).Render("OUT OF PLAN")
+		if c.offer.Auto {
+			items = []statusItem{action("enter", "continue now", c.carryOn), action("esc", "cancel", c.wait), action("c", "choose", c.choose)}
+		} else {
+			items = []statusItem{action("enter", "continue in "+strings.ToLower(agentLabel(c.offer.To)), c.carryOn), action("w", "wait", c.wait),
+				action("c", "choose", c.choose)}
+		}
 	case m.prefixArmed:
 		chip = styleChip.Background(colorWarn).Render("PREFIX")
 		// The way back first: the bar keeps only its first few hints when

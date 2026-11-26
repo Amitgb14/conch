@@ -213,6 +213,7 @@ struct ProjectIntegrationsView: View {
         .padding(18)
         .frame(minWidth: 620, minHeight: 360, alignment: .top)
         .background(Theme.window)
+        .noFocusRings()
         .alert(model.asking ?? "", isPresented: Binding(get: { model.asking != nil }, set: { if !$0 { model.asking = nil } })) {
             Button("Use It") { model.team("use"); model.asking = nil }
             Button("Not Now", role: .cancel) { model.team("ignore"); model.asking = nil }

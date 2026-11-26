@@ -105,6 +105,9 @@ type entry struct {
 	// (accountmove.go). Both guarded by mu.
 	movedFrom string
 	replaces  string
+	// switchedFrom is the agent and session its conversation was switched
+	// from (switch.go), guarded by mu.
+	switchedFrom *proto.SwitchOrigin
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {
@@ -128,6 +131,10 @@ func (e *entry) info() proto.PaneInfo {
 	info.Account = e.account
 	info.Team = e.team
 	info.MovedFrom, info.Replaces = e.movedFrom, e.replaces
+	if e.switchedFrom != nil {
+		sf := *e.switchedFrom
+		info.SwitchedFrom = &sf
+	}
 	turns := e.turns
 	subs := append([]proto.Subagent(nil), e.subagents.list...)
 	for i := range subs {
@@ -198,7 +205,9 @@ func (s *Server) watch(e *entry) {
 				select {
 				case <-s.quit: // stopping the server: keep the run to offer resuming
 				default:
-					s.runs.forget(info.ID)
+					if run, ok := s.runs.forget(info.ID); ok {
+						s.agentEnded(e, info, run)
+					}
 				}
 				log.Printf("pane %s exited with code %d", info.ID, info.ExitCode)
 				s.launchFailed(e, info)
@@ -647,7 +656,7 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	for i, ad := range s.adapters {
 		av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
-			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name())}
+			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name()), SwitchTo: switchTo(ad)}
 		if av.Installed && av.Name == "antigravity" {
 			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))
 		}

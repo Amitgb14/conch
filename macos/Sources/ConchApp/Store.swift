@@ -82,8 +82,22 @@ final class Store: ObservableObject {
     /// Each machine's agents' accounts ranked for a move (account.suggest),
     /// by "machine|agent".
     @Published var accountRanks: [String: [AccountRank]] = [:]
+    /// When each "machine|agent"'s ranks were last asked for; not
+    /// published, since nothing is drawn from it.
+    var ranksAsked: [String: Date] = [:]
     /// The move asked for by hand, while its sheet is up.
     @Published var moveAsk: MoveAsk?
+    /// The agent switch being decided, while its card is up; the switches
+    /// servers hold for a turn to end (agent.switching), by pane key; the
+    /// switch banners put away (switchBannerKey); and Choose… from the
+    /// card, while its sheet is up (AgentSwitch+Store.swift).
+    @Published var switchCard: SwitchAsk?
+    @Published var switchingAgents: [String: AgentSwitching] = [:]
+    @Published var bannerGone: Set<String> = []
+    @Published var switchPick: SwitchPick?
+    /// Another agent offered at a plan limit, while its card is up
+    /// (AgentSwitchLimit+Store.swift).
+    @Published var limitCard: LimitOffer?
     /// Move-back offers put off with Later, by pane key, for this session.
     @Published var backLater: Set<String> = []
     /// The task being written, while its sheet is up.
@@ -213,6 +227,16 @@ final class Store: ObservableObject {
             }
         }
     }
+    /// A job that says how far it has got: shown while what is not nil.
+    func progress(_ id: UUID, _ what: String?) {
+        guard let what else { return jobs.removeAll { $0.id == id } }
+        if let i = jobs.firstIndex(where: { $0.id == id }) {
+            if jobs[i].what != what { jobs[i].what = what }
+        } else {
+            jobs.append((id, what))
+        }
+    }
+
     /// Runs body as a long job, the status bar saying what while it runs,
     /// for a caller that waits on it and says what came of it itself.
     func running<T>(_ what: String, _ body: () async throws -> T) async throws -> T {
@@ -1192,7 +1216,7 @@ final class Store: ObservableObject {
 
     /// config.toml changed by edit, the rest of the file kept, then read
     /// back so the window takes it; what names the setting if it fails.
-    private func changeConfig(_ what: String, _ edit: (String) -> String) {
+    func changeConfig(_ what: String, _ edit: (String) -> String) {
         let toml = (try? String(contentsOfFile: configFile, encoding: .utf8)) ?? ""
         let next = edit(toml)
         guard next != toml else { return }
@@ -2021,6 +2045,15 @@ final class Store: ObservableObject {
             return
         case "agent.moved":
             if let m = try? dec.decode(AgentMoved.self, from: data) { agentMoved(m, on: machine) }
+            return
+        case "agent.switching":
+            if let s = try? dec.decode(AgentSwitching.self, from: data) { agentSwitching(s, on: machine) }
+            return
+        case "agent.switched":
+            if let r = try? dec.decode(AgentSwitchResult.self, from: data) { agentSwitched(r, on: machine) }
+            return
+        case "agent.switch.offered":
+            if let o = try? dec.decode(AgentSwitchOffer.self, from: data) { agentSwitchOffered(o, on: machine) }
             return
         default:
             return
@@ -3031,9 +3064,16 @@ final class Store: ObservableObject {
         // An agent's Switch Account ▸, where its server can move it.
         if case .agent(let k) = node.kind, let p = pane(k), p.agent?.name == "claude", p.running, canMoveAgents(on: m) {
             let ranks = accountRanks[m + "|claude"] ?? []
-            if ranks.isEmpty { loadRanks(on: m, agent: "claude") }
+            if ranks.isEmpty { loadRanks(on: m, agent: "claude", fresh: 30) }
             let at = (items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" }).map { $0 + 1 } ?? items.count
-            items.insert(switchAccountMenu(pane: k, on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
+            items.insert(switchAccountMenu(pane: k, agent: "claude", on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
+        }
+        // Its Switch Agent ▸, beside Switch Account where that is there.
+        if case .agent(let k) = node.kind, let sw = switchMenu(for: k) {
+            let at = (items.firstIndex { $0.title == "Switch Account" } ?? items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" })
+                .map { $0 + 1 } ?? items.count
+            if (agentStatus[m] ?? []).isEmpty { checkAgents(on: m) }
+            items.insert(sw, at: min(at, items.count))
         }
         // A Claude agent's Artifacts ▸: what it published, newest first.
         if case .agent(let k) = node.kind, pane(k)?.agent?.name == "claude", listsArtifacts(m) {
@@ -3128,8 +3168,13 @@ final class Store: ObservableObject {
         case .rename(let k): renamePane(k)
         case .setTeam(let k, let t): setTeam(k, t)
         case .moveAgent(let k, let acct): askMove(k, to: acct)
+        case .switchAgent(let k, let to): askSwitch(k, to: to)
+        case .cancelSwitch(let k): cancelSwitch(k)
+        case .disabled: break
         case .newTeam(let k): newTeam(k)
         case .showTogether(let keys, let name): showTogether(keys, name: name)
+        case .renameTeam(let name): renameTeam(name)
+        case .deleteTeam(let name): deleteTeam(name)
         case .prompt(let k): promptAgent(k)
         case .workbench(let k): openWorkbench(k)
         case .close(let k): closePane(k)
@@ -3624,8 +3669,13 @@ final class Store: ObservableObject {
         guard let c = conns[machine] else { return }
         Task {
             guard let a = try? await c.call("agent.status", as: AgentStatusList.self) else { return }
-            agents[machine] = (a.agents ?? []).filter(\.installed)
-            agentStatus[machine] = a.agents ?? []
+            // Only a change is published: an open row menu is drawn from
+            // these, and asks for them while it is drawn.
+            let all = a.agents ?? []
+            if agentStatus[machine] != all {
+                agents[machine] = all.filter(\.installed)
+                agentStatus[machine] = all
+            }
         }
     }
 
@@ -4083,7 +4133,7 @@ struct TaskDraft: Identifiable {
     var team = ""
 }
 
-private struct PaneRefParams: Encodable { var id: String }
+struct PaneRefParams: Encodable { var id: String }
 
 /// The theme on screen, apart from the store, so that what observes it is
 /// not redrawn by everything else the store publishes.

@@ -109,6 +109,9 @@ var scoped = map[string]scopeKind{
 	proto.MethodAgentPrompt: scopePane,
 	// Moving an agent to another account restarts it: changing that pane.
 	proto.MethodAgentMove: scopePane, proto.MethodAgentMoveCancel: scopePane,
+	// So does switching it to another agent; undoing a switch removes
+	// session files in the person's own agents' folders.
+	proto.MethodAgentSwitch: scopePane, proto.MethodAgentSwitchCancel: scopePane, proto.MethodAgentSwitchUndo: scopeHome,
 	proto.MethodAgentInterrupt: scopePane, proto.MethodAgentAttach: scopePane,
 	// Ending what an agent left running is changing that pane.
 	proto.MethodAgentBackgroundStop: scopePane,
@@ -136,6 +139,9 @@ var scoped = map[string]scopeKind{
 	// using it is shown: never an agent's, not even for its own project.
 	proto.MethodBranchRedeploy: scopeProject,
 	proto.MethodBranchPromote:  scopePerson,
+	// An ended agent may be anybody's: what it was scoped to ended with it.
+	proto.MethodPaneEndedDismiss: scopePerson,
+	proto.MethodPaneEndedResume:  scopePerson,
 
 	proto.MethodServerStop: scopeServer, proto.MethodServerReload: scopeServer,
 	// The cloud agent decides what every agent's environment is given.
@@ -456,10 +462,11 @@ var verbs = map[string]string{
 	proto.MethodPaneClose: "close", proto.MethodPaneSendText: "type into", proto.MethodPaneSendKeys: "send keys to",
 	proto.MethodPaneSendMouse: "click in", proto.MethodPaneResize: "resize", proto.MethodPaneRename: "rename", proto.MethodPaneTeam: "put in a team",
 	proto.MethodPaneMarkSeen: "mark as seen", proto.MethodPaneMonitor: "set monitoring on",
-	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentMove: "move to another account", proto.MethodAgentMoveCancel: "call off the move of", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
+	proto.MethodAgentReport: "report the state of", proto.MethodAgentPrompt: "prompt", proto.MethodAgentMove: "move to another account", proto.MethodAgentMoveCancel: "call off the move of", proto.MethodAgentSwitch: "switch to another agent", proto.MethodAgentSwitchCancel: "call off the switch of", proto.MethodAgentSwitchUndo: "undo a switch", proto.MethodAgentBackgroundStop: "stop a background job of", proto.MethodAgentInterrupt: "stop", proto.MethodAgentAttach: "attach files to",
 	proto.MethodAgentBroadcast: "send a message to", proto.MethodViewShow: "put on screen", proto.MethodSessionShare: "hand a session to",
-	proto.MethodAgentPermission: "answer a permission request for",
-	proto.MethodServerStop:      "stop", proto.MethodServerReload: "reload",
+	proto.MethodAgentPermission:  "answer a permission request for",
+	proto.MethodPaneEndedDismiss: "dismiss an ended agent", proto.MethodPaneEndedResume: "resume an ended agent",
+	proto.MethodServerStop: "stop", proto.MethodServerReload: "reload",
 	proto.MethodCloudAgentRegister: "register a cloud agent with",
 	proto.MethodProjectGitInit:     "make a git repository of",
 	proto.MethodProjectRemove:      "remove a project", proto.MethodWorktreeRemove: "remove a worktree",

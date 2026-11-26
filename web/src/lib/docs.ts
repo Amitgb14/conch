@@ -23,6 +23,7 @@ export const docs: DocSection[] = [
       { title: "Agents working together", href: "/docs/agents-together", description: "Let one agent hand work to another — a reviewer, a tester — and read what it did." },
       { title: "Skills", href: "/docs/skills", description: "conch's ten skills for agents, each with a real example of it in use." },
       { title: "Sessions", href: "/docs/sessions", description: "Resume saved conversations and interrupted runs." },
+      { title: "Switching agents", href: "/docs/switching", description: "Carry a running agent's conversation to another agent, in the same pane." },
       { title: "Remote machines", href: "/docs/remote-machines", description: "Run agents on other machines over ssh." },
       { title: "Sandboxes", href: "/docs/sandboxes", description: "Run agents in a Daytona sandbox that keeps going with your laptop closed." },
       { title: "Sandboxes for other tools", href: "/docs/sandbox-tools", description: "conch-sandbox: conch's sandboxes for herdr, the herdr app and Orca, over plain ssh." },

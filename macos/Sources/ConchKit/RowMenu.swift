@@ -14,14 +14,19 @@ public struct AgentAvailability: Decodable, Equatable, Sendable {
     /// The server reads its saved sessions; none from a server too old to
     /// say, where an agent it only runs is not read.
     public var sessions: Bool?
+    /// How a running conversation would be switched to it: SwitchWay's
+    /// native, handoff or never; none from a server that cannot switch.
+    public var switchTo: String?
 
     enum CodingKeys: String, CodingKey {
         case name, label, installed, tier, version, sessions
         case noInstaller = "no_installer"
+        case switchTo = "switch_to"
     }
 
     public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil,
-                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil) {
+                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil, switchTo: String? = nil) {
+        self.switchTo = switchTo
         self.name = name
         self.label = label
         self.installed = installed
@@ -52,6 +57,11 @@ public enum RowAction: Equatable, Sendable {
     case newTeam(pane: String)
     /// Shows panes side by side in a tab of their own, named.
     case showTogether(panes: [String], name: String)
+    /// Renames a team everywhere: config.toml's [[teams]] entry and every
+    /// agent put in it by hand.
+    case renameTeam(name: String)
+    /// Deletes a team, asking what becomes of its agents.
+    case deleteTeam(name: String)
     case prompt(pane: String)
     /// The agent's branch in one tab: its files, a terminal, its chat and
     /// its own terminal, arranged by the workbench layout.
@@ -122,6 +132,12 @@ public enum RowAction: Equatable, Sendable {
     /// An agent carried to another of its accounts (agent.move.v1): account
     /// nil lets conch choose, "default" is the agent's own.
     case moveAgent(pane: String, account: String?)
+    /// An agent's conversation switched to another agent in the same pane
+    /// (agent.switch.v1), after the card; and a waiting switch called off.
+    case switchAgent(pane: String, to: String)
+    case cancelSwitch(pane: String)
+    /// A line that only says something: shown, greyed, doing nothing.
+    case disabled
     /// One message to the running panes of a row (the TUI's broadcast).
     case broadcast(BroadcastScope)
     /// A custom action from config.toml, by its name.
@@ -205,11 +221,15 @@ public struct RowMenuItem: Equatable, Sendable {
     public var action: RowAction
     /// A submenu's items; its own action is then never performed.
     public var children: [RowMenuItem]
+    /// The agent whose mark is drawn beside it: the agent an account in
+    /// Switch Account ▸ belongs to, the agent a switch goes to.
+    public var agent: String?
 
-    public init(_ title: String, _ action: RowAction, children: [RowMenuItem] = []) {
+    public init(_ title: String, _ action: RowAction, children: [RowMenuItem] = [], agent: String? = nil) {
         self.title = title
         self.action = action
         self.children = children
+        self.agent = agent
     }
 
     static let divider = RowMenuItem("", .divider)
@@ -417,6 +437,8 @@ extension Snapshot {
             var items = [RowMenuItem("Show Side by Side", .showTogether(panes: keys, name: "\(title) · \(project(unkey(pk).id)?.name ?? "")"))]
             let scope = BroadcastScope.panes(machine: machine, keys: keys)
             if machineOnline && hasRunning(scope) { items.append(RowMenuItem("Broadcast to \(name.isEmpty ? "These Agents" : "This Team")…", .broadcast(scope))) }
+            // "No team" is where agents go, not a team to rename or delete.
+            if !name.isEmpty { items += [.divider, RowMenuItem("Rename Team…", .renameTeam(name: name)), RowMenuItem("Delete Team…", .deleteTeam(name: name))] }
             return items
         case .section(let name):
             // A project's Agents or Terminals: a message to those alone.

@@ -623,11 +623,19 @@ type AgentsCfg struct {
 	NoAutoResume bool `toml:"no_auto_resume,omitempty"`
 	// NoMoveAtLimit keeps a Claude Code agent its plan stopped on its
 	// account, rather than moving it to the one with most room and
-	// carrying on (internal/server/accountmove.go).
+	// carrying on (internal/server/accountmove.go). It stops the move
+	// only: SwitchAtLimit still applies when no account has room.
 	NoMoveAtLimit bool `toml:"no_move_at_limit,omitempty"`
 	// MoveAtLine moves a Claude Code agent whose account is past its
 	// failover line when its turn ends, before it reaches the limit.
 	MoveAtLine bool `toml:"move_at_line,omitempty"`
+	// SwitchAtLimit is what conch does when an agent's plan runs out and
+	// no account of that agent has room (#352): empty offers a switch to
+	// another agent on a card and waits to be told; an agent's name
+	// ("codex") switches to it unasked, when it is installed and has room
+	// itself; "wait" offers nothing and waits for the reset
+	// (internal/server/switchlimit.go).
+	SwitchAtLimit string `toml:"switch_at_limit,omitempty"`
 	// ClaudeIdleCompaction is Claude Code's idleCompaction for the Claude
 	// panes conch starts, written into conch's own --settings file and
 	// never ~/.claude/settings.json. nil leaves Claude's default (on).

@@ -140,6 +140,16 @@ Usage:
                                 no -account: the one with most room. At its limit an agent moves
                                 by itself unless [agents] no_move_at_limit. Background commands
                                 it left running stop with it: refused unless -force
+  conch agent switch [-now] [-preview] [-handoff] [-no-continue] ID AGENT
+                                switch an agent's conversation to another agent, which resumes it
+                                in the same pane: Claude Code, Codex, Gemini CLI and Qwen Code
+                                as a session of their own (tried and read back first), any other
+                                agent with it as a document for its first message. Never mid-turn: waits for the
+                                turn to end and up to 10m for background commands (-now: not
+                                for those, which stop). -preview says what would cross.
+                                -cancel ID calls a waiting one off; -undo RECORD removes what it wrote
+                                At a plan limit with no account of its own agent left, another agent
+                                is offered; [agents] switch_at_limit = "codex" switches unasked
   conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT
                                 send an agent its next message, refused (exit 3) while it
                                 waits on a question; -wait blocks until that work ends;
@@ -492,13 +502,18 @@ Usage:
   conch preview devices [-json]
                                 the iOS simulators and Android emulators and phones on this computer
   conch preview boot DEVICE     start one (by name or ID), in the background
+  conch preview shutdown DEVICE|-all
+                                stop one, or every running simulator and emulator
+  conch preview delete DEVICE   delete an iOS simulator for good (by ID, or a name only it has)
   conch preview shot [-device D] [-o FILE]
                                 a PNG of the running device's screen; prints its path, for an
                                 agent to look at its own work
-  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back
+  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side
                                 touch, type or press a button on it; X Y are pixels of the shot
                                 (an iOS simulator needs AXe or idb for these)
-  conch preview run [-device D] [-scheme S] [DIR]
+  conch preview keyboard [-device D] show|hide
+                                whether a simulator shows its own keyboard beside a hardware one
+  conch preview run [-device D] [-scheme S] [-status FILE] [DIR]
                                 build an Xcode project for a simulator, install it and open it
   conch preview detect [DIR...] what kind of mobile app a folder is and how its dev server starts
                                 (several folders: a JSON line each, naming its folder)

@@ -184,7 +184,7 @@ func TestA4MCPToolList(t *testing.T) {
 			t.Errorf("read does not warn what tail means for an agent: %q", tool.Description)
 		}
 	}
-	want := []string{"list", "read", "start", "prompt", "wait", "task", "rename", "view", "show",
+	want := []string{"list", "read", "start", "prompt", "wait", "task", "rename", "view", "show", "switch",
 		"run_create", "run_add", "run_status", "run_start", "run_wait", "run_answer", "run_report", "run_ask"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("tools %v, want %v", names, want)

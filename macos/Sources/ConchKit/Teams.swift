@@ -173,3 +173,99 @@ public func teamNames(_ teams: [AgentTeam], panes: [PaneInfo]) -> [String] {
     }
     return out
 }
+
+// MARK: renaming and deleting a team
+
+/// The [[teams]] entries of config.toml, as line ranges: where each starts
+/// (its header) and ends (the next header, or the file's end), and the
+/// line holding its name. A header inside an array that runs over several
+/// lines is not one, as parseTeams reads them.
+private func teamBlocks(_ lines: [String]) -> [(start: Int, end: Int, nameLine: Int?, name: String)] {
+    var out: [(start: Int, end: Int, nameLine: Int?, name: String)] = []
+    var cur: (start: Int, nameLine: Int?, name: String)? = nil
+    var pending: String? = nil
+    for (i, raw) in lines.enumerated() {
+        if let p = pending {
+            let text = p + "\n" + raw
+            pending = scanTOMLArray(text).closed ? nil : text
+            continue
+        }
+        let line = raw.trimmingCharacters(in: .whitespaces)
+        if line.hasPrefix("[") {
+            if let c = cur { out.append((c.start, i, c.nameLine, c.name)) }
+            cur = line.filter({ $0 != " " && $0 != "\t" }).hasPrefix("[[teams]]") ? (i, nil, "") : nil
+            continue
+        }
+        guard !line.hasPrefix("#"), let eq = line.firstIndex(of: "=") else { continue }
+        let k = line[..<eq].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let v = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+        if v.hasPrefix("["), !scanTOMLArray(v).closed { pending = v }
+        if k == "name", cur != nil, cur?.nameLine == nil {
+            cur?.nameLine = i
+            cur?.name = (tomlString(v) ?? "").trimmingCharacters(in: .whitespaces)
+        }
+    }
+    if let c = cur { out.append((c.start, lines.count, c.nameLine, c.name)) }
+    return out
+}
+
+/// A TOML basic string.
+func tomlQuoted(_ s: String) -> String {
+    "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+}
+
+/// config.toml with every [[teams]] entry named from renamed to, its
+/// colour and rules kept; every other line as it was.
+public func renameTeamTOML(_ toml: String, from: String, to: String) -> String {
+    var lines = toml.components(separatedBy: "\n")
+    for b in teamBlocks(lines) where b.name == from {
+        guard let at = b.nameLine else { continue }
+        let indent = String(lines[at].prefix { $0 == " " || $0 == "\t" })
+        lines[at] = indent + "name = " + tomlQuoted(to)
+    }
+    return lines.joined(separator: "\n")
+}
+
+/// config.toml without the [[teams]] entries named name — each from its
+/// header to the next one; every other line as it was.
+public func removeTeamTOML(_ toml: String, name: String) -> String {
+    var lines = toml.components(separatedBy: "\n")
+    for b in teamBlocks(lines).reversed() where b.name == name {
+        // The blank lines after it go too: the one before it already parts
+        // what was above from what follows.
+        lines.removeSubrange(b.start..<b.end)
+    }
+    return lines.joined(separator: "\n")
+}
+
+/// A pane somewhere in the window, with the name of its project there.
+public struct TeamMemberCandidate: Equatable, Sendable {
+    public var key: String
+    public var pane: PaneInfo
+    public var project: String?
+    public init(key: String, pane: PaneInfo, project: String?) {
+        self.key = key
+        self.pane = pane
+        self.project = project
+    }
+}
+
+/// The agents in a team, on every machine and in every project: put in it
+/// by hand or by its rules. Only agents: a terminal is in no team.
+public func teamMembers(_ name: String, teams: [AgentTeam], panes: [TeamMemberCandidate]) -> [String] {
+    guard !name.isEmpty else { return [] }
+    return panes.filter { c in
+        c.pane.agent != nil && teamFor(teams, set: c.pane.team, project: c.project, branch: c.pane.branch) == name
+    }.map(\.key)
+}
+
+/// Why a team cannot take this name, or nil when it can: none, "No team"
+/// (or "-", which means it), the same name, or another team's.
+public func teamRenameProblem(_ to: String, from: String, existing: [String]) -> String? {
+    let t = to.trimmingCharacters(in: .whitespaces)
+    if t.isEmpty { return "A team needs a name." }
+    if t == AgentTeam.none || t.caseInsensitiveCompare("No team") == .orderedSame { return "“\(t)” means no team: choose another name." }
+    if t == from { return nil }
+    if existing.contains(where: { $0 == t }) { return "There is already a team called “\(t)”." }
+    return nil
+}

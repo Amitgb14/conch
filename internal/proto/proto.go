@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken, CapArtifactList,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken, CapAgentSwitch, CapAgentSwitchLimit, CapPaneEnded, CapArtifactList,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -930,6 +930,9 @@ type PaneInfo struct {
 	// client puts it where that one was (CapAgentMove).
 	MovedFrom string `json:"moved_from,omitempty"`
 	Replaces  string `json:"replaces,omitempty"`
+	// SwitchedFrom is the agent and session its conversation was switched
+	// from, so a client can offer to switch it back (CapAgentSwitch).
+	SwitchedFrom *SwitchOrigin `json:"switched_from,omitempty"`
 	// Team is the team the pane was put in by hand (CapPaneTeam), "-" for
 	// kept out of every team; "" leaves it to config.toml's [[teams]]
 	// rules (config.TeamFor), which clients apply.
@@ -3235,6 +3238,12 @@ type AgentAvailability struct {
 	// for one conch starts on a key. Empty when it cannot tell, for every
 	// agent but Antigravity CLI so far, and from older servers.
 	Auth string `json:"auth,omitempty"`
+	// SwitchTo is how a running conversation would be switched to this
+	// agent (CapAgentSwitch): SwitchNative where conch writes its own
+	// sessions, SwitchHandoff where it is given the handoff document for
+	// its first message, or SwitchNever for one that cannot be given a
+	// first message. Empty from a server that cannot switch.
+	SwitchTo string `json:"switch_to,omitempty"`
 }
 
 // SessionsUnread is an agent conch runs without reading what it saved,
@@ -3269,6 +3278,13 @@ type SessionInfo struct {
 	// Interrupted means the agent was running in conch when its server
 	// stopped (a restart or reboot) and hasn't been resumed.
 	Interrupted bool `json:"interrupted,omitempty"`
+	// Ended is why the agent last running this conversation ended without
+	// being closed — "killed (SIGKILL)", "exited with code 1" — while
+	// that is kept (pane.ended.v1); EndedID is the record, for
+	// pane.ended.dismiss. EndedFailed is anything but its own clean exit.
+	Ended       string `json:"ended,omitempty"`
+	EndedID     string `json:"ended_id,omitempty"`
+	EndedFailed bool   `json:"ended_failed,omitempty"`
 	// Snippet is the text around a match inside the conversation, in
 	// session.search results; empty when the title or other details matched.
 	Snippet string `json:"snippet,omitempty"`

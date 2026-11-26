@@ -100,9 +100,10 @@ const (
 	maxItemOutput = maxToolOutput
 )
 
-// ReadConversation reads a saved session as a Conversation. Claude Code's
-// and Codex's are read whole; every other agent's are its messages alone,
-// from Transcript, and say so in MessagesOnly.
+// ReadConversation reads a saved session as a Conversation. Claude Code's,
+// Codex's, Gemini CLI's, Qwen Code's and Copilot CLI's are read whole;
+// every other agent's are its messages alone, from Transcript, and say so
+// in MessagesOnly.
 func ReadConversation(ctx context.Context, e Env, s Session) (Conversation, error) {
 	var c Conversation
 	var err error
@@ -111,6 +112,12 @@ func ReadConversation(ctx context.Context, e Env, s Session) (Conversation, erro
 		c, err = claudeConversation(s.Path)
 	case "codex":
 		c, err = codexConversation(s.Path)
+	case "gemini":
+		c, err = geminiConversation(s.Path)
+	case "qwen":
+		c, err = qwenConversation(s.Path)
+	case "copilot":
+		c, err = copilotConversation(s.Path)
 	default:
 		turns, terr := Transcript(ctx, e, s)
 		if terr != nil {

@@ -27,7 +27,7 @@ final class IntegrationsWindow {
             w.minSize = NSSize(width: 820, height: 480)
             let m = IntegrationsModel(store: store)
             model = m
-            w.contentView = NSHostingView(rootView: IntegrationsView(model: m, look: store.look))
+            w.contentView = NSHostingView(rootView: IntegrationsView(model: m, look: store.look).noFocusRings())
             look = store.look.$theme.sink { [weak w] t in
                 w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
                 w?.backgroundColor = Theme.ns(t.chrome)

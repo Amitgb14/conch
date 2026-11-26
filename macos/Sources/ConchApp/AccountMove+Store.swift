@@ -11,12 +11,19 @@ extension Store {
         conns[machine]?.hello?.capabilities?.contains(agentMoveCapability) == true
     }
 
-    /// Asks machine again how it would rank agent's accounts.
-    func loadRanks(on machine: String, agent: String) {
+    /// Asks machine again how it would rank agent's accounts — unless it
+    /// was asked within fresh seconds: a menu asks as it is drawn, and it
+    /// is drawn again and again while open.
+    func loadRanks(on machine: String, agent: String, fresh: TimeInterval = 0) {
         guard let c = conns[machine], canMoveAgents(on: machine) else { return }
+        let k = machine + "|" + agent
+        if fresh > 0, let at = ranksAsked[k], Date().timeIntervalSince(at) < fresh { return }
+        ranksAsked[k] = Date()
         Task {
             guard let sg = try? await c.call("account.suggest", AccountSuggestParams(agent: agent), as: AccountSuggestion.self) else { return }
-            accountRanks[machine + "|" + agent] = sg.accounts
+            // Only a change is published: an open menu is drawn from these,
+            // and the same ranks written again would redraw it for nothing.
+            if accountRanks[machine + "|" + agent] != sg.accounts { accountRanks[machine + "|" + agent] = sg.accounts }
         }
     }
 

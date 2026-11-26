@@ -241,13 +241,17 @@ func antigravityDelete(ctx context.Context, e Env, s Session, trashDir string) e
 	if err != nil {
 		return fmt.Errorf("sqlite3: %v: %s", err, strings.TrimSpace(string(tables)))
 	}
-	sql := "BEGIN IMMEDIATE; DELETE FROM conversation_summaries WHERE conversation_id = " + q + ";"
+	// Each statement is an argument of its own, so -bail stops at the one
+	// that fails and says why. In one argument, an older sqlite3 (CI's
+	// macOS runner) went on past a BEGIN refused for agy's lock and said
+	// only that COMMIT had no transaction.
+	args := []string{"-bail", "-cmd", ".timeout 2000", s.Path, "BEGIN IMMEDIATE;", "DELETE FROM conversation_summaries WHERE conversation_id = " + q + ";"}
 	for _, t := range strings.Fields(string(tables)) {
-		sql += " DELETE FROM " + t + " WHERE conversation_id = " + q + ";"
+		args = append(args, "DELETE FROM "+t+" WHERE conversation_id = "+q+";")
 	}
-	sql += " COMMIT;"
+	args = append(args, "COMMIT;")
 	// agy writes to it while it runs: wait a moment for it, not forever.
-	if out, err := exec.CommandContext(ctx, bin, "-bail", "-cmd", ".timeout 2000", s.Path, sql).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput(); err != nil {
 		// agy's search table is FTS5; a sqlite3 built without it cannot
 		// touch it, and the transaction leaves the conversation whole.
 		if strings.Contains(string(out), "no such module: fts5") {

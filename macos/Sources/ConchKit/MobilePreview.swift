@@ -71,6 +71,24 @@ public func previewChoice(_ devices: [MobileDevice], chosen: String?) -> MobileD
     return devices.first(where: \.booted) ?? devices.first
 }
 
+/// The device a tab shows once the list is read again: one that has
+/// started since the last listing — ▶ Run's Expo or build booting a
+/// simulator of its own choosing, or one started in Xcode — is followed,
+/// since that is where the app is; else the pick stands. The first
+/// listing (`old` empty) starts nothing: all of it was running before.
+public func previewFollow(old: [MobileDevice], new: [MobileDevice], chosen: String?) -> String? {
+    guard !old.isEmpty else { return chosen }
+    let wasBooted = Set(old.filter(\.booted).map(\.id))
+    guard let started = new.first(where: { $0.booted && !wasBooted.contains($0.id) }) else { return chosen }
+    return started.id
+}
+
+/// The tab's list of simulators: running ones (which keep running after
+/// the tab is closed, until somebody shuts them down), then the rest.
+public func previewListGroups(_ devices: [MobileDevice]) -> (running: [MobileDevice], other: [MobileDevice]) {
+    (devices.filter(\.booted), devices.filter { !$0.booted })
+}
+
 /// Where a picture of `image` size sits drawn to fit inside `box`,
 /// centred, with its proportions kept.
 public func aspectFit(_ image: CGSize, in box: CGSize) -> CGRect {
@@ -131,14 +149,79 @@ public func phoneLayout(image: CGSize, box: CGSize, tablet: Bool = false) -> Pho
 /// An Xcode project has no dev server of its own, so conch builds,
 /// installs and opens it (`conch preview run`), named by the app's own
 /// conch so the shell's PATH does not decide which one.
-public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch") -> String? {
+public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch", status: String? = nil) -> String? {
     let id = device?.id ?? ""
     switch kind {
     case "expo": return "npx expo start --ios"
     case "react-native": return "npx react-native run-ios" + (id.isEmpty ? "" : " --udid \(id)")
     case "flutter": return "flutter run" + (id.isEmpty ? "" : " -d \(id)")
-    case "xcode": return shellQuote(conch) + " preview run" + (id.isEmpty ? "" : " -device \(shellQuote(id))")
+    case "xcode":
+        return shellQuote(conch) + " preview run" + (id.isEmpty ? "" : " -device \(shellQuote(id))")
+            + (status.map { " -status \(shellQuote($0))" } ?? "")
     default: return nil
+    }
+}
+
+/// The same command naming the folder the app is in, for typing into a
+/// terminal: where that was started says nothing of where somebody has
+/// cd'd since, and the preview says which branch it runs. `conch preview
+/// run` takes the folder; the others get a sh of their own, which any
+/// login shell can start and which leaves the terminal where it was.
+public func previewRunCommand(kind: String, device: MobileDevice?, conch: String = "conch", status: String? = nil, dir: String) -> String? {
+    guard let cmd = previewRunCommand(kind: kind, device: device, conch: conch, status: status) else { return nil }
+    if kind == "xcode" { return cmd + " " + shellQuote(dir) }
+    return "/bin/sh -c " + shellQuote("cd \(shellQuote(dir)) && \(cmd)")
+}
+
+/// A checkout of a project that holds its app: one ▶ Run can build.
+public struct PreviewCheckout: Equatable, Sendable, Identifiable {
+    public var path: String
+    /// Its branch, or its folder's name when it is on none.
+    public var branch: String
+    /// The branch without the project's own "name/" before it, which every
+    /// task's branch has and a phone's narrow column has no room for.
+    public var short: String
+    /// The app's kind, as conch preview detect names it.
+    public var kind: String
+    public var id: String { path }
+}
+
+public func previewCheckouts(_ p: ProjectInfo, kinds: [String: String]) -> [PreviewCheckout] {
+    mobileDirs(p).compactMap { dir in
+        guard let kind = kinds[dir], !kind.isEmpty else { return nil }
+        let named = p.worktrees?.first { $0.path == dir }?.branch ?? ""
+        let branch = named.isEmpty ? (dir as NSString).lastPathComponent : named
+        let prefix = p.name + "/"
+        let short = branch.hasPrefix(prefix) ? String(branch.dropFirst(prefix.count)) : branch
+        return PreviewCheckout(path: dir, branch: branch, short: short, kind: kind)
+    }
+}
+
+/// The checkout a folder is in: the longest that holds it, since a
+/// worktree can be kept inside the main checkout.
+public func checkoutHolding(_ path: String, _ dirs: [String]) -> String? {
+    dirs.filter { path == $0 || path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
+}
+
+/// What ▶ Run builds: the checkout picked; else the checkout of the agent
+/// whose workbench the phone is in (`agentCwd`, nil outside one); else,
+/// outside a workbench, the first with an app. nil is "ask": the pick is
+/// gone, or the agent's checkout has no app and several others do —
+/// another agent's branch is never built in its place unasked.
+public func previewTarget(_ p: ProjectInfo, kinds: [String: String], picked: String?, agentCwd: String?) -> PreviewCheckout? {
+    let all = previewCheckouts(p, kinds: kinds)
+    if let picked { return all.first { $0.path == picked } }
+    guard let agentCwd else { return all.first }
+    let own = checkoutHolding(agentCwd, mobileDirs(p))
+    return all.first { $0.path == own } ?? (all.count == 1 ? all.first : nil)
+}
+
+extension Layout {
+    /// The tab a preview is being looked at in: the one on screen when it
+    /// holds it — one project's phone can be in several workbenches.
+    public func previewTab(_ key: String) -> Tab? {
+        if let t = current, t.root.panes.contains(key) { return t }
+        return tab(showing: key).map { tabs[$0] }
     }
 }
 
@@ -157,6 +240,28 @@ public func previewAgents(_ snapshot: Snapshot, project: String, preferred: Stri
 /// slow simulator is asked again before it has answered (a shot is never
 /// started while the last is still being taken).
 public let previewRefreshInterval: Double = 0.35
+
+/// Of the simulators already asked to show their keyboard, those still
+/// running: one that shut down is asked again at its next boot.
+public func previewStillBooted(_ ids: Set<String>, _ devices: [MobileDevice]) -> Set<String> {
+    ids.intersection(devices.filter(\.booted).map(\.id))
+}
+
+/// The hardware buttons beside the phone: `conch preview button`'s
+/// names, the SF Symbol each is drawn with, and what it does.
+public struct PreviewButton: Sendable, Equatable {
+    public var name: String
+    public var symbol: String
+    public var help: String
+    /// It goes into a menu where the bar is too narrow for every button.
+    public var folds = false
+}
+
+public let previewButtons = [
+    PreviewButton(name: "home", symbol: "circle", help: "Home"),
+    PreviewButton(name: "lock", symbol: "lock", help: "Lock the screen", folds: true),
+    PreviewButton(name: "side", symbol: "button.vertical.right.press", help: "Side button", folds: true),
+]
 
 /// The `conch preview` arguments for a device, by its ID.
 public func previewArgs(_ verb: String, device: String, _ rest: [String] = []) -> [String] {
@@ -188,4 +293,71 @@ public func parseDetected(_ data: Data) -> [String: String] {
 /// Mobile Preview, the workbench's phone and its Mobile layout.
 public func mobileProjects(_ projects: [ProjectInfo], kinds: [String: String]) -> Set<String> {
     Set(projects.filter { p in mobileDirs(p).contains { !(kinds[$0] ?? "").isEmpty } }.map(\.id))
+}
+
+/// Whether a kind's ▶ Run says how it is going (`conch preview run
+/// -status`): the others start a dev server, which never ends.
+public func previewReported(_ kind: String) -> Bool { kind == "xcode" }
+
+/// What `conch preview run -status` last wrote.
+public struct PreviewRunReport: Decodable, Equatable, Sendable {
+    public var pid: Int32
+    /// starting, building, installing, opening, then open or failed; nil
+    /// before the first.
+    public var step: String?
+    public var device: String?
+    /// The step it failed at.
+    public var failed: String?
+    public var error: String?
+
+    public init(pid: Int32, step: String? = nil, device: String? = nil, failed: String? = nil, error: String? = nil) {
+        self.pid = pid
+        self.step = step
+        self.device = device
+        self.failed = failed
+        self.error = error
+    }
+}
+
+/// What the status bar says of a run: while it goes, or once it is over.
+public enum PreviewRunSays: Equatable, Sendable {
+    case busy(String)
+    case over(String, Flash.Tone)
+}
+
+/// How long a command typed at a terminal has to start: one that has said
+/// nothing by then went to whatever was running there.
+public let previewRunStartLimit: TimeInterval = 20
+/// A little over the half hour conch preview run gives a build.
+public let previewRunLimit: TimeInterval = 32 * 60
+
+/// A run in the status bar's words. alive is whether the reporting
+/// process is still there; waited, how long since Run was pressed.
+public func previewRunSays(_ r: PreviewRunReport?, branch: String, alive: Bool, waited: TimeInterval) -> PreviewRunSays {
+    let running = "Running \(branch)"
+    guard let r else {
+        return waited < previewRunStartLimit ? .busy(running)
+            : .over("\(branch) hasn't started: its terminal may be busy", .err)
+    }
+    let phone = r.device ?? "the simulator"
+    switch r.step {
+    case "open":
+        return .over("\(branch) is open on \(phone)", .ok)
+    case "failed":
+        if r.failed == "building" { return .over("Building \(branch) failed: the errors are in its terminal", .err) }
+        // The bar is one line.
+        let why = r.error?.split(whereSeparator: \.isNewline).first.map(String.init) ?? "see its terminal"
+        return .over("\(running) failed: \(why)", .err)
+    default:
+        break
+    }
+    if !alive { return .over("\(running) stopped before it finished", .err) }
+    if waited >= previewRunLimit { return .over("\(running) is taking too long: see its terminal", .err) }
+    switch r.step {
+    case "starting": return .busy("Starting \(phone) for \(branch)")
+    case "building": return .busy("Building \(branch) for \(phone)")
+    case "installing": return .busy("Installing \(branch) on \(phone)")
+    case "opening": return .busy("Opening \(branch) on \(phone)")
+    default: return .busy(running)
+    }
 }

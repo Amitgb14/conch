@@ -116,8 +116,9 @@ public func accountLabel(_ name: String?) -> String {
 /// An agent's Switch Account ▸ menu: every other account, the one conch
 /// would pick marked and first, those it cannot go to said why and doing
 /// nothing; then Move Back when the account it came off has room; then
-/// letting conch choose.
-public func switchAccountMenu(pane key: String, on account: String?, ranks: [AccountRank], movedFrom: String?) -> RowMenuItem {
+/// letting conch choose. Each account carries agent's mark, since an
+/// account's name alone ("backup2") does not say whose it is.
+public func switchAccountMenu(pane key: String, agent: String = "claude", on account: String?, ranks: [AccountRank], movedFrom: String?) -> RowMenuItem {
     let here = accountLabel(account)
     var kids: [RowMenuItem] = []
     let others = ranks.filter { $0.label != here }
@@ -125,18 +126,19 @@ public func switchAccountMenu(pane key: String, on account: String?, ranks: [Acc
     for r in others {
         var title = r.label + "  ·  " + (r.why ?? (r.usable ? "room" : "unavailable"))
         if r.id == pick?.id { title += "  ·  conch's pick" }
-        kids.append(RowMenuItem(title, r.usable ? .moveAgent(pane: key, account: r.label) : .divider))
+        // One it cannot go to is greyed: .divider drew it as a bare line.
+        kids.append(RowMenuItem(title, r.usable ? .moveAgent(pane: key, account: r.label) : .disabled, agent: agent))
     }
     if let back = moveBack(movedFrom: movedFrom, ranks: ranks) {
         kids.append(.divider)
-        kids.append(RowMenuItem("Move Back to \(back)", .moveAgent(pane: key, account: back)))
+        kids.append(RowMenuItem("Move Back to \(back)", .moveAgent(pane: key, account: back), agent: agent))
     }
     if pick != nil {
         kids.append(.divider)
         kids.append(RowMenuItem("Let conch Choose", .moveAgent(pane: key, account: nil)))
     }
     if kids.isEmpty {
-        kids.append(RowMenuItem("No Other Account", .divider))
+        kids.append(RowMenuItem("No Other Account", .disabled))
     }
     return RowMenuItem("Switch Account", .divider, children: kids)
 }

@@ -97,6 +97,9 @@ type Server struct {
 	// mover holds the agent moves scheduled between accounts
 	// (accountmove.go).
 	mover *mover
+	// switcher holds the switches to another agent waiting for their
+	// moment (switch.go).
+	switcher *switcher
 
 	limitsMu sync.Mutex
 	limits   map[string]proto.PlanLimits // by agent and account (limitKey)
@@ -162,6 +165,7 @@ func New(sockPath, configDir string) *Server {
 	now := time.Now()
 	s := &Server{
 		mover:     newMover(),
+		switcher:  newSwitcher(),
 		usage:     usage.NewHistory(),
 		system:    sysstat.New(systemSource()),
 		sockPath:  sockPath,
@@ -276,6 +280,7 @@ func (s *Server) Run() error {
 	s.keep("listening ports", func() { s.runListening(s.quit) })
 	s.keep("shell theme", func() { s.runShellTheme(s.quit) })
 	s.keep("account moves", s.watchMoves)
+	s.keep("agent switches", s.watchSwitches)
 
 	var ln net.Listener
 	if reloaded != nil {
@@ -1406,6 +1411,23 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		rp.Dir = realDir(rp.Dir)
 		return s.made(c)(s.resumeSession(rp))
 
+	case proto.MethodPaneEndedList:
+		return s.listEnded(), nil
+
+	case proto.MethodPaneEndedDismiss:
+		rp, perr := decode[proto.EndedRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.dismissEnded(rp)
+
+	case proto.MethodPaneEndedResume:
+		rp, perr := decode[proto.EndedResumeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.resumeEnded(c, rp)
+
 	case proto.MethodSessionDelete:
 		rp, perr := decode[proto.SessionRef](msg)
 		if perr != nil {
@@ -1427,6 +1449,27 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 			return nil, perr
 		}
 		return s.moveAgent(mp)
+
+	case proto.MethodAgentSwitch:
+		sp, perr := decode[proto.AgentSwitchParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.switchAgent(sp)
+
+	case proto.MethodAgentSwitchCancel:
+		cp, perr := decode[proto.AgentSwitchCancelParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.cancelSwitch(cp)
+
+	case proto.MethodAgentSwitchUndo:
+		up, perr := decode[proto.AgentSwitchUndoParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.undoSwitch(up)
 
 	case proto.MethodAgentMoveCancel:
 		cp, perr := decode[proto.AgentMoveCancelParams](msg)
@@ -1948,6 +1991,15 @@ func (s *Server) get(id string) (*entry, *proto.Error) {
 }
 
 func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error) {
+	return s.start(cp, nil, nil)
+}
+
+// start starts a pane's program: a new pane, or with old set a new program
+// in old's place — same id, so the pane stays where every client shows
+// it — which takes over old's clients' views and leaves old's program to
+// end (switch.go). prep, when set, is given the new entry before anybody
+// can see it.
+func (s *Server) start(cp proto.PaneCreateParams, old *entry, prep func(*entry)) (proto.PaneInfo, *proto.Error) {
 	cp.Name = gitx.Printable(cp.Name) // drawn by every client (entry.info)
 	if cp.SSH != "" {
 		if perr := s.overSSH(&cp); perr != nil {
@@ -2035,16 +2087,22 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		}
 	}
 
-	s.mu.Lock()
-	s.nextID++
-	id := "p" + strconv.Itoa(s.nextID)
-	s.mu.Unlock()
+	var id string
+	if old != nil {
+		id = old.p.ID()
+	} else {
+		s.mu.Lock()
+		s.nextID++
+		id = "p" + strconv.Itoa(s.nextID)
+		s.mu.Unlock()
+	}
 
 	// The pane's own token (tokens.go) — set even where the server's own
 	// environment carried one, which is somebody else's — and the
 	// library's tokens, then a cloud machine's secrets for an agent, so
 	// anything the caller set wins.
-	env := append([]string{"CONCH_SOCKET=" + s.sockPath, proto.TokenEnv + "=" + s.tokens.issuePane(id)}, s.secretEnv()...)
+	token := s.tokens.issuePane(id)
+	env := append([]string{"CONCH_SOCKET=" + s.sockPath, proto.TokenEnv + "=" + token}, s.secretEnv()...)
 	if cp.Agent != "" {
 		env = append(env, s.cloud.env()...)
 	}
@@ -2055,13 +2113,25 @@ func (s *Server) create(cp proto.PaneCreateParams) (proto.PaneInfo, *proto.Error
 		Cols: cp.Cols, Rows: cp.Rows,
 	})
 	if err != nil {
-		s.tokens.dropPane(id)
+		if old != nil {
+			s.tokens.dropPaneExcept(id, "", token)
+		} else {
+			s.tokens.dropPane(id)
+		}
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "start %q: %v", cp.Command[0], err)
 	}
 	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
 	e.launched = cp.Agent
 	e.account = acct.Account
+	if prep != nil {
+		prep(e)
+	}
 
+	if old != nil {
+		info := s.takeOver(old, e, token)
+		log.Printf("pane %s restarted: %v in %s", id, cp.Command, cp.Cwd)
+		return info, nil
+	}
 	s.mu.Lock()
 	s.panes[id] = e
 	s.order = append(s.order, id)

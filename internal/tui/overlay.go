@@ -119,6 +119,9 @@ type menu struct {
 	agentsOf string
 	// health is the Check conch menu, which a finished run redraws.
 	health bool
+	// switchOf is the pane (machine|pane) whose Switch Agent ▸ list this
+	// is, redrawn when the machine's agent list arrives.
+	switchOf string
 }
 
 func newRowMenu(m Model, r row, x, y int) *menu {
@@ -175,6 +178,9 @@ func newRowMenu(m Model, r row, x, y int) *menu {
 				}
 				items = append(items, menuItem{"", label, func(m *Model) tea.Cmd { return m.openPrompt(mid, pane) }})
 			}
+		}
+		if p := m.pane(r.machine, r.paneID); p != nil && p.Agent != nil && p.State == proto.PaneRunning {
+			items = append(items, m.switchMenuItem(r.machine, r.paneID, x, y))
 		}
 		items = append(items, m.monitorItems(r.machine, r.paneID)...)
 		if target := m.sshTargetOfRow(r); target != "" {
@@ -485,6 +491,8 @@ func (mu *menu) run(m *Model, i int) tea.Cmd {
 		return nil // a line that only says something: the menu stays
 	}
 	m.overlay = nil
+	m.menuFrom = mu
+	defer func() { m.menuFrom = nil }()
 	return mu.items[i].run(m)
 }
 
@@ -1276,6 +1284,10 @@ var helpGroups = []helpGroup{{
 	title: "The row you are on",
 	entries: []helpEntry{
 		{keys: "r", what: "rename (a pane, a machine)"},
+		{keys: "enter r", what: "on an ended agent (⚠ ended · Resume): resume it where it was", more: []string{
+			"an agent that crashed, was killed or lost its server stays in the tree on its last screen; its title says why",
+			"d or x dismisses it — its conversation stays in Sessions · closing a pane yourself leaves nothing behind",
+		}},
 		{keys: "x", what: "close or remove", more: []string{
 			"a branch: its worktree, then the branch · on local it hides Getting started",
 		}},
@@ -1289,6 +1301,7 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "m", what: "menu for the row", more: []string{
 			"on an agent's pane it holds Prompt… — its next message, refused while it waits on an answer of its own, and it says when the work it started ends",
+			"and Switch Agent ▸: its conversation carried to another agent in the same pane, with the whole history for Claude Code, Codex, Gemini CLI and Qwen Code, else as a handoff document; a card says what crosses and counts down (enter now, c another agent, esc cancel), it waits for the turn to end, and the pane then offers Switch back. Out of plan on every account, a card offers another agent (enter continue, w wait for the reset, c choose); [agents] switch_at_limit does it unasked",
 			"Actions… holds your own commands from config.toml ([[actions]]), run in that checkout with CONCH_MACHINE, CONCH_PROJECT, CONCH_BRANCH, CONCH_WORKTREE and CONCH_PANE set",
 		}},
 		{keys: "i", what: "agent setup: instructions, skills, MCP servers, and what a worktree lacks", more: []string{

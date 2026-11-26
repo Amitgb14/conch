@@ -191,6 +191,35 @@ func TestMoverFinishedTurn(t *testing.T) {
 	}
 }
 
+// TestMoverLookAtTurn: a look judges the turn by the snapshot it was given.
+// A look whose snapshot is idle at turn 3 records 3, even if the agent has
+// started turn 4 since — that turn ends as a finished one, which a look
+// reading the count afresh recorded as already seen.
+func TestMoverLookAtTurn(t *testing.T) {
+	m := newMover()
+	look := func(state string, turn int) (bool, bool) {
+		return m.lookAtTurn(proto.PaneInfo{ID: "p1", Agent: &proto.AgentStatus{Name: "claude", State: state, Turn: turn}})
+	}
+	if idle, fin := look(proto.AgentIdle, 3); !idle || fin {
+		t.Errorf("first look: idle %v finished %v", idle, fin)
+	}
+	if idle, fin := look(proto.AgentWorking, 4); idle || fin {
+		t.Errorf("working: idle %v finished %v", idle, fin)
+	}
+	if idle, fin := look(proto.AgentDone, 4); !idle || !fin {
+		t.Errorf("the turn that began after an idle look did not finish: idle %v finished %v", idle, fin)
+	}
+	if _, fin := look(proto.AgentIdle, 4); fin {
+		t.Error("the same turn finished twice")
+	}
+	if idle, fin := m.lookAtTurn(proto.PaneInfo{ID: "p2"}); idle || fin {
+		t.Error("no agent, but idle")
+	}
+	if _, fin := look(proto.AgentBlocked, 5); fin {
+		t.Error("a blocked agent finished its turn")
+	}
+}
+
 // TestJobCommands: what an agent left running, as the refusal and the card
 // say it; long commands cut, none for no agent.
 func TestJobCommands(t *testing.T) {

@@ -289,3 +289,180 @@ func TestPreviewDetectMany(t *testing.T) {
 		}
 	}
 }
+
+func TestPreviewShutdownAndDelete(t *testing.T) {
+	sims := `{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-18-2":[
+ {"udid":"A1","name":"iPhone 16 Pro","state":"Booted","isAvailable":true},
+ {"udid":"A2","name":"iPhone SE","state":"Shutdown","isAvailable":true},
+ {"udid":"A3","name":"iPhone 16","state":"Booted","isAvailable":true}],
+ "com.apple.CoreSimulator.SimRuntime.iOS-17-0":[
+ {"udid":"B1","name":"iPhone 16 Pro","state":"Shutdown","isAvailable":true}]}}`
+	ran, out := fakePreview(t, map[string]string{"xcrun simctl list devices available -j": sims})
+	if err := runPreview([]string{"shutdown", "A1"}); err != nil {
+		t.Fatal(err)
+	}
+	if last := (*ran)[len(*ran)-1]; last != "xcrun simctl shutdown A1" {
+		t.Errorf("shutdown ran %q", last)
+	}
+	if !strings.Contains(out.String(), "iPhone 16 Pro is shut down") {
+		t.Errorf("said %q", out.String())
+	}
+	// Every running one, and only those.
+	*ran = nil
+	if err := runPreview([]string{"shutdown", "-all"}); err != nil {
+		t.Fatal(err)
+	}
+	var stopped []string
+	for _, l := range *ran {
+		if strings.Contains(l, " shutdown ") {
+			stopped = append(stopped, l)
+		}
+	}
+	if want := []string{"xcrun simctl shutdown A1", "xcrun simctl shutdown A3"}; strings.Join(stopped, ",") != strings.Join(want, ",") {
+		t.Errorf("shutdown -all ran %q", stopped)
+	}
+	*ran = nil
+	out.Reset()
+	if err := runPreview([]string{"delete", "A2"}); err != nil {
+		t.Fatal(err)
+	}
+	if last := (*ran)[len(*ran)-1]; last != "xcrun simctl delete A2" || !strings.Contains(out.String(), "iPhone SE is deleted") {
+		t.Errorf("delete ran %q, said %q", last, out.String())
+	}
+	// A name two simulators share is not enough to delete one: that
+	// cannot be undone.
+	*ran = nil
+	if err := runPreview([]string{"delete", "iPhone 16 Pro"}); err == nil || !strings.Contains(err.Error(), "A1") || !strings.Contains(err.Error(), "B1") {
+		t.Errorf("ambiguous delete: %v", err)
+	}
+	for _, l := range *ran {
+		if strings.Contains(l, " delete ") {
+			t.Errorf("deleted on an ambiguous name: %q", l)
+		}
+	}
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"shutdown"}, "usage"},
+		{[]string{"shutdown", "-all", "A1"}, "usage"},
+		{[]string{"delete"}, "usage"},
+		{[]string{"delete", "A1", "A2"}, "usage"},
+		{[]string{"delete", "Galaxy"}, `no device "Galaxy"`},
+		{[]string{"shutdown", "Galaxy"}, `no device "Galaxy"`},
+	} {
+		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%q: %v, want %q", c.args, err, c.err)
+		}
+	}
+}
+
+func TestPreviewKeyboard(t *testing.T) {
+	ran, _ := fakePreview(t, map[string]string{"xcrun simctl list devices available -j": previewSims})
+	for arg, value := range map[string]string{"show": "false", "hide": "true"} {
+		*ran = nil
+		if err := runPreview([]string{"keyboard", "-device", "A1", arg}); err != nil {
+			t.Fatal(arg, err)
+		}
+		if want := "AutomaticMinimizationEnabled -bool " + value; !strings.Contains(strings.Join(*ran, "\n"), want) {
+			t.Errorf("%s ran %q", arg, *ran)
+		}
+	}
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"keyboard"}, "usage"},
+		{[]string{"keyboard", "maybe"}, "usage"},
+		{[]string{"keyboard", "show", "hide"}, "usage"},
+		{[]string{"keyboard", "-device", "Galaxy", "show"}, `no device "Galaxy"`},
+		{[]string{"keyboard", "-device", "A2", "show"}, "conch preview boot"},
+	} {
+		if err := runPreview(c.args); err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%q: %v, want %q", c.args, err, c.err)
+		}
+	}
+}
+
+// Run's status file: each step as it begins, and how it ended, which is
+// what Conch.app's status bar says while the build is in a terminal.
+func TestPreviewRunStatus(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "Conch.xcodeproj"), 0o755)
+	proj := filepath.Join(dir, "Conch.xcodeproj")
+	args := "-project " + proj + " -scheme Conch -configuration Debug -destination id=A1"
+	build := "xcrun xcodebuild " + args + " build"
+	answers := map[string]string{
+		"xcrun simctl list devices available -j":        previewSims,
+		"xcrun xcodebuild -list -json -project " + proj: `{"project":{"name":"Conch","schemes":["Conch"]}}`,
+		build: "** BUILD SUCCEEDED **\n",
+		"xcrun xcodebuild -showBuildSettings -json " + args: `[{"target":"Conch","buildSettings":{"WRAPPER_EXTENSION":"app","TARGET_BUILD_DIR":"/dd","WRAPPER_NAME":"Conch.app","PRODUCT_BUNDLE_IDENTIFIER":"dev.conch.mobile"}}]`,
+	}
+	fakePreview(t, answers)
+	status := filepath.Join(t.TempDir(), "run.json")
+	read := func() previewRunStatus {
+		t.Helper()
+		b, err := os.ReadFile(status)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s previewRunStatus
+		if err := json.Unmarshal(b, &s); err != nil {
+			t.Fatalf("%q: %v", b, err)
+		}
+		return s
+	}
+	var during previewRunStatus
+	tools := previewTools
+	previewTools = func() *preview.Tools {
+		tl := tools()
+		pipe := tl.Pipe
+		tl.Pipe = func(ctx context.Context, w io.Writer, name string, args ...string) error {
+			during = read()
+			return pipe(ctx, w, name, args...)
+		}
+		return tl
+	}
+
+	if err := runPreview([]string{"run", "-status", status, dir}); err != nil {
+		t.Fatal(err)
+	}
+	me := os.Getpid()
+	if want := (previewRunStatus{PID: me, Step: preview.StepBuilding, Device: "iPhone 16 Pro"}); during != want {
+		t.Errorf("while building: %+v", during)
+	}
+	if want, got := (previewRunStatus{PID: me, Step: previewRunOpen, Device: "iPhone 16 Pro"}), read(); got != want {
+		t.Errorf("at the end: %+v", got)
+	}
+
+	answers[build] = "ERR exit status 65"
+	if err := runPreview([]string{"run", "-status", status, dir}); err == nil {
+		t.Fatal("a failed build passed")
+	}
+	if s := read(); s.Step != previewRunFailed || s.Failed != preview.StepBuilding || !strings.Contains(s.Error, "exit status 65") {
+		t.Errorf("failed build: %+v", s)
+	}
+
+	// Failed before any step: still said, or the app waits on it.
+	for _, c := range []struct {
+		args []string
+		err  string
+	}{
+		{[]string{"run", "-status", status, filepath.Join(dir, "gone")}, "not a folder"},
+		{[]string{"run", "-status", status, "-device", "Galaxy", dir}, `no device "Galaxy"`},
+		{[]string{"run", "-status", status, "a", "b"}, "usage"},
+	} {
+		if err := runPreview(c.args); err == nil {
+			t.Fatalf("%q passed", c.args)
+		}
+		if s := read(); s.Step != previewRunFailed || s.Failed != "" || !strings.Contains(s.Error, c.err) {
+			t.Errorf("%q: %+v", c.args, s)
+		}
+	}
+
+	// A status nobody can write never stops the run.
+	answers[build] = "ok"
+	if err := runPreview([]string{"run", "-status", filepath.Join(dir, "no", "such", "run.json"), dir}); err != nil {
+		t.Errorf("unwritable status: %v", err)
+	}
+}

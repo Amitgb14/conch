@@ -181,7 +181,8 @@ public final class Connection: @unchecked Sendable {
     }
 
     private func write(_ msg: [String: Any]) -> Bool {
-        guard var line = try? JSONSerialization.data(withJSONObject: msg) else { return false }
+        // Its own pool, as handle's: a call can come from a thread that has none.
+        guard var line = autoreleasepool(invoking: { try? JSONSerialization.data(withJSONObject: msg) }) else { return false }
         line.append(0x0a)
         lock.lock()
         defer { lock.unlock() }
@@ -214,8 +215,16 @@ public final class Connection: @unchecked Sendable {
         shutdown()
     }
 
-    /// One line from the server: an answer to a call, or an event.
+    /// One line from the server: an answer to a call, or an event. It runs
+    /// on the reader, a thread that lasts as long as the connection, and
+    /// JSONSerialization's objects are autoreleased: without a pool drained
+    /// here they were kept until the connection ended — hundreds of MB in
+    /// an app left open for a day.
     func handle(_ line: Data) {
+        autoreleasepool { handleLine(line) }
+    }
+
+    private func handleLine(_ line: Data) {
         guard let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
         if let event = obj["event"] as? String {
             let data = obj["data"].flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) } ?? Data()

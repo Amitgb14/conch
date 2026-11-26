@@ -1249,6 +1249,9 @@ public func closesOnExit(_ p: PaneInfo, now: Date = Date()) -> Bool {
     // lines say why, and a sandbox that failed to set up ran for a minute
     // first — past the launch window — so its tab closed with the reason.
     if code != 0, p.name.hasPrefix("check · ") || p.name.hasPrefix("sandbox create · ") { return false }
+    // ▶ Run's build that failed: its errors are what the status bar points
+    // to. Not one stopped with Ctrl-C (130, or -1 from the signal itself).
+    if code > 0, code != 130, p.name.hasPrefix("Run · ") { return false }
     return true
 }
 

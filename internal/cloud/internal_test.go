@@ -20,6 +20,9 @@ func isolate(t *testing.T) {
 	dir, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("CONCH_HOME", filepath.Join(dir, "conch"))
 	t.Setenv("HOME", dir)
+	t.Setenv("CONCH_SOCKET", "")
+	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_TOKEN", "")
 }
 
 func TestKeyPinning(t *testing.T) {
