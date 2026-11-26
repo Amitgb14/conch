@@ -100,7 +100,14 @@ func TestAgentEndedIsKept(t *testing.T) {
 	if !strings.Contains(strings.Join(r.Screen, "\n"), "working on p1") {
 		t.Fatalf("last screen: %q", r.Screen)
 	}
-	if n := len(sentEvents(c, proto.EventPaneEnded)); n != 1 {
+	// The record is kept a moment before it is broadcast, so wait for it.
+	n := 0
+	a5WaitFor(t, "pane.ended sent", func() bool {
+		n += len(sentEvents(c, proto.EventPaneEnded))
+		return n > 0
+	})
+	time.Sleep(50 * time.Millisecond) // and no second one after it
+	if n += len(sentEvents(c, proto.EventPaneEnded)); n != 1 {
 		t.Fatalf("pane.ended sent %d times", n)
 	}
 

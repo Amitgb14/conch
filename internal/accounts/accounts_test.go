@@ -375,3 +375,18 @@ func TestFailoverPerAgent(t *testing.T) {
 		t.Errorf("0.2.1's book: %+v %v", o, err)
 	}
 }
+
+// Has is by agent and name together: a name another agent has is not this
+// agent's.
+func TestHas(t *testing.T) {
+	b := Book{Accounts: []Account{{Agent: "claude", Name: "work", Dir: "/w"}}}
+	if !b.Has("claude", "work") {
+		t.Error("claude's work not found")
+	}
+	if b.Has("codex", "work") || b.Has("claude", "") || b.Has("claude", "Work") {
+		t.Error("found an account the book does not have")
+	}
+	if (Book{}).Has("claude", "work") {
+		t.Error("an empty book has nothing")
+	}
+}

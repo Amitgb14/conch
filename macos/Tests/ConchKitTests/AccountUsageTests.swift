@@ -39,6 +39,22 @@ private func bucket(_ hour: Int, _ models: [(String, Int)]) -> UsageBucket {
     #expect(usageAccounts(limits: [PlanLimits(agent: "claude")], history: nil, list: nil).isEmpty)
 }
 
+@Test func anAccountRemovedInSettingsIsLeftOut() {
+    // The list names the agents it covers; one of theirs not in it was
+    // removed, even while an agent on it still reports. Another agent's
+    // own account, and an agent the list does not cover, still show.
+    let list = AgentAccountList(accounts: [
+        AgentAccount(agent: "claude", name: "default", isDefault: true),
+        AgentAccount(agent: "claude", name: "backup", dir: "/b"),
+        AgentAccount(agent: "codex", name: "default", isDefault: true),
+    ], agents: ["claude", "codex"])
+    let h = UsageHistory(agents: [AgentUsage(agent: "claude", periods: [], account: "backup2"),
+                                  AgentUsage(agent: "gemini", periods: [], account: "other")])
+    let got = usageAccounts(limits: [lim("claude"), lim("claude", "backup2"), lim("codex", "gone")], history: h, list: list)
+    #expect(got.map(\.id) == ["claude|", "claude|backup", "codex|", "gemini|other"])
+    #expect(got[0].limits != nil)
+}
+
 @Test func theChipFollowsTheAgentInView() {
     let accounts = usageAccounts(limits: [lim("claude"), lim("claude", "backup"), lim("codex")], history: nil,
                                  list: AgentAccountList(accounts: [AgentAccount(agent: "codex", name: "review", dir: "/r")]))

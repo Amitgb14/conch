@@ -224,6 +224,16 @@ func (b Book) named(name string) bool {
 	return false
 }
 
+// Has reports whether agent has an account called name in the book.
+func (b Book) Has(agent, name string) bool {
+	for _, a := range b.Accounts {
+		if a.Agent == agent && a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // expand makes ~ the home folder.
 func expand(dir string) string {
 	if dir == "~" || strings.HasPrefix(dir, "~/") {

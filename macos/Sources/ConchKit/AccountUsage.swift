@@ -42,8 +42,11 @@ public let accountAgentOrder = ["claude", "codex"]
 
 /// Every account to show: each agent's own and the ones added (from
 /// account.list), and any that reported a plan or saved usage without being
-/// listed (an older server, or one removed since). Each agent's own first,
-/// then its others in the order they were added; agents in a fixed order.
+/// listed by an older server. Once the list is known, an account of an
+/// agent it covers that is not in it was removed in Settings and is left
+/// out, though an agent still running on it goes on reporting. Each agent's
+/// own first, then its others in the order they were added; agents in a
+/// fixed order.
 public func usageAccounts(limits: [PlanLimits], history: UsageHistory?, list: AgentAccountList?) -> [UsageAccount] {
     var out: [UsageAccount] = []
     func index(_ agent: String, _ name: String) -> Int {
@@ -54,10 +57,15 @@ public func usageAccounts(limits: [PlanLimits], history: UsageHistory?, list: Ag
     for a in list?.accounts ?? [] {
         out[index(a.agent, a.isDefault == true ? "" : a.name)].info = a
     }
-    for l in limits where l.reportsUse {
+    let listed = Set((list?.accounts ?? []).map { "\($0.agent)|\($0.isDefault == true ? "" : $0.name)" })
+    let covered = Set(list?.agents ?? [])
+    func removed(_ agent: String, _ name: String) -> Bool {
+        !name.isEmpty && covered.contains(agent) && !listed.contains("\(agent)|\(name)")
+    }
+    for l in limits where l.reportsUse && !removed(l.agent, l.account ?? "") {
         out[index(l.agent, l.account ?? "")].limits = l
     }
-    for u in history?.agents ?? [] {
+    for u in history?.agents ?? [] where !removed(u.agent, u.account ?? "") {
         out[index(u.agent, u.account ?? "")].usage = u
     }
     let added = (list?.accounts ?? []).map { "\($0.agent)|\($0.isDefault == true ? "" : $0.name)" }
