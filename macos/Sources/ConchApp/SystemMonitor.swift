@@ -27,7 +27,7 @@ final class SystemMonitorWindow {
             w.title = "System Monitor"
             w.isReleasedWhenClosed = false
             w.minSize = NSSize(width: 720, height: 480)
-            w.contentView = NSHostingView(rootView: SystemMonitorView(store: store, look: store.look))
+            w.contentView = NSHostingView(rootView: SystemMonitorView(store: store, look: store.look).noFocusRings())
             look = store.look.$theme.sink { [weak w] t in
                 w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
                 w?.backgroundColor = Theme.ns(t.chrome)

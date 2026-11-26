@@ -23,7 +23,7 @@ final class TicketsWindow {
             w.minSize = NSSize(width: 760, height: 420)
             let m = TicketsModel(store: store)
             model = m
-            w.contentView = NSHostingView(rootView: TicketsView(model: m, look: store.look))
+            w.contentView = NSHostingView(rootView: TicketsView(model: m, look: store.look).noFocusRings())
             look = store.look.$theme.sink { [weak w] t in
                 w?.appearance = NSAppearance(named: t.light ? .aqua : .darkAqua)
                 w?.backgroundColor = Theme.ns(t.chrome)
