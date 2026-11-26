@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Amitgb14/conch/internal/acp"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // An agent that speaks the Agent Client Protocol has no terminal
@@ -29,7 +30,7 @@ import (
 // offers it.
 
 // ProtocolACP is what Protocol says of an agent run over ACP.
-const ProtocolACP = "acp"
+const ProtocolACP = proto.ProtocolACP
 
 // acpSpec is a manifest's [acp] table.
 type acpSpec struct {

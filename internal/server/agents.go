@@ -643,12 +643,20 @@ const launchFailWithin = 30 * time.Second
 // shell and a --version each, side by side — and keeps the answer.
 func (s *Server) findAgents() []proto.AgentAvailability {
 	avs := make([]adapter.Availability, len(s.adapters))
+	lists := make([]bool, len(s.adapters)) // an ACP agent that lists its sessions
 	var wg sync.WaitGroup
 	for i, ad := range s.adapters {
 		wg.Add(1)
 		goSafe("agent check", func() { // each check starts a login shell; run them together
 			defer wg.Done()
 			avs[i] = ad.Detect(context.Background(), config.DefaultShell())
+			// An ACP agent is asked what it can do, which is the only
+			// way to know whether its sessions can be listed.
+			if aa, ok := adapter.AsACP(ad); ok && avs[i].Installed {
+				if init, ok := s.acpCapabilities(aa); ok {
+					lists[i] = init.CanList()
+				}
+			}
 		})
 	}
 	wg.Wait()
@@ -657,6 +665,9 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 		av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
 			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name()), SwitchTo: switchTo(ad)}
+		if adapter.Protocol(ad) == adapter.ProtocolACP {
+			av.Protocol, av.Sessions = proto.ProtocolACP, lists[i]
+		}
 		if av.Installed && av.Name == "antigravity" {
 			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))
 		}

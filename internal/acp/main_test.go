@@ -1,4 +1,4 @@
-package main
+package acp
 
 import (
 	"strings"
@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseACP(t *testing.T) {
-	f, err := parseACP([]string{"-agent", "speaker", "-label", "Speaker", "-prompt", "-starts with a dash", "-load", "s-1", "--", "LANG=C", "X_1=y", "speaker", "--acp", "--", "more"})
+	f, err := parseArgs([]string{"-agent", "speaker", "-label", "Speaker", "-prompt", "-starts with a dash", "-load", "s-1", "--", "LANG=C", "X_1=y", "speaker", "--acp", "--", "more"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +25,8 @@ func TestParseACP(t *testing.T) {
 		{"-nope", "--", "speaker"},           // a flag that is not conch acp's
 		{"-load", "--yolo", "--", "speaker"}, // a session id that is an option
 	} {
-		if _, err := parseACP(bad); err == nil {
-			t.Errorf("parseACP(%q) took it", bad)
+		if _, err := parseArgs(bad); err == nil {
+			t.Errorf("parseArgs(%q) took it", bad)
 		}
 	}
 }

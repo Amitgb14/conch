@@ -52,6 +52,9 @@ type Server struct {
 	// agentsSeen is which agents this machine was last found to have,
 	// for a task that names none (agents.go, defaultAgent).
 	agentsSeen agentsSeen
+	// acp is what agents run over the Agent Client Protocol said they
+	// can do, and the sessions they listed (acpsessions.go).
+	acp acpAgents
 
 	sockPath  string
 	sockID    os.FileInfo // the socket file this server bound; see noteSocket

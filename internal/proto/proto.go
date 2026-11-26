@@ -3263,7 +3263,17 @@ type AgentAvailability struct {
 	// its first message, or SwitchNever for one that cannot be given a
 	// first message. Empty from a server that cannot switch.
 	SwitchTo string `json:"switch_to,omitempty"`
+	// Protocol is how conch speaks to the agent: ProtocolACP for one that
+	// speaks the Agent Client Protocol, run by `conch acp` in its pane;
+	// empty for an agent with its own terminal interface, and from older
+	// servers. Such an agent is still the "runs here" tier, so a client
+	// that does not know this field treats it as any manifest's.
+	Protocol string `json:"protocol,omitempty"`
 }
+
+// ProtocolACP is AgentAvailability.Protocol for an agent run over the
+// Agent Client Protocol.
+const ProtocolACP = "acp"
 
 // SessionsUnread is an agent conch runs without reading what it saved,
 // which a client says rather than show an empty list as if nothing had

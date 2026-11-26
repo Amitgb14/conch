@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/acp"
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
 	"github.com/Amitgb14/conch/internal/sshtest"
@@ -18,6 +19,14 @@ import (
 
 func TestMain(m *testing.M) {
 	sshtest.Main()
+	// The test binary stands in for conch in an ACP agent's pane, which
+	// runs `conch acp` (acp_test.go).
+	if len(os.Args) > 1 && os.Args[1] == "acp" {
+		if err := acp.Main(os.Args[2:]); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	// No test reaches the developer's Keychain (secrets.go): one that
 	// wants a token gives a security of its own.
 	os.Setenv("CONCH_SECURITY", "/nonexistent/security")
