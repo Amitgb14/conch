@@ -23,9 +23,13 @@ func startServerWithAgents(t *testing.T, manifests map[string]string) (*client.C
 	// agent.status starts a login shell per agent, all at once — over two dozen
 	// now — and with the developer's own shell and
 	// profile that outran the test's deadline under a loaded suite. A plain
-	// sh and an empty home are what these tests are about anyway.
+	// sh and an empty home are what these tests are about anyway. And a
+	// plain PATH: the inherited one found every agent installed on the
+	// developer's Mac (21 on one) and ran each one's --version at once —
+	// real agents, mostly node, which ate the 20 seconds under load.
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
 	dir, err := os.MkdirTemp("", "conch")
 	if err != nil {
 		t.Fatal(err)
