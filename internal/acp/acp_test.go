@@ -137,6 +137,17 @@ func (r *run) send(s string) {
 
 func (r *run) quit() error {
 	r.t.Helper()
+	// ctrl+d leaves only between turns, so wait for the turn to end: the
+	// last chunk of an answer is drawn before the agent says it is done,
+	// and on a loaded machine the gap is long enough to land in.
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		st := statuses(r.out.String())
+		if len(st) == 0 || !strings.HasPrefix(st[len(st)-1], "state=working") && !strings.HasPrefix(st[len(st)-1], "state=blocked") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	r.send("\x04")
 	select {
 	case err := <-r.done:
