@@ -116,7 +116,7 @@ The one structural change: each view's state is worked out in conch-ui, not in S
 Four phases, each shipped and reviewed against Conch.app before the next starts. The P0 rows of the parity matrix are phase 1.
 
 1. **Looks like Conch.app.** Title band (workspaces, search, counts), the full sidebar tree, Needs you with answer buttons, the tab bar with numbers and marks, pane card headers, the status bar, Ctrl+K palette, the shared shortcut table, frameless window per platform. *Gate:* side-by-side captures match (below), every P0 row is Done.
-2. **Works like Conch.app.** Splits with the shared layout model, Ctrl+D / Ctrl+Shift+D, zoom, drag gaps; themes and text sizes from config.toml; remote machines through `conch machine bridge`. *Gate:* end-to-end rows 9.267 and 9.268 pass on a real Linux desktop and on Windows with WSL.
+2. **Works like Conch.app.** Splits with the shared layout model, Ctrl+D / Ctrl+Shift+D, zoom, drag gaps; themes and text sizes from config.toml; remote machines through `conch machine bridge`. *Gate:* end-to-end rows 9.268 and 9.269 pass on a real Linux desktop and on Windows with WSL.
 3. **One set of views.** The model moves into conch-ui; Changes and the inspector run in Electron; the Mac app sends inputs instead of views and its Swift builders are deleted. *Gate:* both apps pass the same view tests, and Conch.app shows no change in its captures.
 4. **The rest.** Files, Sessions, Agent setup, Settings (the settings page in a window), browser tabs, Workbench, scratch layer, System Monitor, Tickets, Integrations; installers and updates. *Gate:* the parity matrix has no Missing row left except Mobile Preview.
 
@@ -142,4 +142,4 @@ Risks:
 - **Drift.** Two apps change at different speeds. Mitigation: the capture pairs and the string and shortcut tests run in CI, so a change to one shows up as a failure in the other.
 - **Moving the model.** Phase 3 changes Conch.app's Changes tab underneath it. Mitigation: `[app] web_views = false` still brings back the SwiftUI view until the move has been in a release.
 - **WSL.** Paths, PATH in a login shell and the distribution picked differ per machine. Mitigation: the bridge command is tested, and the window says exactly what failed and how to fix it.
-- **Untested platforms.** The packages are built on a Mac and have not run on Linux or Windows yet; rows 9.267 and 9.268 are the first real runs.
+- **Untested platforms.** The packages are built on a Mac and have not run on Linux or Windows yet; rows 9.268 and 9.269 are the first real runs.
