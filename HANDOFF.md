@@ -1,3 +1,150 @@
+# Update 2026-11-26: shipped
+
+This replaces what the handoff below says about pushing, PRs and testing.
+
+- PR #338 merged as fc5a71fd, CI green on Linux and macOS at f49f0269.
+  It also carries `/api/limits` and `/api/ask`.
+- Website: https://amitgb14.github.io/conch/docs/iphone is live, linked from Phone.
+- Conch.app's bundled `conch web` now includes #338: every new route
+  answers 401 unauthenticated rather than 404.
+- First artifacts listing over 2.1 GB of synthetic transcripts: 2.0 s, 3 ms cached.
+- Still to do: end-to-end row 9.246 (a real iPhone), a remote machine,
+  and opening a pull request from the phone. The routes reach other people
+  with the next release (the docs say 0.2.3 or later).
+
+---
+
+# Handoff: phone gateway routes for the iPhone app
+
+Branch `phone/gateway-routes`, 9 commits on `origin/master` (20db9964).
+Shipped as #338 (see the update above).
+
+## What was rebased
+
+The 4 commits of `phone/project-detail` (on the old base edcb3dce, 422
+behind) were rebased onto `origin/master` after `git fetch`:
+
+| Old | New | Commit |
+| --- | --- | --- |
+| 6e58de76 | 140bb0dc | GET /api/project |
+| cd0dcdda | 482f8251 | GET /api/resources (+ `internal/procs`, TUI resource monitor moved onto it) |
+| a5f3263e | f5598a0f | POST /api/attach |
+| c919b6a4 | f6978e0c | review an agent's branch (changes, diff, stage, note, commit, push, PR) |
+
+The pre-rebase state is kept as the local branch
+`backup/phone-gateway-routes-prerebase`. Delete it when you no longer need it.
+
+After the rebase, the branch's diff against master is the same size as
+before (19 files, +4190/−279).
+
+### Conflicts and how they were resolved
+
+All conflicts were in `AGENTS.md` (the repository map). No Go file
+conflicted. None of them were real contradictions, so both sides were kept
+every time:
+
+1. **cd0dcdda (resources)**: master added the `internal/preview` row and
+   the branch added the `internal/procs` row in the same place. Both rows
+   were kept.
+2. **a5f3263e (attach)**: master rewrote the `internal/sandbox` row
+   (providers as files, format 3/4, conch-integrations). The branch
+   appended its `POST /api/attach` sentence to the `internal/phone` row,
+   next to it. Kept master's sandbox row and master's phone row, with the
+   branch's sentence inserted before "Its shapes are a contract". A script
+   checked that the branch's phone row differed from master's only by
+   that insertion.
+3. **c919b6a4 (git review)**: same shape as 2. Kept master's rows and
+   inserted the branch's "Reviewing a pane's branch (`gitreview.go` …)"
+   sentence.
+
+`internal/tui/resources.go` and its test (which the resources commit
+rewrites onto `internal/procs`) merged cleanly. Master has not touched
+either file since edcb3dce, so the branch's change loses nothing of
+master's.
+
+## Artifacts work brought over
+
+The old `phone/project-detail` worktree had
+**both** staged and unstaged changes. I only read it: it was not changed,
+committed in or cleaned, and its `git status` is the same as before.
+
+- **Staged** (artifacts.go, its test, the route in gateway.go and
+  gateway_test.go): committed as is in 51b073c8. This version lists only
+  the pane's current session and answers 400 without a pane.
+- **Unstaged** (listing with no pane: every transcript on the computer;
+  with a pane: every transcript in the agent's directory; artifacts from
+  several sessions merged; `dir` field): **also brought over**, as
+  51de2335. The iPhone app needs it: it lists every artifact published
+  on the Mac by calling `GET /api/artifacts` with no pane, which the
+  staged version refuses.
+  The test was added first and failed without the code (`readAll`/`Dir`
+  undefined). I also added `TestArtifactsEndpoint`, which calls the
+  route itself under a scratch HOME.
+
+## Fixes of my own (each with a test that failed first)
+
+- 80d89cd4: the transcript cache cleared itself past 1024 entries. Since
+  the no-pane listing reads every transcript, a computer with more than
+  1024 would re-read all of them on every request (this Mac has 210
+  transcripts and 2 GB). The cache now holds 16384, drops deleted
+  transcripts first, and only clears when it is full of live ones.
+  Tests: `TestReadAllKeepsManyTranscripts` (failed before the fix) and
+  `TestArtifactCacheFull`.
+- a8548b58: `hello` now carries `features`
+  (`artifacts, artifacts.all, attach, git.review, project, resources`).
+  `featureRoutes` ties each one to its routes, and
+  `TestHelloNamesItsFeatures` checks that every route it names exists. The
+  field is `omitempty` and additive, so `APIVersion` stays 2. The web UI
+  pins `API_VERSION = 2` and the app reads `api_version`, so a bump would
+  have told current clients they were out of date. `artifacts.all` exists
+  because a gateway with only the staged version answers the no-pane call
+  with 400, not 404.
+- cf51376e: the endpoint test now pins `not_found` and `bad_request`, and
+  AGENTS.md describes artifacts.go and features.
+
+## Routes the gateway answers now
+
+hello, agents, machines, projects, **project**, **resources**, **artifacts**,
+reply, answer, review/send, task, push/key, push/subscribe (POST, DELETE),
+panes (GET, POST), close, rename, **attach**, **changes**, **diff**,
+**stage**, **review/note**, **commit**, **push**, **pr**, and the socket.
+`TestRoutesAreTheContract` pins this list.
+
+I checked every `api/…` path the iPhone app calls against this list.
+
+## The contract
+
+The phone contract is a planning note kept out of the repository, so it
+is not in this change; it was updated beside it with the artifacts route
+and `features`. The shapes a client relies on are pinned in `api.go` by
+`TestRoutesAreTheContract` and `TestHelloNamesItsFeatures`.
+
+## Tests
+
+- `make lint` (gofmt, go vet, staticcheck): clean.
+- `go test -race -count=1 ./internal/phone/... ./internal/procs/... ./internal/tui/`:
+  ok (phone 191 s, tui 115 s).
+- Full suite: `make gate` (lint, then the whole race suite with
+  `internal/server` split into 4 shards), run in the foreground: **exit 0**,
+  44 packages/shards ok, none failed. I did not also run the unsharded
+  `go test -race ./...`, because it runs longer than the 10-minute
+  foreground limit. `make gate` runs the same tests.
+- No tests were skipped to pass, and no new `t.Skip` bug tests were added.
+
+## Left undone / not verified
+
+- **Not tried live** against the iPhone app (row 9.246).
+- Artifacts are read from `~/.claude/projects` only. A Claude Code started
+  with another `CLAUDE_CONFIG_DIR` (conch's several-accounts support), and
+  panes on remote machines, list none.
+- The first no-pane listing reads every transcript on the computer; it
+  was measured at 2.0 s over 2.1 GB, 3 ms once cached.
+- The earlier `conch web` handoff is kept unchanged below this one.
+
+---
+
+*The earlier handoff in this file, from master, unchanged:*
+
 # Handoff: `conch web` — your agents from your phone
 
 Branch `conch/build-conch-web-phone-gateway`, 19 commits on `0d25b65`
