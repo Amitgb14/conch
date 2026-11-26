@@ -1389,13 +1389,15 @@ struct RowButtonsView: View {
                     ForEach(store.startable(on: m), id: \.name) { a in
                         AgentMenuButton(agent: a.name, title: a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
                     }
-                    Divider()
-                    Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
+                    if buttons.offersTerminal {
+                        Divider()
+                        Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
+                    }
                     if buttons.ssh { Button("SSH to a Host…") { store.perform(.sshToHost, on: node) } }
                 } label: { glyph("bot") }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
-                    .help("Start an Agent")
-                    .accessibilityLabel("Start an Agent")
+                    .help(buttons.team == nil ? "Start an Agent" : "Start an Agent in This Team")
+                    .accessibilityLabel(buttons.team == nil ? "Start an Agent" : "Start an Agent in This Team")
             }
             Menu { RowMenu(store: store, node: node) } label: { glyph("ellipsis") }
                 .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()

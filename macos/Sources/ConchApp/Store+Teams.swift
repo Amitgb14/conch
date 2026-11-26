@@ -37,7 +37,7 @@ extension Store {
 
     /// Every agent and terminal in the window, on each machine, with its
     /// project's name — what a team's rules match on.
-    private var teamCandidates: [TeamMemberCandidate] {
+    var teamCandidates: [TeamMemberCandidate] {
         snapshots.sorted { $0.key < $1.key }.flatMap { m, s in
             s.panes.map { p in
                 TeamMemberCandidate(key: key(m, p.id), pane: p, project: p.projectID.flatMap { id in s.projects.first { $0.id == id }?.name })

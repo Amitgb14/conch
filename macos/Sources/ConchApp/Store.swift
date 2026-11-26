@@ -3187,6 +3187,12 @@ final class Store: ObservableObject {
         case .close(let k): closePane(k)
         case .startAgent(let m, let cwd, let inProject):
             newPane(machine: m, cwd: cwd, inProject: inProject, agent: agent ?? startable(on: m).first?.name)
+        case .startTeamAgent(let pk, let team):
+            let (m, id) = unkey(pk)
+            guard let pr = snapshots[m]?.project(id) else { return }
+            newPane(machine: m, cwd: pr.path, inProject: true, agent: agent ?? startable(on: m).first?.name) { [weak self] p in
+                self?.setTeam(key(m, p.id), team)
+            }
         case .newTerminal(let m, let cwd, let inProject): newPane(machine: m, cwd: cwd, inProject: inProject, agent: nil)
         case .changes(let pr, let b): openChanges(project: pr, branch: b)
         case .checkOut(let pr, let b, let then):
