@@ -12,6 +12,8 @@ import WebKit
 final class BrowserShared: NSObject, ObservableObject, WKDownloadDelegate {
     static let shared = BrowserShared()
     static let permissionsKey = "conch.browserPermissions"
+    /// Added after WebKit's user agent: "Version/26.1 Safari/605.1.15".
+    static let applicationName = browserApplicationName(safariVersion: installedSafariVersion(), system: ProcessInfo.processInfo.operatingSystemVersion)
 
     /// Each site's answers, kept in the app's preferences: which sites may
     /// use the camera or microphone. Never cookies, never passwords.
