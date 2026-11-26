@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const transcriptFixture = `{"timestamp":"2026-11-13T07:09:36Z","message":{"content":[{"type":"tool_use","id":"t1","name":"Artifact","input":{"type_url":"https://claude.ai/artifact/TYPE","title":"Conch iOS"}}]}}
@@ -177,5 +178,40 @@ func TestArtifactCacheFull(t *testing.T) {
 	}
 	if len(c.entries) != 1 {
 		t.Errorf("%d entries, want the cache started again with one", len(c.entries))
+	}
+}
+
+// TestParseCountsEachPublishOnce: Claude Code 2.1.332 also saves each
+// request it sent the model (api-request-blob), which repeats earlier
+// tool calls and their results without a timestamp. A publish counted
+// there too made one artifact published twice read as v2, then v4.
+func TestParseCountsEachPublishOnce(t *testing.T) {
+	use := func(id string) string {
+		return `{"type":"assistant","timestamp":"2026-11-26T00:44:34Z","cwd":"/w","message":{"content":[{"type":"tool_use","id":"` + id + `","name":"Artifact","input":{"title":"Live test"}}]}}` + "\n"
+	}
+	res := func(id, at, verb string) string {
+		return `{"type":"user","timestamp":"` + at + `","cwd":"/w","message":{"content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"` + verb + ` https://claude.ai/artifact/LIVE"}]}}` + "\n"
+	}
+	blob := func(ids ...string) string {
+		var c []string
+		for _, id := range ids {
+			c = append(c, `{"type":"tool_use","id":"`+id+`","name":"Artifact","input":{}}`,
+				`{"type":"tool_result","tool_use_id":"`+id+`","content":"Updated the Artifact at https://claude.ai/artifact/LIVE"}`)
+		}
+		return `{"type":"api-request-blob","sessionId":"s","message":{"content":[` + strings.Join(c, ",") + `]}}` + "\n"
+	}
+	tr := use("a") + res("a", "2026-11-26T00:44:35Z", "Created a new Artifact at") + blob("a") +
+		use("b") + res("b", "2026-11-26T00:44:39Z", "Updated the Artifact at") + blob("a", "b") +
+		// The same result again in a record of its own: still one publish.
+		res("b", "2026-11-26T00:44:39Z", "Updated the Artifact at")
+	arts, err := Parse(strings.NewReader(tr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 || arts[0].Versions != 2 || arts[0].Title != "Live test" {
+		t.Fatalf("got %+v, want one artifact at version 2", arts)
+	}
+	if want := time.Date(2026, 11, 26, 0, 44, 35, 0, time.UTC); !arts[0].Created.Equal(want) {
+		t.Errorf("created %v, want the first publish's time %v", arts[0].Created, want)
 	}
 }

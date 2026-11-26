@@ -231,6 +231,10 @@ type artifactCall struct {
 }
 
 type transcriptLine struct {
+	// Type is the record's kind: a conversation's turns are "user" and
+	// "assistant"; others, like the api-request-blob a newer Claude Code
+	// saves of each request, repeat what those said.
+	Type      string    `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
 	Cwd       string    `json:"cwd"`
 	Message   struct {
@@ -252,12 +256,13 @@ type transcriptBlock struct {
 // skipped, as a transcript cut off mid-write ends in one.
 func Parse(r io.Reader) ([]proto.Artifact, error) {
 	calls := map[string]artifactCall{}
+	counted := map[string]bool{}
 	byURL := map[string]*proto.Artifact{}
 	br := bufio.NewReaderSize(r, 1<<20)
 	for {
 		line, err := br.ReadBytes('\n')
 		if len(line) > 0 && (bytes.Contains(line, []byte(`"Artifact"`)) || bytes.Contains(line, []byte("claude.ai/"))) {
-			collect(line, calls, byURL)
+			collect(line, calls, counted, byURL)
 		}
 		if errors.Is(err, io.EOF) {
 			break
@@ -279,9 +284,17 @@ func Parse(r io.Reader) ([]proto.Artifact, error) {
 	return out, nil
 }
 
-func collect(line []byte, calls map[string]artifactCall, byURL map[string]*proto.Artifact) {
+// collect reads one transcript line. counted is the tool calls whose
+// result was counted already: each publish is one version however many
+// records repeat it.
+func collect(line []byte, calls map[string]artifactCall, counted map[string]bool, byURL map[string]*proto.Artifact) {
 	var l transcriptLine
 	if json.Unmarshal(line, &l) != nil {
+		return
+	}
+	// Only the conversation itself; a line with no type is an older
+	// Claude Code's, which wrote nothing else.
+	if l.Type != "" && l.Type != "user" && l.Type != "assistant" {
 		return
 	}
 	var blocks []transcriptBlock
@@ -296,7 +309,7 @@ func collect(line []byte, calls map[string]artifactCall, byURL map[string]*proto
 			calls[b.ID] = in
 		case b.Type == "tool_result":
 			call, ok := calls[b.ToolUseID]
-			if !ok {
+			if !ok || counted[b.ToolUseID] {
 				continue
 			}
 			text := resultText(b.Content)
@@ -304,6 +317,7 @@ func collect(line []byte, calls map[string]artifactCall, byURL map[string]*proto
 			if m == nil {
 				continue
 			}
+			counted[b.ToolUseID] = true
 			a := byURL[m[1]]
 			if a == nil {
 				a = &proto.Artifact{URL: m[1], Created: l.Timestamp, Dir: l.Cwd}
