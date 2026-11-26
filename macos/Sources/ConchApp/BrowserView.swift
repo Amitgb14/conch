@@ -613,6 +613,8 @@ final class BrowserModel: ObservableObject {
     func pageMoved(_ id: Int, _ address: String) {
         tabs.update(id, address: address)
         if isArtifactURL(address) { lastArtifact = address }
+        // Somewhere on claude.ai: a sign-in may have just been made here.
+        if URL(string: address)?.host?.lowercased() == "claude.ai" { store.checkClaudeSignIn() }
         if id == tabs.activeID { store.objectWillChange.send() }
     }
 

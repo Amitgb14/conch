@@ -26,6 +26,7 @@ struct ArtifactsListView: View {
         VStack(spacing: 0) {
             header
             filter
+            openingNote
             Rectangle().fill(Theme.line).frame(height: 1)
             TimelineView(.periodic(from: .now, by: 30)) { ctx in
                 content(now: ctx.date)
@@ -34,7 +35,10 @@ struct ArtifactsListView: View {
             footer
         }
         .background(Theme.window)
-        .onAppear { store.loadArtifacts(machine) }
+        .onAppear {
+            store.loadArtifacts(machine)
+            store.checkClaudeSignIn()
+        }
     }
 
     var header: some View {
@@ -45,10 +49,37 @@ struct ArtifactsListView: View {
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             Spacer()
+            Menu {
+                Picker("Open Artifacts", selection: Binding(get: { store.artifactOpening }, set: { store.artifactOpening = $0 })) {
+                    ForEach(ArtifactOpening.allCases, id: \.self) { o in Text(o.label).tag(o) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                LucideIcon("external-link", color: Theme.text2, size: 12)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("Where an artifact opens: in Conch, or in your own browser")
             Button { store.loadArtifacts(machine) } label: { LucideIcon("rotate-cw", color: Theme.text2, size: 12) }
                 .buttonStyle(.plain).help("List Again").accessibilityLabel("List artifacts again")
         }
         .padding(.horizontal, 10).frame(height: 34)
+    }
+
+    /// Said while artifacts open outside because this browser is not
+    /// signed in: why, and the way to sign in here instead.
+    @ViewBuilder var openingNote: some View {
+        if store.artifactOpening == .automatic, store.claudeSignedIn == false {
+            HStack(spacing: 6) {
+                LucideIcon("external-link", color: Theme.text2, size: 11)
+                Text("Artifacts open in your browser: Conch's isn't signed in to claude.ai.")
+                    .font(.ui(size: 11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button("Sign In Here") { model.openTab("https://claude.ai/login") }
+                    .buttonStyle(.link).font(.ui(size: 11.5)).fixedSize()
+                    .help("Sign in with a password or an email code: a passkey cannot be used in Conch's browser")
+            }
+            .padding(.horizontal, 12).padding(.bottom, 8)
+        }
     }
 
     var filter: some View {
@@ -132,7 +163,7 @@ struct ArtifactsListView: View {
 
     func open(_ a: Artifact) {
         store.artifactShelf.opened(machine, a.url)
-        model.openArtifact(a.url)
+        store.pickArtifact(a.url) { model.openArtifact(a.url) }
     }
 
     func empty(_ icon: String, _ title: String, _ detail: String, tone: Color? = nil,

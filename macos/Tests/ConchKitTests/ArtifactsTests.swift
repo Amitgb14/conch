@@ -193,3 +193,24 @@ private func art(_ url: String, _ title: String = "T", kind: String = "Design", 
         #expect(!isPasskeyChallenge(no), "\(no)")
     }
 }
+
+@Test func aClaudeSignInIsItsSessionCookie() {
+    #expect(isClaudeSession(name: "sessionKey", domain: ".claude.ai"))
+    #expect(isClaudeSession(name: "sessionKey", domain: "claude.ai"))
+    for (n, d) in [("sessionKey", "notclaude.ai"), ("sessionKey", "claude.ai.evil.example"), ("lastActiveOrg", ".claude.ai"),
+                   ("sessionkey", ".claude.ai"), ("sessionKey", ""), ("SID", ".google.com")] {
+        #expect(!isClaudeSession(name: n, domain: d), "\(n) on \(d)")
+    }
+}
+
+@Test func whereAnArtifactOpens() {
+    // Automatic: here when Conch's browser is signed in, else the person's own.
+    #expect(!ArtifactOpening.automatic.outside(signedIn: true))
+    #expect(ArtifactOpening.automatic.outside(signedIn: false))
+    #expect(!ArtifactOpening.conch.outside(signedIn: false), "chosen: here, signing in here")
+    #expect(ArtifactOpening.browser.outside(signedIn: true), "chosen: always the person's browser")
+    // A saved choice; anything else (none, an older build's) is automatic.
+    #expect(ArtifactOpening(setting: "browser") == .browser && ArtifactOpening(setting: "conch") == .conch)
+    #expect(ArtifactOpening(setting: nil) == .automatic && ArtifactOpening(setting: "safari") == .automatic)
+    #expect(ArtifactOpening.allCases.map(\.label) == ["Automatically", "In Conch", "In My Browser"])
+}

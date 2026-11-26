@@ -1,5 +1,6 @@
 import AppKit
 import ConchKit
+import WebKit
 
 // Claude Code's artifacts beside its agent: each machine's list
 // (artifact.list.v1), kept fresh by artifact.published, and the Artifacts
@@ -113,9 +114,55 @@ extension Store {
         return m
     }
 
+    /// Where a picked artifact opens (the list's Open menu), kept for this
+    /// Mac's app as a window's own choices are.
+    var artifactOpening: ArtifactOpening {
+        get { ArtifactOpening(setting: UserDefaults.standard.string(forKey: "artifactOpening")) }
+        set {
+            objectWillChange.send()
+            UserDefaults.standard.set(newValue.rawValue, forKey: "artifactOpening")
+        }
+    }
+
+    /// Looks whether Conch's browser is signed in to claude.ai: that a
+    /// session cookie is there, never what it holds.
+    func checkClaudeSignIn(_ then: ((Bool) -> Void)? = nil) {
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { [weak self] cookies in
+            let on = cookies.contains { isClaudeSession(name: $0.name, domain: $0.domain) }
+            MainActor.assumeIsolated {
+                if self?.claudeSignedIn != on { self?.claudeSignedIn = on }
+                then?(on)
+            }
+        }
+    }
+
+    /// An artifact picked anywhere: in the person's own browser when the
+    /// choice says so (by default, while Conch's browser is not signed in
+    /// to claude.ai, where a passkey cannot be used either), else `inside`.
+    func pickArtifact(_ url: String, inside: @escaping () -> Void) {
+        let base = artifactBase(url)
+        checkClaudeSignIn { [weak self] signedIn in
+            guard let self else { return }
+            guard self.artifactOpening.outside(signedIn: signedIn), let u = URL(string: url) else {
+                inside()
+                return
+            }
+            if let f = self.artifactShelf.find(base) { self.artifactShelf.opened(f.machine, base) }
+            NSWorkspace.shared.open(u)
+            if self.artifactOpening == .automatic {
+                self.say("Opened in your browser: Conch's isn't signed in to claude.ai", .info)
+            }
+        }
+    }
+
     /// An artifact in its agent's Artifacts tab; with no agent to put it
-    /// beside, in a browser tab of its own.
+    /// beside, in a browser tab of its own. Or in the person's own browser
+    /// (pickArtifact).
     func openArtifact(_ url: String, pane given: String? = nil) {
+        pickArtifact(url) { [weak self] in self?.openArtifactHere(url, pane: given) }
+    }
+
+    func openArtifactHere(_ url: String, pane given: String? = nil) {
         let base = artifactBase(url)
         let found = artifactShelf.find(base)
         var k = given

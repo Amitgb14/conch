@@ -2498,6 +2498,9 @@ final class Store: ObservableObject {
     @Published var artifactShelf = ArtifactShelf()
     /// A publish said in the window's corner, with Open.
     @Published var artifactToast: ArtifactToast?
+    /// Whether Conch's browser holds a claude.ai sign-in, as last looked;
+    /// nil before the first look.
+    @Published var claudeSignedIn: Bool?
     private var blankBrowsers = 0
     /// Browser panes' tabs as saved, by pane, taken by each pane the first
     /// time it is shown.

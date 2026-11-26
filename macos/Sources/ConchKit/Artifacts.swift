@@ -108,6 +108,45 @@ public func isPasskeyChallenge(_ s: String) -> Bool {
     return parts[i + 1] == "pk"
 }
 
+/// Whether a cookie is claude.ai's sign-in: whether Conch's browser is
+/// signed in, asked by the cookie's name and domain alone — its value is
+/// never read.
+public func isClaudeSession(name: String, domain: String) -> Bool {
+    let d = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    return name == "sessionKey" && d == "claude.ai"
+}
+
+/// Where an artifact opens when picked: in Conch's browser, or in the
+/// person's own, where they may already be signed in — Conch's browser
+/// cannot use another browser's sign-in, and a passkey cannot be used in
+/// it at all.
+public enum ArtifactOpening: String, CaseIterable, Sendable {
+    /// In Conch when its browser is signed in to claude.ai, else outside.
+    case automatic
+    case conch
+    case browser
+
+    /// A saved choice; anything else is automatic.
+    public init(setting: String?) { self = ArtifactOpening(rawValue: setting ?? "") ?? .automatic }
+
+    public var label: String {
+        switch self {
+        case .automatic: return "Automatically"
+        case .conch: return "In Conch"
+        case .browser: return "In My Browser"
+        }
+    }
+
+    /// Whether it opens in the person's own browser.
+    public func outside(signedIn: Bool) -> Bool {
+        switch self {
+        case .automatic: return !signedIn
+        case .conch: return false
+        case .browser: return true
+        }
+    }
+}
+
 /// Whether a link is a claude.ai artifact's: what ⌘-click in a pane
 /// opens in the Artifacts tab rather than the system browser.
 public func isArtifactURL(_ s: String) -> Bool {
