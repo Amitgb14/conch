@@ -122,8 +122,23 @@ func TestAnACPAgentEndToEnd(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	// Finished with nobody looking: done, as the protocol said.
-	waitAgentState(t, c, info.ID, proto.AgentDone)
+	// Finished, as the protocol said: done, or idle when the keys that
+	// answered are counted as somebody looking after the turn has already
+	// ended — which on a loaded machine they can be.
+	deadline = time.Now().Add(15 * time.Second)
+	for {
+		st := panesNow(t, c)[info.ID].Agent
+		if st != nil && (st.State == proto.AgentDone || st.State == proto.AgentIdle) {
+			if st.Source != "program" {
+				t.Errorf("the turn's end came from %q, not the agent's report", st.Source)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the turn never ended: %+v", st)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	// Typed into, as conch send does.
 	if err := c.Call(ctx, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: info.ID, Text: "hello\r"}, nil); err != nil {
