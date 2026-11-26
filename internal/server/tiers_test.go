@@ -24,7 +24,19 @@ func startServerWithAgents(t *testing.T, manifests map[string]string) (*client.C
 	// now — and with the developer's own shell and
 	// profile that outran the test's deadline under a loaded suite. A plain
 	// sh and an empty home are what these tests are about anyway.
-	t.Setenv("SHELL", "/bin/sh")
+	//
+	// And none of the person's agents: each check runs the agent's
+	// --version, and the developer's PATH has the real ones. PATH alone
+	// is not enough, since a login shell on macOS has path_helper put
+	// /usr/local/bin back, where Homebrew keeps them on an Intel Mac — so
+	// the shell is one that leaves the -l off.
+	bin := t.TempDir()
+	shell := filepath.Join(bin, "sh")
+	if err := os.WriteFile(shell, []byte("#!/bin/sh\nif [ \"$1\" = -lc ]; then shift; set -- -c \"$@\"; fi\nexec /bin/sh \"$@\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	t.Setenv("PATH", "/usr/bin:/bin")
 	t.Setenv("HOME", t.TempDir())
 	dir, err := os.MkdirTemp("", "conch")
 	if err != nil {
@@ -53,6 +65,27 @@ func startServerWithAgents(t *testing.T, manifests map[string]string) (*client.C
 	}
 	t.Fatal(err)
 	return nil, ""
+}
+
+// These tests ask agent.status, which runs every agent's --version. With
+// the developer's PATH that ran their real Gemini CLI, Codex and the rest,
+// and an npm one went on writing ~/.npm in the test's home after the
+// server stopped, so the home could not be removed and
+// TestNoInstallerIsSaidAndRefused failed in its cleanup now and then. No
+// agent of the person's may be found here.
+func TestServerWithAgentsFindsNoRealAgent(t *testing.T) {
+	c, _ := startServerWithAgents(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var status proto.AgentStatusResult
+	if err := c.Call(ctx, proto.MethodAgentStatus, nil, &status); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range status.Agents {
+		if a.Installed {
+			t.Errorf("found a real %s at %s", a.Name, a.Path)
+		}
+	}
 }
 
 // TestAnAgentFromAManifestIsRunButNotPretendedFor: the second tier, end to

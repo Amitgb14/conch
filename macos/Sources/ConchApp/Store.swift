@@ -1810,12 +1810,19 @@ final class Store: ObservableObject {
                 self.error = "Could not take the project out of this workspace: \(error)"
             }
         case .removeFromConch:
+            // What still runs in it stays unless closed with it, which is
+            // said, and offered where the server can.
+            let words = removeProjectWords(pr, panes: snapshots[m]?.panes ?? [],
+                                           canClose: c.hello?.capabilities?.contains(projectRemoveCloseCapability) == true)
             a.messageText = "Remove \(pr.name) from the sidebar?"
-            a.informativeText = "\(pr.path)\n\nconch forgets the project; its files, branches and worktrees are not touched. Add it again any time."
-            guard a.runModal() == .alertFirstButtonReturn else { return }
-            struct P: Encodable { var id: String }
-            job("Removing \(pr.name)", done: "Removed \(pr.name) from the sidebar") {
-                try await c.call("project.remove", P(id: pid))
+            a.informativeText = words.info
+            if let close = words.close { a.addButton(withTitle: close) }
+            let answer = a.runModal()
+            guard answer == .alertFirstButtonReturn || (words.close != nil && answer == .alertThirdButtonReturn) else { return }
+            let closing = answer == .alertThirdButtonReturn
+            struct P: Encodable { var id: String; var close: Bool? }
+            job("Removing \(pr.name)", done: closing ? "Removed \(pr.name) and closed what ran in it" : "Removed \(pr.name) from the sidebar") {
+                try await c.call("project.remove", P(id: pid, close: closing ? true : nil))
             }
         }
     }

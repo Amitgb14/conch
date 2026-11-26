@@ -1118,3 +1118,31 @@ func prChecks(runs []ghx.Check) []proto.PRCheck {
 	}
 	return out
 }
+
+// removeProject is project.remove: the project forgotten, and with Close
+// the panes working in it ended first. Without Close they keep running,
+// in no project.
+func (s *Server) removeProject(p proto.ProjectRemoveParams) (proto.ProjectRemoveResult, *proto.Error) {
+	var res proto.ProjectRemoveResult
+	if _, perr := s.projects.get(p.ID); perr != nil {
+		return res, perr
+	}
+	if p.Close {
+		for _, info := range s.list() {
+			if info.ProjectID != p.ID {
+				continue
+			}
+			if perr := s.close(info.ID); perr != nil {
+				log.Printf("project %s: closing %s: %s", p.ID, info.ID, perr.Message)
+				continue
+			}
+			res.Closed = append(res.Closed, info.ID)
+		}
+		log.Printf("project %s: closed %d pane(s) with it", p.ID, len(res.Closed))
+	}
+	if perr := s.projects.remove(p.ID); perr != nil {
+		return res, perr
+	}
+	s.reviewDropped(p.ID, "")
+	return res, nil
+}

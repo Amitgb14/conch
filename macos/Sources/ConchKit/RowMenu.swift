@@ -783,3 +783,25 @@ public func projectRemoval(_ project: ProjectInfo, machine: String, workspaces: 
     // project on its own: there it goes from conch.
     return elsewhere && !here.first ? .leaveWorkspace(id: here.id) : .removeFromConch
 }
+
+/// The server's capability for closing a project's panes with it.
+public let projectRemoveCloseCapability = "project.remove.close.v1"
+
+/// What removing a project from conch says about the panes still running
+/// in it, and the button that closes them with it: nil when nothing runs
+/// there, or the server cannot (it would ignore the ask and leave them).
+public func removeProjectWords(_ project: ProjectInfo, panes: [PaneInfo], canClose: Bool) -> (info: String, close: String?) {
+    let running = panes.filter { $0.projectID == project.id && $0.running }
+    let agents = running.filter { $0.agent != nil }.count, others = running.count - agents
+    var info = "\(project.path)\n\nconch forgets the project; its files, branches and worktrees are not touched. Add it again any time."
+    guard !running.isEmpty else { return (info, nil) }
+    let what: String
+    switch (agents, others) {
+    case (0, _): what = others == 1 ? "1 terminal" : "\(others) terminals"
+    case (_, 0): what = agents == 1 ? "1 agent" : "\(agents) agents"
+    default: what = (agents == 1 ? "1 agent" : "\(agents) agents") + " and " + (others == 1 ? "1 terminal" : "\(others) terminals")
+    }
+    info += "\n\nIts \(what) keep running unless you close them with it."
+    guard canClose else { return (info, nil) }
+    return (info, running.count == 1 ? "Remove and Close It" : "Remove and Close Them")
+}

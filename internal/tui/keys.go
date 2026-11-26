@@ -894,9 +894,7 @@ func (m *Model) openRemove() tea.Cmd {
 			})
 			return nil
 		}
-		m.overlay = newConfirm(fmt.Sprintf("Remove %s from the sidebar? Files are not touched.", proj.Name), func(m *Model) tea.Cmd {
-			return m.callOn(mid, proto.MethodProjectRemove, proto.ProjectRef{ID: id}, nil, nil)
-		})
+		m.confirmRemoveProject(mid, *proj)
 	}
 	return nil
 }
