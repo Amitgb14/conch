@@ -97,6 +97,17 @@ public func webLoads(_ address: String) -> Bool {
     !address.isEmpty && !isViewSource(address) && parseArtifactsAddress(address) == nil
 }
 
+/// Whether a page is Google's passkey step of a sign-in, or its failure.
+/// WebKit in an app hands a passkey only to apps Apple lets act as a
+/// browser, so in Conch's browser that step always fails ("Make sure
+/// Bluetooth is on"): the tab says so, and how else to sign in.
+public func isPasskeyChallenge(_ s: String) -> Bool {
+    guard let u = URL(string: s), u.host?.lowercased() == "accounts.google.com" else { return false }
+    let parts = u.path.split(separator: "/").map(String.init)
+    guard let i = parts.firstIndex(of: "challenge"), i + 1 < parts.count else { return false }
+    return parts[i + 1] == "pk"
+}
+
 /// Whether a link is a claude.ai artifact's: what ⌘-click in a pane
 /// opens in the Artifacts tab rather than the system browser.
 public func isArtifactURL(_ s: String) -> Bool {

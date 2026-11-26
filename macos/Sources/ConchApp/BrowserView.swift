@@ -330,6 +330,9 @@ final class BrowserModel: ObservableObject {
     /// The agent an Artifacts tab is for, key(machine, pane): from the
     /// address it was opened with, which its pane keeps as its key.
     var artifactsPane: String? { parseBrowserKey(key).flatMap(parseArtifactsAddress) }
+    /// The artifact last opened or shown here: what a sign-in it led to
+    /// was for, for the passkey notice's Open in Browser.
+    @Published var lastArtifact: String?
 
     init(key: String, store: Store, saved: SavedBrowser? = nil) {
         self.key = key
@@ -375,6 +378,7 @@ final class BrowserModel: ObservableObject {
     /// An artifact in a tab of its own after the list; one open already is
     /// shown, at the artboard asked for when the link names one.
     func openArtifact(_ url: String) {
+        lastArtifact = url
         let base = artifactBase(url)
         if let t = tabs.tabs.first(where: { artifactBase($0.address) == base }) {
             tabs.select(t.id)
@@ -608,6 +612,7 @@ final class BrowserModel: ObservableObject {
 
     func pageMoved(_ id: Int, _ address: String) {
         tabs.update(id, address: address)
+        if isArtifactURL(address) { lastArtifact = address }
         if id == tabs.activeID { store.objectWillChange.send() }
     }
 
@@ -708,11 +713,12 @@ struct BrowserView: View {
             BrowserTabStrip(model: model)
             if let t = model.tabs.active, let pane = parseArtifactsAddress(t.address) {
                 // An Artifacts tab's list: drawn here, never loaded by WebKit.
-                ArtifactsListView(model: model, store: model.store, pane: pane, close: close)
+                ArtifactsListView(model: model, store: model.store, pane: pane)
             } else if let p = model.current {
                 if model.artifactsPane != nil, isArtifactURL(model.address) {
                     ArtifactBar(model: model, store: model.store)
                 }
+                if isPasskeyChallenge(model.address) { PasskeyNotice(model: model) }
                 BrowserPageView(model: model, page: p, close: close, ownTab: ownTab).id(p.id)
             }
         }

@@ -181,3 +181,15 @@ private func art(_ url: String, _ title: String = "T", kind: String = "Design", 
     #expect(back.layout().tabs.map(\.root.panes) == [[agent, k]], "named for its agent, not the artifact in front")
     #expect(back.browsers?[k]?.tabs.map(\.address) == [artifactsAddress(pane: agent), "https://claude.ai/artifact/A"])
 }
+
+@Test func googlesPasskeyStepIsRecognised() {
+    // Both the step and its failure, as Conch's browser was sent to them.
+    #expect(isPasskeyChallenge("https://accounts.google.com/v3/signin/challenge/pk?TL=AAxq8nu&checkConnection=youtube"))
+    #expect(isPasskeyChallenge("https://accounts.google.com/v3/signin/challenge/pk/error?TL=AAxq8nuwTYASu-CMib1_W_fF3sr_Dk2KTy"))
+    #expect(isPasskeyChallenge("https://accounts.google.com/signin/v2/challenge/pk/presend"))
+    for no in ["https://accounts.google.com/v3/signin/identifier?flowName=GlifWebSignIn",
+               "https://accounts.google.com/v3/signin/challenge/pwd", "https://accounts.google.com/v3/signin/challenge/pkce",
+               "https://evil.example/v3/signin/challenge/pk", "https://claude.ai/login", "", "not a url"] {
+        #expect(!isPasskeyChallenge(no), "\(no)")
+    }
+}

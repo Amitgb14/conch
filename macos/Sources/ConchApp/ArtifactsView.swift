@@ -15,7 +15,6 @@ struct ArtifactsListView: View {
     @ObservedObject var store: Store
     /// The agent, key(machine, pane).
     let pane: String
-    var close: (() -> Void)?
     @FocusState private var filtering: Bool
 
     var machine: String { unkey(pane).machine }
@@ -39,9 +38,8 @@ struct ArtifactsListView: View {
     }
 
     var header: some View {
+        // Its title and close are the browser tab's, just above.
         HStack(spacing: 8) {
-            LucideIcon("layers", color: Theme.accent, size: 13)
-            Text("Artifacts").font(.ui(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text)
             Picker("Whose artifacts", selection: $model.artifactScope) {
                 ForEach(ArtifactScope.allCases, id: \.self) { s in Text(s.label(machine: machine)).tag(s) }
             }
@@ -49,10 +47,6 @@ struct ArtifactsListView: View {
             Spacer()
             Button { store.loadArtifacts(machine) } label: { LucideIcon("rotate-cw", color: Theme.text2, size: 12) }
                 .buttonStyle(.plain).help("List Again").accessibilityLabel("List artifacts again")
-            if let close {
-                Button(action: close) { LucideIcon("x", color: Theme.text2, size: 12) }
-                    .buttonStyle(.plain).help("Close Artifacts").accessibilityLabel("Close artifacts")
-            }
         }
         .padding(.horizontal, 10).frame(height: 34)
     }
@@ -292,5 +286,33 @@ struct ArtifactCount: View {
             .help(c.count == 1 ? "1 artifact" + (c.unseen ? ", new" : "") : "\(c.count) artifacts" + (c.unseen ? ", one new" : ""))
             .onTapGesture { store.showArtifacts(pane: pane) }
         }
+    }
+}
+
+/// Over Google's passkey step in Conch's browser, which always fails
+/// there (isPasskeyChallenge): what to do instead.
+struct PasskeyNotice: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: BrowserModel
+
+    var body: some View {
+        let _ = look
+        HStack(spacing: 8) {
+            LucideIcon("circle-alert", color: Theme.warn, size: 13)
+            Text("Passkeys can't be used in Conch's browser. Choose **Try another way** (a password or your phone), or sign in to claude.ai with email.")
+                .font(.ui(size: 12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            if let a = model.lastArtifact, let u = URL(string: a) {
+                Button { NSWorkspace.shared.open(u) } label: {
+                    HStack(spacing: 4) { LucideIcon("external-link", color: Theme.accent, size: 11); Text("Open in Browser") }
+                }
+                .buttonStyle(.plain).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent).fixedSize()
+                .help("The artifact in your own browser, where your passkey works")
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Theme.warn.opacity(0.12))
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .accessibilityElement(children: .combine)
     }
 }
