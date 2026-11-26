@@ -10,15 +10,29 @@ Your app on a real iOS simulator, beside the agent writing it — the iPhone's o
 
 They are offered only for a mobile app: Expo, React Native, Flutter, Xcode or Android, in the project's folder or any of its checkouts, so an app an agent is still making on its branch counts. conch looks again as files are written.
 
-Pick the simulator from the tab's menu; **Start** boots one that is shut down.
+Pick the simulator from the tab's menu; **Start** boots one that is shut down, and **Run** beside it puts the app on it. A simulator that starts while the tab is open — **▶ Run** booting one of its own, or one started in Xcode — is shown, since that is where the app went.
+
+## Simulators
+
+A simulator keeps running after its preview is closed, until something shuts it down.
+
+The button at the right of the tab's bar lists every simulator over the phone, running ones first: click one to show it, ⏹ shuts it down, 🗑 deletes it for good (asked first), **Shut Down All** stops them all. From a shell: [`conch preview shutdown` and `delete`](/docs/cli#preview).
 
 ## Use it
 
-Click the screen to tap it, type in the field below it, ○ for Home.
+Click the screen to tap it, type in the field below it. The buttons in the bar press Home, Lock and the side button; in a narrow column Lock and the side button are under ⋯.
 
 **▶ Run** puts the app on the phone: `npx expo start --ios`, `react-native run-ios` or `flutter run`. For an Xcode project it is `conch preview run`, which builds the app for that simulator, installs it and opens it; press it again after a change, since an Xcode app does not reload by itself.
 
-In a workbench it runs in the workbench's terminal, so the phone shows that branch.
+For an Xcode project the status bar follows the run until it ends: building, installing, opening, then open on the phone, or why it failed. A new terminal whose build failed stays in the sidebar with the errors.
+
+With Expo, React Native and Flutter the status bar says where the command runs, since a dev server does not end.
+
+The line above the phone names the branch ▶ runs; click it to pick another. In a workbench it is the agent's branch. When that has no app and several others do, conch asks you to pick. Outside a workbench it is the first branch with an app.
+
+The agent's branch runs in the workbench's terminal, another in a new terminal in the sidebar.
+
+The simulator's own keyboard opens when you tap a field: the preview turns off that simulator's hiding of it beside a hardware keyboard.
 
 **To agent** puts a screenshot in an agent's prompt. An agent can take one itself with [`conch preview shot`](/docs/cli#preview).
 

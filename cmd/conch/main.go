@@ -502,13 +502,18 @@ Usage:
   conch preview devices [-json]
                                 the iOS simulators and Android emulators and phones on this computer
   conch preview boot DEVICE     start one (by name or ID), in the background
+  conch preview shutdown DEVICE|-all
+                                stop one, or every running simulator and emulator
+  conch preview delete DEVICE   delete an iOS simulator for good (by ID, or a name only it has)
   conch preview shot [-device D] [-o FILE]
                                 a PNG of the running device's screen; prints its path, for an
                                 agent to look at its own work
-  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back
+  conch preview tap [-device D] X Y | type [-device D] TEXT | button [-device D] home|back|lock|side
                                 touch, type or press a button on it; X Y are pixels of the shot
                                 (an iOS simulator needs AXe or idb for these)
-  conch preview run [-device D] [-scheme S] [DIR]
+  conch preview keyboard [-device D] show|hide
+                                whether a simulator shows its own keyboard beside a hardware one
+  conch preview run [-device D] [-scheme S] [-status FILE] [DIR]
                                 build an Xcode project for a simulator, install it and open it
   conch preview detect [DIR...] what kind of mobile app a folder is and how its dev server starts
                                 (several folders: a JSON line each, naming its folder)

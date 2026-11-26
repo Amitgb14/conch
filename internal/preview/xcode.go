@@ -17,6 +17,21 @@ import (
 // schemes, where the build lands, the bundle ID — since a project.yml or
 // an Info.plist can say one thing and the build settings another.
 
+// The steps of XcodeRun, as Tools.Step is told them. Conch.app reads
+// them from conch preview run -status, so a name here is a promise.
+const (
+	StepStarting   = "starting" // the simulator, when it is shut down
+	StepBuilding   = "building"
+	StepInstalling = "installing"
+	StepOpening    = "opening"
+)
+
+func (t *Tools) step(s string) {
+	if t.Step != nil {
+		t.Step(s)
+	}
+}
+
 // XcodeApp is what a build of an Xcode project made, and how it is opened.
 type XcodeApp struct {
 	Container string // the .xcworkspace or .xcodeproj built
@@ -116,10 +131,14 @@ func (t *Tools) XcodeRun(ctx context.Context, dir string, d Device, scheme strin
 	if app.Scheme, err = pickScheme(info.Schemes, name, scheme); err != nil {
 		return app, err
 	}
+	if d.State != "booted" {
+		t.step(StepStarting)
+	}
 	if err := t.Boot(ctx, d); err != nil {
 		return app, err
 	}
 	args := []string{flag, container, "-scheme", app.Scheme, "-configuration", "Debug", "-destination", "id=" + d.ID}
+	t.step(StepBuilding)
 	fmt.Fprintf(w, "conch: building %s for %s\n", app.Scheme, d.Name)
 	if err := t.Pipe(ctx, w, t.Xcrun, append(append([]string{"xcodebuild"}, args...), "build")...); err != nil {
 		return app, fmt.Errorf("the build failed (%w); its errors are above", err)
@@ -131,9 +150,15 @@ func (t *Tools) XcodeRun(ctx context.Context, dir string, d Device, scheme strin
 	if app.Path, app.BundleID, err = builtApp(out); err != nil {
 		return app, fmt.Errorf("%s: %w", app.Scheme, err)
 	}
+	t.step(StepInstalling)
 	if _, err := t.Run(ctx, t.Xcrun, "simctl", "install", d.ID, app.Path); err != nil {
 		return app, err
 	}
+	// By ID: d may still say shutdown, though the build has booted it.
+	if err := t.keyboard(ctx, d.ID, true); err != nil {
+		fmt.Fprintf(w, "conch: the keyboard may stay hidden: %v\n", err)
+	}
+	t.step(StepOpening)
 	// The app as it was is closed, so a second Run shows the new build.
 	if _, err := t.Run(ctx, t.Xcrun, "simctl", "launch", "--terminate-running-process", d.ID, app.BundleID); err != nil {
 		return app, err

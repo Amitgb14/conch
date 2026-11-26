@@ -69,6 +69,8 @@ type Tools struct {
 	// Pipe runs a program to its end with everything it prints sent to w
 	// as it prints it: a build somebody is watching in a terminal.
 	Pipe func(ctx context.Context, w io.Writer, name string, args ...string) error
+	// Step, when set, is told each step of XcodeRun as it begins.
+	Step func(step string)
 }
 
 // Options are the settings ([preview] in config.toml): where Xcode and
@@ -497,6 +499,53 @@ func (t *Tools) Boot(ctx context.Context, d Device) error {
 	return fmt.Errorf("unknown platform %q", d.Platform)
 }
 
+// Shutdown stops a running device: a simulator nobody is looking at
+// keeps running, memory and all, until somebody stops it. An emulator is
+// told through its console; a phone plugged in is the phone's to turn off.
+func (t *Tools) Shutdown(ctx context.Context, d Device) error {
+	if !d.Booted() {
+		return nil
+	}
+	switch d.Platform {
+	case "ios":
+		if t.Xcrun == "" {
+			return errors.New("xcrun not found: install Xcode")
+		}
+		_, err := t.Run(ctx, t.Xcrun, "simctl", "shutdown", d.ID)
+		if err != nil && strings.Contains(err.Error(), "current state: Shutdown") {
+			return nil
+		}
+		return err
+	case "android":
+		if d.Kind != "emulator" {
+			return fmt.Errorf("%s is a phone: it is turned off on the phone", d.Name)
+		}
+		if t.Adb == "" {
+			return errors.New("adb not found: install it with Android Studio's SDK Manager")
+		}
+		_, err := t.Run(ctx, t.Adb, "-s", d.ID, "emu", "kill")
+		return err
+	}
+	return fmt.Errorf("unknown platform %q", d.Platform)
+}
+
+// Delete removes an iOS simulator for good, stopping it first, since
+// simctl will not delete one that is running. An Android emulator's
+// image is Android Studio's to delete, with its own Device Manager.
+func (t *Tools) Delete(ctx context.Context, d Device) error {
+	if d.Platform != "ios" || d.Kind != "simulator" {
+		return fmt.Errorf("%s is not an iOS simulator: delete an Android emulator in Android Studio's Device Manager", d.Name)
+	}
+	if t.Xcrun == "" {
+		return errors.New("xcrun not found: install Xcode")
+	}
+	if err := t.Shutdown(ctx, d); err != nil {
+		return err
+	}
+	_, err := t.Run(ctx, t.Xcrun, "simctl", "delete", d.ID)
+	return err
+}
+
 // Shot writes a PNG of the device's screen to path, at its full pixels.
 func (t *Tools) Shot(ctx context.Context, d Device, path string) error {
 	if err := needBooted(d); err != nil {
@@ -706,35 +755,66 @@ func adbText(s string) string {
 	return b.String()
 }
 
-// Buttons are the device buttons Button presses.
-var Buttons = []string{"home", "back"}
+// Keyboard says whether an iOS simulator shows its own keyboard once it
+// has seen a hardware one — the Simulator app's, or the one typing through
+// AXe is — which by default it hides. The setting is the simulator's and
+// stays; the notification is what makes a running app read it, at the
+// next field touched, where the setting alone waits for a relaunch.
+func (t *Tools) Keyboard(ctx context.Context, d Device, show bool) error {
+	if d.Platform != "ios" || d.Kind != "simulator" {
+		return fmt.Errorf("%s is not an iOS simulator: only its keyboard is conch's to show", d.Name)
+	}
+	if t.Xcrun == "" {
+		return errors.New("xcrun not found: install Xcode")
+	}
+	if err := needBooted(d); err != nil {
+		return err
+	}
+	return t.keyboard(ctx, d.ID, show)
+}
 
-// Button presses home or back. An iPhone has no back button, so that one
-// is Android's alone.
+func (t *Tools) keyboard(ctx context.Context, id string, show bool) error {
+	if _, err := t.Run(ctx, t.Xcrun, "simctl", "spawn", id, "defaults", "write",
+		"com.apple.keyboard.preferences", "AutomaticMinimizationEnabled", "-bool", strconv.FormatBool(!show)); err != nil {
+		return err
+	}
+	_, err := t.Run(ctx, t.Xcrun, "simctl", "spawn", id, "notifyutil", "-p", "AppleKeyboardsPreferencesChangedNotification")
+	return err
+}
+
+// Buttons are the device buttons Button presses.
+var Buttons = []string{"home", "back", "lock", "side"}
+
+// Button presses home, back, lock or the side button. An iPhone has no
+// back button, so that one is Android's alone; on an Android phone lock
+// and side are both its power key.
 func (t *Tools) Button(ctx context.Context, d Device, name string) error {
 	if err := needBooted(d); err != nil {
 		return err
 	}
 	switch d.Platform {
 	case "android":
-		code := map[string]string{"home": "KEYCODE_HOME", "back": "KEYCODE_BACK"}[name]
+		code := map[string]string{"home": "KEYCODE_HOME", "back": "KEYCODE_BACK", "lock": "KEYCODE_POWER", "side": "KEYCODE_POWER"}[name]
 		if code == "" {
-			return fmt.Errorf("no button %q (home or back)", name)
+			return fmt.Errorf("no button %q (home, back, lock or side)", name)
 		}
 		_, err := t.Run(ctx, t.Adb, "-s", d.ID, "shell", "input", "keyevent", code)
 		return err
 	case "ios":
-		if name != "home" {
-			return fmt.Errorf("an iPhone has no %q button (home)", name)
+		// AXe's names, and idb's.
+		names := map[string][2]string{"home": {"home", "HOME"}, "lock": {"lock", "LOCK"}, "side": {"side-button", "SIDE_BUTTON"}}
+		n, ok := names[name]
+		if !ok {
+			return fmt.Errorf("an iPhone has no %q button (home, lock or side)", name)
 		}
 		if err := t.needTouch(); err != nil {
 			return err
 		}
 		if t.Axe != "" {
-			_, err := t.Run(ctx, t.Axe, "button", "home", "--udid", d.ID)
+			_, err := t.Run(ctx, t.Axe, "button", n[0], "--udid", d.ID)
 			return err
 		}
-		_, err := t.Run(ctx, t.Idb, "ui", "button", "--udid", d.ID, "HOME")
+		_, err := t.Run(ctx, t.Idb, "ui", "button", "--udid", d.ID, n[1])
 		return err
 	}
 	return fmt.Errorf("unknown platform %q", d.Platform)

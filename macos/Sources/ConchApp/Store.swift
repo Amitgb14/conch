@@ -224,6 +224,16 @@ final class Store: ObservableObject {
             }
         }
     }
+    /// A job that says how far it has got: shown while what is not nil.
+    func progress(_ id: UUID, _ what: String?) {
+        guard let what else { return jobs.removeAll { $0.id == id } }
+        if let i = jobs.firstIndex(where: { $0.id == id }) {
+            if jobs[i].what != what { jobs[i].what = what }
+        } else {
+            jobs.append((id, what))
+        }
+    }
+
     /// Runs body as a long job, the status bar saying what while it runs,
     /// for a caller that waits on it and says what came of it itself.
     func running<T>(_ what: String, _ body: () async throws -> T) async throws -> T {

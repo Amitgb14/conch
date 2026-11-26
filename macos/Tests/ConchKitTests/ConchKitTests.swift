@@ -1354,6 +1354,10 @@ final class FakeServer: @unchecked Sendable {
     #expect(closesOnExit(pane("check · feat", code: 0, age: 600), now: now))
     #expect(!closesOnExit(pane("sandbox create · Daytona", code: 1, age: 90), now: now)) // set-up failed: the reason stays
     #expect(closesOnExit(pane("sandbox create · Daytona", code: 0, age: 90), now: now))
+    #expect(!closesOnExit(pane("Run · beta", code: 1, age: 90), now: now)) // a build that failed: its errors stay
+    #expect(closesOnExit(pane("Run · beta", code: 0, age: 90), now: now))
+    #expect(closesOnExit(pane("Run · beta", code: 130, age: 90), now: now)) // stopped with Ctrl-C: nothing to read
+    #expect(closesOnExit(pane("Run · beta", code: -1, age: 90), now: now)) // the same, when the signal was the program's end
     #expect(!closesOnExit(pane(code: 0, age: 600, state: "running"), now: now))
     var none = PaneInfo(id: "p2", name: "x", state: "exited")
     none.exitCode = 2
