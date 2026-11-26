@@ -219,6 +219,27 @@ import Testing
         #expect(teamsOnlyOnAgents(listed: [], panes: []).isEmpty)
     }
 
+    // Settings shows a team's agents as one mark per kind with a count,
+    // and how many of them work, which is what turns the spinner.
+    @Test func teamAgentsCountedByKind() {
+        var codex = agent("p3", branch: "c", state: .idle)
+        codex.agent?.name = "codex"
+        let shell = PaneInfo(id: "p9", name: "zsh")
+        let got = teamAgentCounts([
+            agent("p1", branch: "a", state: .working),
+            agent("p2", branch: "b", state: .idle),
+            codex,
+            shell,
+            agent("p4", branch: "d", state: .done),
+            agent("p5", branch: "e", state: .working),
+        ])
+        #expect(got == [TeamAgentCount(agent: "claude", count: 4, working: 2), TeamAgentCount(agent: "codex", count: 1, working: 0)])
+        #expect(teamAgentCounts([]).isEmpty)
+        #expect(teamAgentCounts([shell]).isEmpty)
+        // Nobody at work: no spinner.
+        #expect(teamAgentCounts([agent("p1", branch: "a", state: .blocked)]) == [TeamAgentCount(agent: "claude", count: 1, working: 0)])
+    }
+
     @Test func gatherPutsTeamInOneTab() {
         var l = Layout()
         l.open("a")

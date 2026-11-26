@@ -19,7 +19,8 @@ struct TableList: View {
     var rows: [[String: JSONValue]] { model.form?.rows(section, field) ?? [] }
     /// The order matters only for rules: the first that matches decides.
     var ordered: Bool { field.key == "permissions" }
-    var noun: String { field.key == "permissions" ? "rule" : field.key == "actions" ? "action" : "entry" }
+    var noun: String { field.key == "permissions" ? "rule" : field.key == "actions" ? "action" : field.key == "teams" ? "team" : "entry" }
+    var nouns: String { noun == "entry" ? "entries" : noun + "s" }
 
     var body: some View {
         let _ = theme
@@ -42,10 +43,10 @@ struct TableList: View {
             if ordered && rs.count > 1 {
                 Text("Checked from the top: the first rule that matches answers.").font(.ui(size: 12)).foregroundStyle(Theme.muted)
             }
-            if rs.isEmpty {
+            if rs.isEmpty && (field.key != "teams" || handTeams(rs).isEmpty) {
                 VStack(spacing: 6) {
                     Image(systemName: field.key == "permissions" ? "lock.open" : "bolt").font(.system(size: 18)).foregroundStyle(Theme.muted)
-                    Text("No \(noun)s yet").font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text2)
+                    Text("No \(nouns) yet").font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text2)
                     Text(section.description).font(.ui(size: 12)).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 22)
@@ -289,28 +290,31 @@ struct KeyedList: View {
     }
 }
 
-/// A team's agents as their marks, not their names, each ringed by a
-/// turning spinner while it works.
+/// A team's agents as their marks, one per kind with how many, not
+/// their names: a spinner round a mark while any of that kind works.
 struct TeamAgentMarks: View {
     @ObservedObject var store: Store
     let team: String
 
     var body: some View {
-        let keys = teamMembers(team, teams: store.teams, panes: store.teamCandidates)
-        HStack(spacing: 4) {
-            ForEach(keys.prefix(8), id: \.self) { k in
-                let p = store.pane(k)
-                let working = p?.agent?.state == .working
-                Mark(agent: p?.agent?.name)
-                    .frame(width: 14, height: 14)
-                    .frame(width: 20, height: 20)
-                    .overlay { if working { TeamSpinner() } }
-                    .help("\(p?.agent?.name ?? "agent") · \(p.map { "\($0.agent?.state.rawValue ?? "")" } ?? "")")
+        let panes = teamMembers(team, teams: store.teams, panes: store.teamCandidates).compactMap { store.pane($0) }
+        let counts = teamAgentCounts(panes)
+        HStack(spacing: 10) {
+            ForEach(counts, id: \.agent) { c in
+                HStack(spacing: 4) {
+                    Mark(agent: c.agent)
+                        .frame(width: 14, height: 14)
+                        .frame(width: 20, height: 20)
+                        .overlay { if c.working > 0 { TeamSpinner() } }
+                    Text(c.working > 0 ? "\(c.count) · \(c.working) working" : "\(c.count)")
+                        .font(.ui(size: 12, weight: .medium)).foregroundStyle(c.working > 0 ? Theme.work : Theme.text2)
+                        .monospacedDigit()
+                }
+                .help("\(c.count) \(c.agent) open" + (c.working > 0 ? ", \(c.working) working" : ""))
             }
-            if keys.count > 8 { Text("+\(keys.count - 8)").font(.ui(size: 11)).foregroundStyle(Theme.muted) }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(keys.count) agents, \(keys.filter { store.pane($0)?.agent?.state == .working }.count) working")
+        .accessibilityLabel(counts.map { "\($0.count) \($0.agent)" + ($0.working > 0 ? ", \($0.working) working" : "") }.joined(separator: "; "))
     }
 }
 
