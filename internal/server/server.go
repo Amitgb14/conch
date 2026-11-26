@@ -1089,15 +1089,11 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		return proto.FSDownloadChunk{Data: chunk.Data, EOF: chunk.EOF}, perr
 
 	case proto.MethodProjectRemove:
-		ref, perr := decode[proto.ProjectRef](msg)
+		ref, perr := decode[proto.ProjectRemoveParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
-		if perr := s.projects.remove(ref.ID); perr != nil {
-			return nil, perr
-		}
-		s.reviewDropped(ref.ID, "")
-		return nil, nil
+		return s.removeProject(ref)
 
 	case proto.MethodProjectGitInit:
 		ref, perr := decode[proto.ProjectRef](msg)

@@ -1290,6 +1290,7 @@ var helpGroups = []helpGroup{{
 		}},
 		{keys: "x", what: "close or remove", more: []string{
 			"a branch: its worktree, then the branch · on local it hides Getting started",
+			"a project: conch forgets it, files untouched; with agents or terminals still running in it, r leaves them running and c closes them with it",
 		}},
 		{keys: "R", what: "refresh git and pull requests"},
 		{keys: "o", what: "open a branch's pull request"},

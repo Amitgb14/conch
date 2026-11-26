@@ -289,10 +289,30 @@ func TestA4ProjectCommands(t *testing.T) {
 	if _, err := run("rm", "api"); err != nil {
 		t.Fatal(err)
 	}
-	var ref proto.ProjectRef
-	if srv.params(t, proto.MethodProjectRemove, &ref); ref.ID != "api" {
+	var ref proto.ProjectRemoveParams
+	if srv.params(t, proto.MethodProjectRemove, &ref); ref.ID != "api" || ref.Close {
 		t.Fatalf("rm %+v", ref)
 	}
+	// -close, before or after the ID, closes its panes with it.
+	for _, args := range [][]string{{"rm", "-close", "api"}, {"rm", "api", "-close"}} {
+		ref = proto.ProjectRemoveParams{}
+		if _, err := run(args...); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if srv.params(t, proto.MethodProjectRemove, &ref); ref.ID != "api" || !ref.Close {
+			t.Fatalf("%v sent %+v", args, ref)
+		}
+	}
+	// A server that would ignore it is not asked.
+	srv.setHello(func(int) proto.HelloResult {
+		h := currentHello(0)
+		h.Capabilities = slices.DeleteFunc(slices.Clone(h.Capabilities), func(c string) bool { return c == proto.CapProjectRemoveClose })
+		return h
+	})
+	if _, err := run("rm", "-close", "api"); err == nil || !strings.Contains(err.Error(), "cannot close a project's panes") {
+		t.Fatalf("old server: %v", err)
+	}
+	srv.setHello(currentHello)
 
 	for args, want := range map[string]string{
 		"add":                  "usage: conch project add PATH",
@@ -314,9 +334,10 @@ func TestA4ProjectCommands(t *testing.T) {
 		"files a -what":        "flag provided but not defined",
 		"files a b -none":      "usage: conch project files",
 		"files a -reset -none": "usage: conch project files",
-		"rm":                   "usage: conch project rm ID",
+		"rm":                   "usage: conch project rm [-close] ID",
+		"rm -what api":         "flag provided but not defined",
 		"frobnicate":           `unknown project subcommand "frobnicate"`,
-		"remove too many":      "usage: conch project rm ID",
+		"remove too many":      "usage: conch project rm [-close] ID",
 	} {
 		if _, err := run(strings.Fields(args)...); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("project %s: %v, want %q", args, err, want)

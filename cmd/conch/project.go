@@ -118,10 +118,27 @@ func runProject(args []string) error {
 	case "setup":
 		return projectSetup(c, args[1:])
 	case "rm", "remove":
-		if len(args) != 2 {
-			return errors.New("usage: conch project rm ID")
+		const usage = "usage: conch project rm [-close] ID"
+		fs := flag.NewFlagSet("project rm", flag.ContinueOnError)
+		closePanes := fs.Bool("close", false, "close the agents and terminals working in it too; without it they keep running")
+		words, err := parseInterspersed(fs, args[1:])
+		if err != nil {
+			return err
 		}
-		return call(c, proto.MethodProjectRemove, proto.ProjectRef{ID: args[1]}, nil)
+		if len(words) != 1 {
+			return errors.New(usage)
+		}
+		if *closePanes && len(c.MissingCapabilities([]string{proto.CapProjectRemoveClose})) > 0 {
+			return errors.New("the conch server there cannot close a project's panes with it; reload it with `conch server reload`, or leave out -close")
+		}
+		var res proto.ProjectRemoveResult
+		if err := call(c, proto.MethodProjectRemove, proto.ProjectRemoveParams{ID: words[0], Close: *closePanes}, &res); err != nil {
+			return err
+		}
+		if len(res.Closed) > 0 {
+			fmt.Printf("closed %s\n", strings.Join(res.Closed, " "))
+		}
+		return nil
 	case "ls", "list":
 		var list proto.ProjectList
 		if err := call(c, proto.MethodProjectList, nil, &list); err != nil {
