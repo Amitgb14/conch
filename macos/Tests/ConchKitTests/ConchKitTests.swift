@@ -61,8 +61,9 @@ func fixture() -> Snapshot {
 }
 
 @Test func environmentLeavesThePaneOut() {
-    let env = conchEnvironment(["CONCH_PANE_ID": "p3", "CONCH_SOCKET": "/s", "TERM": "dumb"])
+    let env = conchEnvironment(["CONCH_PANE_ID": "p3", "CONCH_TOKEN": "conch_p_x_y_z", "CONCH_SOCKET": "/s", "TERM": "dumb"])
     #expect(env["CONCH_PANE_ID"] == nil)
+    #expect(env["CONCH_TOKEN"] == nil) // the pane's token, refused once the pane is gone
     #expect(env["CONCH_SOCKET"] == "/s") // the same server is the point
     #expect(env["TERM"] == "xterm-256color")
 }
