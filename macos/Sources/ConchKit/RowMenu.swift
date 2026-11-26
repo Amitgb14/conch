@@ -70,6 +70,9 @@ public enum RowAction: Equatable, Sendable {
     /// Starts an agent where cwd is (nil: the machine's home). inProject
     /// false keeps it out of any project, as the TUI's CLI group does.
     case startAgent(machine: String, cwd: String?, inProject: Bool)
+    /// Starts an agent in a project's folder and puts it in a team: a
+    /// team's row starts agents only, since a terminal is in no team.
+    case startTeamAgent(project: String, team: String)
     case newTerminal(machine: String, cwd: String?, inProject: Bool)
     case changes(project: String, branch: String)
     /// A branch checked out nowhere given a worktree of its own, and then
@@ -237,7 +240,7 @@ public struct RowMenuItem: Equatable, Sendable {
     /// Whether choosing it asks which agent, as a submenu of them.
     public var picksAgent: Bool {
         switch action {
-        case .startAgent, .checkOut(_, _, .agent): return true
+        case .startAgent, .startTeamAgent, .checkOut(_, _, .agent): return true
         default: return false
         }
     }
@@ -435,6 +438,9 @@ extension Snapshot {
             guard !keys.isEmpty else { return [] }
             let title = name.isEmpty ? "No team" : name
             var items = [RowMenuItem("Show Side by Side", .showTogether(panes: keys, name: "\(title) · \(project(unkey(pk).id)?.name ?? "")"))]
+            if machineOnline && !name.isEmpty && project(unkey(pk).id) != nil {
+                items.insert(RowMenuItem("Start an Agent in This Team", .startTeamAgent(project: pk, team: name)), at: 0)
+            }
             let scope = BroadcastScope.panes(machine: machine, keys: keys)
             if machineOnline && hasRunning(scope) { items.append(RowMenuItem("Broadcast to \(name.isEmpty ? "These Agents" : "This Team")…", .broadcast(scope))) }
             // "No team" is where agents go, not a team to rename or delete.
@@ -603,9 +609,15 @@ public struct RowButtons: Equatable, Sendable {
     public var tasks: [RowMenuItem]
     /// Whether the bot button also offers SSH to a Host… (this CLI).
     public var ssh: Bool
+    /// The team an agent started from these buttons joins: a team's row,
+    /// which starts agents only and offers no terminal.
+    public var team: String?
+    /// The project a team's row is in, for starting its agents.
+    public var teamProject: String?
 
     public init(primary: RowMenuItem? = nil, agentMachine: String? = nil, agentCwd: String? = nil, agentInProject: Bool = false,
-                primaryIcon: String = "plus", tasks: [RowMenuItem] = [], ssh: Bool = false) {
+                primaryIcon: String = "plus", tasks: [RowMenuItem] = [], ssh: Bool = false,
+                team: String? = nil, teamProject: String? = nil) {
         self.primary = primary
         self.agentMachine = agentMachine
         self.agentCwd = agentCwd
@@ -613,11 +625,19 @@ public struct RowButtons: Equatable, Sendable {
         self.primaryIcon = primaryIcon
         self.tasks = tasks
         self.ssh = ssh
+        self.team = team
+        self.teamProject = teamProject
     }
+
+    /// Whether the bot button offers a terminal too: not on a team's row.
+    public var offersTerminal: Bool { team == nil }
 
     /// Starting the agent named, or a terminal for nil, where it says.
     public func start(_ agent: String?) -> RowAction? {
         guard let m = agentMachine else { return nil }
+        if let team, let pk = teamProject {
+            return agent == nil ? nil : .startTeamAgent(project: pk, team: team)
+        }
         return agent == nil ? .newTerminal(machine: m, cwd: agentCwd, inProject: agentInProject)
             : .startAgent(machine: m, cwd: agentCwd, inProject: agentInProject)
     }
@@ -640,6 +660,11 @@ extension Snapshot {
         case .group(let m, let name):
             guard machineOnline else { return nil }
             return RowButtons(primary: RowMenuItem("New Task Across Repos…", .newGroupTask(machine: m, group: name)))
+        case .team(let pk, let name):
+            // A team's agents start in its project and join it; "No team"
+            // is where agents go, so it starts none.
+            guard machineOnline, !name.isEmpty, let pr = project(unkey(pk).id) else { return nil }
+            return RowButtons(agentMachine: machine, agentCwd: pr.path, agentInProject: true, team: name, teamProject: pk)
         case .workspace:
             guard machineOnline else { return nil }
             return RowButtons(primary: RowMenuItem("Add Project…", .addProject(machine: machine)),

@@ -170,12 +170,53 @@ import Testing
         let teamRow = TreeNode(id: "t:local|r1:Backend", kind: .team(project: "local|r1", name: "Backend"), title: "Backend",
                                children: [TreeNode(id: "pane:local|p1", kind: .agent("local|p1"), title: "p1")])
         let items = s.menu(for: teamRow, machine: "local")
-        #expect(items.map(\.title) == ["Show Side by Side", "Broadcast to This Team…", "", "Rename Team…", "Delete Team…"])
-        #expect(items[3].action == .renameTeam(name: "Backend") && items[4].action == .deleteTeam(name: "Backend"))
-        #expect(items[0].action == .showTogether(panes: ["local|p1"], name: "Backend · conch"))
+        #expect(items.map(\.title) == ["Start an Agent in This Team", "Show Side by Side", "Broadcast to This Team…", "", "Rename Team…", "Delete Team…"])
+        #expect(items[0].action == .startTeamAgent(project: "local|r1", team: "Backend") && items[0].picksAgent)
+        #expect(items[4].action == .renameTeam(name: "Backend") && items[5].action == .deleteTeam(name: "Backend"))
+        #expect(items[1].action == .showTogether(panes: ["local|p1"], name: "Backend · conch"))
+        // Offline, nothing is started; a project gone from the snapshot has nowhere to start one.
+        #expect(!s.menu(for: teamRow, machine: "local", machineOnline: false).contains { $0.action == items[0].action })
+        let gone = TreeNode(id: "t", kind: .team(project: "local|r9", name: "Backend"), title: "Backend", children: teamRow.children)
+        #expect(!s.menu(for: gone, machine: "local").contains { if case .startTeamAgent = $0.action { return true }; return false })
         #expect(s.broadcastTargets(.panes(machine: "local", keys: ["local|p1"])).map(\.key) == ["local|p1"])
         #expect(teamRow.machine == "local")
         #expect(s.menu(for: TreeNode(id: "t", kind: .team(project: "local|r1", name: ""), title: "No team"), machine: "local").isEmpty)
+    }
+
+    // A team's row starts agents only, in its project, into the team;
+    // "No team" starts none, and offline nothing is started.
+    @Test func aTeamsRowStartsAgentsInIt() throws {
+        let s = Snapshot(panes: [agent("p1", branch: "x", team: "Hand")], projects: [ProjectInfo(id: "r1", name: "conch", path: "/c")])
+        let row = TreeNode(id: "t:local|r1:Hand", kind: .team(project: "local|r1", name: "Hand"), title: "Hand")
+        let b = try #require(s.rowButtons(for: row, machine: "local"))
+        #expect(b.primary == nil && b.agentMachine == "local" && b.agentCwd == "/c" && !b.offersTerminal)
+        #expect(b.start("codex") == .startTeamAgent(project: "local|r1", team: "Hand"))
+        #expect(b.start(nil) == nil) // never a terminal
+        #expect(s.rowButtons(for: TreeNode(id: "t", kind: .team(project: "local|r1", name: ""), title: "No team"), machine: "local") == nil)
+        #expect(s.rowButtons(for: row, machine: "local", machineOnline: false) == nil)
+        #expect(s.rowButtons(for: TreeNode(id: "t", kind: .team(project: "local|r9", name: "Hand"), title: "Hand"), machine: "local") == nil)
+        // Other rows still offer a terminal.
+        #expect(RowButtons(agentMachine: "local").offersTerminal)
+    }
+
+    // Settings → Teams lists the teams put on agents by hand that
+    // config.toml does not: once each, in the order first seen.
+    @Test func teamsOnlyOnAgentsAreListed() {
+        var shell = PaneInfo(id: "p9", name: "zsh", projectID: "r1")
+        shell.team = "Terminal team" // a terminal is in no team
+        let panes = [
+            agent("p1", branch: "a", team: "bugs"),
+            agent("p2", branch: "b", team: "Backend"),
+            agent("p3", branch: "c", team: "-"),
+            agent("p4", branch: "d", team: " sf "),
+            agent("p5", branch: "e", team: "bugs"),
+            agent("p6", branch: "f", team: ""),
+            agent("p7", branch: "g"),
+            shell,
+        ]
+        #expect(teamsOnlyOnAgents(listed: ["Backend"], panes: panes) == ["bugs", "sf"])
+        #expect(teamsOnlyOnAgents(listed: ["Backend", "bugs", "sf"], panes: panes).isEmpty)
+        #expect(teamsOnlyOnAgents(listed: [], panes: []).isEmpty)
     }
 
     @Test func gatherPutsTeamInOneTab() {

@@ -27,7 +27,7 @@ struct TableList: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(field.label.uppercased()).font(.ui(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(Theme.text2)
-                Text("\(rs.count)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                Text("\(rs.count + (field.key == "teams" ? handTeams(rs).count : 0))").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 6).padding(.vertical, 1).background(Capsule().fill(Theme.well))
                 Spacer()
                 Button {
@@ -55,7 +55,41 @@ struct TableList: View {
             ForEach(Array(rs.enumerated()), id: \.offset) { i, row in
                 rowCard(i, row, count: rs.count)
             }
+            if field.key == "teams" {
+                ForEach(handTeams(rs), id: \.self) { name in handTeamCard(name) }
+            }
         }
+    }
+
+    /// Teams agents were put in from their menu that config.toml does not
+    /// list: shown so the page has every team in use.
+    func handTeams(_ rs: [[String: JSONValue]]) -> [String] {
+        let listed = rs.compactMap { $0["name"]?.string?.trimmingCharacters(in: .whitespaces) }
+        return teamsOnlyOnAgents(listed: listed, panes: model.store.teamCandidates.map(\.pane))
+    }
+
+    func handTeamCard(_ name: String) -> some View {
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 3).fill(Theme.color(model.store.teamColor(name))).frame(width: 10, height: 10)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name).font(.ui(size: 13, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                Text("on its agents only · not in config.toml").font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            TeamAgentMarks(store: model.store, team: name)
+            Button("Give It a Colour and Rules") {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    guard let i = model.form?.addRow(section, field),
+                          let nameField = field.fields?.first(where: { $0.key == "name" }) else { return }
+                    model.form?.set(section, nameField, at: .row(table: field.key, index: i), .string(name))
+                    open.insert(i)
+                }
+            }
+            .font(.ui(size: 12)).help("Adds it to config.toml with this name; the agents in it stay in it.")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
     }
 
     func rowCard(_ i: Int, _ row: [String: JSONValue], count: Int) -> some View {
@@ -81,6 +115,9 @@ struct TableList: View {
                     if !d.isEmpty { Text(d).font(.ui(size: 11.5)).foregroundStyle(Theme.muted).lineLimit(1) }
                 }
                 Spacer(minLength: 8)
+                if field.key == "teams", let name = row["name"]?.string, !name.isEmpty {
+                    TeamAgentMarks(store: model.store, team: name)
+                }
                 if ordered {
                     iconButton("arrow.up", "Move up", disabled: i == 0) { model.form?.moveRow(section, field, at: i, by: -1); swap(i, i - 1) }
                     iconButton("arrow.down", "Move down", disabled: i == count - 1) { model.form?.moveRow(section, field, at: i, by: 1); swap(i, i + 1) }
@@ -249,5 +286,44 @@ struct KeyedList: View {
         }
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raise))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(isOpen ? Theme.line2 : Theme.line, lineWidth: 1))
+    }
+}
+
+/// A team's agents as their marks, not their names, each ringed by a
+/// turning spinner while it works.
+struct TeamAgentMarks: View {
+    @ObservedObject var store: Store
+    let team: String
+
+    var body: some View {
+        let keys = teamMembers(team, teams: store.teams, panes: store.teamCandidates)
+        HStack(spacing: 4) {
+            ForEach(keys.prefix(8), id: \.self) { k in
+                let p = store.pane(k)
+                let working = p?.agent?.state == .working
+                Mark(agent: p?.agent?.name)
+                    .frame(width: 14, height: 14)
+                    .frame(width: 20, height: 20)
+                    .overlay { if working { TeamSpinner() } }
+                    .help("\(p?.agent?.name ?? "agent") · \(p.map { "\($0.agent?.state.rawValue ?? "")" } ?? "")")
+            }
+            if keys.count > 8 { Text("+\(keys.count - 8)").font(.ui(size: 11)).foregroundStyle(Theme.muted) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(keys.count) agents, \(keys.filter { store.pane($0)?.agent?.state == .working }.count) working")
+    }
+}
+
+/// A ring turning round an agent's mark while it works.
+struct TeamSpinner: View {
+    @Environment(\.conchTheme) private var look
+
+    var body: some View {
+        let _ = look
+        return TimelineView(.animation) { ctx in
+            Circle().trim(from: 0, to: 0.7)
+                .stroke(Theme.work, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                .rotationEffect(.degrees(ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9 * 360))
+        }
     }
 }

@@ -269,3 +269,17 @@ public func teamRenameProblem(_ to: String, from: String, existing: [String]) ->
     if existing.contains(where: { $0 == t }) { return "There is already a team called “\(t)”." }
     return nil
 }
+
+/// The teams agents were put in by hand that config.toml does not list:
+/// a team made from an agent's menu lives on the agent alone, and
+/// Settings → Teams lists these after its own so it shows every team in
+/// use. In the order first seen; "-" (no team) is none.
+public func teamsOnlyOnAgents(listed: [String], panes: [PaneInfo]) -> [String] {
+    var out: [String] = []
+    for p in panes where p.agent != nil {
+        guard let t = p.team?.trimmingCharacters(in: .whitespaces), !t.isEmpty, t != AgentTeam.none,
+              !listed.contains(t), !out.contains(t) else { continue }
+        out.append(t)
+    }
+    return out
+}
