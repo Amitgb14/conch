@@ -139,13 +139,90 @@ public enum ArtifactOpening: String, CaseIterable, Sendable {
         }
     }
 
-    /// Whether it opens in the person's own browser.
-    public func outside(signedIn: Bool) -> Bool {
+    /// Whether it opens in the person's own browser. needsBrowser: this
+    /// artifact failed to load in Conch's WebKit before (ArtifactHandOvers),
+    /// so here it would be a blank tab whatever the choice.
+    public func outside(signedIn: Bool, needsBrowser: Bool = false) -> Bool {
         switch self {
-        case .automatic: return !signedIn
-        case .conch: return false
+        case .automatic: return !signedIn || needsBrowser
+        case .conch: return needsBrowser
         case .browser: return true
         }
+    }
+}
+
+// MARK: artifacts WebKit cannot show
+
+// claude.ai shows an artifact's page in a frame from a site of its own,
+// ID.frame.claudeusercontent.com/_f/VERSION/. That frame is first asked
+// for without a cookie and refused (403), then again with a one-time
+// ?__frame_t= token, which answers the page and sets a cookie for the
+// files under it. WebKit — Safari and Conch's browser alike — never sends
+// a cookie to another site's frame, so those files fail: a plain HTML
+// artifact, whole in the page, shows; one built from an artifact type,
+// whose app.css and app.js are such files, comes up blank. Seen in a HAR
+// from Conch's browser, 2026-11-25.
+
+/// The path of an artifact's content frame after /_f/VERSION, and its
+/// query; nil for any other URL.
+private func artifactFramePath(_ s: String) -> (rest: [String], query: String)? {
+    guard let u = URLComponents(string: s), u.scheme?.lowercased() == "https",
+          let host = u.host?.lowercased(), host.hasSuffix(".frame.claudeusercontent.com"),
+          host.count > ".frame.claudeusercontent.com".count else { return nil }
+    let parts = u.path.split(separator: "/").map(String.init)
+    guard parts.count >= 2, parts[0] == "_f", !parts[1].isEmpty else { return nil }
+    return (Array(parts.dropFirst(2)), u.query ?? "")
+}
+
+/// Whether a URL is one of the files under an artifact's frame — its
+/// stylesheet, script or fonts — rather than the frame's page itself.
+public func isArtifactFrameFile(_ s: String) -> Bool {
+    guard let f = artifactFramePath(s) else { return false }
+    return !f.rest.isEmpty
+}
+
+/// Whether an answer is the frame's first, cookie-less try: refused, and
+/// retried with a token. Every artifact gets it, so it is no error.
+public func isArtifactFrameFirstTry(status: Int, url: String, mainFrame: Bool) -> Bool {
+    guard !mainFrame, status == 403, let f = artifactFramePath(url), f.rest.isEmpty else { return false }
+    return !f.query.contains("__frame_t=")
+}
+
+/// Whether a failure on a page hands its artifact to the person's own
+/// browser: one of the artifact's own files did not load, on its
+/// claude.ai page. Automatically or In Conch alike, since the tab would be
+/// blank; In My Browser never opened it here.
+public func artifactNeedsBrowser(opening: ArtifactOpening, page: String, issue: PageIssue) -> Bool {
+    opening != .browser && issue.kind == .resource && isArtifactURL(page) && isArtifactFrameFile(issue.source)
+}
+
+/// The artifacts that failed to load in Conch's browser, by address
+/// (artifactBase): opened in the person's own browser from then on. Kept
+/// in the app's preferences, the newest last, at most `max`.
+public struct ArtifactHandOvers: Equatable, Sendable {
+    public static let max = 200
+    public private(set) var urls: [String] = []
+
+    /// What was saved; anything but a list of strings is nothing.
+    public init(setting: Any?) {
+        var seen = Set<String>()
+        for case let s as String in (setting as? [Any]) ?? [] where isArtifactURL(s) {
+            let b = artifactBase(s)
+            if seen.insert(b).inserted { urls.append(b) }
+        }
+        if urls.count > Self.max { urls.removeFirst(urls.count - Self.max) }
+    }
+
+    public func contains(_ url: String) -> Bool { urls.contains(artifactBase(url)) }
+
+    /// Added; false when it was there already.
+    @discardableResult
+    public mutating func insert(_ url: String) -> Bool {
+        let b = artifactBase(url)
+        guard isArtifactURL(b), !urls.contains(b) else { return false }
+        urls.append(b)
+        if urls.count > Self.max { urls.removeFirst(urls.count - Self.max) }
+        return true
     }
 }
 

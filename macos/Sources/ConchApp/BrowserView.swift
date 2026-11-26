@@ -34,6 +34,13 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// What went wrong on the page since it last started loading: the
     /// errors chip.
     @Published var issues = PageIssues()
+
+    /// An issue on the page: into the errors chip, and to its browser,
+    /// which hands an artifact WebKit cannot show to the person's own.
+    func report(_ i: PageIssue) {
+        issues.add(i)
+        owner?.pageIssue(i, page: web.url?.absoluteString ?? "")
+    }
     private var mixedSaid = false
     private let sink = BrowserIssueSink()
     private var watching: [NSKeyValueObservation] = []
@@ -252,9 +259,11 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
     /// attachment is downloaded rather than shown.
     nonisolated func webView(_ w: WKWebView, decidePolicyFor r: WKNavigationResponse, decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
         MainActor.assumeIsolated {
+            // An artifact's frame is refused once before its token: no error.
             if let h = r.response as? HTTPURLResponse,
+               !isArtifactFrameFirstTry(status: h.statusCode, url: h.url?.absoluteString ?? "", mainFrame: r.isForMainFrame),
                let i = PageIssue.http(status: h.statusCode, url: h.url?.absoluteString ?? "", mainFrame: r.isForMainFrame) {
-                issues.add(i)
+                report(i)
             }
             let attachment = ((r.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().hasPrefix("attachment")
             decisionHandler(r.isForMainFrame && (attachment || !r.canShowMIMEType) ? .download : .allow)
@@ -554,6 +563,12 @@ final class BrowserModel: ObservableObject {
         if !showWebInspector(w) { say("This macOS’s WebKit has no inspector to open: use Safari’s Develop menu") }
     }
 
+    /// A page's issue: an artifact whose own files did not load here goes
+    /// to the person's browser (Store.artifactWontLoadHere).
+    func pageIssue(_ i: PageIssue, page: String) {
+        if store.artifactWontLoadHere(page, issue: i) { objectWillChange.send() }
+    }
+
     func say(_ s: String) {
         notice = s
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.notice == s { self?.notice = "" } }
@@ -719,6 +734,9 @@ struct BrowserView: View {
             } else if let p = model.current {
                 if model.artifactsPane != nil, isArtifactURL(model.address) {
                     ArtifactBar(model: model, store: model.store)
+                }
+                if isArtifactURL(model.address), model.store.artifactHandOvers.contains(model.address) {
+                    ArtifactWebKitNotice(model: model)
                 }
                 if isPasskeyChallenge(model.address) { PasskeyNotice(model: model) }
                 if model.artifactsPane != nil, isClaudeSignInPage(model.address), model.store.claudeSignedIn != true {

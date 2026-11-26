@@ -66,7 +66,7 @@ final class BrowserIssueSink: NSObject, WKScriptMessageHandler {
     nonisolated func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
         MainActor.assumeIsolated {
             guard m.world == browserIssueWorld, m.name == issueHandlerName, let issue = PageIssue.fromScript(m.body) else { return }
-            page?.issues.add(issue)
+            page?.report(issue)
         }
     }
 }

@@ -124,6 +124,30 @@ extension Store {
         }
     }
 
+    /// The artifacts WebKit could not show here, opened in the person's own
+    /// browser from then on (ArtifactHandOvers), kept for this Mac's app.
+    var artifactHandOvers: ArtifactHandOvers {
+        get { ArtifactHandOvers(setting: UserDefaults.standard.array(forKey: "artifactHandOvers")) }
+        set {
+            objectWillChange.send()
+            UserDefaults.standard.set(newValue.urls, forKey: "artifactHandOvers")
+        }
+    }
+
+    /// An issue on a page showing an artifact: when it is one of the
+    /// artifact's own files, which WebKit cannot load (isArtifactFrameFile),
+    /// the artifact opens in the person's browser — once, however many of
+    /// its files fail — and is remembered. Whether it was handed over now.
+    @discardableResult
+    func artifactWontLoadHere(_ page: String, issue: PageIssue) -> Bool {
+        guard artifactNeedsBrowser(opening: artifactOpening, page: page, issue: issue) else { return false }
+        var h = artifactHandOvers
+        guard h.insert(page) else { return false }
+        artifactHandOvers = h
+        if let u = URL(string: page) { NSWorkspace.shared.open(u) }
+        return true
+    }
+
     /// Looks whether Conch's browser is signed in to claude.ai: that a
     /// session cookie is there, never what it holds.
     func checkClaudeSignIn(_ then: ((Bool) -> Void)? = nil) {
@@ -158,13 +182,16 @@ extension Store {
         let base = artifactBase(url)
         checkClaudeSignIn { [weak self] signedIn in
             guard let self else { return }
-            guard self.artifactOpening.outside(signedIn: signedIn), let u = URL(string: url) else {
+            let needs = self.artifactHandOvers.contains(base)
+            guard self.artifactOpening.outside(signedIn: signedIn, needsBrowser: needs), let u = URL(string: url) else {
                 inside()
                 return
             }
             if let f = self.artifactShelf.find(base) { self.artifactShelf.opened(f.machine, base) }
             NSWorkspace.shared.open(u)
-            if self.artifactOpening == .automatic {
+            if needs, self.artifactOpening != .browser {
+                self.say("Opened in your browser: this artifact doesn't load in Conch's", .info)
+            } else if self.artifactOpening == .automatic {
                 self.say("Opened in your browser: Conch's isn't signed in to claude.ai", .info)
             }
         }

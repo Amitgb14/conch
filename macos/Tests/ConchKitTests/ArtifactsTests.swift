@@ -239,3 +239,89 @@ private func art(_ url: String, _ title: String = "T", kind: String = "Design", 
         #expect(claudeSignInLink(no) == nil, "\(no)")
     }
 }
+
+// MARK: artifacts WebKit cannot show
+
+private let frameRoot = "https://e994da13-9cbd-429e-98d9-23e36d2d6497.frame.claudeusercontent.com/_f/1795655360-626b/"
+
+@Test func anArtifactsOwnFilesAreToldApart() {
+    // Its files, as the mock's failed in Conch's browser.
+    for yes in [frameRoot + "artifact-type/app.js", frameRoot + "artifact-type/app.css",
+                frameRoot + "artifact-type/fonts/anthropicons-variable.woff2",
+                "https://67B40A82-d8e3.FRAME.claudeusercontent.com/_f/v1/x.js?t=1"] {
+        #expect(isArtifactFrameFile(yes), "\(yes)")
+    }
+    for no in [frameRoot, frameRoot + "?__frame_t=abc", String(frameRoot.dropLast()), // the frame's page itself
+               "https://e994.frame.claudeusercontent.com/_runtime/_comments.js", // the runtime, which needs no cookie
+               "https://e994.frame.claudeusercontent.com/_warmup", "https://e994.frame.claudeusercontent.com/_f/",
+               "https://frame.claudeusercontent.com/_f/v/app.js", // no artifact's site
+               "https://e994.frame.claudeusercontent.com.evil.example/_f/v/app.js",
+               "https://evil.example/e994.frame.claudeusercontent.com/_f/v/app.js",
+               "http://e994.frame.claudeusercontent.com/_f/v/app.js",
+               "https://claude.ai/artifact/Vqvz2za4Ujgwf5JzffFPeE", "https://claude.ai/_f/v/app.js", "not a url", ""] {
+        #expect(!isArtifactFrameFile(no), "\(no)")
+    }
+}
+
+@Test func theFramesFirstRefusalIsNoError() {
+    // Refused without a cookie, before claude.ai retries with a token: every artifact, every time.
+    #expect(isArtifactFrameFirstTry(status: 403, url: frameRoot, mainFrame: false))
+    #expect(isArtifactFrameFirstTry(status: 403, url: String(frameRoot.dropLast()), mainFrame: false))
+    // Refused with the token, another status, a file, the main frame, another site: still errors.
+    #expect(!isArtifactFrameFirstTry(status: 403, url: frameRoot + "?__frame_t=abc", mainFrame: false))
+    #expect(!isArtifactFrameFirstTry(status: 404, url: frameRoot, mainFrame: false))
+    #expect(!isArtifactFrameFirstTry(status: 500, url: frameRoot, mainFrame: false))
+    #expect(!isArtifactFrameFirstTry(status: 403, url: frameRoot + "artifact-type/app.js", mainFrame: false))
+    #expect(!isArtifactFrameFirstTry(status: 403, url: frameRoot, mainFrame: true))
+    #expect(!isArtifactFrameFirstTry(status: 403, url: "https://claude.ai/artifact/Vqvz2za4Ujgwf5JzffFPeE", mainFrame: false))
+    #expect(!isArtifactFrameFirstTry(status: 403, url: "https://evil.example/_f/v/", mainFrame: false))
+    #expect(!isArtifactFrameFirstTry(status: 403, url: "", mainFrame: false))
+}
+
+@Test func whichFailureSendsAnArtifactToTheBrowser() {
+    let page = "https://claude.ai/artifact/DojTP3z1YM1QH7E63LDTyh"
+    let script = PageIssue(.resource, "Failed to load script", source: frameRoot + "artifact-type/app.js")
+    #expect(artifactNeedsBrowser(opening: .automatic, page: page, issue: script))
+    #expect(artifactNeedsBrowser(opening: .conch, page: page, issue: script), "a blank tab is not what In Conch is for")
+    #expect(!artifactNeedsBrowser(opening: .browser, page: page, issue: script), "never opened here")
+    #expect(artifactNeedsBrowser(opening: .automatic, page: "https://claude.ai/code/artifact/abc#board-2", issue: script))
+    // Not on an artifact's page; not one of its files; not a failed load.
+    #expect(!artifactNeedsBrowser(opening: .automatic, page: "https://claude.ai/new", issue: script))
+    #expect(!artifactNeedsBrowser(opening: .automatic, page: "https://example.com/", issue: script))
+    #expect(!artifactNeedsBrowser(opening: .automatic, page: "", issue: script))
+    #expect(!artifactNeedsBrowser(opening: .automatic, page: page,
+                                  issue: PageIssue(.resource, "Failed to load img", source: "https://claude.ai/images/x.png")))
+    #expect(!artifactNeedsBrowser(opening: .automatic, page: page,
+                                  issue: PageIssue(.http, "403 forbidden for a frame", source: frameRoot + "artifact-type/app.js")))
+    #expect(!artifactNeedsBrowser(opening: .automatic, page: page, issue: PageIssue(.error, "x is undefined", source: frameRoot + "a.js")))
+    // Once handed over, every choice but In Conch's own signed-out case opens it outside.
+    #expect(ArtifactOpening.automatic.outside(signedIn: true, needsBrowser: true))
+    #expect(ArtifactOpening.conch.outside(signedIn: true, needsBrowser: true))
+    #expect(!ArtifactOpening.conch.outside(signedIn: true, needsBrowser: false))
+    #expect(ArtifactOpening.browser.outside(signedIn: true, needsBrowser: false))
+}
+
+@Test func handedOverArtifactsAreRemembered() {
+    var h = ArtifactHandOvers(setting: nil)
+    #expect(h.urls.isEmpty && !h.contains("https://claude.ai/artifact/a"))
+    let first = h.insert("https://claude.ai/artifact/a#board")
+    #expect(first, "kept by its base")
+    let again = h.insert("https://claude.ai/artifact/a/")
+    #expect(!again, "once, however many of its files fail")
+    #expect(h.contains("https://claude.ai/artifact/a?x=1") && h.urls == ["https://claude.ai/artifact/a"])
+    let other = h.insert("https://example.com/"), empty = h.insert("")
+    #expect(!other && !empty, "only artifacts")
+    // What was saved: a list of strings; junk in it, or anything else, is dropped.
+    #expect(ArtifactHandOvers(setting: "https://claude.ai/artifact/a").urls.isEmpty)
+    #expect(ArtifactHandOvers(setting: 42).urls.isEmpty)
+    #expect(ArtifactHandOvers(setting: [Any]()).urls.isEmpty)
+    let mixed: [Any] = ["https://claude.ai/artifact/a", 7, "nonsense", "https://claude.ai/artifact/a#x", NSNull(), "https://claude.ai/code/artifact/b"]
+    #expect(ArtifactHandOvers(setting: mixed).urls == ["https://claude.ai/artifact/a", "https://claude.ai/code/artifact/b"])
+    // At most max, the oldest dropped first, loaded or added.
+    let many = (0..<(ArtifactHandOvers.max + 5)).map { "https://claude.ai/artifact/n\($0)" }
+    var full = ArtifactHandOvers(setting: many)
+    #expect(full.urls.count == ArtifactHandOvers.max && full.urls.first == "https://claude.ai/artifact/n5")
+    let added = full.insert("https://claude.ai/artifact/new")
+    #expect(added)
+    #expect(full.urls.count == ArtifactHandOvers.max && full.urls.last == "https://claude.ai/artifact/new" && !full.contains(many[5]))
+}

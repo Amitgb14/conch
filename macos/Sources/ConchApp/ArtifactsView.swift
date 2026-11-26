@@ -348,6 +348,35 @@ struct PasskeyNotice: View {
     }
 }
 
+/// Over an artifact whose own files WebKit would not load (built from an
+/// artifact type: its frame's cookie is never sent), handed to the
+/// person's browser: why this tab is blank, and the way there again.
+struct ArtifactWebKitNotice: View {
+    @Environment(\.conchTheme) private var look
+    @ObservedObject var model: BrowserModel
+
+    var body: some View {
+        let _ = look
+        HStack(spacing: 8) {
+            LucideIcon("circle-alert", color: Theme.warn, size: 13)
+            Text("This artifact needs a cookie WebKit won't send to it, so it opened in your browser. Safari has the same limit.")
+                .font(.ui(size: 12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            if let u = URL(string: model.address) {
+                Button { NSWorkspace.shared.open(u) } label: {
+                    HStack(spacing: 4) { LucideIcon("external-link", color: Theme.accent, size: 11); Text("Open in Browser") }
+                }
+                .buttonStyle(.plain).font(.ui(size: 12, weight: .semibold)).foregroundStyle(Theme.accent).fixedSize()
+                .help("The artifact in your default browser")
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Theme.warn.opacity(0.12))
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Over claude.ai's sign-in in an Artifacts tab while Conch's browser is
 /// signed out: the email link claude.ai sends would open in the browser
 /// Mail uses, so it is pasted here instead, and the sign-in lands in
