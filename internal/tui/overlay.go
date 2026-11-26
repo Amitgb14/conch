@@ -1284,6 +1284,10 @@ var helpGroups = []helpGroup{{
 	title: "The row you are on",
 	entries: []helpEntry{
 		{keys: "r", what: "rename (a pane, a machine)"},
+		{keys: "enter r", what: "on an ended agent (⚠ ended · Resume): resume it where it was", more: []string{
+			"an agent that crashed, was killed or lost its server stays in the tree on its last screen; its title says why",
+			"d or x dismisses it — its conversation stays in Sessions · closing a pane yourself leaves nothing behind",
+		}},
 		{keys: "x", what: "close or remove", more: []string{
 			"a branch: its worktree, then the branch · on local it hides Getting started",
 		}},

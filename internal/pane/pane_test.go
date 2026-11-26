@@ -226,3 +226,30 @@ done
 	t.Cleanup(p.Close)
 	return p
 }
+
+// An agent killed by a signal is said to have been (pane.ended.v1), which
+// the exit code alone cannot: it is -1 for every signal.
+func TestExitSignal(t *testing.T) {
+	p := startShell(t)
+	if s := p.ExitSignal(); s != "" {
+		t.Fatalf("running pane has signal %q", s)
+	}
+	_ = p.SendText("kill -KILL $$", false)
+	_ = p.SendKeys([]string{"enter"})
+	select {
+	case <-p.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("pane did not exit")
+	}
+	if s := p.ExitSignal(); s != "SIGKILL" {
+		t.Fatalf("signal %q, want SIGKILL", s)
+	}
+
+	q := startShell(t)
+	_ = q.SendText("exit 2", false)
+	_ = q.SendKeys([]string{"enter"})
+	<-q.Done()
+	if s := q.ExitSignal(); s != "" {
+		t.Fatalf("an exit by itself has signal %q", s)
+	}
+}

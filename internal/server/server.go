@@ -1409,6 +1409,23 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		rp.Dir = realDir(rp.Dir)
 		return s.made(c)(s.resumeSession(rp))
 
+	case proto.MethodPaneEndedList:
+		return s.listEnded(), nil
+
+	case proto.MethodPaneEndedDismiss:
+		rp, perr := decode[proto.EndedRef](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.dismissEnded(rp)
+
+	case proto.MethodPaneEndedResume:
+		rp, perr := decode[proto.EndedResumeParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.resumeEnded(c, rp)
+
 	case proto.MethodSessionDelete:
 		rp, perr := decode[proto.SessionRef](msg)
 		if perr != nil {

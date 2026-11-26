@@ -324,7 +324,7 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 			return "", glyphStyle, "Sessions", styleMuted, ""
 		}
 		right = styleMuted.Render(fmt.Sprint(len(d.list)))
-		if n := d.interrupted(); n > 0 {
+		if n := d.troubled(); n > 0 {
 			right = joinRight(styleWarn.Render(fmt.Sprintf("⚠%d", n)), right)
 		}
 		return "", glyphStyle, "Sessions", styleMuted, right
@@ -336,6 +336,15 @@ func (m Model) rowParts(r row) (glyph string, glyphStyle lipgloss.Style, label s
 	case kindBranch:
 		return m.branchParts(r)
 	case kindPane:
+		if rec := m.endedFor(r.machine, r.paneID); rec != nil {
+			name := rec.Name
+			if p := m.pane(r.machine, r.paneID); p != nil {
+				name = p.DisplayName()
+			} else if name == "" {
+				name = agentLabel(rec.Agent)
+			}
+			return "⚠", styleWarn, name, styleMuted, endedRight(*rec)
+		}
 		p := m.pane(r.machine, r.paneID)
 		if p == nil {
 			return "?", styleMuted, r.paneID, labelStyle, ""
@@ -626,6 +635,9 @@ func (m Model) leafTitle(l *leaf) string {
 	switch v.Kind {
 	case kindPane:
 		p := m.pane(v.Machine, v.PaneID)
+		if rec := m.endedFor(v.Machine, v.PaneID); rec != nil && p == nil {
+			return " " + endedPane(*rec).DisplayName() + " · " + rec.Reason() + " "
+		}
 		if p == nil {
 			return " closed "
 		}
@@ -635,6 +647,8 @@ func (m Model) leafTitle(l *leaf) string {
 		}
 		if p.Agent != nil {
 			t += "· " + p.Agent.State + " "
+		} else if rec := m.endedFor(v.Machine, v.PaneID); rec != nil {
+			t += "· " + rec.Reason() + " · enter in the tree resumes "
 		} else if p.State == proto.PaneExited {
 			t += fmt.Sprintf("· exited %d ", p.ExitCode)
 		}
@@ -770,6 +784,11 @@ func (m Model) leafBody(l *leaf, w, h int, focused bool) []string {
 	}
 	switch v.Kind {
 	case kindPane:
+		if strings.HasPrefix(v.PaneID, endedPrefix) {
+			if rec := m.endedFor(v.Machine, v.PaneID); rec != nil {
+				return m.endedLines(*rec, w, h)
+			}
+		}
 		if m.pane(v.Machine, v.PaneID) == nil {
 			return centered(w, h, styleMuted.Render("This pane was closed"), "", styleMuted.Render("pick another in the tree"))
 		}

@@ -86,7 +86,10 @@ type Pane struct {
 	mu       sync.Mutex
 	state    string
 	exitCode int
-	title    string
+	// exitSignal names the signal that ended the program ("killed"), ""
+	// when it exited by itself.
+	exitSignal string
+	title      string
 	// status is what the program has said about itself through the
 	// Program Status Protocol (status.go). Empty for a program that does
 	// not speak it, which is most of them.
@@ -324,10 +327,12 @@ func (p *Pane) wait() {
 	var err error
 	var exitErr *exec.ExitError
 	var code int
+	var sig string
 	if p.cmd != nil {
 		err = p.cmd.Wait()
 		if errors.As(err, &exitErr) {
 			code = exitErr.ExitCode()
+			sig = signalOf(exitErr.ProcessState)
 		} else if err != nil {
 			code = -1
 		}
@@ -338,6 +343,7 @@ func (p *Pane) wait() {
 			code = -1
 		default:
 			code = st.ExitCode()
+			sig = signalOf(st)
 		}
 	}
 	_, readDone := p.readChans() // the current read loop's, after a resume too
@@ -352,6 +358,7 @@ func (p *Pane) wait() {
 	p.mu.Lock()
 	p.state = proto.PaneExited
 	p.exitCode = code
+	p.exitSignal = sig
 	// Work that was going on, and a question nobody can answer now, do not
 	// outlive the program that reported them; what it finished or failed
 	// at does, since that is what has not been seen yet (status.go).
@@ -415,6 +422,25 @@ func (p *Pane) size() (cols, rows int) {
 	p.emuMu.RLock()
 	defer p.emuMu.RUnlock()
 	return p.emu.Width(), p.emu.Height()
+}
+
+// signalOf names the signal that ended a process, "" when none did.
+func signalOf(st *os.ProcessState) string {
+	if st == nil {
+		return ""
+	}
+	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return unix.SignalName(ws.Signal())
+	}
+	return ""
+}
+
+// ExitSignal names the signal that ended the pane's program (SIGKILL…),
+// "" while it runs or when it exited by itself.
+func (p *Pane) ExitSignal() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.exitSignal
 }
 
 // Info returns the pane's metadata.

@@ -353,6 +353,11 @@ func TestTokenNeedsEveryScopedMethod(t *testing.T) {
 		{proto.MethodAgentSync, tokenRef{scopeRef: scopeRef{Apply: true}}, proto.PaneCreateParams{}, proto.TokenFull},
 		{proto.MethodTokenCreate, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull},
 		{proto.MethodServerStop, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull},
+		// Ended agents are listed as sessions are; bringing one back or
+		// dropping it stays the person's.
+		{proto.MethodPaneEndedList, tokenRef{}, proto.PaneCreateParams{}, proto.TokenRead},
+		{proto.MethodPaneEndedResume, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull},
+		{proto.MethodPaneEndedDismiss, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull},
 	} {
 		if got := tokenNeeds(tc.method, tc.ref, tc.create); got != tc.want {
 			t.Errorf("%s %+v %+v needs %s, want %s", tc.method, tc.ref, tc.create, got, tc.want)

@@ -49,6 +49,29 @@ type sessionsRetryMsg struct {
 
 func sessionsKey(mid, pid string) string { return mid + "|" + pid }
 
+// troubled counts what needs picking up: interrupted runs and sessions
+// whose agent ended without being closed, each once.
+func (d *sessionsData) troubled() int {
+	n := 0
+	for _, s := range d.list {
+		if s.Interrupted || s.Ended != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// ended counts the sessions whose agent ended without being closed.
+func (d *sessionsData) ended() int {
+	n := 0
+	for _, s := range d.list {
+		if s.Ended != "" {
+			n++
+		}
+	}
+	return n
+}
+
 func (d *sessionsData) interrupted() int {
 	n := 0
 	for _, s := range d.list {
@@ -166,6 +189,9 @@ type sessionsView struct {
 	machine, projectID string
 	sel, scroll        int
 	agent              string // filter; "" all
+	// troubled lists only what needs picking up: sessions whose agent
+	// ended without being closed, and interrupted runs (e).
+	troubled bool
 
 	// Search: query filters by title, agent, branch and ID at once; the
 	// server's matches inside conversations (hits, with snippets) arrive
@@ -590,12 +616,15 @@ func (sv *sessionsView) visible(m Model) []proto.SessionInfo {
 		return nil
 	}
 	words := strings.Fields(strings.ToLower(sv.query))
-	if sv.agent == "" && len(words) == 0 {
+	if sv.agent == "" && len(words) == 0 && !sv.troubled {
 		return d.list
 	}
 	var out []proto.SessionInfo
 	for _, s := range d.list {
 		if sv.agent != "" && s.Agent != sv.agent {
+			continue
+		}
+		if sv.troubled && s.Ended == "" && !s.Interrupted {
 			continue
 		}
 		if len(words) > 0 && !sv.matches(s, words) {
@@ -680,6 +709,8 @@ func (sv *sessionsView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			next = agents[0]
 		}
 		sv.agent, sv.sel, sv.scroll = next, 0, 0
+	case "e":
+		sv.troubled, sv.sel, sv.scroll = !sv.troubled, 0, 0
 	case "*", "f":
 		// Starred sessions are listed before the rest, so the one worth
 		// coming back to is at hand among a project's hundreds.
@@ -705,6 +736,17 @@ func (sv *sessionsView) key(m *Model, k tea.KeyMsg) (back bool, cmd tea.Cmd) {
 			proto.SessionStarParams{Agent: star.Agent, ID: star.ID, On: !star.Starred}, nil,
 			func() tea.Msg { return sessionsStaleMsg{key: key} })
 	case "x":
+		if sv.sel >= 0 && sv.sel < len(list) && list[sv.sel].EndedID != "" {
+			// Forgets why it ended, and its row in the tree; the
+			// conversation stays.
+			s := list[sv.sel]
+			if mach := m.machine(sv.machine); mach != nil {
+				mach.dropEnded(s.EndedID)
+			}
+			key := sessionsKey(sv.machine, sv.projectID)
+			return false, tea.Batch(m.rebuild(), m.callOn(sv.machine, proto.MethodPaneEndedDismiss, proto.EndedRef{ID: s.EndedID}, nil,
+				func() tea.Msg { return sessionsStaleMsg{key: key} }))
+		}
 		if sv.sel >= 0 && sv.sel < len(list) && list[sv.sel].Interrupted {
 			s := list[sv.sel]
 			key := sessionsKey(sv.machine, sv.projectID)
@@ -775,7 +817,7 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if proj != nil {
 		name = proj.Name
 	}
-	lines := []string{spreadHint(styleBold.Render("Sessions · "+name), "enter resume · * star · / search · s share · d delete · a agent", w)}
+	lines := []string{spreadHint(styleBold.Render("Sessions · "+name), "enter resume · * star · / search · s share · d delete · a agent · e ended", w)}
 	d := sv.data(m)
 	switch {
 	case d == nil || (d.list == nil && d.loading):
@@ -788,7 +830,13 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 	if sv.agent != "" {
 		filter = agentLabel(sv.agent)
 	}
+	if sv.troubled {
+		filter += " · only ended and interrupted (e shows all)"
+	}
 	meta := fmt.Sprintf("%d saved · %s", len(list), filter)
+	if n := d.ended(); n > 0 && !sv.troubled {
+		meta += " · " + styleErr.Render(fmt.Sprintf("⚠ %d ended", n)) + styleMuted.Render(" (e lists them)")
+	}
 	if n := d.interrupted(); n > 0 {
 		meta += " · " + styleWarn.Render(fmt.Sprintf("⚠ %d interrupted", n)) + styleMuted.Render(" (I resumes all, x dismisses)")
 	}
@@ -807,7 +855,9 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		meta = styleAccent.Render("/ ") + sv.query + cursor + styleMuted.Render("  "+status)
 		lines = append(lines, meta, "")
 	} else {
-		lines = append(lines, styleMuted.Render(meta), "")
+		// Cut to the width: with interrupted and ended runs both counted
+		// it is longer than a narrow split.
+		lines = append(lines, ansi.Truncate(styleMuted.Render(meta), w, "…"), "")
 	}
 	if len(list) == 0 {
 		if sv.query != "" {
@@ -843,7 +893,9 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		switch {
 		case s.PaneID != "":
 			mark, markStyle = "●", styleOK
-		case s.Interrupted:
+		case s.EndedFailed:
+			mark, markStyle = "⚠", styleErr
+		case s.Interrupted, s.Ended != "":
 			mark, markStyle = "⚠", styleWarn
 		}
 		// A column of its own: the mark beside it says what the session
@@ -862,6 +914,8 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		switch {
 		case s.PaneID != "":
 			right = append(right, "open")
+		case s.Ended != "":
+			right = append(right, "ended: "+s.Ended)
 		case s.Interrupted:
 			right = append(right, "interrupted")
 		}
@@ -886,7 +940,11 @@ func (sv *sessionsView) render(m Model, w, h int) []string {
 		}
 		left := fmt.Sprintf(" %s%s %s  %s%s", styleWarn.Render(star), markStyle.Render(mark), styleAccent.Render(padRight(sessionAgent(s), agentW)), title, styleMuted.Render(snip))
 		rs := styleMuted.Render(rightText)
-		if s.Interrupted && s.PaneID == "" {
+		switch {
+		case s.PaneID != "":
+		case s.EndedFailed:
+			rs = styleErr.Render(rightText)
+		case s.Interrupted || s.Ended != "":
 			rs = styleWarn.Render(rightText)
 		}
 		lines = append(lines, spread(left, rs, w))
@@ -926,6 +984,9 @@ func (m Model) projectSessionLines(mid string, proj proto.ProjectInfo, w int) []
 	if n := d.interrupted(); n > 0 {
 		head += "  " + styleWarn.Render(fmt.Sprintf("⚠ %d interrupted", n))
 	}
+	if n := d.ended(); n > 0 {
+		head += "  " + styleErr.Render(fmt.Sprintf("⚠ %d ended", n))
+	}
 	lines := []string{"", head}
 	for i, s := range d.list {
 		if i == 5 {
@@ -936,7 +997,9 @@ func (m Model) projectSessionLines(mid string, proj proto.ProjectInfo, w int) []
 		switch {
 		case s.PaneID != "":
 			mark = styleOK.Render("●")
-		case s.Interrupted:
+		case s.EndedFailed:
+			mark = styleErr.Render("⚠")
+		case s.Interrupted, s.Ended != "":
 			mark = styleWarn.Render("⚠")
 		}
 		right := styleMuted.Render(joinNonEmpty(" · ", s.Branch, ago(s.Updated)))

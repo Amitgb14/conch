@@ -74,6 +74,9 @@ type machine struct {
 	panes    []proto.PaneInfo
 	projects []proto.ProjectInfo
 	agents   map[string]bool // panes that have run an agent
+	// ended are the agents whose panes ended without being closed, newest
+	// first (pane.ended.v1, ended.go).
+	ended []proto.EndedAgent
 	// fresh says the last connection reached a server that had started
 	// afresh, so what was held by pane ID belongs to nobody.
 	fresh bool
@@ -245,6 +248,7 @@ func (mach *machine) listen() []tea.Cmd {
 		mach.checkAgents(),
 		mach.loadSchedule(),
 		mach.loadReviews(),
+		mach.loadEnded(),
 		func() tea.Msg {
 			if len(c.MissingCapabilities([]string{"agent.limits.v1"})) > 0 {
 				return nil

@@ -47,6 +47,8 @@ type runLog struct {
 	stopped bool
 	// unsettled is a log read and not yet written back (settle).
 	unsettled bool
+	// ended are agents whose panes ended without being closed (ended.go).
+	ended []proto.EndedAgent
 }
 
 type runLogFile struct {
@@ -55,6 +57,8 @@ type runLogFile struct {
 	// Stopped says the server writing this was stopped on purpose
 	// (conch server stop), so its active runs are not resumed by the next.
 	Stopped bool `json:"stopped,omitempty"`
+	// Ended is pane.ended.v1's records (ended.go); older servers drop it.
+	Ended []proto.EndedAgent `json:"ended,omitempty"`
 }
 
 // loadRunLog reads the log. Runs still marked active belong to a server that
@@ -81,6 +85,8 @@ func readRunLog(configDir string, keepActive bool) *runLog {
 		return l
 	}
 	l.unsettled = true
+	l.ended = f.Ended
+	l.pruneEndedLocked(time.Now())
 	// Logs written before triagers were left out (note) may hold one.
 	f.Active, f.Interrupted = dropTriagers(f.Active), dropTriagers(f.Interrupted)
 	if keepActive {
@@ -94,11 +100,15 @@ func readRunLog(configDir string, keepActive bool) *runLog {
 			l.interrupted = append(l.interrupted, r)
 		}
 	}
-	if !f.Stopped {
-		for _, r := range f.Active {
-			if time.Since(r.Seen) < keepInterrupted {
-				l.fresh = append(l.fresh, r)
-			}
+	for _, r := range f.Active {
+		if time.Since(r.Seen) >= keepInterrupted {
+			continue
+		}
+		if f.Stopped {
+			// Not resumed by itself: kept where it was, to resume there.
+			l.addEndedLocked(endedFromRun(r, proto.EndedServer))
+		} else {
+			l.fresh = append(l.fresh, r)
 		}
 	}
 	if len(f.Active) > 0 {
@@ -129,7 +139,7 @@ func dropTriagers(runs []agentRun) []agentRun {
 }
 
 func (l *runLog) saveLocked() {
-	f := runLogFile{Active: []agentRun{}, Interrupted: l.interrupted, Stopped: l.stopped}
+	f := runLogFile{Active: []agentRun{}, Interrupted: l.interrupted, Stopped: l.stopped, Ended: l.ended}
 	for _, r := range l.active {
 		f.Active = append(f.Active, r)
 	}
@@ -150,6 +160,12 @@ func (l *runLog) note(info proto.PaneInfo, dir string, created time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cur, had := l.active[info.ID]
+	// An agent's pane that has just ended is the exit's to account for
+	// (forget), which keeps it as ended: dropped here, between the
+	// program ending and the exit being seen, it would vanish.
+	if info.State == proto.PaneExited {
+		return
+	}
 	// A triage agent is the server's errand, not the person's work: its
 	// triage ends with the server, so it is neither resumed nor offered.
 	if info.Agent == nil || info.State != proto.PaneRunning || proto.IsTriager(info) {
@@ -170,14 +186,17 @@ func (l *runLog) note(info proto.PaneInfo, dir string, created time.Time) {
 	l.saveLocked()
 }
 
-// forget drops a pane that was closed or whose agent exited on its own.
-func (l *runLog) forget(pane string) {
+// forget drops a pane that was closed or whose agent exited on its own,
+// and hands back the run it was, if an agent ran there.
+func (l *runLog) forget(pane string) (agentRun, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if _, ok := l.active[pane]; ok {
+	r, ok := l.active[pane]
+	if ok {
 		delete(l.active, pane)
 		l.saveLocked()
 	}
+	return r, ok
 }
 
 // resolve removes the interrupted runs a session accounts for.
@@ -321,6 +340,8 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 	}
 	out = dedupeSessions(markInterrupted(out, runs))
 
+	markEnded(out, s.runs.endedList())
+
 	for i := range out {
 		if out[i].Branch == "HEAD" {
 			out[i].Branch = ""
@@ -422,12 +443,13 @@ func sortSessions(out []proto.SessionInfo) {
 }
 
 func lessSession(a, b proto.SessionInfo) bool {
-	// Interrupted first: that is work waiting to be picked up, where a
-	// star is a bookmark somebody left. Then starred, which is what
-	// starring is for — finding it among a project's hundreds without
-	// remembering its first line. Recency decides within each.
-	if a.Interrupted != b.Interrupted {
-		return a.Interrupted
+	// Interrupted (or ended by a crash) first: that is work waiting to be
+	// picked up, where a star is a bookmark somebody left. Then starred,
+	// which is what starring is for — finding it among a project's
+	// hundreds without remembering its first line. Recency decides within
+	// each.
+	if ai, bi := a.Interrupted || a.EndedFailed, b.Interrupted || b.EndedFailed; ai != bi {
+		return ai
 	}
 	if a.Starred != b.Starred {
 		return a.Starred
@@ -521,6 +543,7 @@ func (s *Server) resumeSession(r proto.SessionRef) (proto.PaneInfo, *proto.Error
 		return info, perr
 	}
 	s.runs.resolve(r.Agent, r.ID, r.Dir)
+	s.endedResumed(r.Agent, r.ID, r.Dir, info.ID)
 	log.Printf("pane %s resumed %s session %q in %s", info.ID, r.Agent, r.ID, r.Dir)
 	return info, nil
 }
