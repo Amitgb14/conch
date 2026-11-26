@@ -1,0 +1,45 @@
+/* conch-ui's stylesheet comes first and sets the theme's colours on
+   :root; this lays out the window around it. */
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; overflow: hidden; }
+#app { flex: 1; display: flex; min-height: 0; }
+#side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 4px; padding: 10px 8px; overflow-y: auto;
+  background: color-mix(in srgb, var(--bg) 92%, white); border-right: 1px solid var(--line); }
+.side-top { display: flex; gap: 6px; padding-bottom: 6px; }
+.side-link { flex: 1; text-align: center; }
+.group-head { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; padding: 10px 8px 4px; }
+.row-pane { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; border-radius: 6px; background: none; }
+.row-pane:hover:not(:disabled) { background: var(--hover); }
+.row-pane.on { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.row-pane .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dotm { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+.st { font-size: 11px; border-radius: 999px; padding: 0 7px; }
+.st.waiting { background: var(--warn); color: var(--bg); font-weight: 600; }
+.st.working { background: color-mix(in srgb, var(--work) 22%, transparent); color: var(--work); }
+.st.done { color: var(--ok); } .st.idle, .st.exited, .st.terminal { color: var(--muted); }
+#needs:empty { display: none; }
+.need { border: 1px solid color-mix(in srgb, var(--warn) 60%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--raised));
+  border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 4px; }
+.need p { font: 11.5px/1.45 var(--mono); color: color-mix(in srgb, var(--fg) 80%, var(--bg)); overflow-wrap: anywhere; }
+#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); overflow-x: auto; flex: none; }
+.tab { display: flex; align-items: center; gap: 6px; border-radius: 8px 8px 0 0; padding: 6px 10px; background: none; color: var(--muted); white-space: nowrap; }
+.tab.on { background: var(--raised); color: var(--fg); box-shadow: inset 0 -2px var(--accent); }
+.tab .x { opacity: .55; padding: 0 3px; background: none; }
+.tab .x:hover { opacity: 1; }
+#views { flex: 1; min-height: 0; position: relative; }
+.view { position: absolute; inset: 0; }
+.term { position: absolute; inset: 8px; border-radius: 8px; overflow: hidden; background: #0f1215; border: 1px solid var(--line); padding: 6px; }
+.term.focus { border-color: var(--accent); }
+.term .xterm { height: 100%; }
+.ended { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--raised); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 12px; color: var(--muted); }
+.empty-view { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; color: var(--muted); text-align: center; padding: 24px; }
+.empty-view code { font-family: var(--mono); color: var(--fg); }
+#agents-view #root { height: 100%; }
+#status { height: 26px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 12px; color: var(--muted);
+  background: color-mix(in srgb, var(--bg) 92%, white); border-top: 1px solid var(--line); }
+#status .on { color: var(--ok); } #status .off { color: var(--err); }
+
+/* hidden means hidden, whatever display a class gives it */
+[hidden] { display: none !important; }

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+<title>Conch</title>
+<link rel="stylesheet" href="vendor/conch-ui.css">
+<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <nav id="side" aria-label="Agents and terminals">
+    <div class="side-top">
+      <button id="agents-button" class="side-link">Agents</button>
+      <button id="new-shell" class="side-link" title="A new terminal in your home folder">New terminal</button>
+    </div>
+    <section id="needs"></section>
+    <div id="tree"></div>
+  </nav>
+  <main id="main">
+    <div id="tabs" role="tablist"></div>
+    <div id="views">
+      <div id="agents-view" class="view" hidden><div id="root"></div></div>
+      <div id="empty" class="view empty-view"></div>
+    </div>
+  </main>
+</div>
+<footer id="status"></footer>
+<script type="module" src="vendor/conch-ui.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

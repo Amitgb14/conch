@@ -6,7 +6,7 @@ LDFLAGS := -X $(MODULE)/internal/proto.Version=$(VERSION) -X $(MODULE)/internal/
 # checks it leaves out, and why, are in staticcheck.conf.
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@2025.1.1
 
-.PHONY: build conch-sandbox sandbox-release install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check conch-ui conch-ui-check
+.PHONY: build conch-sandbox sandbox-release install test test-fast gate vet lint release app-release clean demo settings-ui settings-ui-check conch-ui conch-ui-check desktop-test
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/conch ./cmd/conch
@@ -67,6 +67,11 @@ conch-ui:
 conch-ui-check: conch-ui
 	@changed=$$(git status --porcelain -- macos/Sources/ConchKit/ConchUIBundle.swift); \
 	if [ -n "$$changed" ]; then echo "macos/Sources/ConchKit/ConchUIBundle.swift is not the build of ui/: run make conch-ui and commit what it writes"; echo "$$changed"; exit 1; fi
+
+# The Linux and Windows app (desktop/: Electron): its parts that need no
+# window, tested with node. `cd desktop && pnpm start` runs it.
+desktop-test:
+	cd desktop && pnpm install --frozen-lockfile && pnpm test
 
 release:
 	scripts/release.sh $(VERSION)

@@ -112,3 +112,5 @@ jobs:
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
       - run: make conch-ui-check
+      # The Linux and Windows app, which draws conch-ui too.
+      - run: make desktop-test
