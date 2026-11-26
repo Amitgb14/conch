@@ -379,7 +379,7 @@ struct BrowserAboutView: View {
                                     .foregroundStyle(Theme.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                 if row.0 == "User agent" || row.0 == "WebKit" {
                                     Button { copy(row.1) } label: { Image(systemName: "doc.on.doc") }
-                                        .buttonStyle(.plain).foregroundStyle(Theme.muted).help("Copy").accessibilityLabel("Copy \(row.0)")
+                                        .buttonStyle(.plain).focusable(false).foregroundStyle(Theme.muted).help("Copy").accessibilityLabel("Copy \(row.0)")
                                 }
                             }
                         }
