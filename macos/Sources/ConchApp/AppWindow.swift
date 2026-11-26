@@ -54,7 +54,7 @@ final class AppWindow: NSObject, NSToolbarDelegate, NSWindowDelegate {
         }
         AppWindows.shared.add(store)
         app.wire(store, self)
-        let host = NSHostingView(rootView: MainView(store: store))
+        let host = NSHostingView(rootView: MainView(store: store).noFocusRings())
         // The window's size is its own (minSize above), not the view's: by
         // default a hosting view measures its whole tree for a minimum,
         // ideal and maximum size on every layout, and a spinner's frame is
@@ -104,8 +104,8 @@ final class AppWindow: NSObject, NSToolbarDelegate, NSWindowDelegate {
         let view: NSView
         switch id {
         case .workspaces: view = WorkspacesHost(rootView: WorkspacesControl(store: store))
-        case .search: view = NSHostingView(rootView: SearchField(store: store))
-        case .counts: view = NSHostingView(rootView: Counts(store: store).fixedSize())
+        case .search: view = NSHostingView(rootView: SearchField(store: store).noFocusRings())
+        case .counts: view = NSHostingView(rootView: Counts(store: store).fixedSize().noFocusRings())
         default: return nil
         }
         view.setFrameSize(view.fittingSize)

@@ -401,7 +401,7 @@ struct AppKitPopover<Content: View>: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         let c = context.coordinator
         c.dismissed = { [binding = $isPresented] in if binding.wrappedValue { binding.wrappedValue = false } }
-        let root = AnyView(content().environment(\.conchTheme, theme))
+        let root = AnyView(content().environment(\.conchTheme, theme).noFocusRings())
         if isPresented, c.popover == nil {
             guard view.window != nil, Date().timeIntervalSince(c.closedAt) > 0.3 else {
                 DispatchQueue.main.async { [binding = $isPresented] in binding.wrappedValue = false }

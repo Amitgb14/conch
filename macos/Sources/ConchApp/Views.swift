@@ -387,7 +387,7 @@ struct WorkspacesControl: View {
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
-    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+    var body: some View { content.environment(\.conchTheme, store.themeLook).noFocusRings() }
 
     @ViewBuilder var content: some View {
         if let p = store.projectScope { projectLabel(p) } else { switcher }
@@ -508,7 +508,7 @@ struct SearchField: View {
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
-    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+    var body: some View { content.environment(\.conchTheme, store.themeLook).noFocusRings() }
 
     @ViewBuilder var content: some View {
         Button { store.paletteOpen = true } label: {
@@ -533,7 +533,7 @@ struct Counts: View {
 
     /// Its own hosting view in the toolbar, outside the window's
     /// environment: given the theme here, for the views it holds.
-    var body: some View { content.environment(\.conchTheme, store.themeLook) }
+    var body: some View { content.environment(\.conchTheme, store.themeLook).noFocusRings() }
 
     /// Waiting, done and to review, always there — quieter at nothing, so the
     /// corner says "nothing needs you" rather than looking unfinished. Each
