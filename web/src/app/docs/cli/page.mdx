@@ -196,7 +196,7 @@ What conch does for `agy` (checked against 1.5.16), all read on this computer an
 | `conch project create [-no-git] PATH` | create a folder with a git repository and an initial commit (`-no-git`: a plain folder) |
 | `conch project git-init ID\|PATH` | make a project that is a plain folder a git repository: `git init` on `main` and an empty first commit, the files already there left uncommitted, so a task can make a branch in it. Refused for a folder that is already one or sits inside another repository; with no git identity set it says to set `user.name` and `user.email` and leaves the folder as it was |
 | `conch project ls` | list projects, their base branch and worktrees |
-| `conch project rm ID` | remove a project from the sidebar |
+| `conch project rm [-close] ID` | remove a project from the sidebar; its agents and terminals keep running unless `-close` closes them with it |
 | `conch project files ID [-reset \| -none \| PATTERN...]` | set the [local file patterns](/docs/tasks#local-files-in-worktrees) copied into new worktrees; `-reset` restores the defaults, `-none` copies nothing |
 | `conch project setup ID [-none \| COMMAND]` | show or set the [setup command](/docs/tasks#setup-and-ports-in-worktrees) run in each new worktree; `-none` runs nothing |
 
