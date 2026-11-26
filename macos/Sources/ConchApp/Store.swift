@@ -82,6 +82,9 @@ final class Store: ObservableObject {
     /// Each machine's agents' accounts ranked for a move (account.suggest),
     /// by "machine|agent".
     @Published var accountRanks: [String: [AccountRank]] = [:]
+    /// When each "machine|agent"'s ranks were last asked for; not
+    /// published, since nothing is drawn from it.
+    var ranksAsked: [String: Date] = [:]
     /// The move asked for by hand, while its sheet is up.
     @Published var moveAsk: MoveAsk?
     /// The agent switch being decided, while its card is up; the switches
@@ -3045,9 +3048,9 @@ final class Store: ObservableObject {
         // An agent's Switch Account ▸, where its server can move it.
         if case .agent(let k) = node.kind, let p = pane(k), p.agent?.name == "claude", p.running, canMoveAgents(on: m) {
             let ranks = accountRanks[m + "|claude"] ?? []
-            if ranks.isEmpty { loadRanks(on: m, agent: "claude") }
+            if ranks.isEmpty { loadRanks(on: m, agent: "claude", fresh: 30) }
             let at = (items.firstIndex { $0.title == "Team" } ?? items.firstIndex { $0.title == "Rename…" }).map { $0 + 1 } ?? items.count
-            items.insert(switchAccountMenu(pane: k, on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
+            items.insert(switchAccountMenu(pane: k, agent: "claude", on: p.account, ranks: ranks, movedFrom: p.movedFrom), at: min(at, items.count))
         }
         // Its Switch Agent ▸, beside Switch Account where that is there.
         if case .agent(let k) = node.kind, let sw = switchMenu(for: k) {
@@ -3640,8 +3643,13 @@ final class Store: ObservableObject {
         guard let c = conns[machine] else { return }
         Task {
             guard let a = try? await c.call("agent.status", as: AgentStatusList.self) else { return }
-            agents[machine] = (a.agents ?? []).filter(\.installed)
-            agentStatus[machine] = a.agents ?? []
+            // Only a change is published: an open row menu is drawn from
+            // these, and asks for them while it is drawn.
+            let all = a.agents ?? []
+            if agentStatus[machine] != all {
+                agents[machine] = all.filter(\.installed)
+                agentStatus[machine] = all
+            }
         }
     }
 

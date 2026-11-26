@@ -1058,7 +1058,10 @@ struct NodeView: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.corner(6, meadow: 10)).strokeBorder(cursor ? (Theme.ink ? Theme.spot : Theme.accent) : .clear, lineWidth: Theme.ink ? 2 : 1))
         .contentShape(Rectangle())
         .id(node.id)
-        .onHover { hovering = $0 }
+        .onHover { over in
+            hovering = over
+            if over { store.prepareMenu(for: node) }
+        }
         .onTapGesture { activateRow() }
         // A click is a tap gesture, which accessibility cannot see: the row
         // is a button to VoiceOver and the rest, pressed as a click is.
@@ -1360,7 +1363,7 @@ struct RowButtonsView: View {
     var body: some View {
         HStack(spacing: 1) {
             if let p = buttons.primary, !p.children.isEmpty {
-                Menu { RowMenuItems(store: store, node: node, items: p.children) } label: { glyph(buttons.primaryIcon) }
+                Menu { RowMenuItems(store: store, node: node, items: p.children, startable: node.machine.map { store.startable(on: $0) } ?? []) } label: { glyph(buttons.primaryIcon) }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
                     .help(p.title + "…")
                     .accessibilityLabel(p.title)
@@ -1371,7 +1374,7 @@ struct RowButtonsView: View {
                     .accessibilityLabel(p.title)
             }
             if !buttons.tasks.isEmpty {
-                Menu { RowMenuItems(store: store, node: node, items: buttons.tasks) } label: { glyph("bot") }
+                Menu { RowMenuItems(store: store, node: node, items: buttons.tasks, startable: node.machine.map { store.startable(on: $0) } ?? []) } label: { glyph("bot") }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
                     .help("New Task in a Project")
                     .accessibilityLabel("New Task in a Project")
@@ -1473,29 +1476,48 @@ struct RowMenu: View {
     @ObservedObject var store: Store
     let node: TreeNode
 
-    var body: some View { RowMenuItems(store: store, node: node, items: store.menu(for: node)) }
+    var body: some View {
+        // Equatable, so the store's every change — a frame, an agent's
+        // state — redraws an open menu only when what it says has changed:
+        // redrawing it each time made its open submenus flicker.
+        RowMenuItems(store: store, node: node, items: store.menu(for: node),
+                     startable: node.machine.map { store.startable(on: $0) } ?? [])
+            .equatable()
+    }
 }
 
 /// A menu's items, a submenu for one that has its own.
-struct RowMenuItems: View {
-    @ObservedObject var store: Store
+struct RowMenuItems: View, Equatable {
+    // Not observed: RowMenu is, and hands down what the items show.
+    let store: Store
     let node: TreeNode
     let items: [RowMenuItem]
+    let startable: [AgentAvailability]
+
+    nonisolated static func == (a: RowMenuItems, b: RowMenuItems) -> Bool {
+        a.node.id == b.node.id && a.items == b.items && a.startable == b.startable
+    }
 
     var body: some View {
         ForEach(Array(items.enumerated()), id: \.offset) { _, it in
             if !it.children.isEmpty {
-                Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children) }
+                Menu(it.title) { RowMenuItems(store: store, node: node, items: it.children, startable: startable) }
             } else if it.action == .divider {
                 Divider()
             } else if it.action == .disabled {
-                Button(it.title) {}.disabled(true)
-            } else if it.picksAgent, let m = node.machine {
+                if let a = it.agent {
+                    AgentMenuButton(agent: a, title: it.title) {}.disabled(true)
+                } else {
+                    Button(it.title) {}.disabled(true)
+                }
+            } else if it.picksAgent {
                 Menu(it.title) {
-                    ForEach(store.startable(on: m), id: \.name) { a in
+                    ForEach(startable, id: \.name) { a in
                         AgentMenuButton(agent: a.name, title: a.title) { store.perform(it.action, on: node, agent: a.name) }
                     }
                 }
+            } else if let a = it.agent {
+                AgentMenuButton(agent: a, title: it.title) { store.perform(it.action, on: node) }
             } else {
                 Button(it.title) { store.perform(it.action, on: node) }
             }
