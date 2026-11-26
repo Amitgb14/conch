@@ -57,6 +57,11 @@ public enum RowAction: Equatable, Sendable {
     case newTeam(pane: String)
     /// Shows panes side by side in a tab of their own, named.
     case showTogether(panes: [String], name: String)
+    /// Renames a team everywhere: config.toml's [[teams]] entry and every
+    /// agent put in it by hand.
+    case renameTeam(name: String)
+    /// Deletes a team, asking what becomes of its agents.
+    case deleteTeam(name: String)
     case prompt(pane: String)
     /// The agent's branch in one tab: its files, a terminal, its chat and
     /// its own terminal, arranged by the workbench layout.
@@ -428,6 +433,8 @@ extension Snapshot {
             var items = [RowMenuItem("Show Side by Side", .showTogether(panes: keys, name: "\(title) · \(project(unkey(pk).id)?.name ?? "")"))]
             let scope = BroadcastScope.panes(machine: machine, keys: keys)
             if machineOnline && hasRunning(scope) { items.append(RowMenuItem("Broadcast to \(name.isEmpty ? "These Agents" : "This Team")…", .broadcast(scope))) }
+            // "No team" is where agents go, not a team to rename or delete.
+            if !name.isEmpty { items += [.divider, RowMenuItem("Rename Team…", .renameTeam(name: name)), RowMenuItem("Delete Team…", .deleteTeam(name: name))] }
             return items
         case .section(let name):
             // A project's Agents or Terminals: a message to those alone.
