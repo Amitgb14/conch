@@ -23,14 +23,15 @@ conch runs the agents below in panes it owns, tracks what each is doing, and sho
 
 A Devin pane that needs an answer looks idle.
 
-## Two tiers
+## Three ways in
 
-- **Supported** — the nine above, with their saved conversations in the [Sessions](/docs/sessions) view.
-- **Runs here** — from a manifest: conch starts and recognises it; only five list sessions ([which](/docs/cli#the-agents-conch-knows)).
+- **Supported** — the nine above, conversations in [Sessions](/docs/sessions).
+- **Runs here** — from a manifest: started and recognised; five list sessions ([which](/docs/cli#the-agents-conch-knows)).
+- **Over ACP** — any [Agent Client Protocol](/docs/cli#agents-over-acp) agent.
 
 conch ships manifests for [fourteen more](/docs/cli#the-agents-conch-knows), marked with anything but a circle.
 
-**How:** add your own, then reload the server.
+Add your own, then reload the server:
 
 ```sh
 conch agent add robo -command robo -label "Robo Coder" \

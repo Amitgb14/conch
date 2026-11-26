@@ -587,10 +587,8 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			// starts and is watched like any other, and where its saved
 			// conversations are not read that is worth knowing before
 			// rather than when the Sessions view is empty.
-			if a.SessionsUnread() {
-				detail += styleMuted.Render("  runs here · no sessions")
-			} else if a.Tier == proto.TierRunsHere {
-				detail += styleMuted.Render("  runs here")
+			if note := tierNote(a); note != "" {
+				detail += styleMuted.Render("  " + note)
 			}
 			// How it will sign in, where the server can tell: an agent
 			// that is about to ask for a browser sign-in says so before it
@@ -628,6 +626,26 @@ func newAgentMenu(m Model, mach *machine) *menu {
 
 // installedFirst picks the agents that are installed, or the ones that
 // are not, keeping the order the machine gave them.
+// tierNote is what the agent menu says of an agent conch only runs: that
+// it does, whether its sessions are read, and for one that speaks the
+// Agent Client Protocol that conch draws it over ACP. Empty for a
+// supported agent, which needs no note.
+func tierNote(a proto.AgentAvailability) string {
+	note := ""
+	switch {
+	case a.Protocol == proto.ProtocolACP:
+		note = "over ACP"
+	case a.Tier == proto.TierRunsHere:
+		note = "runs here"
+	default:
+		return ""
+	}
+	if a.SessionsUnread() {
+		note += " · no sessions"
+	}
+	return note
+}
+
 func installedFirst(list []proto.AgentAvailability, installed bool) []proto.AgentAvailability {
 	var out []proto.AgentAvailability
 	for _, a := range list {

@@ -157,6 +157,8 @@ conch tells who is asking from the operating system — the process at the other
 | `conch agent explain ID` | show how a pane's agent state was decided, as JSON |
 | `conch agent status` | list each supported agent: installed (with version and path) or not |
 | `conch agent install NAME` | run an agent's installer in a pane and wait for it |
+| `conch agent add NAME -acp 'COMMAND [ARGS]' [-label L] [-dir DIR] [-env K=V]` | add an agent that speaks the [Agent Client Protocol](#agents-over-acp): writes `agents/NAME.toml` with an `[acp]` table. Reload the server to pick it up |
+| `conch acp [-agent NAME] [-label L] [-prompt TEXT] [-load SESSION] -- COMMAND [ARGS...]` | run an ACP agent in this terminal as its client — what an ACP agent's pane runs, and a way to try one by hand. Escape or ctrl+c stops a turn, ctrl+d on an empty line leaves |
 | `conch agent prompt [-wait] [-until done,idle,waiting] [-timeout 30m] [-at TIME] ID TEXT...` | send the pane's agent its next message and submit it. Unlike `conch send` it only types into an agent, and never into one waiting on a question — a permission prompt, a menu — where its Enter could answer something nobody read: it exits 3 and types nothing (a question that comes up in the moment before Enter leaves the message typed but unsent). With `-wait` it blocks until the work the message starts has ended — not on the `done` or `idle` still showing from before it — and prints `ID AGENT STATE`; a question the agent asks ends it too, unless `-until` leaves `waiting` out. An agent already working gets the message when that work ends, so that work is the one waited for. Exits 124 if `-timeout` runs out, and fails if the pane ends or another program takes it over. With `-at` (`14:05`, `+30m`, `2026-10-15 09:00`) the server keeps the message and sends it then, once the agent is free — see [Later, and on a schedule](/docs/tasks#later-and-on-a-schedule) |
 | `conch agent question ID` | what a waiting agent asks and its choices, read off its screen as the [phone](/docs/phone) reads them, as JSON: `{"id": "q_…", "text": "Allow command?", "choices": [{"choice": "1", "label": "Yes", "default": true}, …]}`. `null` when the agent is not waiting, which is an answer rather than an error. The [Mac app](/docs/mac-app) shows it as buttons |
 | `conch agent team ID [TEAM \| - \| -clear]` | which [team](/docs/configuration#teams) an agent is in, by hand or by rule, or put it in one: `-` keeps it out of every team, `-clear` leaves it to the rules |
@@ -171,9 +173,30 @@ conch tells who is asking from the operating system — the process at the other
 
 The names `-agent`, `conch agent install` and `conch new -agent` take. **Supported** — their sessions are read: `claude` (Claude Code), `codex` (Codex), `gemini` (Gemini CLI), `opencode` (OpenCode), `devin` (Devin), `copilot` (Copilot CLI), `cline` (Cline), `qwen` (Qwen Code) and `goose` (Goose).
 
-**Runs here** — from a manifest in `internal/detect/manifests`, which says what was checked for each: `aider` (Aider), `amp` (Amp), `antigravity` (Antigravity CLI, `agy`), `auggie` (Auggie), `continue` (Continue CLI, `cn`), `crush` (Crush), `cursor` (Cursor CLI), `droid` (Droid), `grok` (Grok), `kilo` (Kilo Code), `kimi` (Kimi Code), `kiro` (Kiro CLI, `kiro-cli chat`), `vibe` (Mistral Vibe) and `pi` (Pi). Add your own with `conch agent add`.
+**Runs here** — from a manifest in `internal/detect/manifests`, which says what was checked for each: `aider` (Aider), `amp` (Amp), `antigravity` (Antigravity CLI, `agy`), `auggie` (Auggie), `continue` (Continue CLI, `cn`), `crush` (Crush), `cursor` (Cursor CLI), `droid` (Droid), `grok` (Grok), `kilo` (Kilo Code), `kimi` (Kimi Code), `kiro` (Kiro CLI, `kiro-cli chat`), `vibe` (Mistral Vibe) and `pi` (Pi). Add your own with `conch agent add`, or one that speaks ACP with `conch agent add NAME -acp COMMAND` ([Agents over ACP](#agents-over-acp)).
 
 Of these, Pi, Grok, Cursor, Kilo Code and Antigravity CLI have their conversations listed in [Sessions](/docs/sessions).
+
+#### Agents over ACP
+
+An agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (ACP) is a third way in, beside the two tiers:
+
+```sh
+conch agent add gemini-acp -acp 'gemini --experimental-acp' -label "Gemini (ACP)"
+```
+
+That writes an `[acp]` table instead of `[run]` — `command` (it speaks ACP on stdin and stdout), and optionally `dirs` and `env`. Flags change between releases, so check the command against the agent's own `--help`; `goose acp` and the ACP adapters for Claude Code and Codex are other examples.
+
+Its pane runs `conch acp`, the protocol's client, and is an ordinary pane — tabs, splits, the phone, `conch send` and `conch read` all work:
+
+- **The conversation** streams in: messages, thinking (dimmed), tool calls with ✓ or ✗, diffs and plans. Type below it and press Enter; a message typed while it works is sent when the turn ends. Escape or ctrl+c stops the turn; ctrl+d on an empty line leaves.
+- **Its state** — working, waiting, done — comes from the protocol (a prompt sent, a permission asked, the turn ended), never from screen rules.
+- **Permissions** are a numbered menu with the agent waiting: answer with the arrows and Enter or a number, or from the [phone](/docs/phone) and the [Mac app](/docs/mac-app). A stopped turn answers any request still open "cancelled".
+- **Files and commands** it asks conch for stay inside the folder it was started in; a path outside it, or a link leading out, is refused.
+- **A first message** goes through the protocol, so tasks and handoffs work.
+- **Sessions** list in [Sessions](/docs/sessions) where the agent offers `session/list`, and reopen where it offers `loadSession`; one it cannot reopen is refused rather than started afresh. conch does not delete them.
+
+The agent menu marks these *over ACP*.
 
 #### Antigravity CLI
 
