@@ -141,16 +141,16 @@ func TestResolve(t *testing.T) {
 	os.Symlink(outside, filepath.Join(root, "out"))
 	os.Mkdir(filepath.Join(root, "sub"), 0o755)
 	for path, ok := range map[string]bool{
-		filepath.Join(root, "a.txt"):                 true,
+		filepath.Join(root, "a.txt"):                  true,
 		filepath.Join(root, "sub", "new", "deep.txt"): true,
-		root:                                         true,
-		filepath.Join(root, "..", "x"):               false,
-		filepath.Join(root, "out", "x"):              false,
-		filepath.Join(root, "out"):                   false,
-		outside:                                      false,
-		"relative.txt":                               false,
-		"":                                           false,
-		root + "-sibling/x":                          false,
+		root:                            true,
+		filepath.Join(root, "..", "x"):  false,
+		filepath.Join(root, "out", "x"): false,
+		filepath.Join(root, "out"):      false,
+		outside:                         false,
+		"relative.txt":                  false,
+		"":                              false,
+		root + "-sibling/x":             false,
 	} {
 		_, err := w.resolve(path)
 		if (err == nil) != ok {

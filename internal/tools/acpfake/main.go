@@ -134,7 +134,9 @@ func main() {
 
 func reply(m msg, result any) { send(msg{ID: m.ID, Result: raw(result)}) }
 
-func fail(m msg, code int, text string) { send(msg{ID: m.ID, Error: &rpcErr{Code: code, Message: text}}) }
+func fail(m msg, code int, text string) {
+	send(msg{ID: m.ID, Error: &rpcErr{Code: code, Message: text}})
+}
 
 func handle(m msg) {
 	var p map[string]any
