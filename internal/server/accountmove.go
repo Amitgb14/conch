@@ -92,6 +92,19 @@ func (m *mover) finishedTurn(pane string, turns int) bool {
 	return ok && turns > seen
 }
 
+// lookAtTurn says whether an agent is idle and, if so, whether it finished
+// a turn since the last look. Both come from the one snapshot: the turns
+// read again from the entry once raced a turn begun after info() — counted
+// as seen while the agent was "idle", so that turn's end finished nothing
+// and an agent past the line never moved.
+func (m *mover) lookAtTurn(info proto.PaneInfo) (idle, finished bool) {
+	a := info.Agent
+	if a == nil || (a.State != proto.AgentIdle && a.State != proto.AgentDone) {
+		return false, false
+	}
+	return true, m.finishedTurn(info.ID, a.Turn)
+}
+
 func newMover() *mover {
 	return &mover{tick: moveTick, delay: moveDelay, pending: map[string]proto.AgentMoving{}, held: map[string]bool{}, turns: map[string]int{},
 		jobWait: moveJobWait, waitFrom: map[string]time.Time{}, offers: map[string]proto.AgentSwitchOffer{}}
@@ -541,14 +554,7 @@ func (s *Server) lookForMoves(now time.Time) {
 		// At the failover line only an agent in use moves, as its turn ends:
 		// one that finished a turn since the last look (or whose move is
 		// already set). One sitting idle stays where it is.
-		idle := info.Agent.State == proto.AgentIdle || info.Agent.State == proto.AgentDone
-		finished := false
-		if idle {
-			e.mu.Lock()
-			turns := e.turns
-			e.mu.Unlock()
-			finished = s.mover.finishedTurn(info.ID, turns)
-		}
+		idle, finished := s.mover.lookAtTurn(info)
 		pendingLine := false
 		if m, ok := s.mover.get(info.ID); ok && m.Reason == "line" {
 			pendingLine = true

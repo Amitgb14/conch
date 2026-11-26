@@ -45,6 +45,18 @@ func startOutOfPlan(t *testing.T, c *client.Client, home, dir string) proto.Pane
 	return p
 }
 
+// countdown is the delay of a test that acts during it — calls a switch
+// or a move off, or takes it by hand. Under a loaded machine the test's
+// own call came after an 800ms countdown had already run out, and the
+// server had switched; long enough that it never does.
+const countdown = 3 * time.Second
+
+// pastCountdown waits until a few looks after at, when the countdown
+// would have ended — and so, if it was not called off, acted.
+func pastCountdown(at time.Time) {
+	time.Sleep(time.Until(at) + 700*time.Millisecond)
+}
+
 // offerEvent waits for an agent.switch.offered about pane.
 func offerEvent(t *testing.T, c *client.Client, pane string, gone bool) proto.AgentSwitchOffer {
 	t.Helper()
@@ -138,16 +150,16 @@ func TestSwitchAtLimitSwitchesUnasked(t *testing.T) {
 // TestSwitchAtLimitCalledOff: the switch the offer counts down to is
 // called off like any waiting switch, and nothing starts.
 func TestSwitchAtLimitCalledOff(t *testing.T) {
-	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 800*time.Millisecond))
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, countdown))
 	home, log := switchLimitHome(t)
 	c, dir := startServer(t)
 	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nswitch_at_limit = \"codex\"\n"), 0o600)
 	p := startOutOfPlan(t, c, home, dir)
-	offerEvent(t, c, p.ID, false)
+	o := offerEvent(t, c, p.ID, false)
 	if err := c.Call(t.Context(), proto.MethodAgentSwitchCancel, proto.AgentSwitchCancelParams{ID: p.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1500 * time.Millisecond)
+	pastCountdown(o.At)
 	if got := launches(t, log, 1); len(got) != 1 {
 		t.Fatalf("switched after it was called off: %q", got)
 	}
@@ -176,12 +188,12 @@ func TestAnAccountWithRoomMovesRatherThanSwitches(t *testing.T) {
 // TestContinueNowTakesTheOffer: switched by hand during the countdown
 // (Continue Now), the server's own switch is not made a second time.
 func TestContinueNowTakesTheOffer(t *testing.T) {
-	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 800*time.Millisecond))
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, countdown))
 	home, log := switchLimitHome(t)
 	c, dir := startServer(t)
 	os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[agents]\nswitch_at_limit = \"codex\"\n"), 0o600)
 	p := startOutOfPlan(t, c, home, dir)
-	offerEvent(t, c, p.ID, false)
+	o := offerEvent(t, c, p.ID, false)
 	var res proto.AgentSwitchResult
 	if err := c.Call(t.Context(), proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: "codex", NoContinue: true}, &res); err != nil {
 		t.Fatal(err)
@@ -189,7 +201,7 @@ func TestContinueNowTakesTheOffer(t *testing.T) {
 	if res.Pending || res.Pane.SwitchedFrom == nil {
 		t.Fatalf("switched: %+v", res)
 	}
-	time.Sleep(1500 * time.Millisecond) // past the countdown
+	pastCountdown(o.At)
 	if got := launches(t, log, 2); len(got) != 2 {
 		t.Fatalf("launched %q", got)
 	}

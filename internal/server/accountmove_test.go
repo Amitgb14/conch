@@ -309,15 +309,18 @@ func TestAnAgentAtItsLimitMovesByItself(t *testing.T) {
 // TestAMoveCalledOffStays: cancelled within the delay, the agent stays on
 // its account, and is not scheduled again while it has not worked.
 func TestAMoveCalledOffStays(t *testing.T) {
-	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, 600*time.Millisecond))
+	t.Cleanup(server.SetMoveTiming(100*time.Millisecond, countdown))
 	home, log := limitHome(t)
 	c, dir := startServer(t)
 	p := startAtLimit(t, c, home, dir)
-	waitEvent(t, c, func(m proto.Message) bool { return m.Event == proto.EventAgentMoving })
+	var moving proto.AgentMoving
+	waitEvent(t, c, func(m proto.Message) bool {
+		return m.Event == proto.EventAgentMoving && json.Unmarshal(m.Data, &moving) == nil
+	})
 	if err := c.Call(t.Context(), proto.MethodAgentMoveCancel, proto.AgentMoveCancelParams{ID: p.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1500 * time.Millisecond) // more than the delay and several looks
+	pastCountdown(moving.At)
 	if _, ok := panesNow(t, c)[p.ID]; !ok {
 		t.Fatal("the agent moved after the move was called off")
 	}
