@@ -56,7 +56,9 @@ type Manifest struct {
 }
 
 // IsACP reports whether the agent runs over the Agent Client Protocol.
-func (m *Manifest) IsACP() bool { return m != nil && m.ACP != nil && strings.TrimSpace(m.ACP.Command) != "" }
+func (m *Manifest) IsACP() bool {
+	return m != nil && m.ACP != nil && strings.TrimSpace(m.ACP.Command) != ""
+}
 
 // InterruptKeys is the keys that stop the agent: its manifest's, or escape.
 func (m *Manifest) InterruptKeys() []string {
