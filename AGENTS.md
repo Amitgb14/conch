@@ -643,7 +643,11 @@ way in is an agent that speaks the Agent Client Protocol: a manifest's
 `internal/adapter/acp.go`. It reports itself as the "runs here" tier with
 `Protocol` "acp", its state is the protocol's and never screen rules, and
 its sessions are listed through `session/list` where it offers it,
-`internal/server/acpsessions.go`.) *Supported*
+`internal/server/acpsessions.go`. Settings adds, checks, changes and
+removes one on the machine it is looking at through the server
+(`agent.acp.add.v1`, `internal/server/agentacp.go`), which reads its agents
+again without a reload — so the registry and detection manifests are read
+through `registry()` and `agentManifests()`, never the fields.) *Supported*
 is the contract below: nine agents meet it. *Runs here* is a manifest —
 `$CONCH_HOME/agents/<name>.toml`, or one conch ships in
 `internal/detect/manifests` — naming the binary, how a first message is

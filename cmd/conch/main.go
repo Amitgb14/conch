@@ -174,10 +174,11 @@ Usage:
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend
                                 to do (its sessions are not read either)
-  conch agent add NAME -acp 'COMMAND [ARGS]' [-label L]
+  conch agent add NAME -acp 'COMMAND [ARGS]' [-label L] [-force]
                                 add an agent that speaks the Agent Client Protocol (ACP): conch
                                 draws its conversation, takes its first message and reads its
-                                state and permission requests from the protocol
+                                state and permission requests from the protocol; the running
+                                server (or -m's) offers it at once. Settings › Agents does too
   conch acp [-agent NAME] [-prompt TEXT] [-load SESSION] -- COMMAND [ARGS...]
                                 run an ACP agent in this terminal as its client (what an ACP
                                 agent's pane runs); escape stops a turn, ctrl+d leaves
