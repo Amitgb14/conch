@@ -778,6 +778,7 @@ struct MainView: View {
         .sheet(item: $store.switchPick) { p in SwitchPickSheet(store: store, pick: p) }
         .sheet(item: $store.broadcastDraft) { d in BroadcastSheet(store: store, draft: d) }
         .sheet(item: $store.addProjectTarget) { t in AddProjectSheet(store: store, machine: t.id, cloud: t.cloud) }
+        .sheet(item: $store.acpSheet) { t in ACPAgentSheet(store: store, target: t) }
         .sheet(item: $store.moveProjectTarget) { t in MoveProjectSheet(store: store, project: t.id, cloud: t.cloud, pick: t.pick) }
         .sheet(isPresented: $store.helpOpen) { ShortcutsSheet(store: store) }
         .sheet(isPresented: $store.welcomeOpen) { WelcomeSheet(store: store) }
@@ -1387,13 +1388,17 @@ struct RowButtonsView: View {
             } else if let m = buttons.agentMachine {
                 Menu {
                     ForEach(store.startable(on: m), id: \.name) { a in
-                        AgentMenuButton(agent: a.name, title: a.title) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
+                        AgentMenuButton(agent: a.name, title: a.menuTitle) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
                     }
                     if buttons.offersTerminal {
                         Divider()
                         Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
                     }
                     if buttons.ssh { Button("SSH to a Host…") { store.perform(.sshToHost, on: node) } }
+                    if store.addsACPAgents(on: m) {
+                        Divider()
+                        Button("Add an ACP Agent…") { store.askAddACP(on: m) }
+                    }
                 } label: { glyph("bot") }
                     .menuStyle(.button).buttonStyle(RowButtonStyle()).menuIndicator(.hidden).fixedSize()
                     .help(buttons.team == nil ? "Start an Agent" : "Start an Agent in This Team")
@@ -1521,7 +1526,7 @@ struct RowMenuItems: View, Equatable {
             } else if it.picksAgent {
                 Menu(it.title) {
                     ForEach(startable, id: \.name) { a in
-                        AgentMenuButton(agent: a.name, title: a.title) { store.perform(it.action, on: node, agent: a.name) }
+                        AgentMenuButton(agent: a.name, title: a.menuTitle) { store.perform(it.action, on: node, agent: a.name) }
                     }
                 }
             } else if let a = it.agent {

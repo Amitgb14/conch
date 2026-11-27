@@ -17,15 +17,27 @@ public struct AgentAvailability: Decodable, Equatable, Sendable {
     /// How a running conversation would be switched to it: SwitchWay's
     /// native, handoff or never; none from a server that cannot switch.
     public var switchTo: String?
+    /// How conch speaks to it: "acp" for an agent run over the Agent
+    /// Client Protocol; none for one with its own terminal interface.
+    public var proto: String?
+    /// An ACP agent's manifest, and whether it was added on that machine
+    /// (and so can be changed and removed); none from older servers.
+    public var acp: ACPSpec?
+    public var removable: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case name, label, installed, tier, version, sessions
+        case name, label, installed, tier, version, sessions, acp, removable
         case noInstaller = "no_installer"
         case switchTo = "switch_to"
+        case proto = "protocol"
     }
 
     public init(name: String, label: String? = nil, installed: Bool = true, tier: String? = nil,
-                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil, switchTo: String? = nil) {
+                version: String? = nil, noInstaller: Bool? = nil, sessions: Bool? = nil, switchTo: String? = nil,
+                proto: String? = nil, acp: ACPSpec? = nil, removable: Bool? = nil) {
+        self.proto = proto
+        self.acp = acp
+        self.removable = removable
         self.switchTo = switchTo
         self.name = name
         self.label = label

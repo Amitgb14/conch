@@ -300,9 +300,13 @@ struct SessionRow: View {
                 .padding(.horizontal, 10).padding(.vertical, 3)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Theme.accentDeep))
                 .help(open ? "Go to the pane it is open in" : "Start \(session.agent) on this conversation again, in a pane")
+            // An ACP agent keeps its sessions itself and the protocol has
+            // no delete conch relies on: said on the button, not after.
+            let acp = model.store.isACPAgent(session.agent, on: model.machine)
             Button { model.delete(session) } label: { Image(systemName: "trash").font(.ui(size: 11)) }
-                .buttonStyle(.plain).foregroundStyle(Theme.muted).opacity(hovering ? 1 : 0)
-                .help("Delete this conversation")
+                .buttonStyle(.plain).foregroundStyle(Theme.muted).opacity(hovering ? (acp ? 0.4 : 1) : 0)
+                .disabled(acp)
+                .help(acp ? "conch cannot delete an ACP agent's session; delete it in the agent" : "Delete this conversation")
         }
         .padding(.horizontal, 10).frame(height: 48)
         .background(RoundedRectangle(cornerRadius: 7).fill(hovering ? Theme.raise : .clear))
@@ -315,12 +319,12 @@ struct SessionRow: View {
                 Button(session.starred == true ? "Unstar" : "Star") { model.star(session) }
                 Menu("Hand Off To") {
                     ForEach(model.store.startable(on: model.machine), id: \.name) { a in
-                        AgentMenuButton(agent: a.name, title: a.title) { model.handOff(session, to: a.name) }
+                        AgentMenuButton(agent: a.name, title: a.menuTitle) { model.handOff(session, to: a.name) }
                     }
                 }
             }
             Divider()
-            Button("Delete…") { model.delete(session) }
+            Button("Delete…") { model.delete(session) }.disabled(model.store.isACPAgent(session.agent, on: model.machine))
         }
     }
 
