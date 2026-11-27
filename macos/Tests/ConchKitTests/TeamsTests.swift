@@ -240,6 +240,14 @@ import Testing
         #expect(teamAgentCounts([agent("p1", branch: "a", state: .blocked)]) == [TeamAgentCount(agent: "claude", count: 1, working: 0)])
     }
 
+    // A light colour of your own gets a dark tick; the palette's own, and
+    // a dark one, a white one.
+    @Test func lightColours() {
+        #expect(teamColorIsLight(RGB("#D6D6D6")) && teamColorIsLight(RGB("#FFFFFF")) && teamColorIsLight(RGB("#F5E663")))
+        #expect(!teamColorIsLight(RGB("#000000")) && !teamColorIsLight(RGB("#2A6F97")))
+        #expect(AgentTeam.colors.allSatisfy { !teamColorIsLight($0.rgb) })
+    }
+
     @Test func colourChoices() {
         #expect(teamColorChoice("") == .auto && teamColorChoice("  ") == .auto)
         #expect(teamColorChoice("blue") == .named("blue") && teamColorChoice("Teal") == .named("teal"))

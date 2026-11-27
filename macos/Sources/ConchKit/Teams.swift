@@ -344,3 +344,10 @@ public func teamColorChoice(_ value: String) -> TeamColorChoice {
     if v.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) != nil { return .custom(v.uppercased()) }
     return .auto
 }
+
+/// Whether a colour is light enough that white on it is hard to read: by
+/// its relative luminance, as WCAG weighs the channels.
+public func teamColorIsLight(_ c: RGB) -> Bool {
+    func lin(_ x: Double) -> Double { x <= 0.03928 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4) }
+    return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b) > 0.4
+}
