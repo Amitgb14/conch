@@ -130,10 +130,16 @@ func (a *acpAgent) Detect(ctx context.Context, shell string) Availability {
 	return (&cliAgent{binary: a.binary(), dirs: a.dirs}).Detect(ctx, shell)
 }
 
-// probeTimeout bounds asking an agent what it can do: one written in
-// node takes a second or two to load. A variable so a test need not wait
-// it out.
-var probeTimeout = 20 * time.Second
+// probeTimeout bounds asking an agent what it can do. One written in node
+// can take far longer than its own work to load: claude-agent-acp 0.113
+// answered initialize after 14 s the first time on a busy Mac
+// (2026-11-27), past what 20 s leaves room for, and Check then said it did
+// not speak ACP. A variable so a test need not wait it out.
+var probeTimeout = time.Minute
+
+// ProbeTimeout is how long an agent is given to answer initialize when
+// conch asks what it offers.
+func ProbeTimeout() time.Duration { return probeTimeout }
 
 // Probe starts the agent in dir through the login shell, asks what it can
 // do and, when list is set and it lists them, its sessions there.

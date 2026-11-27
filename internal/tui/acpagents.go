@@ -223,7 +223,7 @@ func (m *Model) submitACPForm(d *dialog, form *acpForm, values []string) tea.Cmd
 	}
 	if form.res == nil || !sameValues(form.checked, values) {
 		m.overlay = d
-		d.text = append(append([]string{}, form.intro...), styleMuted.Render("checking "+spec.Command+"…"))
+		d.text = append(append([]string{}, form.intro...), styleMuted.Render("checking "+spec.Command+"… a first start can take a minute"))
 		return func() tea.Msg {
 			var res proto.AgentACPCheck
 			err := callCtxFor(c, proto.MethodAgentACPCheck, spec, &res, acpCheckWait)
@@ -242,9 +242,10 @@ func (m *Model) submitACPForm(d *dialog, form *acpForm, values []string) tea.Cmd
 	}
 }
 
-// acpCheckWait is how long the form waits on a check: the server gives
-// the agent 20 seconds to answer, after looking for it.
-const acpCheckWait = 45 * time.Second
+// acpCheckWait is how long the form waits on a check: longer than the
+// server gives the agent to answer (adapter.ProbeTimeout, a minute), after
+// a login shell has looked for it.
+const acpCheckWait = 90 * time.Second
 
 func (m *Model) receiveACPCheck(msg acpCheckMsg) tea.Cmd {
 	if m.overlay != msg.d {
