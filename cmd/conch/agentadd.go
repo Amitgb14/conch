@@ -29,7 +29,7 @@ const agentAddUsage = "usage: conch agent add NAME -command BINARY [-label LABEL
 func agentAdd(args []string) error {
 	fs := flag.NewFlagSet("agent add", flag.ContinueOnError)
 	command := fs.String("command", "", "the program to run (required, unless -acp)")
-	acpCommand := fs.String("acp", "", "the command that speaks the Agent Client Protocol on stdio, e.g. 'gemini --experimental-acp'")
+	acpCommand := fs.String("acp", "", "the command that speaks the Agent Client Protocol on stdio, e.g. 'gemini --acp'")
 	label := fs.String("label", "", "the name people know it by, e.g. \"Robo Coder\"")
 	prompt := fs.String("prompt", "", "how a first message is passed, with {prompt} where it goes; the default appends it as an argument")
 	resume := fs.String("resume", "", "how a saved session is reopened, with {id} where it goes; left out, conch will not offer to resume it")

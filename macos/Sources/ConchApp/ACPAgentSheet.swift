@@ -1,3 +1,4 @@
+import AppKit
 import ConchKit
 import SwiftUI
 
@@ -57,7 +58,7 @@ struct ACPAgentSheet: View {
                 GridRow {
                     label("Command")
                     VStack(alignment: .leading, spacing: 6) {
-                        TextField("", text: $form.command, prompt: Text("gemini --experimental-acp"))
+                        TextField("", text: $form.command, prompt: Text("gemini --acp"))
                             .textFieldStyle(.roundedBorder).font(.system(size: 12.5, design: .monospaced)).disabled(busy)
                         HStack(spacing: 6) {
                             Text("Known:").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
@@ -188,6 +189,18 @@ struct ACPAgentSheet: View {
             } else {
                 if let m = c.message, c.problem != "not_found" {
                     Text(m).font(.ui(size: 12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
+                if let install = c.install, !install.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("Install it:").font(.ui(size: 12)).foregroundStyle(Theme.text2)
+                        Text(install).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(install, forType: .string)
+                        } label: { Image(systemName: "doc.on.doc").font(.system(size: 11)) }
+                            .buttonStyle(.plain).foregroundStyle(Theme.accent).help("Copy the command")
+                    }
+                    Text("then Check Again.").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
                 }
                 if let o = c.output, !o.isEmpty {
                     Text(o).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)

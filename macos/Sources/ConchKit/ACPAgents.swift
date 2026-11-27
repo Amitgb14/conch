@@ -60,14 +60,19 @@ public struct ACPCheck: Decodable, Equatable, Sendable {
     public var load: Bool?
     public var list: Bool?
     public var auth: [String]?
+    /// How to install a command conch knows that was not found; none
+    /// from an older server.
+    public var install: String?
 
     enum CodingKeys: String, CodingKey {
-        case problem, message, output, path, agent, version, load, list, auth
+        case problem, message, output, path, agent, version, load, list, auth, install
         case protocolVersion = "protocol_version"
     }
 
     public init(problem: String? = nil, message: String? = nil, output: String? = nil, path: String? = nil, agent: String? = nil,
-                version: String? = nil, protocolVersion: Int? = nil, load: Bool? = nil, list: Bool? = nil, auth: [String]? = nil) {
+                version: String? = nil, protocolVersion: Int? = nil, load: Bool? = nil, list: Bool? = nil, auth: [String]? = nil,
+                install: String? = nil) {
+        self.install = install
         self.problem = problem
         self.message = message
         self.output = output
@@ -85,7 +90,10 @@ public struct ACPCheck: Decodable, Equatable, Sendable {
 
 /// Commands people reach for, offered as picks in the sheet. Each one's
 /// flag is the agent's to change: the sheet says to check its --help.
-public let knownACPCommands = ["gemini --experimental-acp", "goose acp", "claude-code-acp", "codex-acp"]
+/// (Checked 2026-11-26: Gemini CLI 0.71.1 deprecated --experimental-acp
+/// for --acp; the Claude Code and Codex adapters are now
+/// @agentclientprotocol's, Claude's binary renamed claude-agent-acp.)
+public let knownACPCommands = ["gemini --acp", "goose acp", "claude-agent-acp", "codex-acp"]
 
 /// The name a command suggests: its program, and "-acp".
 public func acpName(for command: String) -> String {
@@ -181,7 +189,8 @@ public struct ACPCheckLine: Equatable, Sendable {
 public func acpCheckHeadline(_ c: ACPCheck) -> String {
     if !c.speaksACP {
         switch c.problem {
-        case "not_found": return c.message.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "It was not found"
+        // The message begins with the program's name, kept as typed.
+        case "not_found": return c.message ?? "It was not found"
         case "exited": return "It exited while starting"
         case "not_acp": return "It does not speak ACP"
         default: return c.message ?? "It could not be checked"

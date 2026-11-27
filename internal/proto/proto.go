@@ -3344,6 +3344,9 @@ type AgentACPCheck struct {
 	List bool `json:"list,omitempty"`
 	// Auth names the ways it offers to sign in; empty when it offers none.
 	Auth []string `json:"auth,omitempty"`
+	// Install is how to install a command conch knows, when it was not
+	// found (ACPNotFound): "npm install -g …". Empty for any other.
+	Install string `json:"install,omitempty"`
 }
 
 // SessionsUnread is an agent conch runs without reading what it saved,
