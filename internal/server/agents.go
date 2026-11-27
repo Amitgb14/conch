@@ -668,7 +668,7 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name()), SwitchTo: switchTo(ad)}
 		if aa, ok := adapter.AsACP(ad); ok {
 			av.Protocol, av.Sessions = proto.ProtocolACP, lists[i]
-			av.Command, av.Removable = aa.Spec().Command, aa.Own()
+			av.ACP, av.Removable = acpSpecOf(aa.Spec()), aa.Own()
 		}
 		if av.Installed && av.Name == "antigravity" {
 			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))

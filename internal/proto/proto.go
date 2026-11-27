@@ -3278,11 +3278,11 @@ type AgentAvailability struct {
 	// servers. Such an agent is still the "runs here" tier, so a client
 	// that does not know this field treats it as any manifest's.
 	Protocol string `json:"protocol,omitempty"`
-	// Command is an ACP agent's command, as its manifest gives it, and
-	// Removable whether it was added on this machine (agents/NAME.toml)
-	// and so can be removed with agent.acp.remove.
-	Command   string `json:"command,omitempty"`
-	Removable bool   `json:"removable,omitempty"`
+	// ACP is an ACP agent as its manifest gives it, and Removable whether
+	// it was added on this machine (agents/NAME.toml) and so can be
+	// changed and removed with agent.acp.add and agent.acp.remove.
+	ACP       *AgentACPSpec `json:"acp,omitempty"`
+	Removable bool          `json:"removable,omitempty"`
 }
 
 // ProtocolACP is AgentAvailability.Protocol for an agent run over the

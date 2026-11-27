@@ -750,6 +750,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.receiveAccounts(msg)
 	case libraryMsg:
 		return m, m.receiveLibrary(msg)
+	case acpCheckMsg:
+		return m, m.receiveACPCheck(msg)
+	case acpAddedMsg:
+		return m, m.receiveACPAdded(msg)
 
 	case libraryApplyMsg:
 		return m, m.receiveLibraryApply(msg)

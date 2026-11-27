@@ -620,12 +620,14 @@ func newAgentMenu(m Model, mach *machine) *menu {
 		}
 	}
 	items = append(items, menuItem{"n", "Open a terminal instead", func(m *Model) tea.Cmd { return m.openAgent("") }})
+	if m.canAddACP(mach.id) {
+		items = append(items, menuItem{"+", "Add an ACP agent…" + styleMuted.Render("  one that speaks the Agent Client Protocol"),
+			func(m *Model) tea.Cmd { return m.openACPForm(mach.id, nil, nil) }})
+	}
 	return &menu{title: "Start an agent · " + m.placeLabel(), items: items, sel: max(sel, 0),
 		agentsOf: mach.id, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
 }
 
-// installedFirst picks the agents that are installed, or the ones that
-// are not, keeping the order the machine gave them.
 // tierNote is what the agent menu says of an agent conch only runs: that
 // it does, whether its sessions are read, and for one that speaks the
 // Agent Client Protocol that conch draws it over ACP. Empty for a
@@ -646,6 +648,8 @@ func tierNote(a proto.AgentAvailability) string {
 	return note
 }
 
+// installedFirst picks the agents that are installed, or the ones that
+// are not, keeping the order the machine gave them.
 func installedFirst(list []proto.AgentAvailability, installed bool) []proto.AgentAvailability {
 	var out []proto.AgentAvailability
 	for _, a := range list {
@@ -1271,7 +1275,9 @@ var helpGroups = []helpGroup{{
 			"Attempts: try it several times, one branch an attempt",
 			"on a machine, or in a folder that isn't a git repository, the agent works right there",
 		}},
-		{keys: "c", what: "start an agent here: Claude, Codex, Gemini or OpenCode (click or 1-9)"},
+		{keys: "c", what: "start an agent here: Claude, Codex, Gemini or OpenCode (click or 1-9)", more: []string{
+			"+ in it adds an agent that speaks the Agent Client Protocol (ACP), on that machine",
+		}},
 		{keys: "n", what: "terminal here"},
 		{keys: "a", what: "add or create a project"},
 		{keys: "A", what: "start or install any agent"},
@@ -1556,6 +1562,7 @@ var helpGroups = []helpGroup{{
 			"Check conch… (or ! on any Settings tab) runs conch doctor's checks: git, gh, agents, the terminal, each with its fix — they also run a moment after conch starts, and problems are on this computer's page, failures on the bar",
 			"Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
 			"Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
+			"Agents › a machine: a adds an agent over ACP there, enter on one edits it, d removes it",
 		}},
 		{keys: "?", what: "this list: ↑↓ jk pgup pgdn g G or the wheel scroll it", more: []string{
 			"] [ (tab, shift+tab) next, previous group",

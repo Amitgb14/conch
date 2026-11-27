@@ -63,7 +63,7 @@ func TestAddAnACPAgentFromSettings(t *testing.T) {
 	if err := c.Call(ctx, proto.MethodAgentACPAdd, proto.AgentACPAddParams{AgentACPSpec: spec}, &av); err != nil {
 		t.Fatal(err)
 	}
-	if av.Name != "fake" || av.Label != "Fake ACP" || av.Protocol != proto.ProtocolACP || !av.Installed || !av.Removable || av.Command != fake {
+	if av.Name != "fake" || av.Label != "Fake ACP" || av.Protocol != proto.ProtocolACP || !av.Installed || !av.Removable || av.ACP == nil || av.ACP.Command != fake || strings.Join(av.ACP.Env, " ") != "ACPFAKE_MODE=list" {
 		t.Errorf("added = %+v", av)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "agents", "fake.toml")); err != nil {

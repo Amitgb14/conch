@@ -68,6 +68,11 @@ func (s *Server) supportedAgent(name string) bool {
 	return ok && ad.Tier() == proto.TierSupported
 }
 
+// acpSpecOf is a manifest as agent.status says it.
+func acpSpecOf(m adapter.ACPManifest) *proto.AgentACPSpec {
+	return &proto.AgentACPSpec{Name: m.Name, Label: m.Label, Command: m.Command, Dirs: m.Dirs, Env: m.Env}
+}
+
 func acpManifest(p proto.AgentACPSpec) adapter.ACPManifest {
 	return adapter.ACPManifest{Name: p.Name, Label: p.Label, Command: p.Command, Dirs: p.Dirs, Env: p.Env}
 }
@@ -114,7 +119,7 @@ func (s *Server) addACP(p proto.AgentACPAddParams) (proto.AgentAvailability, *pr
 	found := ad.Detect(context.Background(), config.DefaultShell())
 	av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(), Installed: found.Installed, Path: found.Path,
 		Version: found.Version, Tier: ad.Tier(), NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", SwitchTo: switchTo(ad),
-		Protocol: proto.ProtocolACP, Command: aa.Spec().Command, Removable: aa.Own()}
+		Protocol: proto.ProtocolACP, ACP: acpSpecOf(aa.Spec()), Removable: aa.Own()}
 	if init, known := s.acp.known(acpKey(aa)); known {
 		av.Sessions = init.CanList()
 	} else if found.Installed {
