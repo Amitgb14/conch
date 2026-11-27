@@ -18,6 +18,12 @@ private func section(_ key: String, _ fields: [SettingsField], title: String = "
     let ui = section("ui", [])
     #expect(settingsControl(ui, try field("theme", "select", options: ["conch"])) == .theme)
     #expect(settingsControl(ui, try field("accent", "select", options: ["", "teal"])) == .swatches)
+    // A team's colour: its own dots, found by the section's id since
+    // [[teams]] has no key; a colour elsewhere is not.
+    let teams = SettingsSection(id: "teams", key: "", title: "Teams", description: "", icon: "users", fields: [])
+    #expect(settingsControl(teams, try field("color", "select", options: ["", "blue"])) == .teamColors)
+    #expect(settingsControl(teams, try field("name", "string")) == .text)
+    #expect(settingsControl(section("other", []), try field("color", "select", options: ["", "blue", "red", "green"])) == .menu(agents: false))
     #expect(settingsControl(ui, try field("mouse", "bool")) == .toggle)
     #expect(settingsControl(ui, try field("diff", "select", options: ["", "side", "unified"])) == .segments)
     // Four or more choices, or long labels: a menu.

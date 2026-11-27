@@ -813,6 +813,8 @@ struct FieldRow: View {
             SliderControl(value: num, min: lo, max: hi, step: step, unit: unit, fallback: Double(field.placeholder ?? "") ?? 100)
         case .swatches:
             Swatches(options: options, value: choice)
+        case .teamColors:
+            TeamColorSwatches(value: Binding(get: { value?.string ?? "" }, set: { set($0.isEmpty ? nil : .string($0)) }))
         case .pictures:
             LayoutPictures(options: options, value: choice)
         case .keys:
