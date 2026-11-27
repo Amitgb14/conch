@@ -40,13 +40,15 @@ const (
 // so it cannot name the record, though Pane says which pane it was — the
 // one a client may still hold, exited, in a tab.
 type EndedAgent struct {
-	ID        string    `json:"id"`
-	Pane      string    `json:"pane"`
-	Agent     string    `json:"agent"`
-	Session   string    `json:"session,omitempty"`
-	Dir       string    `json:"dir"`
-	Account   string    `json:"account,omitempty"`
-	Name      string    `json:"name,omitempty"`
+	ID      string `json:"id"`
+	Pane    string `json:"pane"`
+	Agent   string `json:"agent"`
+	Session string `json:"session,omitempty"`
+	Dir     string `json:"dir"`
+	Account string `json:"account,omitempty"`
+	Name    string `json:"name,omitempty"`
+	// Team is the team it was put in by hand; resuming it puts it back.
+	Team      string    `json:"team,omitempty"`
 	ProjectID string    `json:"project_id,omitempty"`
 	Branch    string    `json:"branch,omitempty"`
 	Why       string    `json:"why"`

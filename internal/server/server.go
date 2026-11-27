@@ -872,10 +872,7 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 		if len(team) > 64 {
 			return nil, proto.Errorf(proto.ErrBadRequest, "a team's name is 64 characters at most")
 		}
-		e.mu.Lock()
-		e.team = team
-		e.mu.Unlock()
-		s.reshown(e)
+		s.setTeam(e, team)
 		return e.info(), nil
 
 	case proto.MethodPaneScroll:

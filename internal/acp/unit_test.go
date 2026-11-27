@@ -227,3 +227,15 @@ func TestDiffText(t *testing.T) {
 		t.Errorf("long diff = %q", d)
 	}
 }
+
+// TestExitSaysTheLastWords: an agent that closes its output before it
+// writes why to stderr and exits — the order a slow machine shows them in
+// — still has its last words in the error, which are waited for.
+func TestExitSaysTheLastWords(t *testing.T) {
+	_, err := Start(context.Background(), Options{Argv: []string{"/bin/sh", "-c", "exec 1>&-; sleep 0.3; echo boom: no key >&2; exit 3"},
+		Dir: t.TempDir(), Events: quiet{}})
+	var exit *ExitError
+	if !errors.As(err, &exit) || !strings.Contains(exit.Stderr, "boom: no key") {
+		t.Fatalf("err = %v", err)
+	}
+}

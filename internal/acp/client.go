@@ -58,6 +58,10 @@ type Client struct {
 	asking    []context.CancelFunc // permission requests waiting on the person
 	stop      chan struct{}
 	stopOnce  sync.Once
+	// exited is closed once the agent's process has ended and what it
+	// wrote to stderr has all been copied — which Wait does, after the
+	// agent's stdout has often been seen to close.
+	exited chan struct{}
 }
 
 // ClientCaps is what conch offers an agent: files and terminals, inside
@@ -119,7 +123,7 @@ func Start(ctx context.Context, o Options) (*Client, error) {
 		return nil, err
 	}
 	cmd.Stdin, cmd.Stdout = inR, outW
-	c := &Client{cmd: cmd, stdin: stdin, ws: ws, ev: o.Events, stderr: &tail{}, stop: make(chan struct{})}
+	c := &Client{cmd: cmd, stdin: stdin, ws: ws, ev: o.Events, stderr: &tail{}, stop: make(chan struct{}), exited: make(chan struct{})}
 	cmd.Stderr = c.stderr
 	err = cmd.Start()
 	inR.Close()
@@ -129,7 +133,10 @@ func Start(ctx context.Context, o Options) (*Client, error) {
 		stdout.Close()
 		return nil, fmt.Errorf("start %s: %w", o.Argv[0], err)
 	}
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		_ = cmd.Wait()
+		close(c.exited)
+	}()
 	c.conn = newConn(stdout, stdin, c.handle, o.Events.Problem)
 
 	timeout := o.InitTimeout
@@ -143,8 +150,11 @@ func Start(ctx context.Context, o Options) (*Client, error) {
 		ClientInfo: &Info{Name: "conch", Title: "conch"},
 	}, &c.Init)
 	if err != nil {
+		// Why before Close: closing ends the agent, which may still be
+		// writing the reason on its way out.
+		err = c.why("initialize", err)
 		c.Close()
-		return nil, c.why("initialize", err)
+		return nil, err
 	}
 	if c.Init.ProtocolVersion != 0 && c.Init.ProtocolVersion != ProtocolVersion {
 		c.Close()
@@ -154,8 +164,16 @@ func Start(ctx context.Context, o Options) (*Client, error) {
 }
 
 // why is err with what the agent last wrote to stderr, when it has gone.
+// lastWordsWait bounds how long an error waits for an agent that closed
+// its output to finish saying why: one that lingers is not waited for.
+const lastWordsWait = 2 * time.Second
+
 func (c *Client) why(what string, err error) error {
 	if errors.Is(err, ErrClosed) {
+		select {
+		case <-c.exited:
+		case <-time.After(lastWordsWait):
+		}
 		return &ExitError{What: what, Stderr: lastLines(c.stderr.String(), 6)}
 	}
 	return fmt.Errorf("%s: %w", what, err)

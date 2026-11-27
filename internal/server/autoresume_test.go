@@ -146,6 +146,73 @@ func TestRunLogNotesAccount(t *testing.T) {
 	if l.active["p1"].Name != "reviewer" {
 		t.Fatalf("a rename is noted at once: %+v", l.active["p1"])
 	}
+	// The team it was put in by hand, so a crash does not take it away.
+	info.Team = "backend"
+	l.note(info, "/d", time.Now())
+	if l.active["p1"].Team != "backend" {
+		t.Fatalf("a team is noted at once: %+v", l.active["p1"])
+	}
+	if rec := endedFromRun(l.active["p1"], proto.EndedServer); rec.Team != "backend" {
+		t.Fatalf("an ended agent forgets its team: %+v", rec)
+	}
+	// A log from before teams loads with none.
+	var old agentRun
+	if err := json.Unmarshal([]byte(`{"pane":"p9","agent":"claude","dir":"/d"}`), &old); err != nil || old.Team != "" {
+		t.Fatalf("old run: %+v %v", old, err)
+	}
+}
+
+// TestPaneTeamIsWrittenDown: putting an agent in a team writes the run
+// log then, not at the next look, so a crash a moment later keeps it.
+func TestPaneTeamIsWrittenDown(t *testing.T) {
+	arConfig(t, true)
+	dir := arEnv(t, runLogFile{})
+	s := New(filepath.Join(dir, "s.sock"), dir)
+	go s.Run()
+	t.Cleanup(s.StopAndWait)
+	for i := 0; ; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "s.sock")); err == nil {
+			break
+		}
+		if i > 200 {
+			t.Fatal("no server")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	c, err := conchclient.Dial(filepath.Join(dir, "s.sock"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	var info proto.PaneInfo
+	if err := c.Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude",
+		Command: []string{"/bin/sh", "-c", "exec cat"}, Cwd: t.TempDir(), Cols: 80, Rows: 10}, &info); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		s.runs.mu.Lock()
+		_, noted := s.runs.active[info.ID]
+		s.runs.mu.Unlock()
+		if noted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the agent was never noted")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := c.Call(t.Context(), proto.MethodPaneTeam, proto.PaneTeamParams{ID: info.ID, Team: "research"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "agent-runs.json"))
+	var f runLogFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Active) != 1 || f.Active[0].Team != "research" {
+		t.Fatalf("the run log does not have the team: %s", b)
+	}
 }
 
 // TestAutoResumeAfterACrash: a server starting after one that went
@@ -164,7 +231,7 @@ func TestAutoResumeAfterACrash(t *testing.T) {
 		{Pane: "p1", Agent: "claude", Dir: gone, Session: "lost", Started: now.Add(-time.Hour), Seen: now},
 		{Pane: "p2", Agent: "claude", Dir: api, Session: "s-api", Started: now.Add(-time.Hour), Seen: now},
 		{Pane: "p3", Agent: "claude", Dir: api, Session: "s-api", Started: now.Add(-time.Hour), Seen: now}, // the same again
-		{Pane: "p4", Agent: "claude", Dir: web, Session: "s-web", Name: "reviewer", Started: now.Add(-time.Hour), Seen: now},
+		{Pane: "p4", Agent: "claude", Dir: web, Session: "s-web", Name: "reviewer", Team: "research", Started: now.Add(-time.Hour), Seen: now},
 	}})
 	s := New(filepath.Join(dir, "s.sock"), dir)
 	go s.Run()
@@ -179,7 +246,7 @@ func TestAutoResumeAfterACrash(t *testing.T) {
 		panes = arPanes(s)
 		last := false
 		for _, p := range panes {
-			last = last || strings.Contains(strings.Join(p.Command, " "), "--resume s-web") && p.Name == "reviewer"
+			last = last || strings.Contains(strings.Join(p.Command, " "), "--resume s-web") && p.Name == "reviewer" && p.Team == "research"
 		}
 		if last {
 			break
@@ -199,6 +266,9 @@ func TestAutoResumeAfterACrash(t *testing.T) {
 		}
 		if p.Cwd == web && p.Name != "reviewer" {
 			t.Fatalf("back under another name: %q", p.Name)
+		}
+		if p.Cwd == api && p.Team != "" {
+			t.Fatalf("given a team it was never in: %q", p.Team)
 		}
 	}
 	runs := s.runs.interruptedRuns()

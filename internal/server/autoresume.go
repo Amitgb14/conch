@@ -88,9 +88,26 @@ func (s *Server) autoResume() {
 				s.rename(e, r.Name)
 			}
 		}
+		// And back in the team it was put in by hand.
+		if r.Team != "" {
+			if e, perr := s.get(info.ID); perr == nil {
+				s.setTeam(e, r.Team)
+			}
+		}
 		resumed++
 	}
 	if resumed > 0 {
 		log.Printf("resumed %d agent(s) the previous server was running", resumed)
 	}
+}
+
+// setTeam puts pane e in team (by hand), tells clients, and writes it in
+// the run log at once: a crash a moment later must not take it away.
+func (s *Server) setTeam(e *entry, team string) {
+	e.mu.Lock()
+	e.team = team
+	e.mu.Unlock()
+	s.reshown(e)
+	info := e.info()
+	s.runs.note(info, e.dir, info.Created)
 }
