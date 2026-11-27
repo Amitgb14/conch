@@ -692,6 +692,16 @@ extension Snapshot {
 }
 
 extension TreeNode {
+    /// Whether the row shows its buttons (rowButtons) on hover: every row
+    /// that has them. A team's row once had its agent button and never
+    /// showed it, since this list left teams out.
+    public var showsButtons: Bool {
+        switch kind {
+        case .project, .machine, .workspace, .cli, .group, .team: return true
+        default: return false
+        }
+    }
+
     /// The machine a row is on.
     public var machine: String? {
         switch kind {

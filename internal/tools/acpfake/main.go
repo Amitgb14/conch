@@ -215,12 +215,18 @@ func handle(m msg) {
 		smu.Unlock()
 		answer, stop := prompt(sid, text, cancel)
 		smu.Lock()
-		if s := sessions[sid]; s != nil {
+		s := sessions[sid]
+		if s != nil {
 			s.Turns = append(s.Turns, turn{Prompt: text, Answer: answer})
-			defer save(s)
 		}
 		delete(cancelled, sid)
 		smu.Unlock()
+		// Saved before the turn is said to be over: a test quits as soon as
+		// it is, and a save deferred past the reply was cut short on a
+		// loaded CI machine, leaving a session that would not load.
+		if s != nil {
+			save(s)
+		}
 		reply(m, map[string]any{"stopReason": stop})
 	default:
 		if len(m.ID) > 0 {
@@ -380,7 +386,12 @@ func save(s *session) {
 	}
 	s.Updated = time.Now().UTC().Format(time.RFC3339)
 	b, _ := json.Marshal(s)
-	_ = os.WriteFile(filepath.Join(dir, s.ID+".json"), b, 0o644)
+	// Whole or not at all: a process ended mid-write left half a file.
+	path := filepath.Join(dir, s.ID+".json")
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, b, 0o644) == nil {
+		_ = os.Rename(tmp, path)
+	}
 }
 
 func load(id string) *session {

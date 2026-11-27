@@ -226,6 +226,19 @@ public func renameTeamTOML(_ toml: String, from: String, to: String) -> String {
     return lines.joined(separator: "\n")
 }
 
+/// config.toml with a [[teams]] entry of this name at its end, so a team
+/// made from an agent's menu outlives its agents: one on the pane alone
+/// went when they closed. Unchanged when it has one already, or for no
+/// name or "-" (no team).
+public func addTeamTOML(_ toml: String, name: String) -> String {
+    let n = name.trimmingCharacters(in: .whitespaces)
+    guard !n.isEmpty, n != AgentTeam.none, !parseTeams(toml: toml).contains(where: { $0.name == n }) else { return toml }
+    var out = toml
+    if !out.isEmpty && !out.hasSuffix("\n") { out += "\n" }
+    if !out.isEmpty && !out.hasSuffix("\n\n") { out += "\n" }
+    return out + "[[teams]]\nname = " + tomlQuoted(n) + "\n"
+}
+
 /// config.toml without the [[teams]] entries named name — each from its
 /// header to the next one; every other line as it was.
 public func removeTeamTOML(_ toml: String, name: String) -> String {

@@ -248,6 +248,43 @@ import Testing
         #expect(teamColorChoice("#12345") == .auto && teamColorChoice("magenta") == .auto && teamColorChoice("#GGGGGG") == .auto)
     }
 
+    // A team made from an agent's menu is written to config.toml, so it
+    // outlives its agents; once, and never for no team.
+    @Test func addingATeamToConfig() {
+        #expect(addTeamTOML("", name: "bugs") == "[[teams]]\nname = \"bugs\"\n")
+        #expect(addTeamTOML("[ui]\ntheme = \"x\"", name: " sf ") == "[ui]\ntheme = \"x\"\n\n[[teams]]\nname = \"sf\"\n")
+        #expect(addTeamTOML("[ui]\n", name: "a") == "[ui]\n\n[[teams]]\nname = \"a\"\n")
+        let have = "[[teams]]\nname = \"bugs\"\ncolor = \"red\"\n"
+        #expect(addTeamTOML(have, name: "bugs") == have)
+        #expect(addTeamTOML(have, name: "-") == have && addTeamTOML(have, name: "  ") == have)
+        // A quote in the name stays a string, and reads back as written.
+        let q = addTeamTOML(have, name: "say \"hi\"")
+        #expect(parseTeams(toml: q).map(\.name) == ["bugs", "say \"hi\""])
+        #expect(parseTeams(toml: q).first?.color == "red")
+    }
+
+    // A team in config.toml with nobody in this project yet still has a
+    // row, to start an agent in — not one whose rules name other projects.
+    @Test func emptyTeamsHaveARow() throws {
+        let s = Snapshot(panes: [agent("p1", branch: "x", team: "bugs")], projects: [ProjectInfo(id: "r1", name: "conch", path: "/c")])
+        let rules = [AgentTeam(name: "bugs"), AgentTeam(name: "sf"), AgentTeam(name: "api", projects: ["api"]), AgentTeam(name: "here", projects: ["Conch"])]
+        let kids = try #require(agentsSection(s, teams: rules)).children ?? []
+        #expect(kids.map(\.title) == ["bugs", "sf", "here"])
+        #expect(kids.map(\.badge) == ["1", "0", "0"])
+        #expect(kids[1].kind == .team(project: "local|r1", name: "sf") && kids[1].agentKeys.isEmpty)
+        // Its row starts agents like any team's.
+        #expect(s.rowButtons(for: kids[1], machine: "local")?.start("claude") == .startTeamAgent(project: "local|r1", team: "sf"))
+        // Nobody in a team here (no rule names it): the plain list, as before.
+        let plain = Snapshot(panes: [agent("p1", branch: "x")], projects: [ProjectInfo(id: "r1", name: "conch", path: "/c")])
+        #expect((try #require(agentsSection(plain, teams: Array(rules.prefix(3)))).children ?? []).allSatisfy { if case .agent = $0.kind { return true }; return false })
+    }
+
+    @Test func teamRowsShowTheirButtons() {
+        #expect(TreeNode(id: "t", kind: .team(project: "local|r1", name: "sf"), title: "sf").showsButtons)
+        #expect(TreeNode(id: "p", kind: .project("local|r1"), title: "conch").showsButtons)
+        #expect(!TreeNode(id: "a", kind: .agent("local|p1"), title: "a").showsButtons)
+    }
+
     @Test func gatherPutsTeamInOneTab() {
         var l = Layout()
         l.open("a")

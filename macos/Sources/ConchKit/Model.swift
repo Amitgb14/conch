@@ -870,10 +870,16 @@ extension Snapshot {
             if case .agent = n.kind { c = 1 }
             return c + (n.children ?? []).reduce(0) { $0 + count($1) }
         }
+        // A team in config.toml with nobody here yet is shown too, so an
+        // agent can be started in it — unless its rules name other projects.
+        func belongs(_ t: String) -> Bool {
+            guard let rule = teams.first(where: { $0.name == t }) else { return false }
+            return rule.projects.isEmpty || rule.projects.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }
         var out: [TreeNode] = []
         for t in teamNames(teams, panes: panes) + [""] {
             let mine = placed.filter { ($0.team ?? "") == t }.map(\.node)
-            guard !mine.isEmpty else { continue }
+            guard !mine.isEmpty || (!t.isEmpty && belongs(t)) else { continue }
             out.append(TreeNode(id: "t:\(pk):\(t)", kind: .team(project: pk, name: t), title: t.isEmpty ? "No team" : t,
                                 badge: "\(mine.reduce(0) { $0 + count($1) })", children: mine, fold: fold + "/team:" + t))
         }
