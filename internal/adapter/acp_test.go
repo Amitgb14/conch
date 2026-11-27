@@ -203,6 +203,12 @@ func TestWriteACPManifest(t *testing.T) {
 // TestCheckACP: what Settings' Check says, from stand-ins for each case.
 func TestCheckACP(t *testing.T) {
 	t.Cleanup(SetProbeTimeout(2 * time.Second))
+	// Only the stand-ins below: a real adapter on the developer's PATH
+	// (claude-agent-acp, installed for real) was found and started by the
+	// "not found" case once. The login shell adds nothing of Homebrew's
+	// with a scratch HOME.
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("HOME", t.TempDir())
 	bin := t.TempDir()
 	put := func(name, script string) {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+script), 0o755); err != nil {

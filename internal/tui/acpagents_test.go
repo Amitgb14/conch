@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/proto"
 )
 
@@ -306,5 +308,18 @@ func TestACPCheckSaysHowToInstall(t *testing.T) {
 	}
 	if text := ansi.Strip(strings.Join(acpCheckLines(proto.AgentACPCheck{Problem: proto.ACPNotFound, Message: "robo was not found"}), "\n")); strings.Contains(text, "install it") {
 		t.Errorf("an install offered for a command conch does not know:\n%s", text)
+	}
+}
+
+// The form waits longer than the server gives an agent to answer, plus a
+// login shell's look for it first: a slow agent is said to be slow by
+// the server, not cut off by the form. And the server gives one a minute
+// — claude-agent-acp 0.113 took 14 s to answer initialize the first time.
+func TestACPCheckWaitsForASlowAgent(t *testing.T) {
+	if adapter.ProbeTimeout() < time.Minute {
+		t.Errorf("an agent has %s to answer; a node adapter's first start took 14 s", adapter.ProbeTimeout())
+	}
+	if acpCheckWait < adapter.ProbeTimeout()+20*time.Second {
+		t.Errorf("the form waits %s, the server %s", acpCheckWait, adapter.ProbeTimeout())
 	}
 }

@@ -150,7 +150,10 @@ struct ACPAgentSheet: View {
                 if checking {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Starting \(form.spec.command) and sending initialize…").font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Starting \(form.spec.command) and sending initialize…").font(.ui(size: 12.5)).foregroundStyle(Theme.text2)
+                            Text("An agent written in node can take a minute to start the first time.").font(.ui(size: 11.5)).foregroundStyle(Theme.muted)
+                        }
                     }
                 } else if let c = shownCheck {
                     checkResult(c)
