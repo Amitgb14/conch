@@ -40,7 +40,7 @@ func (s *Server) interruptAgent(p proto.AgentInterruptParams) (proto.AgentInterr
 	}
 	keys := []string{"ctrl+c"}
 	if !p.Hard {
-		keys = s.manifests[info.Agent.Name].InterruptKeys()
+		keys = s.agentManifests()[info.Agent.Name].InterruptKeys()
 	}
 	if err := e.p.SendKeysApart(keys, interruptGap); err != nil {
 		return proto.AgentInterruptResult{}, proto.Errorf(proto.ErrBadRequest, "%v", err)

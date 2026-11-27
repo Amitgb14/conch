@@ -5,9 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/server"
 )
 
 func runAgentAdd(t *testing.T, args ...string) (string, error) {
@@ -199,5 +203,53 @@ func TestAgentAddACP(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(adapter.ManifestDir(config.Dir()), "x.toml")); err == nil {
 		t.Error("a refused add left a file")
+	}
+}
+
+// With a server running, -acp asks it: the agent is offered at once, with
+// no reload, and a second add of the name is refused until -force.
+func TestAgentAddACPThroughTheServer(t *testing.T) {
+	dir := a4Env(t)
+	srv := server.New(config.SocketPath(), dir)
+	go srv.Run()
+	t.Cleanup(func() { srv.StopAndWait() })
+	for i := 0; ; i++ {
+		if c, err := client.Dial(config.SocketPath(), "test"); err == nil {
+			c.Close()
+			break
+		}
+		if i == 200 {
+			t.Fatal("no server")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	out, err := runAgentAdd(t, "speaker", "-acp", "/bin/sh --acp", "-label", "Speaker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "in every agent menu now") || strings.Contains(out, "Reload the server") {
+		t.Errorf("out = %q", out)
+	}
+	c, err := client.Dial(config.SocketPath(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	var st proto.AgentStatusResult
+	if err := c.Call(t.Context(), proto.MethodAgentStatus, nil, &st); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range st.Agents {
+		found = found || a.Name == "speaker" && a.Protocol == proto.ProtocolACP && a.Removable
+	}
+	if !found {
+		t.Error("the server does not offer it")
+	}
+	if _, err := runAgentAdd(t, "speaker", "-acp", "/bin/sh --acp"); err == nil || !strings.Contains(err.Error(), "-force") {
+		t.Errorf("again: %v", err)
+	}
+	if _, err := runAgentAdd(t, "speaker", "-acp", "/bin/sh --acp", "-force"); err != nil {
+		t.Errorf("with -force: %v", err)
 	}
 }

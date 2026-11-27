@@ -143,6 +143,9 @@ func manifestAgents(dir string, taken map[string]bool) ([]Adapter, []error) {
 	seen := map[string]bool{}
 	for _, f := range files {
 		a, err := manifestAgent(f, taken, seen)
+		if aa, ok := a.(*acpAgent); ok {
+			aa.own = true // the person's own file, which Settings may change
+		}
 		switch {
 		case err != nil:
 			errs = append(errs, fmt.Errorf("%s: %w", filepath.Base(f), err))

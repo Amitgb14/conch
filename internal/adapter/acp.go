@@ -50,6 +50,10 @@ type acpAgent struct {
 	install     string
 	// exe is the conch that runs in the pane as the client.
 	exe string
+	// rawDirs are the folders as written, before ~ is expanded, and own
+	// whether the manifest is the person's (see Own).
+	rawDirs []string
+	own     bool
 }
 
 func newACPAgent(name, label string, spec acpSpec) (*acpAgent, error) {
@@ -58,7 +62,7 @@ func newACPAgent(name, label string, spec acpSpec) (*acpAgent, error) {
 		return nil, errors.New("[acp] has no command")
 	}
 	return &acpAgent{name: name, label: label, command: strings.TrimSpace(spec.Command),
-		dirs: expandDirs(spec.Dirs), env: spec.Env, install: spec.Install, exe: "conch"}, nil
+		dirs: expandDirs(spec.Dirs), rawDirs: spec.Dirs, env: spec.Env, install: spec.Install, exe: "conch"}, nil
 }
 
 func (a *acpAgent) Name() string          { return a.name }
@@ -126,8 +130,9 @@ func (a *acpAgent) Detect(ctx context.Context, shell string) Availability {
 }
 
 // probeTimeout bounds asking an agent what it can do: one written in
-// node takes a second or two to load.
-const probeTimeout = 20 * time.Second
+// node takes a second or two to load. A variable so a test need not wait
+// it out.
+var probeTimeout = 20 * time.Second
 
 // Probe starts the agent in dir through the login shell, asks what it can
 // do and, when list is set and it lists them, its sessions there.
@@ -145,10 +150,22 @@ func (a *acpAgent) Probe(ctx context.Context, shell, dir string, list bool) (acp
 }
 
 // ACPAgent is an agent run over the Agent Client Protocol, for the server
-// to ask about its sessions.
+// to ask about its sessions and for Settings to show and change.
 type ACPAgent interface {
 	Adapter
 	Probe(ctx context.Context, shell, dir string, list bool) (acp.InitializeResult, []acp.SessionInfo, error)
+	Spec() ACPManifest
+	Own() bool
+}
+
+// NewACP is an ACP agent from a spec that is not in any file yet, for
+// checking a command before it is added.
+func NewACP(m ACPManifest) (ACPAgent, error) {
+	label := m.Label
+	if label == "" {
+		label = m.Name
+	}
+	return newACPAgent(m.Name, label, acpSpec{Command: m.Command, Dirs: m.Dirs, Env: m.Env})
 }
 
 // AsACP is ad as an ACP agent, if it is one.
@@ -164,4 +181,71 @@ func Protocol(ad Adapter) string {
 		return p.Protocol()
 	}
 	return ""
+}
+
+// CheckACP starts the command in m once, in dir, and says what it offers
+// — or what stopped it — for Settings to show before anything is written.
+func CheckACP(ctx context.Context, shell, dir string, m ACPManifest) proto.AgentACPCheck {
+	if m.Name == "" {
+		m.Name = "acp"
+	}
+	a, err := NewACP(m)
+	if err != nil {
+		return proto.AgentACPCheck{Problem: proto.ACPFailed, Message: err.Error()}
+	}
+	aa := a.(*acpAgent)
+	av := a.Detect(ctx, shell)
+	if !av.Installed {
+		where := "on PATH for your login shell"
+		if len(aa.dirs) > 0 {
+			where += ", nor in " + strings.Join(aa.rawDirs, ", ")
+		}
+		return proto.AgentACPCheck{Problem: proto.ACPNotFound, Message: aa.binary() + " was not found " + where}
+	}
+	out := proto.AgentACPCheck{Path: av.Path, Version: av.Version}
+	init, _, err := a.Probe(ctx, shell, dir, false)
+	if err != nil {
+		var exit *acp.ExitError
+		var pe *acp.ProbeError
+		errors.As(err, &pe)
+		switch {
+		case errors.As(err, &exit):
+			out.Problem, out.Message, out.Output = proto.ACPExited, "it exited before answering initialize", exit.Stderr
+		case errors.Is(err, context.DeadlineExceeded):
+			out.Problem = proto.ACPNotACP
+			out.Message = fmt.Sprintf("it gave no ACP answer in %s; most agents need a flag for it", probeTimeout.Round(time.Second))
+		default:
+			out.Problem, out.Message = proto.ACPFailed, err.Error()
+		}
+		if pe != nil && pe.Noise != "" && out.Output == "" {
+			out.Output = pe.Noise
+			if out.Problem == proto.ACPFailed {
+				out.Problem = proto.ACPNotACP
+			}
+		}
+		return out
+	}
+	out.ProtocolVersion = init.ProtocolVersion
+	out.Load, out.List = init.AgentCapabilities.LoadSession, init.CanList()
+	if init.AgentInfo != nil {
+		out.Agent = init.AgentInfo.Name
+		if init.AgentInfo.Version != "" {
+			out.Version = init.AgentInfo.Version
+		}
+	}
+	for _, am := range init.AuthMethods {
+		name := am.Name
+		if name == "" {
+			name = am.ID
+		}
+		out.Auth = append(out.Auth, name)
+	}
+	return out
+}
+
+// SetProbeTimeout is for tests: how long a probe waits for initialize.
+func SetProbeTimeout(d time.Duration) func() {
+	old := probeTimeout
+	probeTimeout = d
+	return func() { probeTimeout = old }
 }

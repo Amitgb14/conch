@@ -64,6 +64,11 @@ type Server struct {
 	started time.Time // kept across reloads, for uptime
 	loaded  time.Time // this program's start
 
+	// adapters and manifests are read through registry() and
+	// agentManifests(): an agent added from Settings replaces them while
+	// the server runs (agentacp.go). exe is the conch they launch with.
+	agentsMu  sync.RWMutex
+	exe       string
 	adapters  adapter.Registry
 	manifests map[string]*detect.Manifest
 	projects  *projectManager
@@ -252,13 +257,8 @@ func (s *Server) Run() error {
 	// and skipped; one bad file must not cost the agents around it, nor
 	// the server.
 	adapter.ManifestProblem = func(err error) { log.Printf("agent manifest ignored: %v", err) }
-	if s.adapters, err = adapter.New(exe, s.configDir); err != nil {
+	if err := s.loadAgents(exe); err != nil {
 		return err
-	}
-	var errs []error
-	s.manifests, errs = detect.LoadManifests(detect.ManifestDir(s.configDir))
-	for _, err := range errs {
-		log.Printf("agent manifest ignored: %v", err)
 	}
 
 	// Loading runs git per project; don't make clients wait for it.
@@ -497,7 +497,7 @@ var slowMethods = map[string]bool{
 	proto.MethodProjectAdd: true, proto.MethodProjectChanges: true, proto.MethodProjectDiff: true, proto.MethodProjectLog: true,
 	proto.MethodWorktreeAdd: true, proto.MethodWorktreeRemove: true, proto.MethodTaskCreate: true, proto.MethodGroupTask: true,
 	proto.MethodPaneCreate: true, proto.MethodPaneClose: true,
-	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true,
+	proto.MethodAgentStatus: true, proto.MethodAgentInstall: true, proto.MethodAgentACPCheck: true, proto.MethodAgentACPAdd: true,
 	proto.MethodProjectCreate: true, proto.MethodFSList: true, proto.MethodFSMkdir: true, proto.MethodFSRead: true, proto.MethodFSWrite: true, proto.MethodFSFind: true,
 	proto.MethodShellThemes: true, proto.MethodAgentSetup: true, proto.MethodAgentSync: true, proto.MethodAgentLibrary: true, proto.MethodLibraryFetch: true, proto.MethodLibraryApply: true, proto.MethodWorktreeFiles: true,
 	proto.MethodProjectFiles: true, proto.MethodProjectSetup: true, proto.MethodSessionList: true, proto.MethodSessionResume: true, proto.MethodSessionDelete: true,
@@ -1285,12 +1285,33 @@ func (s *Server) dispatch(c *client, msg proto.Message) (any, *proto.Error) {
 	case proto.MethodAgentStatus:
 		return proto.AgentStatusResult{Agents: s.findAgents()}, nil
 
+	case proto.MethodAgentACPCheck:
+		cp, perr := decode[proto.AgentACPSpec](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.checkACP(cp)
+
+	case proto.MethodAgentACPAdd:
+		ap, perr := decode[proto.AgentACPAddParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return s.addACP(ap)
+
+	case proto.MethodAgentACPRemove:
+		rp, perr := decode[proto.AgentACPRemoveParams](msg)
+		if perr != nil {
+			return nil, perr
+		}
+		return nil, s.removeACP(rp)
+
 	case proto.MethodAgentInstall:
 		ip, perr := decode[proto.AgentInstallParams](msg)
 		if perr != nil {
 			return nil, perr
 		}
-		ad, ok := s.adapters.Get(ip.Agent)
+		ad, ok := s.registry().Get(ip.Agent)
 		if !ok {
 			return nil, proto.Errorf(proto.ErrBadRequest, "conch can't install %q", ip.Agent)
 		}
@@ -2006,12 +2027,12 @@ func (s *Server) start(cp proto.PaneCreateParams, old *entry, prep func(*entry))
 		}
 	}
 	if cp.Agent != "" {
-		if _, known := s.manifests[cp.Agent]; !known {
+		if _, known := s.agentManifests()[cp.Agent]; !known {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "unknown agent %q", cp.Agent)
 		}
 	}
 	if len(cp.Command) == 0 && cp.Agent != "" {
-		ad, ok := s.adapters.Get(cp.Agent)
+		ad, ok := s.registry().Get(cp.Agent)
 		if !ok {
 			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "agent %q cannot be launched by conch", cp.Agent)
 		}
@@ -2119,7 +2140,7 @@ func (s *Server) start(cp proto.PaneCreateParams, old *entry, prep func(*entry))
 		}
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "start %q: %v", cp.Command[0], err)
 	}
-	e := newEntry(p, dir, detect.NewTracker(s.manifests, cp.Agent), proj)
+	e := newEntry(p, dir, detect.NewTracker(s.agentManifests(), cp.Agent), proj)
 	e.launched = cp.Agent
 	e.account = acct.Account
 	if prep != nil {
@@ -2194,7 +2215,7 @@ func (s *Server) startTaskOnce(tp proto.TaskCreateParams) (proto.PaneInfo, strin
 	if perr := s.nameFree(tp.Name); perr != nil {
 		return proto.PaneInfo{}, "", perr
 	}
-	if ad, ok := s.adapters.Get(tp.Agent); ok {
+	if ad, ok := s.registry().Get(tp.Agent); ok {
 		if perr := s.notInstalled(ad); perr != nil {
 			return proto.PaneInfo{}, "", perr
 		}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // `conch agent add` writes the manifest for an agent conch has never heard
@@ -65,6 +66,11 @@ func agentAdd(args []string) error {
 		return fmt.Errorf("%q is a supported agent already; pick another name to add one of your own", name)
 	}
 
+	if *acpCommand != "" {
+		return addACPAgent(adapter.ACPManifest{Name: name, Label: *label, Command: strings.TrimSpace(*acpCommand),
+			Dirs: dirs.values, Env: env.values}, *force)
+	}
+
 	dir := adapter.ManifestDir(config.Dir())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -72,10 +78,6 @@ func agentAdd(args []string) error {
 	path := filepath.Join(dir, name+".toml")
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already describes %q; -force overwrites it", path, name)
-	}
-
-	if *acpCommand != "" {
-		return writeACPManifest(path, name, *label, strings.TrimSpace(*acpCommand), dirs.values, env.values)
 	}
 
 	var b strings.Builder
@@ -171,30 +173,58 @@ func supportedAgent(name string) bool {
 	return false
 }
 
-// writeACPManifest is `conch agent add -acp`: an [acp] table, and what
-// running an agent over the protocol does and does not give.
-func writeACPManifest(path, name, label, command string, dirs, env []string) error {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# %s, added by `conch agent add -acp`. It speaks the Agent Client\n", name)
-	fmt.Fprintf(&b, "# Protocol; conch runs `conch acp` in its pane as the client.\n")
-	fmt.Fprintf(&b, "agent = %q\n", name)
-	if label != "" {
-		fmt.Fprintf(&b, "label = %q\n", label)
+// addACPAgent is `conch agent add -acp`. A server that can add one
+// (agent.acp.add) writes the file on its machine and offers the agent at
+// once, which is also how -m puts one on another machine; with none
+// running here, the file is written for the next one to read.
+func addACPAgent(m adapter.ACPManifest, replace bool) error {
+	c, err := connect(false)
+	if err == nil {
+		defer c.Close()
+		if len(c.MissingCapabilities([]string{proto.CapAgentACPAdd})) == 0 {
+			var av proto.AgentAvailability
+			if err := call(c, proto.MethodAgentACPAdd, proto.AgentACPAddParams{Replace: replace,
+				AgentACPSpec: proto.AgentACPSpec{Name: m.Name, Label: m.Label, Command: m.Command, Dirs: m.Dirs, Env: m.Env}}, &av); err != nil {
+				if strings.Contains(err.Error(), "added here already") {
+					return fmt.Errorf("%v (-force changes it)", err)
+				}
+				return err
+			}
+			fmt.Printf("added %s over ACP", m.Name)
+			if machineFlag != "" && machineFlag != "local" {
+				fmt.Printf(" on %s", machineFlag)
+			}
+			fmt.Println(": in every agent menu now.")
+			if !av.Installed {
+				fmt.Printf("%s is not installed there yet: install it, then start the agent.\n", strings.Fields(m.Command)[0])
+			}
+			acpAddedSays()
+			return nil
+		}
 	}
-	fmt.Fprintf(&b, "\n[acp]\ncommand = %q\n", command)
-	if len(dirs) > 0 {
-		fmt.Fprintf(&b, "dirs = [%s]\n", quoteList(dirs))
+	if machineFlag != "" && machineFlag != "local" {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("conch on %s is too old to add an agent: run conch machine upgrade %s", machineFlag, machineFlag)
 	}
-	if len(env) > 0 {
-		fmt.Fprintf(&b, "env = [%s]\n", quoteList(env))
-	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
-		return err
+	path, werr := adapter.WriteACPManifest(adapter.ManifestDir(config.Dir()), m, replace, supportedAgent)
+	if werr != nil {
+		if errors.Is(werr, adapter.ErrManifestExists) {
+			return fmt.Errorf("%v; -force overwrites it", werr)
+		}
+		return werr
 	}
 	fmt.Printf("wrote %s\n", path)
-	fmt.Printf("%s runs over ACP: conch draws its conversation, takes its first message, and reads its\n", name)
+	acpAddedSays()
+	if err == nil {
+		fmt.Println("Reload the server to pick it up: `conch server reload` (or r in the version box).")
+	}
+	return nil
+}
+
+func acpAddedSays() {
+	fmt.Println("It runs over ACP: conch draws its conversation, takes its first message, and reads its")
 	fmt.Println("state and permission requests from the protocol rather than its screen. Its sessions are")
 	fmt.Println("listed only if it offers session/list, and reopened only if it offers loadSession.")
-	fmt.Println("Reload the server to pick it up: `conch server reload` (or r in the version box).")
-	return nil
 }

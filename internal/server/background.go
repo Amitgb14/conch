@@ -454,7 +454,7 @@ func (s *Server) jobsAtTurnEnd(e *entry, agent string) {
 	s.bgMu.Lock()
 	ports := s.lastPorts
 	s.bgMu.Unlock()
-	jobs := agentJobs(root, e.explain().Process.PID, s.manifests[agent], procs, ports, time.Now())
+	jobs := agentJobs(root, e.explain().Process.PID, s.agentManifests()[agent], procs, ports, time.Now())
 	e.mu.Lock()
 	e.jobs = steadySince(e.jobs, jobs)
 	e.mu.Unlock()

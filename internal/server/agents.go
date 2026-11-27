@@ -642,10 +642,11 @@ const launchFailWithin = 30 * time.Second
 // findAgents looks for every agent conch knows on this machine — a login
 // shell and a --version each, side by side — and keeps the answer.
 func (s *Server) findAgents() []proto.AgentAvailability {
-	avs := make([]adapter.Availability, len(s.adapters))
-	lists := make([]bool, len(s.adapters)) // an ACP agent that lists its sessions
+	ads := s.registry() // one list throughout: an agent added meanwhile is the next look's
+	avs := make([]adapter.Availability, len(ads))
+	lists := make([]bool, len(ads)) // an ACP agent that lists its sessions
 	var wg sync.WaitGroup
-	for i, ad := range s.adapters {
+	for i, ad := range ads {
 		wg.Add(1)
 		goSafe("agent check", func() { // each check starts a login shell; run them together
 			defer wg.Done()
@@ -661,12 +662,13 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 	}
 	wg.Wait()
 	var out []proto.AgentAvailability
-	for i, ad := range s.adapters {
+	for i, ad := range ads {
 		av := proto.AgentAvailability{Name: ad.Name(), Label: ad.Label(),
 			Installed: avs[i].Installed, Path: avs[i].Path, Version: avs[i].Version, Tier: ad.Tier(),
 			NoInstaller: strings.TrimSpace(ad.InstallScript()) == "", Sessions: sessions.Reads(ad.Name()), SwitchTo: switchTo(ad)}
-		if adapter.Protocol(ad) == adapter.ProtocolACP {
+		if aa, ok := adapter.AsACP(ad); ok {
 			av.Protocol, av.Sessions = proto.ProtocolACP, lists[i]
+			av.Command, av.Removable = aa.Spec().Command, aa.Own()
 		}
 		if av.Installed && av.Name == "antigravity" {
 			av.Auth = antigravityAuth(runtime.GOOS, adapter.AntigravityKeyEnv(s.configDir))
@@ -685,7 +687,7 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 // where only Codex is installed. Knowing nothing, it is Claude Code, as
 // it always was.
 func (s *Server) defaultAgent() string {
-	first := s.adapters[0].Name()
+	first := s.registry()[0].Name()
 	for looked := false; ; looked = true {
 		s.agentsSeen.mu.Lock()
 		installed, at, failed := s.agentsSeen.installed, s.agentsSeen.at, s.agentsSeen.failed[first]
@@ -700,7 +702,7 @@ func (s *Server) defaultAgent() string {
 			return first
 		}
 		for _, supported := range []bool{true, false} {
-			for _, ad := range s.adapters[1:] {
+			for _, ad := range s.registry()[1:] {
 				if installed[ad.Name()] && (ad.Tier() != proto.TierRunsHere) == supported {
 					return ad.Name()
 				}
@@ -711,7 +713,7 @@ func (s *Server) defaultAgent() string {
 		// nobody having looked for the rest — looking once is worth it: the
 		// answer is otherwise a refusal while another agent may be right
 		// there. A full look that found none is the answer already.
-		if looked || len(installed) >= len(s.adapters) {
+		if looked || len(installed) >= len(s.registry()) {
 			return first // none at all: the refusal says how to install it
 		}
 		s.findAgents()

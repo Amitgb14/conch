@@ -485,7 +485,7 @@ func (s *Server) deleteSession(r proto.SessionRef) *proto.Error {
 	if r.ID == "" {
 		return proto.Errorf(proto.ErrBadRequest, "this run has no saved conversation to delete; dismiss it instead")
 	}
-	if ad, ok := s.adapters.Get(r.Agent); ok && adapter.Protocol(ad) == adapter.ProtocolACP {
+	if ad, ok := s.registry().Get(r.Agent); ok && adapter.Protocol(ad) == adapter.ProtocolACP {
 		// The protocol lists and loads sessions; deleting one is the
 		// agent's own business, and conch will not guess at its files.
 		return proto.Errorf(proto.ErrBadRequest, "%s keeps its sessions itself and conch cannot delete one over ACP; delete it in the agent", ad.Label())
@@ -528,7 +528,7 @@ func trashDir(configDir string) string {
 
 // resumeSession starts the agent in the session's directory, reopening it.
 func (s *Server) resumeSession(r proto.SessionRef) (proto.PaneInfo, *proto.Error) {
-	ad, ok := s.adapters.Get(r.Agent)
+	ad, ok := s.registry().Get(r.Agent)
 	if !ok {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", r.Agent)
 	}

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,6 +59,31 @@ func (a *acpAgents) known(name string) (acp.InitializeResult, bool) {
 	return c.init, true
 }
 
+// acpKey names an ACP agent by everything that decides what it answers —
+// its name, command, folders and environment — so a look that began
+// before it was changed cannot leave the old answer standing for the new.
+func acpKey(ad adapter.ACPAgent) string {
+	m := ad.Spec()
+	return strings.Join(append(append([]string{m.Name, m.Command}, m.Dirs...), m.Env...), "\x01")
+}
+
+// forget drops what name said and listed: its manifest changed, and the
+// command may be another program now.
+func (a *acpAgents) forget(name string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k := range a.caps {
+		if strings.HasPrefix(k, name+"\x01") {
+			delete(a.caps, k)
+		}
+	}
+	for k := range a.lists {
+		if strings.HasPrefix(k, name+"\x01") {
+			delete(a.lists, k)
+		}
+	}
+}
+
 func (a *acpAgents) note(name string, init acp.InitializeResult) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -70,7 +96,7 @@ func (a *acpAgents) note(name string, init acp.InitializeResult) {
 // acpCapabilities asks an installed ACP agent what it can do, or says
 // what it answered lately. ok is false when it could not be asked.
 func (s *Server) acpCapabilities(ad adapter.ACPAgent) (acp.InitializeResult, bool) {
-	if init, ok := s.acp.known(ad.Name()); ok {
+	if init, ok := s.acp.known(acpKey(ad)); ok {
 		return init, true
 	}
 	home, _ := os.UserHomeDir()
@@ -78,7 +104,7 @@ func (s *Server) acpCapabilities(ad adapter.ACPAgent) (acp.InitializeResult, boo
 	if err != nil {
 		return acp.InitializeResult{}, false
 	}
-	s.acp.note(ad.Name(), init)
+	s.acp.note(acpKey(ad), init)
 	return init, true
 }
 
@@ -100,12 +126,12 @@ func (s *Server) acpSessions(dirs []string) ([]proto.SessionInfo, bool) {
 	complete := true
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, ad := range s.adapters {
+	for _, ad := range s.registry() {
 		aa, ok := adapter.AsACP(ad)
 		if !ok {
 			continue
 		}
-		if init, known := s.acp.known(aa.Name()); known && !init.CanList() {
+		if init, known := s.acp.known(acpKey(aa)); known && !init.CanList() {
 			continue // it said it does not list: nothing to ask
 		}
 		for _, dir := range dirs {
@@ -127,7 +153,7 @@ func (s *Server) acpSessions(dirs []string) ([]proto.SessionInfo, bool) {
 // acpList is one agent's sessions in one folder: a fresh answer if it
 // comes within the grace, else the last one it gave.
 func (s *Server) acpList(ad adapter.ACPAgent, dir string) ([]proto.SessionInfo, bool) {
-	key := ad.Name() + "\x00" + dir
+	key := acpKey(ad) + "\x00" + dir
 	s.acp.mu.Lock()
 	if s.acp.lists == nil {
 		s.acp.lists = map[string]*acpList{}
@@ -181,7 +207,7 @@ func (s *Server) askACPSessions(ad adapter.ACPAgent, dir string) ([]proto.Sessio
 	if err != nil && init.ProtocolVersion == 0 && init.AgentInfo == nil {
 		return nil, false
 	}
-	s.acp.note(ad.Name(), init)
+	s.acp.note(acpKey(ad), init)
 	if err != nil {
 		return nil, false
 	}

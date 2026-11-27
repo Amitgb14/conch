@@ -280,7 +280,7 @@ func (s *Server) switchAgent(p proto.AgentSwitchParams) (proto.AgentSwitchResult
 	case p.To == from:
 		return res, proto.Errorf(proto.ErrBadRequest, "%s is running %s already", p.ID, sessions.AgentName(from))
 	}
-	ad, ok := s.adapters.Get(p.To)
+	ad, ok := s.registry().Get(p.To)
 	if !ok {
 		return res, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", p.To)
 	}
@@ -342,7 +342,7 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 	if why := midTurn(info); why != "" {
 		return res, proto.Errorf(proto.ErrBadRequest, "%s is mid-turn (%s)", p.ID, why)
 	}
-	ad, ok := s.adapters.Get(p.To)
+	ad, ok := s.registry().Get(p.To)
 	if !ok {
 		return res, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", p.To)
 	}

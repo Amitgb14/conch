@@ -156,13 +156,26 @@ func Start(ctx context.Context, o Options) (*Client, error) {
 // why is err with what the agent last wrote to stderr, when it has gone.
 func (c *Client) why(what string, err error) error {
 	if errors.Is(err, ErrClosed) {
-		if s := c.stderr.String(); s != "" {
-			return fmt.Errorf("%s: the agent exited: %s", what, lastLines(s, 6))
-		}
-		return fmt.Errorf("%s: the agent exited", what)
+		return &ExitError{What: what, Stderr: lastLines(c.stderr.String(), 6)}
 	}
 	return fmt.Errorf("%s: %w", what, err)
 }
+
+// ExitError is the agent having exited while conch waited on it, with the
+// end of what it wrote to stderr — usually why.
+type ExitError struct {
+	What   string // the call it was answering
+	Stderr string
+}
+
+func (e *ExitError) Error() string {
+	if e.Stderr != "" {
+		return e.What + ": the agent exited: " + e.Stderr
+	}
+	return e.What + ": the agent exited"
+}
+
+func (e *ExitError) Unwrap() error { return ErrClosed }
 
 func lastLines(s string, n int) string {
 	lines := strings.Split(s, "\n")
@@ -404,14 +417,49 @@ func (quiet) Permission(context.Context, PermissionParams) PermissionOutcome {
 }
 func (quiet) Problem(string) {}
 
+// noted is quiet, keeping the first line conch could not read — what an
+// agent that is not speaking ACP prints instead.
+type noted struct {
+	quiet
+	mu    sync.Mutex
+	first string
+}
+
+func (n *noted) Problem(msg string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.first == "" {
+		n.first = msg
+	}
+}
+
+// ProbeError is a probe that never got as far as an answer to initialize:
+// Noise is the first line it wrote that was not ACP, if any.
+type ProbeError struct {
+	Err   error
+	Noise string
+}
+
+func (e *ProbeError) Error() string {
+	if e.Noise != "" {
+		return e.Err.Error() + " (" + e.Noise + ")"
+	}
+	return e.Err.Error()
+}
+
+func (e *ProbeError) Unwrap() error { return e.Err }
+
 // Probe starts the agent, initializes it and, when it lists them, asks for
 // its sessions in o.Dir — what the Sessions view shows for an ACP agent.
 // The agent is ended before Probe returns. o.Events is ignored.
 func Probe(ctx context.Context, o Options, list bool) (InitializeResult, []SessionInfo, error) {
-	o.Events = quiet{}
+	n := &noted{}
+	o.Events = n
 	c, err := Start(ctx, o)
 	if err != nil {
-		return InitializeResult{}, nil, err
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		return InitializeResult{}, nil, &ProbeError{Err: err, Noise: n.first}
 	}
 	defer c.Close()
 	if !list || !c.Init.CanList() {

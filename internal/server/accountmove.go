@@ -307,7 +307,7 @@ func (s *Server) moveAgent(p proto.AgentMoveParams) (proto.PaneInfo, *proto.Erro
 			fromDir = a.Dir
 		}
 	}
-	ad, ok := s.adapters.Get(agent)
+	ad, ok := s.registry().Get(agent)
 	if !ok {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", agent)
 	}
