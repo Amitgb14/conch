@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 //	agent = "gemini-acp"
 //	label = "Gemini (ACP)"
 //	[acp]
-//	command = "gemini --experimental-acp"
+//	command = "gemini --acp"
 //
 // It is still the "runs here" tier — a manifest somebody wrote, not an
 // adapter tested against the agent — but it is told apart by Protocol,
@@ -183,6 +184,39 @@ func Protocol(ad Adapter) string {
 	return ""
 }
 
+// KnownACP are the commands Settings offers as picks, and how to install
+// each one's program where that is one command. Checked against the
+// agents' own --help and npm on 2026-11-26: Gemini CLI 0.71.1 (whose
+// --experimental-acp is deprecated for --acp), Goose 1.41.0, and the ACP
+// adapters for Claude Code and Codex, which moved from @zed-industries to
+// @agentclientprotocol (Claude's binary renamed claude-agent-acp then).
+// Goose installs with a script of its own: Settings' Installed agents has it.
+var KnownACP = []struct{ Command, Install string }{
+	{"gemini --acp", "npm install -g @google/gemini-cli"},
+	{"goose acp", ""},
+	{"claude-agent-acp", "npm install -g @agentclientprotocol/claude-agent-acp"},
+	{"codex-acp", "npm install -g @agentclientprotocol/codex-acp"},
+}
+
+// ACPInstallFor is how to install the program command starts, if it is
+// one of KnownACP's; "" otherwise.
+func ACPInstallFor(command string) string {
+	words := strings.Fields(command)
+	for len(words) > 1 && strings.Contains(words[0], "=") {
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	prog := filepath.Base(words[0])
+	for _, k := range KnownACP {
+		if strings.Fields(k.Command)[0] == prog {
+			return k.Install
+		}
+	}
+	return ""
+}
+
 // CheckACP starts the command in m once, in dir, and says what it offers
 // — or what stopped it — for Settings to show before anything is written.
 func CheckACP(ctx context.Context, shell, dir string, m ACPManifest) proto.AgentACPCheck {
@@ -200,7 +234,8 @@ func CheckACP(ctx context.Context, shell, dir string, m ACPManifest) proto.Agent
 		if len(aa.dirs) > 0 {
 			where += ", nor in " + strings.Join(aa.rawDirs, ", ")
 		}
-		return proto.AgentACPCheck{Problem: proto.ACPNotFound, Message: aa.binary() + " was not found " + where}
+		return proto.AgentACPCheck{Problem: proto.ACPNotFound, Message: aa.binary() + " was not found " + where,
+			Install: ACPInstallFor(m.Command)}
 	}
 	out := proto.AgentACPCheck{Path: av.Path, Version: av.Version}
 	init, _, err := a.Probe(ctx, shell, dir, false)
