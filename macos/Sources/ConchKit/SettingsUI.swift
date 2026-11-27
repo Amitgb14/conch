@@ -19,6 +19,9 @@ public enum SettingsControl: Equatable, Sendable {
     case slider(min: Double, max: Double, step: Double, unit: String)
     /// The accent: a dot of each colour.
     case swatches
+    /// A team's colour: Auto, a dot of each team colour, and one of your
+    /// own as #rrggbb.
+    case teamColors
     /// Pictures of the layout each choice gives ([app] tabs).
     case pictures
     /// A key, recorded by pressing it ([keys] prefix).
@@ -48,6 +51,8 @@ public enum SettingsControl: Equatable, Sendable {
 }
 
 public func settingsControl(_ s: SettingsSection, _ f: SettingsField) -> SettingsControl {
+    // [[teams]] sits at the top of config.toml, so its section has no key.
+    if s.id == "teams" && f.key == "color" && f.kind == "select" { return .teamColors }
     switch (s.key, f.key) {
     case ("ui", "theme"), ("ui", "light_theme"): return f.kind == "select" ? .theme : .menu(agents: false)
     case ("ui", "accent"): return f.kind == "select" ? .swatches : .text

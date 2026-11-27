@@ -240,6 +240,14 @@ import Testing
         #expect(teamAgentCounts([agent("p1", branch: "a", state: .blocked)]) == [TeamAgentCount(agent: "claude", count: 1, working: 0)])
     }
 
+    @Test func colourChoices() {
+        #expect(teamColorChoice("") == .auto && teamColorChoice("  ") == .auto)
+        #expect(teamColorChoice("blue") == .named("blue") && teamColorChoice("Teal") == .named("teal"))
+        #expect(teamColorChoice("#2a6f97") == .custom("#2A6F97"))
+        // Not a colour conch draws: Auto, no dot lit.
+        #expect(teamColorChoice("#12345") == .auto && teamColorChoice("magenta") == .auto && teamColorChoice("#GGGGGG") == .auto)
+    }
+
     @Test func gatherPutsTeamInOneTab() {
         var l = Layout()
         l.open("a")

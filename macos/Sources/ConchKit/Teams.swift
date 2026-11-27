@@ -313,3 +313,21 @@ public func teamAgentCounts(_ panes: [PaneInfo]) -> [TeamAgentCount] {
     }
     return out
 }
+
+/// What a team's colour control shows for a value: "" is Auto (by its
+/// place), a palette name is that dot, #rrggbb is a colour of your own,
+/// and anything else — a name some later conch knows — is left as Auto
+/// rather than lighting a dot it is not.
+public enum TeamColorChoice: Equatable, Sendable {
+    case auto
+    case named(String)
+    case custom(String)
+}
+
+public func teamColorChoice(_ value: String) -> TeamColorChoice {
+    let v = value.trimmingCharacters(in: .whitespaces)
+    if v.isEmpty { return .auto }
+    if AgentTeam.colors.contains(where: { $0.name == v.lowercased() }) { return .named(v.lowercased()) }
+    if v.range(of: #"^#[0-9a-fA-F]{6}$"#, options: .regularExpression) != nil { return .custom(v.uppercased()) }
+    return .auto
+}

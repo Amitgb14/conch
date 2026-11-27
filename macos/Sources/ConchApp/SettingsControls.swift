@@ -333,6 +333,70 @@ struct Swatches: View {
     }
 }
 
+/// A team's colour: Auto (by its place in the list), a dot of each team
+/// colour, then one of your own, chosen with the system's colour panel
+/// and written as #rrggbb.
+struct TeamColorSwatches: View {
+    @Binding var value: String
+    @State private var hover: String?
+    @Environment(\.conchTheme) private var theme
+
+    var choice: TeamColorChoice { teamColorChoice(value) }
+    var custom: Binding<Color> {
+        Binding(get: {
+            if case .custom(let h) = choice { return Theme.color(RGB(h)) }
+            return Color(red: 0.16, green: 0.44, blue: 0.59)
+        }, set: { c in
+            guard let rgb = NSColor(c).usingColorSpace(.sRGB) else { return }
+            value = RGB(r: Double(rgb.redComponent), g: Double(rgb.greenComponent), b: Double(rgb.blueComponent)).hex.uppercased()
+        })
+    }
+
+    func ring(_ on: Bool) -> some View { Circle().stroke(on ? Theme.text : .clear, lineWidth: 2).padding(-3) }
+
+    var body: some View {
+        let _ = theme
+        HStack(spacing: 8) {
+            Button { value = "" } label: {
+                Text("Auto").font(.ui(size: 11.5, weight: choice == .auto ? .semibold : .regular))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 9).frame(height: 22)
+                    .background(Capsule().fill(Theme.well))
+                    .overlay(Capsule().stroke(choice == .auto ? Theme.text : Theme.line2, lineWidth: choice == .auto ? 2 : 1))
+            }
+            .buttonStyle(.plain)
+            .help("By its place in the list")
+            ForEach(AgentTeam.colors, id: \.name) { c in
+                let on = choice == .named(c.name)
+                Button { value = c.name } label: {
+                    ZStack {
+                        Circle().fill(Theme.color(c.rgb))
+                        if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white) }
+                    }
+                    .frame(width: 22, height: 22)
+                    .overlay(ring(on))
+                    .scaleEffect(hover == c.name ? 1.12 : 1)
+                    .animation(.easeOut(duration: 0.12), value: hover)
+                }
+                .buttonStyle(.plain)
+                .help(c.name)
+                .accessibilityLabel(c.name)
+                .onHover { hover = $0 ? c.name : nil }
+            }
+            Divider().frame(height: 20)
+            let isCustom: Bool = { if case .custom = choice { return true }; return false }()
+            ColorPicker("", selection: custom, supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 26, height: 22)
+                .overlay(ring(isCustom).allowsHitTesting(false))
+                .help("A colour of your own")
+            if case .custom(let h) = choice {
+                Text(h).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
+            }
+        }
+    }
+}
+
 /// [app] tabs: a picture of where the tabs go, for each choice.
 struct LayoutPictures: View {
     let options: [SettingsOption]
