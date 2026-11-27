@@ -198,7 +198,7 @@ Its pane runs `conch acp`, the protocol's client, and is an ordinary pane — ta
 - **A first message** goes through the protocol, so tasks and handoffs work.
 - **Sessions** list in [Sessions](/docs/sessions) where the agent offers `session/list`, and reopen where it offers `loadSession`; one it cannot reopen is refused rather than started afresh. conch does not delete them.
 
-The agent menu marks these *over ACP*.
+Every agent menu — a row's agents button, Start an Agent Here, Hand Off To and the TUI's `c` — lists them after the others, under **Over ACP**. Each takes the mark of the agent behind it (Claude's for `claude-agent-acp`, Codex's for `codex-acp`, Gemini's and Goose's for their own), and one conch does not know a plug (🔌).
 
 #### Antigravity CLI
 

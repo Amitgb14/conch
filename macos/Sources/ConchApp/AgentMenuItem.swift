@@ -1,4 +1,5 @@
 import AppKit
+import ConchKit
 import SwiftUI
 
 /// An agent in a menu: its mark beside its name, as the tree shows it.
@@ -30,7 +31,7 @@ enum AgentMenuIcon {
         // The same image each time it is asked for: a new one every time a
         // menu was drawn told AppKit its items had changed, so an open menu
         // was redrawn — flickering — at every change in the store.
-        let key = "\(agent)|\(Theme.icons)|\(scale)|\(Theme.agent(agent).description)"
+        let key = "\(agent)|\(ACPMarks.shown(agent))|\(Theme.icons)|\(scale)|\(Theme.agent(agent).description)"
         if let img = cache[key] { return img }
         let r = ImageRenderer(content: Mark(agent: agent).frame(width: 16, height: 16))
         r.scale = scale
@@ -41,4 +42,25 @@ enum AgentMenuIcon {
     }
 
     private static var cache: [String: NSImage] = [:]
+}
+
+/// Agents in a menu, the ones over ACP in a section of their own after
+/// the others: claude-agent-acp is not Claude Code, and the menu says so.
+struct AgentMenuList: View {
+    let agents: [AgentAvailability]
+    let action: (String) -> Void
+
+    var body: some View {
+        let g = agentMenuGroups(agents)
+        ForEach(g.native, id: \.name) { a in
+            AgentMenuButton(agent: a.name, title: a.title) { action(a.name) }
+        }
+        if !g.acp.isEmpty {
+            Section("Over ACP") {
+                ForEach(g.acp, id: \.name) { a in
+                    AgentMenuButton(agent: a.name, title: a.title) { action(a.name) }
+                }
+            }
+        }
+    }
 }

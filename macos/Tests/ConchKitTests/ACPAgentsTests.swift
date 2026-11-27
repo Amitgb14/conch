@@ -114,3 +114,36 @@ private let geminiACP = AgentAvailability(name: "gemini-acp", label: "Gemini (AC
 @Test func knownACPCommandsAreTheCurrentOnes() {
     #expect(knownACPCommands == ["gemini --acp", "goose acp", "claude-agent-acp", "codex-acp"])
 }
+
+@Test func acpAgentsTakeTheMarkOfTheAgentBehindThem() {
+    #expect(acpBaseAgent(command: "claude-agent-acp") == "claude")
+    #expect(acpBaseAgent(command: "/opt/homebrew/bin/claude-agent-acp") == "claude")
+    #expect(acpBaseAgent(command: "LANG=C codex-acp") == "codex")
+    #expect(acpBaseAgent(command: "gemini --acp") == "gemini")
+    #expect(acpBaseAgent(command: "goose acp") == "goose")
+    #expect(acpBaseAgent(command: "robo --acp") == nil && acpBaseAgent(command: " ") == nil)
+
+    let status = [
+        AgentAvailability(name: "claude", installed: true),
+        AgentAvailability(name: "claude-agent-acp", proto: "acp", acp: ACPSpec(name: "claude-agent-acp", command: "claude-agent-acp")),
+        AgentAvailability(name: "robo-acp", proto: "acp", acp: ACPSpec(name: "robo-acp", command: "robo --acp")),
+        AgentAvailability(name: "bare-acp", proto: "acp"), // an older server's: no spec
+    ]
+    #expect(markAgent("claude-agent-acp", acp: status) == "claude")
+    #expect(markAgent("robo-acp", acp: status) == acpPlugMark)
+    #expect(markAgent("bare-acp", acp: status) == acpPlugMark)
+    #expect(markAgent("claude", acp: status) == "claude")
+    #expect(markAgent("pi", acp: status) == "pi") // not ACP: its own
+}
+
+@Test func agentMenusGroupACPAgentsLast() {
+    let g = agentMenuGroups([
+        AgentAvailability(name: "claude-agent-acp", proto: "acp"),
+        AgentAvailability(name: "claude"),
+        AgentAvailability(name: "goose-acp", proto: "acp"),
+        AgentAvailability(name: "codex"),
+    ])
+    #expect(g.native.map(\.name) == ["claude", "codex"])
+    #expect(g.acp.map(\.name) == ["claude-agent-acp", "goose-acp"])
+    #expect(agentMenuGroups([AgentAvailability(name: "claude")]).acp.isEmpty)
+}

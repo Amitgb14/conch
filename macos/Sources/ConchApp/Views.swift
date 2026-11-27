@@ -196,24 +196,50 @@ struct SidebarEdge: View {
 /// glyph in the agent's colour (Claude's asterisk), from a Nerd Font on
 /// this Mac or else an SF Symbol of the same shape; otherwise the mock's
 /// coloured dot, or nothing for "off".
+/// Which agents run over ACP, from every machine's agent list, so a mark
+/// drawn anywhere — the tree, a menu, a card — knows one by its name.
+@MainActor
+enum ACPMarks {
+    static var agents: [AgentAvailability] = []
+
+    static func shown(_ agent: String) -> String { markAgent(agent, acp: agents) }
+
+    /// Takes a machine's agent list in, keeping the other machines' ACP agents.
+    static func note(_ list: [AgentAvailability]) {
+        let names = Set(list.map(\.name))
+        agents = agents.filter { !names.contains($0.name) } + list.filter(\.isACP)
+    }
+}
+
 struct Mark: View {
     /// Read so this is drawn again when the theme changes (ThemeLook).
     @Environment(\.conchTheme) private var look
     let agent: String?
 
+    /// The agent whose mark is drawn: an agent over ACP takes the mark of
+    /// the agent behind it (claude-agent-acp Claude's), or a plug.
+    var shown: String? { agent.map { ACPMarks.shown($0) } }
+
     var body: some View {
         let _ = look
-        if Theme.icons != .off, let logo = AgentLogos.ops(agent) {
+        let agent = shown
+        if agent == acpPlugMark {
+            if Theme.icons != .off {
+                Image(systemName: "powerplug").font(.ui(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.muted).frame(width: 16)
+                    .accessibilityLabel("an agent over ACP")
+            }
+        } else if Theme.icons != .off, let logo = AgentLogos.ops(agent) {
             // The agent's own logo, filled in its colour, wherever one is
             // known — the same in either way of marking agents.
             Lucide(ops: logo).fill(Theme.agent(agent), style: FillStyle(eoFill: AgentLogos.logo(agent)?.evenOdd ?? false))
                 .frame(width: 13, height: 13).frame(width: 16)
         } else {
-            mark
+            mark(agent)
         }
     }
 
-    @ViewBuilder var mark: some View {
+    @ViewBuilder func mark(_ agent: String?) -> some View {
         switch Theme.icons {
         case .off:
             EmptyView()
@@ -1382,9 +1408,7 @@ struct RowButtonsView: View {
                     .accessibilityLabel("New Task in a Project")
             } else if let m = buttons.agentMachine {
                 Menu {
-                    ForEach(store.startable(on: m), id: \.name) { a in
-                        AgentMenuButton(agent: a.name, title: a.menuTitle) { if let act = buttons.start(a.name) { store.perform(act, on: node, agent: a.name) } }
-                    }
+                    AgentMenuList(agents: store.startable(on: m)) { a in if let act = buttons.start(a) { store.perform(act, on: node, agent: a) } }
                     if buttons.offersTerminal {
                         Divider()
                         Button("Terminal") { if let act = buttons.start(nil) { store.perform(act, on: node) } }
@@ -1520,9 +1544,7 @@ struct RowMenuItems: View, Equatable {
                 }
             } else if it.picksAgent {
                 Menu(it.title) {
-                    ForEach(startable, id: \.name) { a in
-                        AgentMenuButton(agent: a.name, title: a.menuTitle) { store.perform(it.action, on: node, agent: a.name) }
-                    }
+                    AgentMenuList(agents: startable) { a in store.perform(it.action, on: node, agent: a) }
                 }
             } else if let a = it.agent {
                 AgentMenuButton(agent: a, title: it.title) { store.perform(it.action, on: node) }
