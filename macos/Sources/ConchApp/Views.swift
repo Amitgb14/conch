@@ -1024,12 +1024,7 @@ struct NodeView: View {
     /// A project's or machine's buttons, in place of its counts, while the
     /// pointer is on it or it is the keyboard's row — never on every row at
     /// once, so the tree stays as quiet as it was.
-    var showButtons: Bool {
-        switch node.kind {
-        case .project, .machine, .workspace, .cli, .group: return hovering || cursor
-        default: return false
-        }
-    }
+    var showButtons: Bool { node.showsButtons && (hovering || cursor) }
 
     /// A row as the mock draws it: a fold arrow, what it is (a machine's
     /// state, an agent's colour), its name, and at the right its state or

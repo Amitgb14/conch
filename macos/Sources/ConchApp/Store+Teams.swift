@@ -17,12 +17,15 @@ extension Store {
         Task {
             do { try await c.call("pane.team", Params(id: id, team: team)) } catch { self.error = "\(error)" }
         }
+        // Kept in config.toml too, so the team is still there once its
+        // agents close; a team on the pane alone went with them.
+        changeConfig("the team") { addTeamTOML($0, name: team) }
     }
 
     /// Asks a new team's name and puts the pane in it. A team made here
     /// lives on the pane; Settings → Teams gives it a colour and rules.
     func newTeam(_ k: String) {
-        guard let name = ask("New Team", info: "Put this agent in a team of this name. Settings → Teams gives a team a colour, and rules that put new agents in it.",
+        guard let name = ask("New Team", info: "Put this agent in a team of this name. It is kept in config.toml, so it stays when its agents close; Settings → Teams gives it a colour, and rules that put new agents in it.",
                              value: "", button: "Create")?.trimmingCharacters(in: .whitespaces), !name.isEmpty, name != AgentTeam.none else { return }
         setTeam(k, name)
     }
