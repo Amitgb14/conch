@@ -183,14 +183,15 @@ func TestEndedDismissAndResume(t *testing.T) {
 	end()
 	r = waitEnded(t, s, "p2")
 	r.Session = "s-2"
+	r.Team = "backend"
 	s.runs.addEnded(r) // as if the agent had reported its session
 	sentEvents(c, "")
 	info, perr := s.resumeEnded(c, proto.EndedResumeParams{ID: r.ID, Cols: 80, Rows: 24})
 	if perr != nil {
 		t.Fatal(perr)
 	}
-	if cmd := strings.Join(info.Command, " "); !strings.Contains(cmd, "--resume s-2") || info.Cwd != work || info.Name != "reviewer" {
-		t.Fatalf("resumed as %s in %s named %q", cmd, info.Cwd, info.Name)
+	if cmd := strings.Join(info.Command, " "); !strings.Contains(cmd, "--resume s-2") || info.Cwd != work || info.Name != "reviewer" || info.Team != "backend" {
+		t.Fatalf("resumed as %s in %s named %q in team %q", cmd, info.Cwd, info.Name, info.Team)
 	}
 	if len(s.listEnded().Ended) != 0 {
 		t.Fatal("resumed but still kept")

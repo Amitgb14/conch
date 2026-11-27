@@ -21,12 +21,16 @@ const keepInterrupted = 7 * 24 * time.Hour
 
 // agentRun is an agent conch ran in a pane.
 type agentRun struct {
-	Pane    string    `json:"pane"`
-	Agent   string    `json:"agent"`
-	Dir     string    `json:"dir"`
-	Session string    `json:"session,omitempty"` // when the agent reported it (Claude's hooks)
-	Account string    `json:"account,omitempty"` // which of the agent's accounts: it resumes there and nowhere else
-	Name    string    `json:"name,omitempty"`    // the pane's, which other agents address it by
+	Pane    string `json:"pane"`
+	Agent   string `json:"agent"`
+	Dir     string `json:"dir"`
+	Session string `json:"session,omitempty"` // when the agent reported it (Claude's hooks)
+	Account string `json:"account,omitempty"` // which of the agent's accounts: it resumes there and nowhere else
+	Name    string `json:"name,omitempty"`    // the pane's, which other agents address it by
+	// Team is the team it was put in by hand (pane.team). A reload carries
+	// it in the reload state; a crash carries only this log, and resumed
+	// agents came back in no team at all — every hand-made team gone.
+	Team    string    `json:"team,omitempty"`
 	Started time.Time `json:"started"`
 	Seen    time.Time `json:"seen"`
 }
@@ -175,11 +179,11 @@ func (l *runLog) note(info proto.PaneInfo, dir string, created time.Time) {
 		}
 		return
 	}
-	next := agentRun{Pane: info.ID, Agent: info.Agent.Name, Dir: dir, Session: info.Agent.SessionID, Account: info.Account, Name: info.Name, Started: created, Seen: time.Now()}
+	next := agentRun{Pane: info.ID, Agent: info.Agent.Name, Dir: dir, Session: info.Agent.SessionID, Account: info.Account, Name: info.Name, Team: info.Team, Started: created, Seen: time.Now()}
 	if next.Session == "" && cur.Agent == next.Agent {
 		next.Session = cur.Session
 	}
-	if had && cur.Agent == next.Agent && cur.Session == next.Session && cur.Dir == next.Dir && cur.Account == next.Account && cur.Name == next.Name && time.Since(cur.Seen) < time.Minute {
+	if had && cur.Agent == next.Agent && cur.Session == next.Session && cur.Dir == next.Dir && cur.Account == next.Account && cur.Name == next.Name && cur.Team == next.Team && time.Since(cur.Seen) < time.Minute {
 		return
 	}
 	l.active[info.ID] = next

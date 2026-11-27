@@ -52,7 +52,7 @@ func lastScreen(lines []string) []string {
 // endedFromRun is the record of a run whose server went before it ended.
 func endedFromRun(r agentRun, why string) proto.EndedAgent {
 	return proto.EndedAgent{ID: endedID(r.Pane, r.Seen), Pane: r.Pane, Agent: r.Agent, Session: r.Session, Dir: r.Dir,
-		Account: r.Account, Name: r.Name, Why: why, Started: r.Started, Ended: r.Seen}
+		Account: r.Account, Name: r.Name, Team: r.Team, Why: why, Started: r.Started, Ended: r.Seen}
 }
 
 // addEnded keeps a record, and drops those past keepEnded or maxEnded.
@@ -225,6 +225,12 @@ func (s *Server) resumeEnded(c *client, p proto.EndedResumeParams) (proto.PaneIn
 	if rec.Name != "" && rec.Name != info.Name && !proto.IsPaneID(rec.Name) {
 		if e, gerr := s.get(info.ID); gerr == nil {
 			s.rename(e, rec.Name)
+			info = s.infoOf(e.info())
+		}
+	}
+	if rec.Team != "" {
+		if e, gerr := s.get(info.ID); gerr == nil {
+			s.setTeam(e, rec.Team)
 			info = s.infoOf(e.info())
 		}
 	}
