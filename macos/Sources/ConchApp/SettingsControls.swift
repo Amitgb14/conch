@@ -334,67 +334,103 @@ struct Swatches: View {
 }
 
 /// A team's colour: Auto (by its place in the list), a dot of each team
-/// colour, then one of your own, chosen with the system's colour panel
-/// and written as #rrggbb.
+/// colour, then one of your own — a dot like the others, a rainbow until
+/// one is chosen, that opens the colour panel — written as #rrggbb. The
+/// system's colour well was a wide capsule beside round dots, and the row
+/// squeezed Auto to "…"; every choice here is drawn the same way.
 struct TeamColorSwatches: View {
     @Binding var value: String
     @State private var hover: String?
     @Environment(\.conchTheme) private var theme
 
     var choice: TeamColorChoice { teamColorChoice(value) }
-    var custom: Binding<Color> {
-        Binding(get: {
-            if case .custom(let h) = choice { return Theme.color(RGB(h)) }
-            return Color(red: 0.16, green: 0.44, blue: 0.59)
-        }, set: { c in
-            guard let rgb = NSColor(c).usingColorSpace(.sRGB) else { return }
-            value = RGB(r: Double(rgb.redComponent), g: Double(rgb.greenComponent), b: Double(rgb.blueComponent)).hex.uppercased()
-        })
-    }
+    var customHex: String? { if case .custom(let h) = choice { return h }; return nil }
 
-    func ring(_ on: Bool) -> some View { Circle().stroke(on ? Theme.text : .clear, lineWidth: 2).padding(-3) }
+    static let rainbow = AngularGradient(colors: [.red, .orange, .yellow, .green, .blue, .purple, .red], center: .center)
+
+    func dot<F: ShapeStyle>(_ id: String, _ fill: F, on: Bool, light: Bool = false, help: String, tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            ZStack {
+                Circle().fill(fill)
+                // Dark on a light colour of your own, where white is lost.
+                if on { Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(light ? Color.black.opacity(0.75) : .white) }
+            }
+            .frame(width: 20, height: 20)
+            .overlay(Circle().stroke(on ? Theme.text : .clear, lineWidth: 2).padding(-3))
+            .scaleEffect(hover == id ? 1.12 : 1)
+            .animation(.easeOut(duration: 0.12), value: hover)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .onHover { hover = $0 ? id : nil }
+    }
 
     var body: some View {
         let _ = theme
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Button { value = "" } label: {
                 Text("Auto").font(.ui(size: 11.5, weight: choice == .auto ? .semibold : .regular))
                     .foregroundStyle(Theme.text)
+                    .fixedSize()
                     .padding(.horizontal, 9).frame(height: 22)
                     .background(Capsule().fill(Theme.well))
                     .overlay(Capsule().stroke(choice == .auto ? Theme.text : Theme.line2, lineWidth: choice == .auto ? 2 : 1))
             }
             .buttonStyle(.plain)
             .help("By its place in the list")
+            .padding(.trailing, 2)
             ForEach(AgentTeam.colors, id: \.name) { c in
-                let on = choice == .named(c.name)
-                Button { value = c.name } label: {
-                    ZStack {
-                        Circle().fill(Theme.color(c.rgb))
-                        if on { Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white) }
-                    }
-                    .frame(width: 22, height: 22)
-                    .overlay(ring(on))
-                    .scaleEffect(hover == c.name ? 1.12 : 1)
-                    .animation(.easeOut(duration: 0.12), value: hover)
+                dot(c.name, Theme.color(c.rgb), on: choice == .named(c.name), help: c.name) { value = c.name }
+            }
+            Divider().frame(height: 18).padding(.horizontal, 2)
+            Group {
+                if let h = customHex {
+                    dot("custom", Theme.color(RGB(h)), on: true, light: teamColorIsLight(RGB(h)), help: "A colour of your own: \(h)") { pickOwn() }
+                } else {
+                    dot("custom", Self.rainbow, on: false, help: "A colour of your own") { pickOwn() }
                 }
-                .buttonStyle(.plain)
-                .help(c.name)
-                .accessibilityLabel(c.name)
-                .onHover { hover = $0 ? c.name : nil }
             }
-            Divider().frame(height: 20)
-            let isCustom: Bool = { if case .custom = choice { return true }; return false }()
-            ColorPicker("", selection: custom, supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 26, height: 22)
-                .overlay(ring(isCustom).allowsHitTesting(false))
-                .help("A colour of your own")
-            if case .custom(let h) = choice {
-                Text(h).font(.ui(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text2)
-            }
+            // Room kept for the code either way, so choosing one does not
+            // move every dot along.
+            Text(customHex ?? "#000000").font(.ui(size: 11, design: .monospaced)).foregroundStyle(Theme.text2).fixedSize()
+                .opacity(customHex == nil ? 0 : 1)
+                .accessibilityHidden(customHex == nil)
+        }
+        .fixedSize()
+    }
+
+    func pickOwn() {
+        let start = customHex.map { RGB($0) } ?? RGB("#2A6F97")
+        ColorPanelPicker.shared.open(NSColor(srgbRed: start.r, green: start.g, blue: start.b, alpha: 1)) { c in
+            guard let rgb = c.usingColorSpace(.sRGB) else { return }
+            value = RGB(r: Double(rgb.redComponent), g: Double(rgb.greenComponent), b: Double(rgb.blueComponent)).hex.uppercased()
         }
     }
+}
+
+/// The system's colour panel, for a control drawn our own way: what it
+/// picks goes to whoever opened it last.
+@MainActor
+final class ColorPanelPicker: NSObject {
+    static let shared = ColorPanelPicker()
+    private var changed: ((NSColor) -> Void)?
+
+    func open(_ start: NSColor, changed: @escaping (NSColor) -> Void) {
+        let p = NSColorPanel.shared
+        p.showsAlpha = false
+        // The colour set first, then the target, so setting it is not
+        // taken for a choice.
+        p.setTarget(nil)
+        p.color = start
+        self.changed = changed
+        p.setTarget(self)
+        p.setAction(#selector(picked(_:)))
+        p.orderFront(nil)
+    }
+
+    @objc func picked(_ p: NSColorPanel) { changed?(p.color) }
 }
 
 /// [app] tabs: a picture of where the tabs go, for each choice.
