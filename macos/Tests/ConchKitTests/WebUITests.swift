@@ -34,9 +34,15 @@ final class ConchUIPage: NSObject, WKScriptMessageHandler {
         if let m = message.body as? [String: Any] { said.append(m) }
     }
 
+    /// How long a view is given to say something. A page boots in under a
+    /// second alone, but these tests run side by side, each starting a web
+    /// content process and parsing conch-ui, and on a machine running other
+    /// suites one took over 10 s; a view that never answers still fails.
+    static let patience: TimeInterval = 30
+
     /// Waits, turning the main run loop, until the view has said n things.
     func await(_ n: Int) async throws {
-        let until = Date().addingTimeInterval(10)
+        let until = Date().addingTimeInterval(Self.patience)
         while said.count < n, Date() < until { try await Task.sleep(nanoseconds: 20_000_000) }
         try #require(said.count >= n, "the view said \(said.count) of \(n): \(said)")
     }
@@ -183,7 +189,7 @@ func jsString(_ s: String) -> String {
         true
         """)
     var seen = ""
-    let until = Date().addingTimeInterval(10)
+    let until = Date().addingTimeInterval(ConchUIPage.patience)
     while Date() < until {
         seen = try await page.inPage("window.seen.slice().sort().join(',')") as? String ?? ""
         if seen.split(separator: ",").count >= 3 { break }
