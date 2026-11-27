@@ -4333,3 +4333,30 @@ type CloudAgentAnswer struct {
 	Password string            `json:"password,omitempty"`
 	Error    string            `json:"error,omitempty"`
 }
+
+// ACPBaseAgent is the agent an ACP command runs, for drawing its mark:
+// "claude" for Claude's adapter, "codex" for Codex's, the agent itself
+// for one that speaks ACP with a flag (gemini --acp, goose acp). "" for a
+// command conch does not know, which is drawn with a plug of its own.
+func ACPBaseAgent(command string) string {
+	words := strings.Fields(command)
+	for len(words) > 1 && strings.Contains(words[0], "=") {
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	prog := words[0]
+	if i := strings.LastIndexByte(prog, '/'); i >= 0 {
+		prog = prog[i+1:]
+	}
+	switch prog {
+	case "claude-agent-acp", "claude-code-acp":
+		return "claude"
+	case "codex-acp":
+		return "codex"
+	case "gemini", "goose", "qwen", "opencode", "kimi", "cline", "copilot":
+		return prog
+	}
+	return ""
+}

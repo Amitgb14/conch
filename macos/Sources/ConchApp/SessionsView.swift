@@ -318,9 +318,7 @@ struct SessionRow: View {
             if !(session.sessionID ?? "").isEmpty {
                 Button(session.starred == true ? "Unstar" : "Star") { model.star(session) }
                 Menu("Hand Off To") {
-                    ForEach(model.store.startable(on: model.machine), id: \.name) { a in
-                        AgentMenuButton(agent: a.name, title: a.menuTitle) { model.handOff(session, to: a.name) }
-                    }
+                    AgentMenuList(agents: model.store.startable(on: model.machine)) { a in model.handOff(session, to: a) }
                 }
             }
             Divider()

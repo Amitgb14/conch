@@ -1241,7 +1241,7 @@ struct ResolveButton: View {
         Menu {
             if let who { Button("Ask \(who) (on this branch)") { model.askToResolve(branch) } }
             Section("Start a new agent in its worktree") {
-                ForEach(startable, id: \.name) { a in AgentMenuButton(agent: a.name, title: a.title) { model.askToResolve(branch, start: a.name) } }
+                AgentMenuList(agents: startable) { a in model.askToResolve(branch, start: a) }
             }
         } label: {
             let again = { if case .resolveStopped = branch.state { return " again" } else { return "" } }()
@@ -1273,7 +1273,7 @@ struct AnotherAgentButton: View {
         let who = resolverName(branch) ?? "the agent at it"
         Menu("Another Agent") {
             Section("Start one in its worktree; \(who) keeps running") {
-                ForEach(startable, id: \.name) { a in AgentMenuButton(agent: a.name, title: a.title) { model.askToResolve(branch, start: a.name) } }
+                AgentMenuList(agents: startable) { a in model.askToResolve(branch, start: a) }
             }
         }
         .menuStyle(.borderedButton).fixedSize().controlSize(.small)

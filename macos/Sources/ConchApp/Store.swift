@@ -3690,6 +3690,7 @@ final class Store: ObservableObject {
             if agentStatus[machine] != all {
                 agents[machine] = all.filter(\.installed)
                 agentStatus[machine] = all
+                ACPMarks.note(all)
             }
         }
     }

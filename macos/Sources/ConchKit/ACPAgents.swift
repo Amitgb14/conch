@@ -232,3 +232,36 @@ public extension AgentAvailability {
     /// What a menu calls it: an ACP agent says so.
     var menuTitle: String { isACP ? "\(title) — ACP" : title }
 }
+
+/// The agent an ACP command runs, for drawing its mark: "claude" for
+/// Claude's adapter, "codex" for Codex's, the agent itself for one that
+/// speaks ACP with a flag; nil for a program conch does not know, which
+/// is drawn with a plug. The same table as the server's proto.ACPBaseAgent.
+public func acpBaseAgent(command: String) -> String? {
+    var words = command.split(whereSeparator: \.isWhitespace).map(String.init)
+    while words.count > 1, words[0].contains("=") { words.removeFirst() }
+    guard let first = words.first else { return nil }
+    let prog = (first as NSString).lastPathComponent
+    switch prog {
+    case "claude-agent-acp", "claude-code-acp": return "claude"
+    case "codex-acp": return "codex"
+    case "gemini", "goose", "qwen", "opencode", "kimi", "cline", "copilot": return prog
+    default: return nil
+    }
+}
+
+/// The mark for agent, given the agents the machines report: the agent
+/// itself when it is not run over ACP; the agent behind it when it is;
+/// acpPlugMark for an ACP agent conch does not know.
+public let acpPlugMark = "acp-plug"
+
+public func markAgent(_ agent: String, acp: [AgentAvailability]) -> String {
+    guard let a = acp.first(where: { $0.name == agent && $0.isACP }) else { return agent }
+    return a.acp.flatMap { acpBaseAgent(command: $0.command) } ?? acpPlugMark
+}
+
+/// The agents a menu offers, in two parts: the ones with interfaces of
+/// their own, then the ones over ACP, each part in the order given.
+public func agentMenuGroups(_ agents: [AgentAvailability]) -> (native: [AgentAvailability], acp: [AgentAvailability]) {
+    (agents.filter { !$0.isACP }, agents.filter(\.isACP))
+}

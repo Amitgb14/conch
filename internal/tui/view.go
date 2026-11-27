@@ -1601,6 +1601,12 @@ var (
 	// glyph a font lacks is worse than a plain one.
 	agentDotOther   = "🤖"
 	agentGlyphOther = "\uf2db" // a microchip: some agent, named by its row
+	// agentDotACP and agentGlyphACP are for an agent over ACP whose
+	// program conch does not know (proto.ACPBaseAgent says ""): a plug,
+	// for the protocol it is plugged in by. One conch knows takes the
+	// mark of the agent behind it — claude-agent-acp Claude's.
+	agentDotACP   = "🔌"
+	agentGlyphACP = "\uf1e6" // Font Awesome's plug
 	// agentColors are the agents' own where a brand publishes one, for the
 	// glyph in nerd mode; a dot carries its colour in the emoji itself and
 	// ignores a foreground. Where the brand is black and white, or has no
@@ -1676,8 +1682,22 @@ func (m Model) agentMark(p proto.PaneInfo) (string, lipgloss.Style) {
 	case iconsNerd:
 		marks = agentGlyphs
 	}
-	mark, ok := marks[p.Agent.Name]
-	if !ok {
+	name := p.Agent.Name
+	acp := false
+	if base, isACP := m.acpBase(name); isACP {
+		acp = true
+		if base != "" {
+			name = base // drawn as the agent behind it
+		}
+	}
+	mark, ok := marks[name]
+	switch {
+	case !ok && acp:
+		mark = agentDotACP
+		if iconMode(m.cfg.UI.Icons) == iconsNerd {
+			mark = agentGlyphACP
+		}
+	case !ok:
 		// An agent from somebody's own manifest: a plain mark rather than
 		// none, so the column stays straight and the row still says that
 		// this is an agent.
@@ -1687,10 +1707,27 @@ func (m Model) agentMark(p proto.PaneInfo) (string, lipgloss.Style) {
 		}
 	}
 	style := styleMuted
-	if c, ok := agentColors[p.Agent.Name]; ok {
+	if c, ok := agentColors[name]; ok {
 		style = lipgloss.NewStyle().Foreground(c)
 	}
 	return mark + " ", style
+}
+
+// acpBase is whether name is an agent some machine runs over ACP, and the
+// agent behind it ("" for a program conch does not know). The agent lists
+// say it, so an ACP agent's mark follows its manifest, whatever its name.
+func (m Model) acpBase(name string) (string, bool) {
+	for _, mach := range m.machines {
+		for _, a := range mach.agentList {
+			if a.Name == name && a.Protocol == proto.ProtocolACP {
+				if a.ACP == nil {
+					return "", true
+				}
+				return proto.ACPBaseAgent(a.ACP.Command), true
+			}
+		}
+	}
+	return "", false
 }
 
 // undoubleMark drops the agent's own mark from the start of its title,

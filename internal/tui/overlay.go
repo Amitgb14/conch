@@ -556,8 +556,20 @@ func newAgentMenu(m Model, mach *machine) *menu {
 	// What can be started comes first, and what would have to be
 	// installed after it: with a dozen agents the numbers are worth more
 	// on the ones somebody is actually choosing between.
-	list = append(append([]proto.AgentAvailability{}, installedFirst(list, true)...), installedFirst(list, false)...)
+	// Agents over ACP come last, in a section of their own: within each
+	// part, what is installed comes first.
+	var native, acp []proto.AgentAvailability
+	for _, a := range list {
+		if a.Protocol == proto.ProtocolACP {
+			acp = append(acp, a)
+		} else {
+			native = append(native, a)
+		}
+	}
+	list = append(append([]proto.AgentAvailability{}, installedFirst(native, true)...), installedFirst(native, false)...)
+	list = append(append(list, installedFirst(acp, true)...), installedFirst(acp, false)...)
 	sel, digits := -1, 0
+	headed := false // the Over ACP header is in
 	// Digits are handed out as the rows that act are added, not by an
 	// agent's place in the list: a row that only explains itself would
 	// otherwise take a number and leave a hole in the count. Ten of them,
@@ -574,6 +586,10 @@ func newAgentMenu(m Model, mach *machine) *menu {
 	}
 	for _, a := range list {
 		a := a
+		if a.Protocol == proto.ProtocolACP && !headed {
+			items = append(items, menuItem{"", styleMuted.Render("Over ACP"), nil})
+			headed = true
+		}
 		label := a.Label
 		if label == "" {
 			label = agentLabel(a.Name)

@@ -323,3 +323,83 @@ func TestACPCheckWaitsForASlowAgent(t *testing.T) {
 		t.Errorf("the form waits %s, the server %s", acpCheckWait, adapter.ProbeTimeout())
 	}
 }
+
+// An ACP agent is drawn with the mark of the agent behind it, and one
+// conch does not know with a plug — never the robot that means "some
+// agent from somebody's manifest".
+func TestACPAgentMarks(t *testing.T) {
+	m, _, _ := acpModel(t, proto.CapAgentACPAdd)
+	mach := m.machine(localMachine)
+	mach.agentList = append(mach.agentList,
+		proto.AgentAvailability{Name: "claude-agent-acp", Protocol: proto.ProtocolACP, ACP: &proto.AgentACPSpec{Name: "claude-agent-acp", Command: "claude-agent-acp"}},
+		proto.AgentAvailability{Name: "robo-acp", Protocol: proto.ProtocolACP, ACP: &proto.AgentACPSpec{Name: "robo-acp", Command: "robo --acp"}})
+	mark := func(name string) string {
+		s, _ := m.agentMark(proto.PaneInfo{Agent: &proto.AgentStatus{Name: name}})
+		return strings.TrimSpace(s)
+	}
+	for _, icons := range []string{"", "nerd"} {
+		m.cfg.UI.Icons = icons
+		if mark("claude-agent-acp") != mark("claude") {
+			t.Errorf("icons %q: claude-agent-acp %q, claude %q", icons, mark("claude-agent-acp"), mark("claude"))
+		}
+		if mark("gemini-acp") != mark("gemini") {
+			t.Errorf("icons %q: gemini-acp %q, gemini %q", icons, mark("gemini-acp"), mark("gemini"))
+		}
+		want := agentDotACP
+		if icons == "nerd" {
+			want = agentGlyphACP
+		}
+		if mark("robo-acp") != want {
+			t.Errorf("icons %q: an unknown ACP agent is %q, want the plug %q", icons, mark("robo-acp"), want)
+		}
+		// One that is no ACP agent and has no mark keeps the robot.
+		if got := mark("never-heard-of"); got == want {
+			t.Errorf("icons %q: a plain unknown agent got the plug", icons)
+		}
+	}
+	if ansi.StringWidth(agentDotACP) != ansi.StringWidth(agentDotOther) || ansi.StringWidth(agentGlyphACP) != 1 {
+		t.Error("the plug is not as wide as the other marks")
+	}
+	if r := []rune(agentGlyphACP)[0]; r < 0xF000 || r > 0xF2FF {
+		t.Errorf("the plug glyph %U is outside Font Awesome 4.7", r)
+	}
+}
+
+// The c menu lists ACP agents in a section of their own, after the
+// others, under a header that is not a choice.
+func TestAgentMenuGroupsACPAgents(t *testing.T) {
+	m, _, _ := acpModel(t, proto.CapAgentACPAdd)
+	mach := m.machine(localMachine)
+	mach.agentList = append([]proto.AgentAvailability{
+		{Name: "claude-agent-acp", Label: "Claude (ACP)", Installed: true, Protocol: proto.ProtocolACP, ACP: &proto.AgentACPSpec{Name: "claude-agent-acp", Command: "claude-agent-acp"}},
+	}, mach.agentList...)
+	mu := newAgentMenu(*m, mach)
+	var labels []string
+	header := -1
+	for i, it := range mu.items {
+		l := ansi.Strip(it.label)
+		labels = append(labels, l)
+		if l == "Over ACP" {
+			header = i
+			if it.run != nil || it.key != "" {
+				t.Error("the header is a choice")
+			}
+		}
+	}
+	if header < 0 {
+		t.Fatalf("no Over ACP header:\n%s", strings.Join(labels, "\n"))
+	}
+	for i, l := range labels {
+		acp := strings.Contains(l, "Claude (ACP)") || strings.Contains(l, "Gemini (ACP)") || strings.Contains(l, "Shipped")
+		if acp && i < header || strings.Contains(l, "Claude Code") && i > header {
+			t.Errorf("%q is on the wrong side of the header:\n%s", l, strings.Join(labels, "\n"))
+		}
+	}
+	// With no ACP agent, no header.
+	mach.agentList = []proto.AgentAvailability{{Name: "claude", Label: "Claude Code", Installed: true}}
+	for _, it := range newAgentMenu(*m, mach).items {
+		if ansi.Strip(it.label) == "Over ACP" {
+			t.Error("a header over nothing")
+		}
+	}
+}
