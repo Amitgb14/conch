@@ -132,7 +132,7 @@ func acpCheckLines(res proto.AgentACPCheck) []string {
 		if ok {
 			return styleOK.Render("✓ ") + what
 		}
-		return styleMuted.Render("– no "+what)
+		return styleMuted.Render("– no " + what)
 	}
 	lines := []string{head, "  " + yes(res.Load, "reopening sessions") + "   " + yes(res.List, "listing sessions")}
 	if len(res.Auth) > 0 {
