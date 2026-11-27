@@ -49,6 +49,9 @@ type manifest struct {
 	Agent string `toml:"agent"`
 	Label string `toml:"label"`
 	Run   runSpec
+	// ACP is the third way: an agent that speaks the Agent Client
+	// Protocol, run by `conch acp` in its pane (acp.go).
+	ACP acpSpec `toml:"acp"`
 }
 
 // runSpec is how to start an agent: the whole of what conch needs, in the
@@ -140,6 +143,9 @@ func manifestAgents(dir string, taken map[string]bool) ([]Adapter, []error) {
 	seen := map[string]bool{}
 	for _, f := range files {
 		a, err := manifestAgent(f, taken, seen)
+		if aa, ok := a.(*acpAgent); ok {
+			aa.own = true // the person's own file, which Settings may change
+		}
 		switch {
 		case err != nil:
 			errs = append(errs, fmt.Errorf("%s: %w", filepath.Base(f), err))
@@ -165,7 +171,9 @@ func agentFromManifest(b []byte, taken, seen map[string]bool) (Adapter, error) {
 		return nil, err
 	}
 	switch {
-	case m.Run.Binary == "":
+	case m.Run.Binary != "" && strings.TrimSpace(m.ACP.Command) != "":
+		return nil, errors.New("both [run] and [acp]: an agent is run one way")
+	case m.Run.Binary == "" && strings.TrimSpace(m.ACP.Command) == "":
 		return nil, nil // a detect-only override, which is detect's business
 	case m.Agent == "":
 		return nil, errors.New("no agent name")
@@ -179,6 +187,9 @@ func agentFromManifest(b []byte, taken, seen map[string]bool) (Adapter, error) {
 	label := m.Label
 	if label == "" {
 		label = m.Agent
+	}
+	if strings.TrimSpace(m.ACP.Command) != "" {
+		return newACPAgent(m.Agent, label, m.ACP)
 	}
 	return &cliAgent{
 		name: m.Agent, label: label, binary: m.Run.Binary,

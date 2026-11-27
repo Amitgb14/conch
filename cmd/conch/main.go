@@ -174,6 +174,14 @@ Usage:
                                 describe an agent conch has no adapter for, so it starts and is
                                 watched like the others; what you leave out it will not pretend
                                 to do (its sessions are not read either)
+  conch agent add NAME -acp 'COMMAND [ARGS]' [-label L] [-force]
+                                add an agent that speaks the Agent Client Protocol (ACP): conch
+                                draws its conversation, takes its first message and reads its
+                                state and permission requests from the protocol; the running
+                                server (or -m's) offers it at once. Settings › Agents does too
+  conch acp [-agent NAME] [-prompt TEXT] [-load SESSION] -- COMMAND [ARGS...]
+                                run an ACP agent in this terminal as its client (what an ACP
+                                agent's pane runs); escape stops a turn, ctrl+d leaves
   conch agent status | install claude
                                 check or install Claude Code (use -m for a machine)
   conch agent setup [-agent NAME] [-copy] [DIR]
@@ -584,6 +592,8 @@ func main() {
 		err = runRead(args)
 	case "attach":
 		err = runAttach(args)
+	case "acp":
+		err = runACP(args)
 	case "commit-message":
 		err = runCommitMessage(args)
 	case "preview":

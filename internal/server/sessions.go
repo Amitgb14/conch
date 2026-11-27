@@ -278,6 +278,8 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 		limit = 100
 	}
 	found, complete := sessions.ListStatus(s.sessionEnv(), dirs, limit)
+	fromACP, acpComplete := s.acpSessions(dirs)
+	complete = complete && acpComplete
 
 	out := make([]proto.SessionInfo, 0, len(found))
 	for _, f := range found {
@@ -285,6 +287,7 @@ func (s *Server) listSessions(p proto.SessionListParams) (proto.SessionList, *pr
 			Started: f.Started, Updated: f.Updated, CostUSD: f.Cost, Output: f.Output}
 		out = append(out, info)
 	}
+	out = append(out, fromACP...)
 
 	// Sessions open in panes: Claude names its session; for the others, the
 	// newest session of that agent in the pane's directory since it started.
@@ -482,6 +485,11 @@ func (s *Server) deleteSession(r proto.SessionRef) *proto.Error {
 	if r.ID == "" {
 		return proto.Errorf(proto.ErrBadRequest, "this run has no saved conversation to delete; dismiss it instead")
 	}
+	if ad, ok := s.registry().Get(r.Agent); ok && adapter.Protocol(ad) == adapter.ProtocolACP {
+		// The protocol lists and loads sessions; deleting one is the
+		// agent's own business, and conch will not guess at its files.
+		return proto.Errorf(proto.ErrBadRequest, "%s keeps its sessions itself and conch cannot delete one over ACP; delete it in the agent", ad.Label())
+	}
 	list, perr := s.listSessions(proto.SessionListParams{Dir: r.Dir, Limit: 1000})
 	if perr != nil {
 		return perr
@@ -520,7 +528,7 @@ func trashDir(configDir string) string {
 
 // resumeSession starts the agent in the session's directory, reopening it.
 func (s *Server) resumeSession(r proto.SessionRef) (proto.PaneInfo, *proto.Error) {
-	ad, ok := s.adapters.Get(r.Agent)
+	ad, ok := s.registry().Get(r.Agent)
 	if !ok {
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "conch can't launch %q", r.Agent)
 	}

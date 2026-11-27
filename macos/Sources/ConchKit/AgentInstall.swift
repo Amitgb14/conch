@@ -78,7 +78,8 @@ public struct InstalledAgentRow: Equatable, Sendable, Identifiable {
 /// the agents whose installer is running on it; canInstall is whether its
 /// server has agent.install.v1.
 public func installedAgentRows(_ status: [AgentAvailability], installing: Set<String>, canInstall: Bool) -> [InstalledAgentRow] {
-    status.map { a in
+    // An ACP agent is in the card's Over ACP section, not here.
+    status.filter { !$0.isACP }.map { a in
         var note: String? = nil
         if a.tier == "runs here" {
             note = a.sessions == true ? "conch runs it and reads its sessions" : "conch runs it; its sessions are not read"

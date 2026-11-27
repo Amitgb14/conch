@@ -51,6 +51,7 @@ var settingsTabs = []string{"Theme", "Notifications", "Agents", "Git", "Brain", 
 
 // The tabs that are found by number.
 const (
+	agentsTab  = 2
 	gitTab     = 3
 	brainTab   = 4
 	sandboxTab = 5
@@ -74,6 +75,8 @@ type settingItem struct {
 	mark   bool   // the current choice in a list
 	page   bool   // opens a page of its own, rather than choosing anything
 	run    func(m *Model) tea.Cmd
+	// del is what d does on the line, for a line that can be removed.
+	del func(m *Model) tea.Cmd
 }
 
 func newSettings(m *Model) (*settings, tea.Cmd) {
@@ -716,6 +719,9 @@ func (s *settings) machineAgentItems(m *Model, id string) []settingItem {
 	}
 	for _, a := range mach.agentList {
 		a := a
+		if a.Protocol == proto.ProtocolACP {
+			continue // in Over ACP, below
+		}
 		item := settingItem{label: firstNonEmpty(a.Label, agentLabel(a.Name))}
 		if a.Installed {
 			item.detail = styleOK.Render("✓ " + a.Version)
@@ -740,6 +746,7 @@ func (s *settings) machineAgentItems(m *Model, id string) []settingItem {
 		}
 		items = append(items, item)
 	}
+	items = append(items, s.acpItems(m, id)...)
 	return append(items, settingItem{},
 		settingItem{label: "Check again", detail: styleMuted.Render("on " + mach.label),
 			run: func(m *Model) tea.Cmd {
@@ -1730,6 +1737,15 @@ func (s *settings) update(m *Model, msg tea.Msg) (bool, tea.Cmd) {
 			if s.sel < len(items) && items[s.sel].run != nil {
 				return false, items[s.sel].run(m)
 			}
+		case "d":
+			if s.sel < len(items) && items[s.sel].del != nil {
+				return false, items[s.sel].del(m)
+			}
+		case "a":
+			// On a machine's agents page, a adds an agent over ACP there.
+			if id, ok := cutPrefix(s.page, "agents:"); ok && s.tab == agentsTab {
+				return false, m.openACPForm(id, nil, s)
+			}
 		case "e":
 			return false, m.editInBrowser()
 		case "!":
@@ -2012,6 +2028,8 @@ func (s *settings) render(m Model) box {
 	switch {
 	case s.provider != "":
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back to the providers · ! check conch"
+	case strings.HasPrefix(s.page, "agents:"):
+		hint = " ↑↓ move · enter choose · a add an ACP agent · d remove · esc back"
 	case s.page != "":
 		hint = " tab switch · ↑↓ move · enter choose/toggle · esc back · ! check conch"
 	}

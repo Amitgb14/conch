@@ -29,7 +29,7 @@ var helpAliases = map[string]string{
 var helpDocs = map[string]string{
 	"new": "panes", "ssh": "panes", "status": "panes", "read": "panes", "attach": "panes", "send": "panes", "wait": "panes", "close": "panes",
 	"rename": "panes", "redraw": "panes", "view": "panes", "show": "panes",
-	"schedule": "task", "ticket": "task", "skill": "agent", "upload": "machine", "download": "machine",
+	"schedule": "task", "ticket": "task", "skill": "agent", "acp": "agent", "upload": "machine", "download": "machine",
 }
 
 // helpExamples are a few real uses of the commands people reach for

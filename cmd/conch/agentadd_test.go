@@ -5,9 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
+	"github.com/Amitgb14/conch/internal/server"
 )
 
 func runAgentAdd(t *testing.T, args ...string) (string, error) {
@@ -163,5 +167,89 @@ func TestSupportedAgentMatchesTheRegistry(t *testing.T) {
 		if got, want := supportedAgent(a.Name()), a.Tier() == adapter.TierSupported; got != want {
 			t.Errorf("%s: supportedAgent says %v, the registry's tier is %q", a.Name(), got, a.Tier())
 		}
+	}
+}
+
+// -acp writes an [acp] table the adapter loads as an agent run over the
+// protocol, and the detection side reads without screen rules.
+func TestAgentAddACP(t *testing.T) {
+	dir := a4Env(t)
+	out, err := runAgentAdd(t, "speaker", "-acp", "speaker --acp 'a b'", "-label", "Speaker", "-dir", "/opt/s/bin", "-env", "S=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "runs over ACP") || !strings.Contains(out, "loadSession") {
+		t.Errorf("out = %q", out)
+	}
+	r, err := adapter.New("/usr/local/bin/conch", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := r.Get("speaker")
+	if !ok || adapter.Protocol(a) != adapter.ProtocolACP || a.Label() != "Speaker" {
+		t.Fatalf("loaded %v as %q", ok, adapter.Protocol(a))
+	}
+	if line := a.Command("/bin/sh", "")[2]; !strings.Contains(line, "-- speaker --acp 'a b'") || !strings.Contains(line, "/opt/s/bin") {
+		t.Errorf("command %q", line)
+	}
+	for _, bad := range [][]string{
+		{"x", "-acp", "x --acp", "-command", "x"},
+		{"x", "-acp", "x --acp", "-prompt", "{prompt}"},
+		{"x", "-acp", "  "},
+	} {
+		if _, err := runAgentAdd(t, bad...); err == nil {
+			t.Errorf("agent add %q was taken", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(adapter.ManifestDir(config.Dir()), "x.toml")); err == nil {
+		t.Error("a refused add left a file")
+	}
+}
+
+// With a server running, -acp asks it: the agent is offered at once, with
+// no reload, and a second add of the name is refused until -force.
+func TestAgentAddACPThroughTheServer(t *testing.T) {
+	dir := a4Env(t)
+	srv := server.New(config.SocketPath(), dir)
+	go srv.Run()
+	t.Cleanup(func() { srv.StopAndWait() })
+	for i := 0; ; i++ {
+		if c, err := client.Dial(config.SocketPath(), "test"); err == nil {
+			c.Close()
+			break
+		}
+		if i == 200 {
+			t.Fatal("no server")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	out, err := runAgentAdd(t, "speaker", "-acp", "/bin/sh --acp", "-label", "Speaker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "in every agent menu now") || strings.Contains(out, "Reload the server") {
+		t.Errorf("out = %q", out)
+	}
+	c, err := client.Dial(config.SocketPath(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	var st proto.AgentStatusResult
+	if err := c.Call(t.Context(), proto.MethodAgentStatus, nil, &st); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, a := range st.Agents {
+		found = found || a.Name == "speaker" && a.Protocol == proto.ProtocolACP && a.Removable
+	}
+	if !found {
+		t.Error("the server does not offer it")
+	}
+	if _, err := runAgentAdd(t, "speaker", "-acp", "/bin/sh --acp"); err == nil || !strings.Contains(err.Error(), "-force") {
+		t.Errorf("again: %v", err)
+	}
+	if _, err := runAgentAdd(t, "speaker", "-acp", "/bin/sh --acp", "-force"); err != nil {
+		t.Errorf("with -force: %v", err)
 	}
 }

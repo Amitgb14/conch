@@ -530,3 +530,42 @@ func TestDevinIsRecognisedWithoutGuessingItsState(t *testing.T) {
 		t.Fatalf("devin's state was guessed: %q", st.State)
 	}
 }
+
+// TestACPManifestHasNoScreenRules: an agent run over ACP is known by the
+// name it was launched as and its state is its own report; rules written
+// in its manifest are dropped, so a screen that looks like waiting cannot
+// say it is.
+func TestACPManifestHasNoScreenRules(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "speaker.toml"), []byte(`
+agent = "speaker"
+[acp]
+command = "speaker --acp"
+[[rules]]
+name = "fake-wait"
+state = "blocked"
+pattern = "Allow"
+`), 0o644)
+	ms, errs := LoadManifests(dir)
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	m := ms["speaker"]
+	if !m.IsACP() || len(m.Rules) != 0 {
+		t.Fatalf("acp %v rules %v", m.IsACP(), m.Rules)
+	}
+	if ms["claude"].IsACP() {
+		t.Error("claude is not run over ACP")
+	}
+	tr := NewTracker(ms, "speaker")
+	now := time.Now()
+	tr.Observe(Observation{Now: now, Process: Process{Name: "conch"}, Screen: []string{"Allow Write x?", "❯ 1. Allow"}})
+	if st := tr.Status(); st.Agent != "speaker" || st.State != StateIdle {
+		t.Errorf("before any report: %+v", st)
+	}
+	tr.Observe(Observation{Now: now.Add(time.Second), Process: Process{Name: "conch"}, Screen: []string{"nothing"},
+		Program: &ProgramReport{State: "blocked", Kind: "permission", Msg: "Allow Write x?", At: now.Add(time.Second)}})
+	if st := tr.Status(); st.State != StateBlocked || st.Source != "program" || st.Message != "Allow Write x?" {
+		t.Errorf("blocked: %+v", st)
+	}
+}

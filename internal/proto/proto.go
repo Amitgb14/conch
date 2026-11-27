@@ -35,7 +35,7 @@ const ProtocolVersion = 1
 var Capabilities = []string{
 	"pane.v1", "pane.frame.v1", "events.v1", "agent.v1",
 	"project.v1", "pane.scroll.v1", "project.pr.v1", "pane.default_shell.v1",
-	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken, CapAgentSwitch, CapAgentSwitchLimit, CapPaneEnded, CapProjectRemoveClose, CapArtifactList,
+	"agent.install.v1", "fs.v1", "shell.omz.v1", "agent.setup.v1", "worktree.files.v1", "session.v1", "agent.limits.v1", "server.reload.v1", "session.delete.v1", "session.search.v1", "session.share.v1", "agent.broadcast.v1", "agent.broadcast.shells.v1", "pane.redraw.v1", "fs.upload.v1", "branch.harvest.v1", "worktree.cleanup.v1", "branch.hunks.v1", "project.resolve.v1", CapSessionHandoff, CapWorktreeWatch, CapPaneSearch, CapPaneMonitor, CapWorktreeMove, CapProjectBundle, CapFSFiles, CapFSRead, CapFSTransfer, CapFSSSH, CapPaneSSH, CapBranchRebase, CapAgentSync, CapAgentSyncUser, CapAgentLibrary, CapLibraryKeychain, CapLibraryPlain, CapCloudAgent, CapAgentPrompt, CapTaskName, CapPaneScope, CapScopeRemote, CapAgentSkill, CapAgentSkillPick, CapLibraryFetch, CapBranchGit, CapAgentTiers, CapWorktreeSetup, CapBranchCILog, CapAgentReply, CapSchedule, CapIssues, CapPermissionRules, CapTaskAfter, CapReviewComments, CapSessionStar, CapView, CapPRMerge, CapAutopilot, CapFrameCursor, CapPaneSizeLatest, CapFSFind, CapProjectLog, CapPaneRaw, CapPaneListening, CapUsageHistory, CapCommitShow, CapPRReview, CapReviewSendTo, CapBranchStage, CapReviewThread, CapFSWrite, CapProjectGroups, CapGroupTask, CapGroupTaskMerge, CapFSSearch, CapFSReplace, CapFSOps, CapFSLines, CapAgentChat, CapProjectGitInit, CapAccounts, CapAccountFailoverAgent, CapAccountKeys, CapUsageAccounts, CapAgentMove, CapAgentBackground, CapSystemStats, CapTickets, CapAgentInterrupt, CapAgentAttach, CapAutopilotIntake, CapTicketCheck, CapTicketOverview, CapAutopilotTriage, CapBranchPrune, CapBranchPruneMerged, CapPaneTeam, CapWorktreeOperation, CapCIStats, CapCIRerun, CapAutopilotActivity, CapBranchRebased, CapBranchResolving, CapCISources, CapPRCheckSource, CapBranchCIRerun, CapIntegrationDetect, CapAutopilotNoteCI, CapIntegrationTeam, CapPRCheckRerun, CapServerHeap, CapBranchPreviews, CapAutopilotReview, CapRuns, CapToken, CapAgentSwitch, CapAgentSwitchLimit, CapPaneEnded, CapProjectRemoveClose, CapArtifactList, CapAgentACPAdd,
 }
 
 // The tiers an agent can be in, as agent.list reports them. They are in
@@ -556,6 +556,15 @@ const (
 	MethodAgentExplain = "agent.explain"
 	MethodAgentStatus  = "agent.status"
 	MethodAgentInstall = "agent.install"
+
+	// Agents over ACP added from a client (CapAgentACPAdd):
+	// AgentACPSpec → AgentACPCheck (the command started once and asked
+	// what it offers, nothing written), AgentACPAddParams →
+	// AgentAvailability (the manifest written on this machine and the
+	// agent offered at once, no reload), AgentACPRemoveParams → nothing.
+	MethodAgentACPCheck  = "agent.acp.check"
+	MethodAgentACPAdd    = "agent.acp.add"
+	MethodAgentACPRemove = "agent.acp.remove"
 
 	// Project groups (CapProjectGroups): GroupList, GroupSaveParams →
 	// GroupInfo, GroupRef.
@@ -3263,6 +3272,78 @@ type AgentAvailability struct {
 	// its first message, or SwitchNever for one that cannot be given a
 	// first message. Empty from a server that cannot switch.
 	SwitchTo string `json:"switch_to,omitempty"`
+	// Protocol is how conch speaks to the agent: ProtocolACP for one that
+	// speaks the Agent Client Protocol, run by `conch acp` in its pane;
+	// empty for an agent with its own terminal interface, and from older
+	// servers. Such an agent is still the "runs here" tier, so a client
+	// that does not know this field treats it as any manifest's.
+	Protocol string `json:"protocol,omitempty"`
+	// ACP is an ACP agent as its manifest gives it, and Removable whether
+	// it was added on this machine (agents/NAME.toml) and so can be
+	// changed and removed with agent.acp.add and agent.acp.remove.
+	ACP       *AgentACPSpec `json:"acp,omitempty"`
+	Removable bool          `json:"removable,omitempty"`
+}
+
+// ProtocolACP is AgentAvailability.Protocol for an agent run over the
+// Agent Client Protocol.
+const ProtocolACP = "acp"
+
+// CapAgentACPAdd is agent.acp.check, agent.acp.add and agent.acp.remove:
+// an agent that speaks ACP added, checked and removed from Settings, on
+// the machine whose server is asked, and offered without a reload.
+const CapAgentACPAdd = "agent.acp.add.v1"
+
+// AgentACPSpec is an ACP agent as a manifest's [acp] table says it.
+type AgentACPSpec struct {
+	// Name is the agent's name in conch: lower-case letters, digits and
+	// dashes; it names the file too.
+	Name  string `json:"name,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Command speaks ACP on its stdin and stdout, as shell words.
+	Command string   `json:"command"`
+	Dirs    []string `json:"dirs,omitempty"`
+	Env     []string `json:"env,omitempty"`
+}
+
+// AgentACPAddParams adds (or with Replace, changes) an ACP agent.
+type AgentACPAddParams struct {
+	AgentACPSpec
+	Replace bool `json:"replace,omitempty"`
+}
+
+// AgentACPRemoveParams removes an ACP agent added on this machine: its
+// manifest, not the program nor its sessions.
+type AgentACPRemoveParams struct {
+	Name string `json:"name"`
+}
+
+// What a check found wrong (AgentACPCheck.Problem).
+const (
+	ACPNotFound = "not_found" // the program is not on PATH nor in Dirs
+	ACPExited   = "exited"    // it stopped before answering initialize
+	ACPNotACP   = "not_acp"   // it answered nothing ACP could read in time
+	ACPFailed   = "failed"    // anything else: Message says it
+)
+
+// AgentACPCheck is what an ACP command offers, from starting it once and
+// sending initialize. Problem is empty when it speaks ACP.
+type AgentACPCheck struct {
+	Problem string `json:"problem,omitempty"`
+	Message string `json:"message,omitempty"`
+	// Output is the end of what it wrote to stderr, for a Problem.
+	Output  string `json:"output,omitempty"`
+	Path    string `json:"path,omitempty"` // where the program was found
+	Agent   string `json:"agent,omitempty"`
+	Version string `json:"version,omitempty"`
+	// ProtocolVersion is the ACP version it answered with.
+	ProtocolVersion int `json:"protocol_version,omitempty"`
+	// Load is whether it reopens a session (loadSession), List whether
+	// it lists them (sessionCapabilities.list).
+	Load bool `json:"load,omitempty"`
+	List bool `json:"list,omitempty"`
+	// Auth names the ways it offers to sign in; empty when it offers none.
+	Auth []string `json:"auth,omitempty"`
 }
 
 // SessionsUnread is an agent conch runs without reading what it saved,

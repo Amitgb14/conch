@@ -49,7 +49,7 @@ func limitWatched(agent string) bool {
 // cannotTake says why agent to cannot take a conversation stopped at a
 // plan limit now, or "" when it can.
 func (s *Server) cannotTake(to string, now time.Time) string {
-	ad, ok := s.adapters.Get(to)
+	ad, ok := s.registry().Get(to)
 	if !ok {
 		return fmt.Sprintf("conch can't launch %q", to)
 	}
@@ -77,7 +77,7 @@ func (s *Server) installedHere(name string) bool {
 	if s.agentsSeen.has(name) {
 		return true
 	}
-	ad, ok := s.adapters.Get(name)
+	ad, ok := s.registry().Get(name)
 	if !ok {
 		return false
 	}
@@ -103,7 +103,7 @@ func (s *Server) switchCandidates(from, setting string) []string {
 	if setting != proto.SwitchAtLimitAsk && setting != proto.SwitchAtLimitWait {
 		add(setting)
 	}
-	for _, ad := range s.adapters {
+	for _, ad := range s.registry() {
 		if sessions.WriterFor(ad.Name(), sessions.Env{}) != nil {
 			add(ad.Name())
 		}
@@ -145,7 +145,7 @@ func (s *Server) offerSwitch(info proto.PaneInfo, now time.Time) bool {
 	case o.To == "" && o.Why == "":
 		o.Why = "no other agent here can carry it on"
 	case o.To != "":
-		ad, _ := s.adapters.Get(o.To)
+		ad, _ := s.registry().Get(o.To)
 		o.Crossed = switchTo(ad)
 		if o.To == setting {
 			o.Auto, o.At = true, now.Add(s.mover.delay)

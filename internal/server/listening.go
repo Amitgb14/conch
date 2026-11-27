@@ -258,7 +258,7 @@ func (s *Server) lookListening(ctx context.Context) {
 				procs, lookOK = s.processesSeen(ctx)
 			}
 			if lookOK {
-				jobs = agentJobs(info.PID, e.explain().Process.PID, s.manifests[a.Name], procs, byPid, time.Now())
+				jobs = agentJobs(info.PID, e.explain().Process.PID, s.agentManifests()[a.Name], procs, byPid, time.Now())
 			} else {
 				keepJobs = true // a failed look changes nothing
 			}

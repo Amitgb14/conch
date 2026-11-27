@@ -236,7 +236,7 @@ func (s *Server) adopt(st *reloadState) {
 		if !rp.Loose {
 			proj = s.projects.ensure(rp.Dir)
 		}
-		e := newEntry(p, rp.Dir, detect.RestoreTracker(s.manifests, rp.Tracker), proj)
+		e := newEntry(p, rp.Dir, detect.RestoreTracker(s.agentManifests(), rp.Tracker), proj)
 		if rp.Monitor != nil {
 			e.monitor.PaneMonitor = *rp.Monitor
 		}

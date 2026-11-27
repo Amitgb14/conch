@@ -350,7 +350,7 @@ func (g *groupBook) task(tp proto.GroupTaskParams) (proto.GroupTaskResult, *prot
 	if tp.Agent == "" {
 		tp.Agent = s.defaultAgent()
 	}
-	if ad, ok := s.adapters.Get(tp.Agent); ok {
+	if ad, ok := s.registry().Get(tp.Agent); ok {
 		if perr := s.notInstalled(ad); perr != nil {
 			return proto.GroupTaskResult{}, perr
 		}

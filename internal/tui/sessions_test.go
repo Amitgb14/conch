@@ -454,3 +454,21 @@ func TestSessionsStarNeedsTheServer(t *testing.T) {
 		t.Fatalf("flash %q", m.flash)
 	}
 }
+
+func TestTierNote(t *testing.T) {
+	for _, c := range []struct {
+		a    proto.AgentAvailability
+		want string
+	}{
+		{proto.AgentAvailability{Name: "claude", Tier: proto.TierSupported}, ""},
+		{proto.AgentAvailability{Name: "old"}, ""}, // an older server's: supported
+		{proto.AgentAvailability{Name: "robo", Tier: proto.TierRunsHere}, "runs here · no sessions"},
+		{proto.AgentAvailability{Name: "pi", Tier: proto.TierRunsHere, Sessions: true}, "runs here"},
+		{proto.AgentAvailability{Name: "fake", Tier: proto.TierRunsHere, Protocol: proto.ProtocolACP}, "over ACP · no sessions"},
+		{proto.AgentAvailability{Name: "fake", Tier: proto.TierRunsHere, Protocol: proto.ProtocolACP, Sessions: true}, "over ACP"},
+	} {
+		if got := tierNote(c.a); got != c.want {
+			t.Errorf("tierNote(%+v) = %q, want %q", c.a, got, c.want)
+		}
+	}
+}

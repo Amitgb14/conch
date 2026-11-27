@@ -181,6 +181,8 @@ final class Store: ObservableObject {
     @Published var skillsMachine = "local"
     /// Add project…'s sheet, for the machine it adds to.
     @Published var addProjectTarget: AddProjectTarget?
+    /// Add an ACP Agent's sheet, opened from an agent menu in the tree.
+    @Published var acpSheet: ACPSheetTarget?
     /// Move to another machine…'s sheet, for the project it moves.
     @Published var moveProjectTarget: MoveProjectTarget?
     /// A broadcast being written (BroadcastSheet).

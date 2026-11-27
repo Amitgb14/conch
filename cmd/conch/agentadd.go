@@ -10,6 +10,7 @@ import (
 
 	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/config"
+	"github.com/Amitgb14/conch/internal/proto"
 )
 
 // `conch agent add` writes the manifest for an agent conch has never heard
@@ -22,11 +23,13 @@ import (
 // exists so nobody has to learn the format to try an agent once.
 
 const agentAddUsage = "usage: conch agent add NAME -command BINARY [-label LABEL] [-prompt 'FLAG {prompt}'] " +
-	"[-resume 'FLAG {id}'] [-resume-last FLAGS] [-flags FLAGS] [-dir DIR] [-env NAME=VALUE] [-force]"
+	"[-resume 'FLAG {id}'] [-resume-last FLAGS] [-flags FLAGS] [-dir DIR] [-env NAME=VALUE] [-force]\n" +
+	"       conch agent add NAME -acp 'COMMAND [ARGS]' [-label LABEL] [-dir DIR] [-env NAME=VALUE] [-force]"
 
 func agentAdd(args []string) error {
 	fs := flag.NewFlagSet("agent add", flag.ContinueOnError)
-	command := fs.String("command", "", "the program to run (required)")
+	command := fs.String("command", "", "the program to run (required, unless -acp)")
+	acpCommand := fs.String("acp", "", "the command that speaks the Agent Client Protocol on stdio, e.g. 'gemini --experimental-acp'")
 	label := fs.String("label", "", "the name people know it by, e.g. \"Robo Coder\"")
 	prompt := fs.String("prompt", "", "how a first message is passed, with {prompt} where it goes; the default appends it as an argument")
 	resume := fs.String("resume", "", "how a saved session is reopened, with {id} where it goes; left out, conch will not offer to resume it")
@@ -47,8 +50,12 @@ func agentAdd(args []string) error {
 	if err := fs.Parse(rest[1:]); err != nil {
 		return err
 	}
-	if fs.NArg() > 0 || *command == "" {
+	if fs.NArg() > 0 || (*command == "") == (strings.TrimSpace(*acpCommand) == "") {
 		return errors.New(agentAddUsage)
+	}
+	if *acpCommand != "" && (*prompt != "" || *resume != "" || *resumeLast != "" || *flagsFor != "") {
+		return errors.New("-acp runs the agent over the protocol, which passes a first message and reopens a session itself: " +
+			"-prompt, -resume, -resume-last and -flags are for -command")
 	}
 	if !agentNameOK(name) {
 		return fmt.Errorf("%q is not an agent name: lower-case letters, digits and dashes", name)
@@ -57,6 +64,11 @@ func agentAdd(args []string) error {
 	// must not quietly turn a tested agent into a guess.
 	if supportedAgent(name) {
 		return fmt.Errorf("%q is a supported agent already; pick another name to add one of your own", name)
+	}
+
+	if *acpCommand != "" {
+		return addACPAgent(adapter.ACPManifest{Name: name, Label: *label, Command: strings.TrimSpace(*acpCommand),
+			Dirs: dirs.values, Env: env.values}, *force)
 	}
 
 	dir := adapter.ManifestDir(config.Dir())
@@ -159,4 +171,60 @@ func supportedAgent(name string) bool {
 		}
 	}
 	return false
+}
+
+// addACPAgent is `conch agent add -acp`. A server that can add one
+// (agent.acp.add) writes the file on its machine and offers the agent at
+// once, which is also how -m puts one on another machine; with none
+// running here, the file is written for the next one to read.
+func addACPAgent(m adapter.ACPManifest, replace bool) error {
+	c, err := connect(false)
+	if err == nil {
+		defer c.Close()
+		if len(c.MissingCapabilities([]string{proto.CapAgentACPAdd})) == 0 {
+			var av proto.AgentAvailability
+			if err := call(c, proto.MethodAgentACPAdd, proto.AgentACPAddParams{Replace: replace,
+				AgentACPSpec: proto.AgentACPSpec{Name: m.Name, Label: m.Label, Command: m.Command, Dirs: m.Dirs, Env: m.Env}}, &av); err != nil {
+				if strings.Contains(err.Error(), "added here already") {
+					return fmt.Errorf("%v (-force changes it)", err)
+				}
+				return err
+			}
+			fmt.Printf("added %s over ACP", m.Name)
+			if machineFlag != "" && machineFlag != "local" {
+				fmt.Printf(" on %s", machineFlag)
+			}
+			fmt.Println(": in every agent menu now.")
+			if !av.Installed {
+				fmt.Printf("%s is not installed there yet: install it, then start the agent.\n", strings.Fields(m.Command)[0])
+			}
+			acpAddedSays()
+			return nil
+		}
+	}
+	if machineFlag != "" && machineFlag != "local" {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("conch on %s is too old to add an agent: run conch machine upgrade %s", machineFlag, machineFlag)
+	}
+	path, werr := adapter.WriteACPManifest(adapter.ManifestDir(config.Dir()), m, replace, supportedAgent)
+	if werr != nil {
+		if errors.Is(werr, adapter.ErrManifestExists) {
+			return fmt.Errorf("%v; -force overwrites it", werr)
+		}
+		return werr
+	}
+	fmt.Printf("wrote %s\n", path)
+	acpAddedSays()
+	if err == nil {
+		fmt.Println("Reload the server to pick it up: `conch server reload` (or r in the version box).")
+	}
+	return nil
+}
+
+func acpAddedSays() {
+	fmt.Println("It runs over ACP: conch draws its conversation, takes its first message, and reads its")
+	fmt.Println("state and permission requests from the protocol rather than its screen. Its sessions are")
+	fmt.Println("listed only if it offers session/list, and reopened only if it offers loadSession.")
 }

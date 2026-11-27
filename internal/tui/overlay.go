@@ -587,10 +587,8 @@ func newAgentMenu(m Model, mach *machine) *menu {
 			// starts and is watched like any other, and where its saved
 			// conversations are not read that is worth knowing before
 			// rather than when the Sessions view is empty.
-			if a.SessionsUnread() {
-				detail += styleMuted.Render("  runs here · no sessions")
-			} else if a.Tier == proto.TierRunsHere {
-				detail += styleMuted.Render("  runs here")
+			if note := tierNote(a); note != "" {
+				detail += styleMuted.Render("  " + note)
 			}
 			// How it will sign in, where the server can tell: an agent
 			// that is about to ask for a browser sign-in says so before it
@@ -622,8 +620,32 @@ func newAgentMenu(m Model, mach *machine) *menu {
 		}
 	}
 	items = append(items, menuItem{"n", "Open a terminal instead", func(m *Model) tea.Cmd { return m.openAgent("") }})
+	if m.canAddACP(mach.id) {
+		items = append(items, menuItem{"+", "Add an ACP agent…" + styleMuted.Render("  one that speaks the Agent Client Protocol"),
+			func(m *Model) tea.Cmd { return m.openACPForm(mach.id, nil, nil) }})
+	}
 	return &menu{title: "Start an agent · " + m.placeLabel(), items: items, sel: max(sel, 0),
 		agentsOf: mach.id, x: max(m.width/2-25, 0), y: max(m.height/3, 0)}
+}
+
+// tierNote is what the agent menu says of an agent conch only runs: that
+// it does, whether its sessions are read, and for one that speaks the
+// Agent Client Protocol that conch draws it over ACP. Empty for a
+// supported agent, which needs no note.
+func tierNote(a proto.AgentAvailability) string {
+	note := ""
+	switch {
+	case a.Protocol == proto.ProtocolACP:
+		note = "over ACP"
+	case a.Tier == proto.TierRunsHere:
+		note = "runs here"
+	default:
+		return ""
+	}
+	if a.SessionsUnread() {
+		note += " · no sessions"
+	}
+	return note
 }
 
 // installedFirst picks the agents that are installed, or the ones that
@@ -1253,7 +1275,9 @@ var helpGroups = []helpGroup{{
 			"Attempts: try it several times, one branch an attempt",
 			"on a machine, or in a folder that isn't a git repository, the agent works right there",
 		}},
-		{keys: "c", what: "start an agent here: Claude, Codex, Gemini or OpenCode (click or 1-9)"},
+		{keys: "c", what: "start an agent here: Claude, Codex, Gemini or OpenCode (click or 1-9)", more: []string{
+			"+ in it adds an agent that speaks the Agent Client Protocol (ACP), on that machine",
+		}},
 		{keys: "n", what: "terminal here"},
 		{keys: "a", what: "add or create a project"},
 		{keys: "A", what: "start or install any agent"},
@@ -1538,6 +1562,7 @@ var helpGroups = []helpGroup{{
 			"Check conch… (or ! on any Settings tab) runs conch doctor's checks: git, gh, agents, the terminal, each with its fix — they also run a moment after conch starts, and problems are on this computer's page, failures on the bar",
 			"Report a problem… (or ⊙ on the bar) is this conch's own facts, for an issue",
 			"Sandboxes lists the providers; enter opens one's own page, esc goes back to the list",
+			"Agents › a machine: a adds an agent over ACP there, enter on one edits it, d removes it",
 		}},
 		{keys: "?", what: "this list: ↑↓ jk pgup pgdn g G or the wheel scroll it", more: []string{
 			"] [ (tab, shift+tab) next, previous group",

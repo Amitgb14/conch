@@ -113,6 +113,9 @@ func New(exe, dir string) (Registry, error) {
 		if ca, ok := a.(*cliAgent); ok && ca.name == "antigravity" {
 			ca.launch = antigravityLaunch(exe, dir)
 		}
+		if aa, ok := a.(*acpAgent); ok && exe != "" {
+			aa.exe = exe // the conch that runs in its pane as the client
+		}
 	}
 	return append(append(r, mine...), shipped...), nil
 }
