@@ -99,6 +99,18 @@ private let geminiACP = AgentAvailability(name: "gemini-acp", label: "Gemini (AC
 
     #expect(acpCheckHeadline(ACPCheck(problem: "exited", message: "it exited before answering initialize")) == "It exited while starting")
     #expect(acpCheckHeadline(ACPCheck(problem: "not_acp")) == "It does not speak ACP")
-    #expect(acpCheckHeadline(ACPCheck(problem: "not_found", message: "gemini was not found on PATH")) == "Gemini was not found on PATH")
+    // A program's name is kept as typed: "claude-agent-acp", not "Claude-agent-acp".
+    #expect(acpCheckHeadline(ACPCheck(problem: "not_found", message: "claude-agent-acp was not found on PATH")) == "claude-agent-acp was not found on PATH")
+    #expect(acpCheckHeadline(ACPCheck(problem: "not_found")) == "It was not found")
     #expect(acpCheckLines(ACPCheck(problem: "failed", message: "x")).isEmpty)
+}
+
+@Test func acpCheckSaysHowToInstall() throws {
+    let c = try JSONDecoder().decode(ACPCheck.self, from: Data(#"{"problem":"not_found","message":"codex-acp was not found","install":"npm install -g @agentclientprotocol/codex-acp"}"#.utf8))
+    #expect(c.install == "npm install -g @agentclientprotocol/codex-acp")
+    #expect(ACPCheck(problem: "not_found").install == nil) // an older server says none
+}
+
+@Test func knownACPCommandsAreTheCurrentOnes() {
+    #expect(knownACPCommands == ["gemini --acp", "goose acp", "claude-agent-acp", "codex-acp"])
 }

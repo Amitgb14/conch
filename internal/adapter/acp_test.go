@@ -233,10 +233,44 @@ echo "Welcome! Type /help."; sleep 10
 	if c := check("chatty"); c.Problem != proto.ACPNotACP || !strings.Contains(c.Output, "Welcome") {
 		t.Errorf("chatty = %+v", c)
 	}
-	if c := check("missing-xyz --acp"); c.Problem != proto.ACPNotFound || !strings.Contains(c.Message, "missing-xyz") {
+	if c := check("missing-xyz --acp"); c.Problem != proto.ACPNotFound || !strings.Contains(c.Message, "missing-xyz") || c.Install != "" {
 		t.Errorf("missing = %+v", c)
+	}
+	// A known adapter that is missing says how to install it.
+	if c := check("claude-agent-acp"); c.Problem != proto.ACPNotFound || c.Install != "npm install -g @agentclientprotocol/claude-agent-acp" {
+		t.Errorf("missing known adapter = %+v", c)
 	}
 	if c := check("  "); c.Problem != proto.ACPFailed {
 		t.Errorf("empty = %+v", c)
+	}
+}
+
+func TestKnownACPCommands(t *testing.T) {
+	want := map[string]string{
+		"gemini --acp":     "npm install -g @google/gemini-cli",
+		"goose acp":        "",
+		"claude-agent-acp": "npm install -g @agentclientprotocol/claude-agent-acp",
+		"codex-acp":        "npm install -g @agentclientprotocol/codex-acp",
+	}
+	if len(KnownACP) != len(want) {
+		t.Fatalf("known = %+v", KnownACP)
+	}
+	for _, k := range KnownACP {
+		if install, ok := want[k.Command]; !ok || install != k.Install {
+			t.Errorf("%+v, want install %q", k, install)
+		}
+	}
+	for cmd, install := range map[string]string{
+		"claude-agent-acp --verbose": "npm install -g @agentclientprotocol/claude-agent-acp",
+		"LANG=C codex-acp":           "npm install -g @agentclientprotocol/codex-acp",
+		"/opt/x/codex-acp":           "npm install -g @agentclientprotocol/codex-acp",
+		"gemini --experimental-acp":  "npm install -g @google/gemini-cli",
+		"goose acp":                  "",
+		"robo --acp":                 "",
+		"":                           "",
+	} {
+		if got := ACPInstallFor(cmd); got != install {
+			t.Errorf("ACPInstallFor(%q) = %q, want %q", cmd, got, install)
+		}
 	}
 }

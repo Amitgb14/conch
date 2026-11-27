@@ -116,6 +116,9 @@ func acpSpecOf(values []string) proto.AgentACPSpec {
 func acpCheckLines(res proto.AgentACPCheck) []string {
 	if res.Problem != "" {
 		lines := []string{styleErr.Render("✗ " + res.Message)}
+		if res.Install != "" {
+			lines = append(lines, "  install it: "+styleAccent.Render(res.Install))
+		}
 		if out := strings.TrimSpace(res.Output); out != "" {
 			for _, l := range strings.Split(out, "\n") {
 				lines = append(lines, styleMuted.Render("  "+l))
@@ -154,7 +157,7 @@ func (m *Model) openACPForm(mid string, spec *proto.AgentACPSpec, back overlay) 
 	}
 	form := &acpForm{machine: mid, intro: []string{
 		"An agent that speaks the Agent Client Protocol on its stdin and stdout. conch runs it in a pane and draws the conversation.",
-		"Check the command against the agent's --help: gemini --experimental-acp, goose acp.",
+		"Check the command against the agent's --help: gemini --acp, goose acp, claude-agent-acp, codex-acp.",
 	}}
 	values := []string{}
 	title := " Add an ACP agent on " + where + " "
@@ -164,7 +167,7 @@ func (m *Model) openACPForm(mid string, spec *proto.AgentACPSpec, back overlay) 
 		values = []string{spec.Command, spec.Name, spec.Label, strings.Join(spec.Dirs, ", "), strings.Join(spec.Env, " ")}
 	}
 	d := newDialog(*m, title, form.intro, []string{"Command", "Name", "Shown as", "Folders", "Environment"}, values)
-	d.fields[acpFieldCommand].in.Placeholder = "gemini --experimental-acp"
+	d.fields[acpFieldCommand].in.Placeholder = "gemini --acp"
 	d.fields[acpFieldName].in.Placeholder = "from the command"
 	d.fields[acpFieldLabel].in.Placeholder = "defaults to the name"
 	d.fields[acpFieldDirs].in.Placeholder = "optional: folders to look in before PATH, comma between"

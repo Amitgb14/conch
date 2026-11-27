@@ -297,3 +297,14 @@ func TestAgentMenuAddsAnACPAgent(t *testing.T) {
 		t.Error("offered to a server that cannot add one")
 	}
 }
+
+func TestACPCheckSaysHowToInstall(t *testing.T) {
+	text := ansi.Strip(strings.Join(acpCheckLines(proto.AgentACPCheck{Problem: proto.ACPNotFound,
+		Message: "claude-agent-acp was not found on PATH for your login shell", Install: "npm install -g @agentclientprotocol/claude-agent-acp"}), "\n"))
+	if !strings.Contains(text, "✗ claude-agent-acp was not found") || !strings.Contains(text, "install it: npm install -g @agentclientprotocol/claude-agent-acp") {
+		t.Errorf("lines:\n%s", text)
+	}
+	if text := ansi.Strip(strings.Join(acpCheckLines(proto.AgentACPCheck{Problem: proto.ACPNotFound, Message: "robo was not found"}), "\n")); strings.Contains(text, "install it") {
+		t.Errorf("an install offered for a command conch does not know:\n%s", text)
+	}
+}
