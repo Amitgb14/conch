@@ -624,6 +624,7 @@ struct SectionForm: View {
                 card(nil, fields)
                 AgentAccountsCard(store: model.store)
                 InstalledAgentsCard(store: model.store)
+                ACPAgentsCard(store: model.store)
                 Button { model.section = SettingsNav.skills } label: {
                     HStack(spacing: 12) {
                         LucideIcon(SettingsNav.skillsIcon, color: Theme.accent, size: 16)
