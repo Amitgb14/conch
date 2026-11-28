@@ -108,6 +108,10 @@ type entry struct {
 	// switchedFrom is the agent and session its conversation was switched
 	// from (switch.go), guarded by mu.
 	switchedFrom *proto.SwitchOrigin
+	// continuing is a "continue" waiting for the agent to be ready
+	// (continueWhenReady), guarded by mu: carried through a reload, whose
+	// new process has none of the old one's goroutines.
+	continuing bool
 }
 
 func newEntry(p *pane.Pane, dir string, t *detect.Tracker, proj *project) *entry {

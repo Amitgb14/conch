@@ -145,6 +145,44 @@ func TestAutopilotFailedRebaseWaits(t *testing.T) {
 	}
 }
 
+// An attempt that runs out of time — a fetch that hangs, or a git status
+// before the rebase begins — was fetched for and tried again at every
+// tick.
+func TestAutopilotTimedOutRebaseWaits(t *testing.T) {
+	for _, hang := range []string{"fetch", "status"} {
+		t.Run(hang, func(t *testing.T) {
+			s, p, _, _, _ := resolveFixture(t, "other.txt", "theirs\n")
+			key := branchKey(p.id, "api/model")
+			old := resolveTimeout
+			resolveTimeout = 500 * time.Millisecond
+			t.Cleanup(func() { resolveTimeout = old })
+			g := spyGit(t)
+			// In front of the spy: the one command hangs past the deadline.
+			// A hung fetch never reaches the spy, so it is written down here.
+			real, err := exec.LookPath("git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			hung := filepath.Join(dir, "hung")
+			script := "#!/bin/sh\ncase \"$*\" in *api-model\" " + hang + " \"*) echo " + hang + " >> '" + hung + "'; exec sleep 3 ;; esac\nexec '" + real + "' \"$@\"\n"
+			if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			for range 3 {
+				s.autopilotResolve(key)
+			}
+			// Counted by fetches: the project's own refresh runs git status
+			// in the worktree too, but never fetches.
+			b, _ := os.ReadFile(hung)
+			if n := strings.Count(string(b), "fetch") + g.fetches(); n != 1 {
+				t.Fatalf("3 ticks: fetched %d times, want 1", n)
+			}
+		})
+	}
+}
+
 // A refusal before anything is touched costs nothing and passes soon.
 func TestAutopilotDirtyWorktreeIsLookedAtAgainAtOnce(t *testing.T) {
 	s, p, _, wt, _ := resolveFixture(t, "other.txt", "theirs\n")

@@ -595,6 +595,12 @@ func LoadSwitchRecord(dir, stamp string) (SwitchRecord, error) {
 	return r, nil
 }
 
+// RemoveSwitchRecord removes the record of stamp in dir: the same file
+// LoadSwitchRecord reads, never a path the stamp spells out.
+func RemoveSwitchRecord(dir, stamp string) error {
+	return os.Remove(filepath.Join(dir, safeStamp(stamp)+".json"))
+}
+
 func safeStamp(s string) string {
 	s = strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {

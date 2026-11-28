@@ -348,6 +348,17 @@ func (h *hooks) stopAll() {
 	h.mu.Unlock()
 }
 
+// carryOn starts hooks again after stopAll, for a reload whose exec
+// failed: this process goes on serving, and its hooks with it.
+func (h *hooks) carryOn() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.stopped = false
+	h.mu.Unlock()
+}
+
 // wait is for tests: every fire and run under way has ended.
 func (h *hooks) wait() { h.wg.Wait() }
 

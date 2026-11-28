@@ -53,6 +53,9 @@ type runLog struct {
 	unsettled bool
 	// ended are agents whose panes ended without being closed (ended.go).
 	ended []proto.EndedAgent
+	// resuming is the ended records a resume is under way for, so a
+	// second client asking at the same moment does not start it twice.
+	resuming map[string]bool
 }
 
 type runLogFile struct {

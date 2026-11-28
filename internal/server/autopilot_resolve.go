@@ -32,8 +32,9 @@ import (
 // server first saw it: known, and left to the person, as a red one is.
 const conflictUnwatched = "-"
 
-// resolveTimeout bounds one attempt: a fetch and a rebase.
-const resolveTimeout = 2 * time.Minute
+// resolveTimeout bounds one attempt: a fetch and a rebase. A variable so
+// tests can run out of it.
+var resolveTimeout = 2 * time.Minute
 
 // rewrite is a branch rebased onto Base that must replace what was pushed
 // (Lease, "" when it never was), and the files it had deleted before. At
@@ -170,6 +171,9 @@ func (s *Server) autopilotResolve(key string) {
 	defer cancel()
 	base := gitx.FreshBase(ctx, wt.Path, branch, p.snapshot().Base)
 	if base == "" {
+		if ctx.Err() != nil {
+			s.rebaseStopped(key, stoppedRebase{head: head}) // a fetch that hangs hangs again
+		}
 		note(branch+" conflicts with its base, which could not be fetched; trying again", true)
 		s.resolveLater(key)
 		return
@@ -221,6 +225,12 @@ func (s *Server) autopilotResolve(key string) {
 		note(fmt.Sprintf("%s conflicts with %s, and rebasing it failed: %v", branch, base, err), true)
 		s.resolveLater(key)
 	default:
+		// A refusal before anything was touched (uncommitted changes)
+		// passes soon and is looked at again at once; running out of time
+		// would only run out again, after another fetch, every tick.
+		if ctx.Err() != nil {
+			s.rebaseStopped(key, stoppedRebase{head: head})
+		}
 		note(fmt.Sprintf("%s conflicts with %s, and rebasing it failed: %v", branch, base, err), true)
 		s.resolveLater(key)
 	}
