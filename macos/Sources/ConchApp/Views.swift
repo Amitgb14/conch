@@ -2266,8 +2266,10 @@ struct PaneCard: View {
                 if store.offersChat, let t = store.layout.current, t.benchAgent == pane, t.bench != .agent {
                     ChatTerminalSwitch(store: store, chat: false)
                 }
-                // What a Claude agent published, beside it (artifact.list.v1).
-                if p?.agent?.name == "claude", store.listsArtifacts(unkey(pane).machine) {
+                // What a Claude agent published, beside it (artifact.list.v1),
+                // once it has published something.
+                if p?.agent?.name == "claude", store.listsArtifacts(unkey(pane).machine),
+                   store.artifactShelf.showsChip(unkey(pane).machine, pane: unkey(pane).id) {
                     ArtifactsChip(store: store, pane: pane)
                 }
                 // What conch's commands call it — conch read p12 — a click away.

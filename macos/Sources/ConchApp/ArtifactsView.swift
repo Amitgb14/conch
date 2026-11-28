@@ -282,7 +282,7 @@ struct ArtifactsChip: View {
         Button { store.showArtifacts(pane: pane) } label: {
             HStack(spacing: 4) {
                 LucideIcon("layers", color: Theme.accent, size: 11)
-                Text(c.count > 0 ? "Artifacts \(c.count)" : "Artifacts").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
+                Text("Artifacts \(c.count)").font(.ui(size: 11, weight: .semibold)).foregroundStyle(Theme.accent)
                 if c.unseen { Circle().fill(Theme.accent).frame(width: 5, height: 5) }
             }
             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -290,7 +290,7 @@ struct ArtifactsChip: View {
         }
         .buttonStyle(.plain).fixedSize()
         .help("What this agent published on claude.ai, beside it (⌥⌘A)")
-        .accessibilityLabel(c.count > 0 ? "Artifacts, \(c.count)" + (c.unseen ? ", one new" : "") : "Artifacts")
+        .accessibilityLabel("Artifacts, \(c.count)" + (c.unseen ? ", one new" : ""))
     }
 }
 

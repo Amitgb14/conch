@@ -346,3 +346,17 @@ private let frameRoot = "https://e994da13-9cbd-429e-98d9-23e36d2d6497.frame.clau
     #expect(b && c)
     #expect(s.list("busybox").map(\.url) == ["https://claude.ai/code/artifact/C", "https://claude.ai/artifact/B", "https://claude.ai/artifact/A"])
 }
+
+// An agent's header offers the Artifacts tab only once it published
+// something: "Artifacts" over an agent that made none read as its name.
+@Test func theChipShowsOnlyForAnAgentWithArtifacts() {
+    var s = ArtifactShelf()
+    #expect(!s.showsChip("local", pane: "p1")) // nothing listed yet
+    s.load("local", [art("A", panes: ["p1"]), art("B", panes: ["p1", "p2"])])
+    #expect(s.showsChip("local", pane: "p1") && s.showsChip("local", pane: "p2"))
+    #expect(!s.showsChip("local", pane: "p3"))
+    #expect(!s.showsChip("busybox", pane: "p1")) // another machine's p1
+    let added = s.published("local", ArtifactPublished(pane: "p3", agent: "claude", artifact: art("C", panes: ["p3"])))
+    #expect(added && s.showsChip("local", pane: "p3"))
+}
+
