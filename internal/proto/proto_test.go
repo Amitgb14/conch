@@ -204,6 +204,26 @@ func TestA3WireNames(t *testing.T) {
 	}
 }
 
+// TestSystemProcessWire: a process says nothing it does not know — an
+// older app reads it as before — and the new fields' names are the wire's.
+func TestSystemProcessWire(t *testing.T) {
+	b, _ := json.Marshal(SystemProcess{PID: 7, Name: "sh", RSS: 10})
+	if string(b) != `{"pid":7,"ppid":0,"name":"sh","rss":10}` {
+		t.Errorf("zero fields = %s", b)
+	}
+	since := time.Date(2026, 11, 28, 9, 0, 0, 5, time.UTC)
+	b, _ = json.Marshal(SystemProcess{PID: 7, Name: "claude", Footprint: 4096, Agent: "claude", AgentState: AgentIdle, AgentSince: since, Conch: "client"})
+	for _, want := range []string{`"footprint":4096`, `"agent_state":"idle"`, `"agent_since":"2026-11-28T09:00:00.000000005Z"`, `"conch":"client"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%s lacks %s", b, want)
+		}
+	}
+	var back SystemProcess
+	if err := json.Unmarshal(b, &back); err != nil || back.Footprint != 4096 || !back.AgentSince.Equal(since) {
+		t.Errorf("round trip = %+v, %v", back, err)
+	}
+}
+
 func TestA3DisplayName(t *testing.T) {
 	agent := &AgentStatus{Name: "claude"}
 	for _, c := range []struct {

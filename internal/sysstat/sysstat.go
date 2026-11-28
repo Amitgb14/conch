@@ -37,6 +37,9 @@ type Source struct {
 	Disk     func() *proto.SystemDisk
 	Procs    func(ctx context.Context) ([]Proc, error)
 	Commands func(ctx context.Context, pids []int) map[int]string
+	// Footprints is each pid's memory footprint in bytes, asked for the
+	// few listed; a pid it cannot read is left out.
+	Footprints func(pids []int) map[int]uint64
 }
 
 const (
@@ -135,14 +138,20 @@ func (s *Sampler) Stats(ctx context.Context, p proto.SystemStatsParams, tag func
 		tag(all)
 	}
 	out.Processes = Pick(all, listed, listMax)
-	if s.src.Commands != nil && len(out.Processes) > 0 {
-		pids := make([]int, len(out.Processes))
-		for i, pr := range out.Processes {
-			pids[i] = pr.PID
-		}
+	pids := make([]int, len(out.Processes))
+	for i, pr := range out.Processes {
+		pids[i] = pr.PID
+	}
+	if s.src.Commands != nil && len(pids) > 0 {
 		cmds := s.src.Commands(ctx, pids)
 		for i := range out.Processes {
 			out.Processes[i].Command = cmds[out.Processes[i].PID]
+		}
+	}
+	if s.src.Footprints != nil && len(pids) > 0 {
+		fp := s.src.Footprints(pids)
+		for i := range out.Processes {
+			out.Processes[i].Footprint = fp[out.Processes[i].PID]
 		}
 	}
 	for _, pt := range s.hist {

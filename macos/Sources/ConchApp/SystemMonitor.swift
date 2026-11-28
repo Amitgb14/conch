@@ -72,7 +72,7 @@ struct SystemMonitorView: View {
     @State private var range: TimeInterval = 900
     @State private var sort: SystemSort = .cpu
     @State private var filter = ""
-    @State private var conchOnly = false
+    @State private var show: SystemShow = .all
     @State private var selected: Int?
 
     var machine: String { store.systemMachine }
@@ -107,7 +107,10 @@ struct SystemMonitorView: View {
             }
             Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 8)
             label("Show").padding(.horizontal, 8)
-            Toggle("Only what conch started", isOn: $conchOnly).toggleStyle(.checkbox).padding(.horizontal, 8)
+            Picker("Show", selection: $show) {
+                ForEach(SystemShow.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.radioGroup).labelsHidden().padding(.horizontal, 8)
             Spacer(minLength: 0)
             Text("CPU 100% = the whole machine in the graphs, one core in the table.")
                 .font(.ui(size: 11)).foregroundStyle(Theme.muted).padding(8)
@@ -297,7 +300,7 @@ struct SystemMonitorView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 10)], spacing: 10) {
                 ForEach(Array(notes.enumerated()), id: \.offset) { _, n in
                     Button {
-                        if let pid = n.pid { selected = pid; filter = "" }
+                        if let pid = n.pid { selected = pid; filter = ""; show = .all }
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(n.title).foregroundStyle(n.kind == .cpu ? SysColor.level(400) : n.kind == .pressure ? Theme.warn : Theme.text)
@@ -434,7 +437,7 @@ struct SystemMonitorView: View {
                     .frame(height: 18).clipShape(RoundedRectangle(cornerRadius: 5)).padding(.top, 8)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 16)], alignment: .leading, spacing: 8) {
                         ForEach(Array(parts.enumerated()), id: \.offset) { _, part in legendRow(part.name, partColor(part.name), formatBytes(part.bytes)) }
-                        let ours = s.processes.filter(\.isConch).reduce(UInt64(0)) { $0 + $1.rss }
+                        let ours = s.processes.filter(\.isConch).reduce(UInt64(0)) { $0 + $1.memory }
                         if ours > 0 { legendRow("of which conch", SysColor.conch, formatBytes(ours)) }
                     }
                     .padding(.top, 10)
@@ -461,7 +464,7 @@ struct SystemMonitorView: View {
     // MARK: processes
 
     private func processes(_ s: SystemStats) -> some View {
-        let rows = systemRows(s.processes, sort: sort, filter: filter, conchOnly: conchOnly)
+        let rows = systemRows(s.processes, sort: sort, filter: filter, show: show)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Text("Processes").font(.ui(size: 14, weight: .semibold))
@@ -532,7 +535,7 @@ struct SystemMonitorView: View {
                         .foregroundStyle((p.cpu ?? 0) >= 80 ? SysColor.level(p.cpu ?? 0) : Theme.text).frame(width: 56, alignment: .trailing)
                 }
                 .frame(width: 170)
-                Text(formatBytes(p.rss)).font(.ui(size: 12, design: .monospaced)).frame(width: 90, alignment: .trailing)
+                Text(formatBytes(p.memory)).font(.ui(size: 12, design: .monospaced)).frame(width: 90, alignment: .trailing)
                 Group {
                     if let o = p.origin ?? tabs[p.pid] {
                         Text(o).font(.ui(size: 12)).foregroundStyle(SysColor.conch).lineLimit(1).truncationMode(.middle)
@@ -552,7 +555,7 @@ struct SystemMonitorView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(p.name), pid \(p.pid), CPU \(formatCorePct(p.cpu)), memory \(formatBytes(p.rss))\(p.origin.map { ", " + $0 } ?? "")")
+        .accessibilityLabel("\(p.name), pid \(p.pid), CPU \(formatCorePct(p.cpu)), memory \(formatBytes(p.memory))\(p.origin.map { ", " + $0 } ?? "")")
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 

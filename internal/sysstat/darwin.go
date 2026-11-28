@@ -17,16 +17,18 @@ import (
 
 // Local is this machine's source. Each core's ticks need the Mach host
 // interface (cgo); without it the CPU is reckoned from the processes'
-// own time, the machine as a whole and not split.
+// own time, the machine as a whole and not split. A process's footprint
+// needs proc_pid_rusage (cgo) too; without it RSS is the figure.
 func Local() Source {
 	return Source{
-		Host:     darwinHost,
-		Ticks:    darwinTicks,
-		Memory:   darwinMemory,
-		Load:     func() []float64 { b, _ := unix.SysctlRaw("vm.loadavg"); return parseLoadavgSysctl(b) },
-		Disk:     homeDisk,
-		Procs:    psProcs,
-		Commands: psCommands,
+		Host:       darwinHost,
+		Ticks:      darwinTicks,
+		Memory:     darwinMemory,
+		Load:       func() []float64 { b, _ := unix.SysctlRaw("vm.loadavg"); return parseLoadavgSysctl(b) },
+		Disk:       homeDisk,
+		Procs:      psProcs,
+		Commands:   psCommands,
+		Footprints: darwinFootprints,
 	}
 }
 

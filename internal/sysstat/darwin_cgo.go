@@ -6,6 +6,19 @@ package sysstat
 #include <mach/mach.h>
 #include <mach/processor_info.h>
 #include <mach/mach_host.h>
+#include <libproc.h>
+#include <sys/resource.h>
+
+// footprint is the process's phys_footprint, what Activity Monitor calls
+// its Memory; 0 when it cannot be read (it has ended, or is another
+// user's).
+static unsigned long long footprint(int pid) {
+	struct rusage_info_v4 ri;
+	if (proc_pid_rusage(pid, RUSAGE_INFO_V4, (rusage_info_t *)&ri) != 0) {
+		return 0;
+	}
+	return ri.ri_phys_footprint;
+}
 
 // cpu_ticks fills ticks with each core's user, system, idle and nice
 // ticks, four to a core, and says how many cores; -1 when it cannot.
@@ -42,4 +55,19 @@ func darwinTicks() (CPUTicks, bool) {
 		raw[i] = uint32(buf[i])
 	}
 	return machTicks(raw), true
+}
+
+// darwinFootprints is each pid's footprint, leaving out those it cannot
+// read: their RSS stands instead.
+func darwinFootprints(pids []int) map[int]uint64 {
+	out := make(map[int]uint64, len(pids))
+	for _, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+		if f := uint64(C.footprint(C.int(pid))); f > 0 {
+			out[pid] = f
+		}
+	}
+	return out
 }

@@ -94,25 +94,38 @@ type SystemDisk struct {
 // SystemProcess is one process. CPU is the share of one core since the
 // last sample (200 is two cores), absent on the first. Pane and the
 // fields after it are set for a process conch started — its pane's id and
-// name, the pane's project and branch, the agent in it — and Conch is
-// "server" for the server itself and what it runs outside any pane.
+// name, the pane's project and branch, the agent in it and its state —
+// and Conch is "server" for the server itself and what it runs outside
+// any pane, "client" for another of conch's own programs outside any pane
+// (conch attach, web, a bridge). Footprint is the memory the process is
+// charged for (macOS's phys_footprint, Activity Monitor's Memory), which
+// counts shared pages once where RSS counts them in every process; it is
+// zero where the machine does not say (Linux, a build without cgo,
+// another user's process, an older server), and RSS is then the figure.
 type SystemProcess struct {
-	PID     int       `json:"pid"`
-	PPID    int       `json:"ppid"`
-	Name    string    `json:"name"`
-	Command string    `json:"command,omitempty"`
-	User    string    `json:"user,omitempty"`
-	CPU     *float64  `json:"cpu,omitempty"`
-	RSS     uint64    `json:"rss"`
-	Threads int       `json:"threads,omitempty"`
-	Started time.Time `json:"started,omitzero"`
+	PID     int      `json:"pid"`
+	PPID    int      `json:"ppid"`
+	Name    string   `json:"name"`
+	Command string   `json:"command,omitempty"`
+	User    string   `json:"user,omitempty"`
+	CPU     *float64 `json:"cpu,omitempty"`
+	RSS     uint64   `json:"rss"`
+	// Footprint is read only for the processes listed.
+	Footprint uint64    `json:"footprint,omitempty"`
+	Threads   int       `json:"threads,omitempty"`
+	Started   time.Time `json:"started,omitzero"`
 
 	Pane     string `json:"pane,omitempty"`
 	PaneName string `json:"pane_name,omitempty"`
 	Project  string `json:"project,omitempty"`
 	Branch   string `json:"branch,omitempty"`
 	Agent    string `json:"agent,omitempty"`
-	Conch    string `json:"conch,omitempty"`
+	// AgentState and AgentSince are the pane's agent's (AgentIdle and the
+	// rest, and since when), so a window can say which agents hold
+	// memory while idle.
+	AgentState string    `json:"agent_state,omitempty"`
+	AgentSince time.Time `json:"agent_since,omitzero"`
+	Conch      string    `json:"conch,omitempty"`
 }
 
 // SystemPoint is one moment of the history: the machine's CPU (0–100)
