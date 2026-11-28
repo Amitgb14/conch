@@ -416,6 +416,14 @@ public struct ArtifactShelf: Equatable, Sendable {
         return (mine.count, mine.contains { isUnseen(machine, $0.url) })
     }
 
+    /// Whether an agent's header offers its Artifacts tab: only once it
+    /// has published something. A chip reading "Artifacts" over an agent
+    /// that never made one read as a name, or an empty promise; ⌥⌘A still
+    /// opens the tab for any agent.
+    public func showsChip(_ machine: String, pane: String) -> Bool {
+        count(machine, pane: pane).count > 0
+    }
+
     /// An artifact by its address, on any machine; the machine it is on.
     public func find(_ url: String) -> (machine: String, artifact: Artifact)? {
         let base = artifactBase(url)
