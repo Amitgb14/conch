@@ -25,7 +25,7 @@ extension Store {
         if let c = parseSessionsKey(k) ?? parseCommitsKey(k) ?? parseFilesKey(k) ?? parseSetupKey(k).map({ ($0.machine, $0.project) }) {
             return snapshots[c.machine]?.project(c.project)?.name
         }
-        guard parseBrowserKey(k) == nil, parseTaskKey(k) == nil else { return nil }
+        guard parseBrowserKey(k) == nil, parseTaskKey(k) == nil, !isAgentsKey(k) else { return nil }
         let (m, _) = unkey(k)
         return pane(k)?.projectID.flatMap { snapshots[m]?.project($0)?.name }
     }

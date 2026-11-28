@@ -75,6 +75,21 @@ public func chatEnabled(toml: String?, env: [String: String]) -> Bool {
     return tomlSetting("app", "chat", in: toml) != "false"
 }
 
+/// The variable that turns conch-ui's Changes view off over config.toml.
+public let webViewsEnv = "CONCH_WEB_VIEWS"
+
+/// Whether a branch's Changes is drawn by conch-ui (ChangesWeb.swift)
+/// rather than SwiftUI: CONCH_WEB_VIEWS when set (0, false, no or off is
+/// off), else [app] web_views in config.toml (false is off), else on. The
+/// SwiftUI view stays for as long as the web one is new, for anybody who
+/// meets something it does wrong.
+public func webViewsEnabled(toml: String?, env: [String: String]) -> Bool {
+    if let v = env[webViewsEnv]?.trimmingCharacters(in: .whitespaces), !v.isEmpty {
+        return !["0", "false", "no", "off"].contains(v.lowercased())
+    }
+    return tomlSetting("app", "web_views", in: toml) != "false"
+}
+
 /// The parts of a workbench, by their layout keys: four always, a phone
 /// (a Mobile Preview's key) for a project on this Mac, and a browser once
 /// one is opened there — a dev server's page beside the agent.

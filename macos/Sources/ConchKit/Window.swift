@@ -115,7 +115,7 @@ public func machine(ofKey k: String) -> String {
     if let c = parseCommitsKey(k) { return c.machine }
     if let f = parseFilesKey(k) { return f.machine }
     if let s = parseSetupKey(k) { return s.machine }
-    if parseBrowserKey(k) != nil { return "local" } // a page is shown on this computer
+    if parseBrowserKey(k) != nil || isAgentsKey(k) { return "local" } // shown on this computer
     if let p = parseMobileKey(k) { return p.machine }
     if let t = parseTaskKey(k) { return t.machine }
     return unkey(k).machine
@@ -315,7 +315,7 @@ public func sidebarExtra(scale: Double, base: Double = 250) -> Double { max(0, (
 /// front by this — it used to stay where it was last put, so the row lit
 /// in the sidebar named a terminal while the window showed a branch.
 public func treeRow(forTab k: String) -> String? {
-    if parseBrowserKey(k) != nil { return nil }
+    if parseBrowserKey(k) != nil || isAgentsKey(k) { return nil }
     if let p = parseChatKey(k) ?? parseBenchShellKey(k) { return "pane:" + p }
     if let t = parseTaskKey(k) { return "gt:\(t.machine):\(t.group):\(t.branch)" }
     if let c = parseChangesKey(k) { return "b:\(key(c.machine, c.project)):\(c.branch)" }

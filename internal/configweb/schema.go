@@ -321,6 +321,8 @@ func Schema(c Choices) []Section {
 					Help: "The ports a pane's programs listen on, a click opening one in the browser."},
 				{Key: "chat", Label: "Workbench chat", Kind: KindBool, Default: true,
 					Help: "An agent's conversation as messages in the workbench, beside its terminal, with attachments and a Stop. Off (or CONCH_CHAT=0), the agent's own terminal is used."},
+				{Key: "web_views", Label: "Changes drawn by conch-ui", Kind: KindBool, Default: true,
+					Help: "A branch's Changes in a web view: the same diff, notes, commit and review, drawn with HTML. Off (or CONCH_WEB_VIEWS=0), the earlier native view is used."},
 				{Key: "scratch_key", Label: "Option-space anywhere", Kind: KindBool,
 					Help: "Show the scratch layer with Conch.app in the background, as Ghostty's quick terminal does. Off, option-space works in the window only."},
 				{Key: "prefix_keys", Label: "Prefix keys in panes", Kind: KindBool, Default: true,

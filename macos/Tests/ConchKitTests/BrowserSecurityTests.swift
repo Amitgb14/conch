@@ -167,15 +167,20 @@ import Testing
 
 // No bridge from a page into conch: no message handler a page can reach,
 // no script in the page's own world, nothing it can call. The one channel
-// back from a page is the error watcher (BrowserContent.swift), and only
-// that file may set up a script or a handler: one-way (no reply), in a
-// content world of its own, and none in a private tab. The other scripts
+// back from a web page is the error watcher (BrowserContent.swift), and
+// only that file may set up a script or a handler: one-way (no reply), in a
+// content world of its own, and none in a private tab. conch-ui's host
+// (ConchUIHost.swift) is the other: not a web page but conch's own, which
+// loads and runs nothing, its script and handler in a world of their own
+// and what it posts checked (WebUI.swift and each view's parser). The other scripts
 // conch runs (the icon's link, the user agent for About Browser) run in
 // WebKit's client world, which the page cannot reach. A source check, since
 // a bridge would be one line that nothing else would notice.
 @Test func pagesHaveNoBridgeIntoConch() throws {
     let dir = (#filePath as NSString).deletingLastPathComponent + "/../../Sources/ConchApp"
     let channel = "BrowserContent.swift"
+    let inspector = "ConchUIHost.swift"
+    var sawInspector = false
     var scripts = 0
     var sawChannel = false
     for f in try FileManager.default.contentsOfDirectory(atPath: dir) where f.hasSuffix(".swift") {
@@ -187,14 +192,18 @@ import Testing
             for bad in ["WKScriptMessageHandlerWithReply", "addScriptMessageHandler", "callAsyncJavaScript", "contentWorld: .page", "in: .page"] {
                 #expect(!line.contains(bad), "\(f):\(i + 1): \(bad) would let a page reach conch")
             }
-            if f != channel {
+            if f != channel && f != inspector {
                 for bad in ["WKScriptMessageHandler", "WKUserScript", "userContentController", "WKContentWorld.world"] {
                     #expect(!line.contains(bad), "\(f):\(i + 1): \(bad) belongs in \(channel), under its rules")
                 }
             }
             if line.contains("evaluateJavaScript") {
-                scripts += 1
-                #expect(line.contains("in: .defaultClient"), "\(f):\(i + 1): a script in the page's own world")
+                if f == inspector {
+                    #expect(line.contains("in: nil, in: webWorld"), "\(f):\(i + 1): conch-ui runs in its world")
+                } else {
+                    scripts += 1
+                    #expect(line.contains("in: .defaultClient"), "\(f):\(i + 1): a script in the page's own world")
+                }
             }
         }
         if f == channel {
@@ -208,8 +217,19 @@ import Testing
             #expect(all.contains("PageIssue.fromScript(m.body)"), "what it posts is checked")
             #expect(all.contains("m.world == browserIssueWorld"), "and only from its world")
         }
+        if f == inspector {
+            sawInspector = true
+            let all = code.joined(separator: "\n")
+            #expect(all.contains("WKContentWorld.world(name: webWorldName)"), "conch-ui's world is its own")
+            #expect(all.contains("in: webWorld))") && all.contains("contentWorld: webWorld, name:"), "script and handler both in it")
+            #expect(all.components(separatedBy: "addUserScript(").count == 2, "one script")
+            #expect(all.components(separatedBy: "ucc.add(self").count == 2, "one handler")
+            #expect(all.contains("message.world == webWorld"), "and only from its world")
+            #expect(all.contains("webMessage(message.body), m.view == kind"), "what it posts is checked")
+            #expect(all.contains("loadHTMLString(webPage, baseURL: nil)") && !all.contains(".load(URLRequest"), "its own page and no other")
+        }
     }
-    #expect(sawChannel)
+    #expect(sawChannel && sawInspector)
     #expect(scripts <= 2, "the icon's and the user agent's")
 }
 

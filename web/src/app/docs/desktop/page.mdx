@@ -1,0 +1,35 @@
+export const metadata = { title: "Linux and Windows app", description: "conch's desktop app for Linux and Windows: your agents and terminals in a window, on the same server as the TUI." }
+
+# Linux and Windows app
+
+A window on conch for Linux and Windows: the agents that need you, every project's agents and terminals, a tab for each, and the Agents overview. Closing it stops nothing.
+
+<Callout type="note">A **preview**: built from source for now, and without the Mac app's Changes view yet.</Callout>
+
+## What it shows
+
+**Needs you:** a card for each agent waiting on you, at the top of the sidebar.
+
+**The tree:** projects with their agents and terminals, waiting ones first; terminals in no project under **CLI**.
+
+**Tabs:** click a row to open its pane. Typing goes to the pane; ctrl+shift+c and ctrl+shift+v copy and paste. Closing a tab leaves the pane running.
+
+**Agents:** every agent as a card, with the filters and activity of the [Mac app](/docs/mac-app)'s overview — the same view.
+
+## How it reaches conch
+
+It runs `conch bridge` and speaks to the server through it, as the Mac app does with a remote machine.
+
+**Linux:** conch on your `PATH`, or `~/.local/bin`; `CONCH_BIN` points elsewhere.
+
+**Windows:** conch runs inside WSL, so the app runs `conch bridge` there. `CONCH_WSL_DISTRO` picks a distribution other than the default.
+
+## Building it
+
+```sh
+cd desktop
+pnpm install
+pnpm start                     # run it from source
+pnpm dist:linux                # → dist/: AppImage and tar.gz, x64 and arm64
+pnpm dist:win                  # → dist/: zip, x64 and arm64
+```

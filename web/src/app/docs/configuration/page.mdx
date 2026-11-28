@@ -170,6 +170,7 @@ background_fireworks = true # fireworks over the scene when a pull request merge
 ports = true           # the ports a pane's programs listen on, in its header
 scratch_key = false    # option-space shows the scratch layer with Conch.app in the background
 prefix_keys = true     # the TUI's prefix keys ([keys]) in the app's panes too
+web_views = true       # a branch's Changes drawn by conch-ui; false for the earlier native view
 check_updates = true   # Conch.app asks GitHub daily for a newer release of itself
 auto_update = false    # and installs it without asking, to run from the next launch
 text_size = 100        # the window's own text, in percent (80–160); ⇧⌘+ / ⇧⌘− step it
@@ -363,6 +364,7 @@ How the [Mac app](/docs/mac-app) draws its window — **Settings → Mac App**, 
 | `ports` | `true` | the TCP ports a pane's programs listen on, in its header — a click opens one in the browser, or on another machine copies the ssh tunnel to it |
 | `scratch_key` | `false` | option-space shows the scratch layer from anywhere, Conch.app in the background or not, as Ghostty's quick terminal does; off, it works in the window only |
 | `prefix_keys` | `true` | `[keys] prefix` and the keys after it work in the app's panes as in the TUI, from the same table; off, the prefix goes to the program |
+| `web_views` | `true` | a branch's Changes is drawn by conch-ui, the views the desktop app draws with HTML (the inspector, ⌃⌘I, and the Agents overview, ⌃⌘A, always are) — the same files, diff, notes, commit, checks and review; `false`, or `CONCH_WEB_VIEWS=0`, brings back the earlier native view |
 | `check_updates` | `true` | Conch.app asks GitHub once a day whether a newer release of itself is out and says so in the status bar; **Conch → Check for Updates…** asks now. `[update]` is the command line's. A build from source never asks |
 | `auto_update` | `false` | install that release as soon as the check finds one — downloaded, verified (checksum, signature, Team ID, notarization) and put in place of the app — to run from the next launch; off, the app asks first |
 | `text_size` | `100` | the window's own text — the sidebar, tabs, the git tab, the status bar — in percent, 80 to 160; **View → Bigger / Smaller Window Text** (⇧⌘+ / ⇧⌘−) steps it through 80, 90, 100, 110, 125, 140, 160 and ⌃⇧⌘0 puts it back, writing it here. The sidebar widens with it |

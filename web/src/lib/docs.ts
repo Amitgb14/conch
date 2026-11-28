@@ -29,6 +29,7 @@ export const docs: DocSection[] = [
       { title: "Sandboxes for other tools", href: "/docs/sandbox-tools", description: "conch-sandbox: conch's sandboxes for herdr, the herdr app and Orca, over plain ssh." },
       { title: "Integrations", href: "/docs/integrations", description: "Read CircleCI, GitLab CI, Buildkite and Jenkins failures the way conch reads GitHub Actions." },
       { title: "Mac app", href: "/docs/mac-app", description: "conch in a native macOS window: the tree, tabs and splits, panes drawn by Ghostty where it is built in, a branch's changes, sessions, commits, and answers on a waiting agent." },
+      { title: "Linux and Windows app", href: "/docs/desktop", description: "A preview of conch's desktop app for Linux and Windows: agents and terminals in a window, Windows through WSL." },
       { title: "Mobile preview", href: "/docs/mobile-preview", description: "Your app on a real iOS simulator in Conch.app, beside the agent writing it." },
       { title: "Phone", href: "/docs/phone", description: "See your agents from your phone, reply to one and answer what it asks." },
       { title: "iPhone app", href: "/docs/iphone", description: "Set up Conch for iPhone: pairing, permissions, attachments and review." },

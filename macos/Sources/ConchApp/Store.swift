@@ -194,6 +194,15 @@ final class Store: ObservableObject {
     /// Bumped to put the keyboard in the find bar's field.
     @Published var findFocus = 0
     @Published var sidebarVisible = true
+    /// The inspector column at the right edge (⌃⌘I, InspectorPanel.swift),
+    /// remembered across launches.
+    @Published var inspectorOpen = UserDefaults.standard.bool(forKey: "inspectorOpen") {
+        didSet { UserDefaults.standard.set(inspectorOpen, forKey: "inspectorOpen") }
+    }
+    /// The column's web view, made the first time it is shown and kept.
+    private(set) lazy var inspectorHost = ConchUIHost(kind: .inspector)
+    /// The Agents overview's (⌃⌘A, AgentsTab.swift).
+    private(set) lazy var agentsHost = ConchUIHost(kind: .agents)
     /// What the status bar says for a moment (say), and the long jobs
     /// running (job), oldest first.
     @Published private(set) var flash: Flash?
@@ -395,6 +404,9 @@ final class Store: ObservableObject {
     /// CONCH_CHAT, else [app] chat), read with the theme. Off in 0.2.0: the
     /// agent's own terminal takes the chat's place.
     @Published var offersChat = false
+    /// Whether a branch's Changes is drawn by conch-ui (webViewsEnabled:
+    /// CONCH_WEB_VIEWS, else [app] web_views), read with the theme.
+    @Published var webViews = true
     @Published var cloudMachines: [CloudMachine] = []
     @Published var cloudLogin: CloudLoginState = .idle
     @Published var cloudError = ""
@@ -537,6 +549,7 @@ final class Store: ObservableObject {
         // A workbench's chat and terminal are the agent's.
         if let a = parseChatKey(k) ?? parseBenchShellKey(k) { return scope(of: a) }
         if parseBrowserKey(k) != nil { return "Browser · this Mac" } // a page is not any project's
+        if isAgentsKey(k) { return "Every machine" }
         if let t = parseTaskKey(k) { return [t.group, label(t.machine)].joined(separator: " · ") }
         if let c = parseChangesKey(k) {
             return [snapshots[c.machine]?.project(c.project)?.name ?? "", label(c.machine)].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -775,6 +788,24 @@ final class Store: ObservableObject {
             self?.treeMemo = nil
             self?.needsYouMemo = nil
         }
+    }
+
+    /// Every agent and terminal on every machine, in every workspace, for
+    /// the Agents overview (AgentsTab.swift), in the roster's order.
+    var overviewCards: [RosterCard] {
+        roster(machines.flatMap { m -> [RosterCard] in
+            let snap = snapshots[m.id] ?? Snapshot()
+            return snap.shown(in: nil, machine: m.id).map { p in
+                let place = [snap.place(of: p), m.id == "local" ? "" : label(m.id)].filter { !$0.isEmpty }.joined(separator: " · ")
+                return RosterCard(key: key(m.id, p.id), pane: p, place: place)
+            }
+        })
+    }
+
+    /// The Agents overview, in a tab of its own (one per window).
+    func openAgents() {
+        layout.open(agentsKey)
+        terminalHasKeyboard = false
     }
 
     private func buildRoster() -> [RosterCard] {
@@ -1107,6 +1138,8 @@ final class Store: ObservableObject {
             // one on screen shown its chat.
             if !chat { layout.hideChat() } else if layout.current?.benchAgent != nil { layout.setBench(layout.current?.bench ?? .ide, chat: true) }
         }
+        let web = webViewsEnabled(toml: toml, env: ProcessInfo.processInfo.environment)
+        if web != webViews { webViews = web }
         let acts = parseActions(toml: toml ?? "")
         if acts != actions { actions = acts }
         let ts = parseTeams(toml: toml ?? "")
@@ -3046,6 +3079,8 @@ final class Store: ObservableObject {
         case "nextTab": layout.step(1); focusTerminal()
         case "previousTab": layout.step(-1); focusTerminal()
         case "toggleSidebar": sidebarVisible.toggle()
+        case "toggleInspector": inspectorOpen.toggle()
+        case "agentsOverview": openAgents()
         case "workbench": workbenchForFocused()
         case let b where b.hasPrefix("bench:"):
             let l = BenchLayout(setting: String(b.dropFirst(6)))

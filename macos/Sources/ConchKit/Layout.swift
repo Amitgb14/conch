@@ -479,7 +479,7 @@ extension Layout {
 /// Whether a layout key is a pane's ("machine|id"), rather than a view of
 /// a branch's changes, a project's commits or its sessions.
 public func isPaneKey(_ k: String) -> Bool {
-    parseChatKey(k) == nil && parseBenchShellKey(k) == nil && parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil && parseMobileKey(k) == nil
+    parseChatKey(k) == nil && parseBenchShellKey(k) == nil && parseChangesKey(k) == nil && parseCommitsKey(k) == nil && parseSessionsKey(k) == nil && parseFilesKey(k) == nil && parseSetupKey(k) == nil && parseBrowserKey(k) == nil && parseTaskKey(k) == nil && parseMobileKey(k) == nil && !isAgentsKey(k)
 }
 
 /// Whether a layout leaf is drawn by a terminal of its own — a pane, a

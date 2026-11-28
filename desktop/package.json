@@ -1,0 +1,57 @@
+{
+  "name": "conch-desktop",
+  "productName": "Conch",
+  "private": true,
+  "version": "0.2.3",
+  "description": "conch's desktop app for Linux and Windows",
+  "main": "src/main.cjs",
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "prepare-ui": "node scripts/vendor.mjs",
+    "start": "node scripts/vendor.mjs && electron .",
+    "test": "node --test test/*.test.mjs",
+    "dist:linux": "node scripts/vendor.mjs && electron-builder --linux tar.gz AppImage --x64 --arm64",
+    "dist:win": "node scripts/vendor.mjs && electron-builder --win zip --x64 --arm64"
+  },
+  "devDependencies": {
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0"
+  },
+  "author": "conch",
+  "homepage": "https://github.com/Amitgb14/conch",
+  "license": "Apache-2.0",
+  "build": {
+    "appId": "sh.conch.desktop",
+    "productName": "Conch",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "renderer/**",
+      "package.json"
+    ],
+    "asar": true,
+    "icon": "../assets/conch-icon.png",
+    "linux": {
+      "target": [
+        "tar.gz",
+        "AppImage"
+      ],
+      "category": "Development",
+      "artifactName": "conch-desktop-${version}-linux-${arch}.${ext}",
+      "executableName": "conch-desktop",
+      "syncDesktopName": true
+    },
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "artifactName": "conch-desktop-${version}-windows-${arch}.${ext}"
+    }
+  },
+  "desktopName": "conch-desktop.desktop"
+}

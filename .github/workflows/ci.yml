@@ -96,3 +96,21 @@ jobs:
           cache: pnpm
           cache-dependency-path: internal/configweb/app/pnpm-lock.yaml
       - run: make settings-ui-check
+
+  # conch-ui (ui/) is committed as built too, as Swift for Conch.app:
+  # its logic tested with node, then rebuilt and compared.
+  conch-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+      - run: make conch-ui-check
+      # The Linux and Windows app, which draws conch-ui too.
+      - run: make desktop-test

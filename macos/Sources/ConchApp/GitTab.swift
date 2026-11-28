@@ -30,7 +30,8 @@ struct ChangesView: View {
             }
             switch model.mode {
             case .overview: GitOverview(store: store, model: model, info: info)
-            case .changes: GitChanges(store: store, model: model, info: info)
+            case .changes:
+                if store.webViews { GitChangesWeb(store: store, model: model, info: info) } else { GitChanges(store: store, model: model, info: info) }
             case .graph:
                 CommitsView(model: store.commits(for: commitsKey(model.machine, model.project)), store: store, embedded: true)
             }
