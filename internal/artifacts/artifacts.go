@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -100,42 +101,115 @@ var Shared = NewCache()
 var MaxCached = 1 << 14
 
 // Cache remembers each transcript's artifacts until the file changes: a
-// long session's transcript runs to megabytes.
+// long session's transcript runs to megabytes, and a live one to hundreds.
+// A transcript only grows, so one that grew is read from where it was left
+// (as internal/usage's history is), and one being read already is waited
+// for rather than read a second time: every window of Conch.app asks for
+// the whole list as it connects, and on an empty cache — the first start,
+// and every reload — that was each of them reading every transcript.
 type Cache struct {
-	mu      sync.Mutex
-	entries map[string]entry
+	mu       sync.Mutex
+	entries  map[string]*entry
+	inflight map[string]chan struct{}
+
+	// read counts the bytes read from transcripts, for tests.
+	read atomic.Int64
+	// testReading is called as a transcript is read, and testWaiting as
+	// a caller waits for another's read of it; for tests.
+	testReading func(path string)
+	testWaiting func(path string)
 }
 
 type entry struct {
+	// file is the transcript as last read: a different file at the path
+	// (replaced, not appended to) is read from the start.
+	file  os.FileInfo
 	size  int64
 	mtime time.Time
-	arts  []proto.Artifact
+	// offset is how far it was read: past the last whole line.
+	offset int64
+	p      *parser
+	arts   []proto.Artifact
 }
 
 // NewCache is an empty cache.
-func NewCache() *Cache { return &Cache{entries: map[string]entry{}} }
+func NewCache() *Cache {
+	return &Cache{entries: map[string]*entry{}, inflight: map[string]chan struct{}{}}
+}
 
 // Read is one transcript's artifacts, newest first.
 func (c *Cache) Read(path string) ([]proto.Artifact, error) {
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil, err
+	for {
+		st, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		c.mu.Lock()
+		e := c.entries[path]
+		if e != nil && e.size == st.Size() && e.mtime.Equal(st.ModTime()) {
+			c.mu.Unlock()
+			return e.arts, nil
+		}
+		if wait, ok := c.inflight[path]; ok {
+			c.mu.Unlock()
+			if c.testWaiting != nil {
+				c.testWaiting(path)
+			}
+			<-wait
+			continue
+		}
+		done := make(chan struct{})
+		c.inflight[path] = done
+		c.mu.Unlock()
+
+		arts, err := c.load(path, e)
+
+		c.mu.Lock()
+		delete(c.inflight, path)
+		close(done)
+		c.mu.Unlock()
+		return arts, err
 	}
-	c.mu.Lock()
-	e, ok := c.entries[path]
-	c.mu.Unlock()
-	if ok && e.size == st.Size() && e.mtime.Equal(st.ModTime()) {
-		return e.arts, nil
+}
+
+// load brings path's entry up to date — from where e left off when the
+// file has only grown — and stores it. Only one load of a path runs at a
+// time, so e is this call's to change.
+func (c *Cache) load(path string, e *entry) ([]proto.Artifact, error) {
+	if c.testReading != nil {
+		c.testReading(path)
 	}
 	f, err := os.Open(path)
 	if err != nil {
+		c.drop(path)
 		return nil, err
 	}
 	defer f.Close()
-	arts, err := Parse(f)
+	st, err := f.Stat()
 	if err != nil {
+		c.drop(path)
 		return nil, err
 	}
+	// Appended to: the same file, and longer than when it was read. One
+	// the same size with a new time, or shorter, was rewritten.
+	grew := e != nil && os.SameFile(e.file, st) && st.Size() > e.size
+	next := &entry{file: st, size: st.Size(), mtime: st.ModTime(), p: newParser()}
+	if grew {
+		next.p, next.offset = e.p, e.offset
+		if _, err := f.Seek(e.offset, io.SeekStart); err != nil {
+			c.drop(path)
+			return nil, err
+		}
+	}
+	n, err := next.p.read(f)
+	c.read.Add(n.read)
+	if err != nil {
+		// The parser may be part way through what it was given.
+		c.drop(path)
+		return nil, err
+	}
+	next.offset += n.used
+	next.arts = next.p.artifacts()
 	c.mu.Lock()
 	if len(c.entries) >= MaxCached {
 		// Transcripts deleted since go first; only past that, everything.
@@ -148,9 +222,16 @@ func (c *Cache) Read(path string) ([]proto.Artifact, error) {
 			clear(c.entries)
 		}
 	}
-	c.entries[path] = entry{size: st.Size(), mtime: st.ModTime(), arts: arts}
+	c.entries[path] = next
 	c.mu.Unlock()
-	return arts, nil
+	return next.arts, nil
+}
+
+// drop forgets path, so the next read starts from the beginning.
+func (c *Cache) drop(path string) {
+	c.mu.Lock()
+	delete(c.entries, path)
+	c.mu.Unlock()
 }
 
 // Len is how many transcripts the cache holds.
@@ -255,24 +336,60 @@ type transcriptBlock struct {
 // one entry per artifact, newest first. Lines that are not JSON are
 // skipped, as a transcript cut off mid-write ends in one.
 func Parse(r io.Reader) ([]proto.Artifact, error) {
-	calls := map[string]artifactCall{}
-	counted := map[string]bool{}
-	byURL := map[string]*proto.Artifact{}
+	p := newParser()
+	if _, err := p.read(r); err != nil {
+		return nil, err
+	}
+	return p.artifacts(), nil
+}
+
+// parser is what has been found in a transcript so far: kept between
+// reads, since a publish's result can come in a later append than its
+// call.
+type parser struct {
+	calls   map[string]artifactCall
+	counted map[string]bool
+	byURL   map[string]*proto.Artifact
+}
+
+func newParser() *parser {
+	return &parser{calls: map[string]artifactCall{}, counted: map[string]bool{}, byURL: map[string]*proto.Artifact{}}
+}
+
+// readCount is how many bytes a read took from its reader, and how many of
+// those it is done with: a last line still being written is read again.
+type readCount struct{ read, used int64 }
+
+// read takes the lines r holds.
+func (p *parser) read(r io.Reader) (readCount, error) {
+	var n readCount
 	br := bufio.NewReaderSize(r, 1<<20)
 	for {
 		line, err := br.ReadBytes('\n')
+		n.read += int64(len(line))
+		last := errors.Is(err, io.EOF)
+		if err != nil && !last {
+			return n, err
+		}
+		// A last line with no newline may still be being written: it is
+		// taken only when it is whole, and otherwise read again next time.
+		if last && len(line) > 0 && !json.Valid(line) {
+			return n, nil
+		}
+		n.used += int64(len(line))
 		if len(line) > 0 && (bytes.Contains(line, []byte(`"Artifact"`)) || bytes.Contains(line, []byte("claude.ai/"))) {
-			collect(line, calls, counted, byURL)
+			collect(line, p.calls, p.counted, p.byURL)
 		}
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, err
+		if last {
+			return n, nil
 		}
 	}
-	out := make([]proto.Artifact, 0, len(byURL))
-	for _, a := range byURL {
+}
+
+// artifacts is what was found, newest first.
+func (p *parser) artifacts() []proto.Artifact {
+	out := make([]proto.Artifact, 0, len(p.byURL))
+	for _, a := range p.byURL {
 		out = append(out, *a)
 	}
 	slices.SortFunc(out, func(a, b proto.Artifact) int {
@@ -281,7 +398,7 @@ func Parse(r io.Reader) ([]proto.Artifact, error) {
 		}
 		return strings.Compare(a.URL, b.URL)
 	})
-	return out, nil
+	return out
 }
 
 // collect reads one transcript line. counted is the tool calls whose
