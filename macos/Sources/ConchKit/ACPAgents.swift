@@ -265,3 +265,10 @@ public func markAgent(_ agent: String, acp: [AgentAvailability]) -> String {
 public func agentMenuGroups(_ agents: [AgentAvailability]) -> (native: [AgentAvailability], acp: [AgentAvailability]) {
     (agents.filter { !$0.isACP }, agents.filter(\.isACP))
 }
+
+/// agentMenuGroups as one list, for a picker that cannot show sections:
+/// the others first, then those over ACP.
+public func agentsGroupedFlat(_ agents: [AgentAvailability]) -> [AgentAvailability] {
+    let g = agentMenuGroups(agents)
+    return g.native + g.acp
+}

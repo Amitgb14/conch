@@ -554,6 +554,10 @@ public func gutterWidth(lines: Int, digit: CGFloat) -> CGFloat {
 /// machine, each by its full name (Claude Code), or Claude Code alone when
 /// none is known to be installed yet.
 public func agentEditChoices(_ agents: [AgentAvailability]) -> [SettingsOption] {
-    let have = agents.filter(\.installed).map { SettingsOption(value: $0.name, label: ($0.label ?? "").isEmpty ? $0.name : $0.label!) }
+    // Agents over ACP after the others, and said to be: claude-agent-acp
+    // is not Claude Code.
+    let g = agentMenuGroups(agents.filter(\.installed))
+    let have = g.native.map { SettingsOption(value: $0.name, label: $0.title) }
+        + g.acp.map { SettingsOption(value: $0.name, label: $0.title + " · ACP") }
     return have.isEmpty ? [SettingsOption(value: "claude", label: "Claude Code")] : have
 }

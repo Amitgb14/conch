@@ -147,3 +147,16 @@ private let geminiACP = AgentAvailability(name: "gemini-acp", label: "Gemini (AC
     #expect(g.acp.map(\.name) == ["claude-agent-acp", "goose-acp"])
     #expect(agentMenuGroups([AgentAvailability(name: "claude")]).acp.isEmpty)
 }
+
+@Test func flatAgentPickersPutACPAgentsLast() {
+    let agents = [
+        AgentAvailability(name: "claude-agent-acp", installed: true, proto: "acp"),
+        AgentAvailability(name: "claude", label: "Claude Code", installed: true),
+        AgentAvailability(name: "goose-acp", label: "Goose", installed: false, proto: "acp"),
+        AgentAvailability(name: "codex", installed: true),
+    ]
+    let c = agentEditChoices(agents)
+    #expect(c.map(\.value) == ["claude", "codex", "claude-agent-acp"])
+    #expect(c.last?.label == "claude-agent-acp · ACP")
+    #expect(agentsGroupedFlat(agents).map(\.name) == ["claude", "codex", "claude-agent-acp", "goose-acp"])
+}
