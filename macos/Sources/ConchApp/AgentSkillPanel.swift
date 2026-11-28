@@ -69,7 +69,7 @@ final class AgentSkillModel: ObservableObject {
                 }
                 let a = NSAlert()
                 a.messageText = remove ? "Take \(what) away on \(store.label(m))?" : "Install \(what) on \(store.label(m))?"
-                a.informativeText = writes.map { "\($0.path)\n    for \($0.agents.joined(separator: ", "))" }.joined(separator: "\n")
+                a.informativeText = skillWritesSummary(writes, home: m == "local" ? NSHomeDirectory() : "")
                     + (remove ? "\n\nOnly conch's own copies go; a skill of yours of that name is left alone."
                               : "\n\nBeside your own skills, replacing none of them.")
                 a.addButton(withTitle: remove ? "Remove" : "Install")
