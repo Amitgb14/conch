@@ -538,3 +538,66 @@ func TestSwitchKeepsARawViewer(t *testing.T) {
 		t.Error("no fresh replay of the new agent: the view would draw it over the old one's screen")
 	}
 }
+
+// TestTwoSwitchesAtOnce: a second switch asked for while the first is
+// being made — another client, a retry after a timeout — is refused, so
+// one agent takes the pane's place and none is left running without one.
+// Codex's importer takes a second here, which keeps the first switch in
+// its writing while the second arrives.
+func TestTwoSwitchesAtOnce(t *testing.T) {
+	home, log := switchHome(t)
+	slow := "#!/bin/sh\n[ \"$1\" = app-server ] && { sleep 1; exit 1; }\nprintf 'codex|%s\\n' \"$*\" >> " + log + "\nexec cat\n"
+	if err := os.WriteFile(filepath.Join(home, ".local", "bin", "codex"), []byte(slow), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c, dir := startServer(t)
+	ctx := t.Context()
+	var p proto.PaneInfo
+	if err := c.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", Cwd: dir, Cols: 80, Rows: 20}, &p); err != nil {
+		t.Fatal(err)
+	}
+	launches(t, log, 1)
+	_, conv := claudeSession(t, home, dir)
+	report(t, c, proto.AgentReportParams{ID: p.ID, Agent: "claude", Event: "Stop", TranscriptPath: conv})
+	for deadline := time.Now().Add(10 * time.Second); panesNow(t, c)[p.ID].Agent == nil; {
+		if time.Now().After(deadline) {
+			t.Fatal("never seen as an agent")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Two clients, as the TUI and Conch.app are: one connection's calls
+	// are answered in turn.
+	c2, err := client.Dial(filepath.Join(dir, "s.sock"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c2.Close() })
+	errs := make(chan error, 2)
+	for i, to := range []string{"codex", "gemini"} {
+		cl := []*client.Client{c, c2}[i]
+		go func() {
+			errs <- cl.Call(ctx, proto.MethodAgentSwitch, proto.AgentSwitchParams{ID: p.ID, To: to, Now: true, NoContinue: true}, nil)
+		}()
+		time.Sleep(200 * time.Millisecond) // the first is writing by now
+	}
+	var ok, refused int
+	for range 2 {
+		var perr *proto.Error
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case errors.As(err, &perr) && perr.Code == proto.ErrBadRequest:
+			refused++
+		default:
+			t.Fatalf("a switch: %v", err)
+		}
+	}
+	if ok != 1 || refused != 1 {
+		t.Fatalf("%d switched and %d refused, want one of each", ok, refused)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if got := launches(t, log, 2); len(got) != 2 {
+		t.Fatalf("started %d programs for one pane: %q", len(got), got)
+	}
+}

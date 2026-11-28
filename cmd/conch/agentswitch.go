@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/client"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -74,9 +75,16 @@ func agentSwitch(args []string) error {
 	return nil
 }
 
+// switchWait is how long a switch is waited for, as the TUI waits: the
+// server reads the conversation (up to 20s) and writes the other agent's
+// session (up to two minutes — Codex's own importer is a program), and a
+// caller that gave up at ten seconds was told it failed while the switch
+// went on, and tried again into a pane already switching.
+var switchWait = 3 * time.Minute
+
 func switchPane(c *client.Client, p proto.AgentSwitchParams) (proto.AgentSwitchResult, error) {
 	var res proto.AgentSwitchResult
-	err := call(c, proto.MethodAgentSwitch, p, &res)
+	err := callFor(c, proto.MethodAgentSwitch, p, &res, switchWait)
 	return res, err
 }
 

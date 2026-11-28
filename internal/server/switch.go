@@ -52,10 +52,32 @@ type switcher struct {
 
 	mu      sync.Mutex
 	pending map[string]*pendingSwitch
+	// busy is the panes a switch is being made in now: reading,
+	// writing and restarting take seconds, and a second switch in that
+	// time — another client, a retry, the countdown — started an agent
+	// of its own and left the first one running with no pane.
+	busy map[string]bool
 }
 
 func newSwitcher() *switcher {
-	return &switcher{tick: moveTick, jobWait: moveJobWait, pending: map[string]*pendingSwitch{}}
+	return &switcher{tick: moveTick, jobWait: moveJobWait, pending: map[string]*pendingSwitch{}, busy: map[string]bool{}}
+}
+
+// claim marks a switch under way in pane, or says one is already.
+func (w *switcher) claim(pane string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.busy[pane] {
+		return false
+	}
+	w.busy[pane] = true
+	return true
+}
+
+func (w *switcher) release(pane string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.busy, pane)
 }
 
 func (w *switcher) set(p proto.AgentSwitchParams, from string) {
@@ -339,6 +361,15 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 	info := e.info()
 	from := paneAgent(e, info)
 	res := proto.AgentSwitchResult{Pane: info, From: from, To: p.To}
+	if !s.switcher.claim(p.ID) {
+		return res, proto.Errorf(proto.ErrBadRequest, "%s is being switched already: wait for that switch to finish", p.ID)
+	}
+	defer s.switcher.release(p.ID)
+	// A switch that finished just before this one claimed the pane put a
+	// new agent in it: this one was asked about the agent that is gone.
+	if cur, perr := s.get(p.ID); perr != nil || cur != e {
+		return res, proto.Errorf(proto.ErrBadRequest, "%s was switched while this switch waited: look at what runs there now and switch again if you still want to", p.ID)
+	}
 	if why := midTurn(info); why != "" {
 		return res, proto.Errorf(proto.ErrBadRequest, "%s is mid-turn (%s)", p.ID, why)
 	}

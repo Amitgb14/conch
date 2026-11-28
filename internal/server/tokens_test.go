@@ -216,8 +216,13 @@ func TestTokenLevels(t *testing.T) {
 		{outside, "id_rsa", no},
 		{"", filepath.Join(outside, "id_rsa"), no},
 	} {
-		if got := codeOf(everywhere.Call(t.Context(), proto.MethodFSRead, proto.FSReadParams{Root: tc.root, Path: tc.path}, nil)); got != tc.want {
+		err := everywhere.Call(t.Context(), proto.MethodFSRead, proto.FSReadParams{Root: tc.root, Path: tc.path}, nil)
+		if got := codeOf(err); got != tc.want {
 			t.Errorf("unlimited read token reads %s %s: %s, want %s", tc.root, tc.path, got, tc.want)
+		}
+		// A file here, said as one: no ssh login is involved.
+		if err != nil && strings.Contains(err.Error(), "ssh") {
+			t.Errorf("refusal speaks of ssh: %v", err)
 		}
 	}
 

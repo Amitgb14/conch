@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Amitgb14/conch/internal/config"
 	"github.com/Amitgb14/conch/internal/proto"
@@ -72,6 +73,30 @@ func TestAgentSwitchCommand(t *testing.T) {
 		if _, _, err := a4Out(t, func() error { return runAgent(args) }); err == nil {
 			t.Errorf("%v: no error", args)
 		}
+	}
+}
+
+// A switch takes as long as reading and writing the conversation takes:
+// the command and the MCP tool wait for it past the usual call's wait,
+// rather than saying it failed while the server goes on switching.
+func TestSwitchWaitsPastAnOrdinaryCall(t *testing.T) {
+	old := callWait
+	callWait = 50 * time.Millisecond
+	t.Cleanup(func() { callWait = old })
+	srv, _ := accountServer(t)
+	srv.setHandle(func(msg proto.Message, _ *proto.Conn) (any, *proto.Error) {
+		if msg.Method == proto.MethodAgentSwitch {
+			time.Sleep(300 * time.Millisecond)
+			return proto.AgentSwitchResult{Pane: proto.PaneInfo{ID: "p3"}, From: "claude", To: "codex", Crossed: proto.SwitchNative, Session: "t-9"}, nil
+		}
+		return nil, nil
+	})
+	out, _, err := a4Out(t, func() error { return runAgent([]string{"switch", "-now", "p3", "codex"}) })
+	if err != nil || !strings.Contains(out, "switched from claude to codex") {
+		t.Fatalf("a slow switch: %v %q", err, out)
+	}
+	if switchWait < 2*time.Minute+20*time.Second {
+		t.Errorf("switchWait %v is shorter than the server may take to read and write a conversation", switchWait)
 	}
 }
 
