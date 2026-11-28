@@ -100,6 +100,32 @@ func (l *runLog) endedByID(id string) (proto.EndedAgent, bool) {
 	return proto.EndedAgent{}, false
 }
 
+// claimEnded takes a record for resuming, or says there is none to take:
+// gone, or another resume has it. releaseEnded gives it back.
+func (l *runLog) claimEnded(id string) (proto.EndedAgent, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.resuming[id] {
+		return proto.EndedAgent{}, false
+	}
+	for _, e := range l.ended {
+		if e.ID == id {
+			if l.resuming == nil {
+				l.resuming = map[string]bool{}
+			}
+			l.resuming[id] = true
+			return e, true
+		}
+	}
+	return proto.EndedAgent{}, false
+}
+
+func (l *runLog) releaseEnded(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.resuming, id)
+}
+
 // dropEnded forgets a record, saying whether there was one.
 func (l *runLog) dropEnded(id string) bool {
 	l.mu.Lock()
@@ -213,10 +239,14 @@ func (s *Server) dismissEnded(ref proto.EndedRef) *proto.Error {
 // and under its name. The gone event names the new pane before the old
 // one is closed, so a client puts it where the old one was.
 func (s *Server) resumeEnded(c *client, p proto.EndedResumeParams) (proto.PaneInfo, *proto.Error) {
-	rec, ok := s.runs.endedByID(p.ID)
+	rec, ok := s.runs.claimEnded(p.ID)
 	if !ok {
+		if _, kept := s.runs.endedByID(p.ID); kept {
+			return proto.PaneInfo{}, proto.Errorf(proto.ErrBadRequest, "ended agent %q is being resumed already", p.ID)
+		}
 		return proto.PaneInfo{}, proto.Errorf(proto.ErrNotFound, "no ended agent %q", p.ID)
 	}
+	defer s.runs.releaseEnded(rec.ID)
 	info, perr := s.made(c)(s.resumeSession(proto.SessionRef{Agent: rec.Agent, ID: rec.Session, Dir: rec.Dir,
 		Account: rec.Account, Cols: p.Cols, Rows: p.Rows}))
 	if perr != nil {

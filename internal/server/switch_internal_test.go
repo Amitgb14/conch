@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/adapter"
+	"github.com/Amitgb14/conch/internal/detect"
 	"github.com/Amitgb14/conch/internal/pane"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -56,6 +58,37 @@ func TestAdoptKeepsASwitch(t *testing.T) {
 	}
 }
 
+// The "continue" a switch owes its new agent was a goroutine, which a
+// reload does not carry: a switch made just before one left the agent
+// waiting. It is carried in the state, and sent once the agent is ready.
+func TestAdoptSendsAPendingContinue(t *testing.T) {
+	a5IsolateEnv(t)
+	s, dir := a5Server(t)
+	// What the agent is sent comes back marked, and only as its output.
+	fd, pid := a5PtyProgram(t, "stty -echo; exec awk '{ print \"got:\" $0; fflush() }'")
+	tr := detect.TrackerState{Hint: "claude", HookState: "idle", Seen: true}
+	st := &reloadState{NextID: 2, Panes: []reloadPane{
+		{Snapshot: pane.Snapshot{ID: "p1", Command: []string{"awk"}, Cwd: dir, PID: pid, Cols: 40, Rows: 6}, FD: fd, Dir: dir, Loose: true,
+			Tracker: tr, Continue: true},
+	}}
+	b, _ := json.Marshal(st)
+	var back reloadState
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	s.adopt(&back)
+	e := a5Entry(t, s, "p1")
+	a5WaitFor(t, "continue sent", func() bool {
+		return strings.Contains(strings.Join(e.p.PlainLines(), "\n"), "got:continue")
+	})
+	e.mu.Lock()
+	owed := e.continuing
+	e.mu.Unlock()
+	if owed {
+		t.Fatal("still owed a continue after it was sent")
+	}
+}
+
 // What a reload writes says it too.
 func TestReloadStateNamesTheSwitch(t *testing.T) {
 	rp := reloadPane{SwitchedFrom: &proto.SwitchOrigin{Agent: "codex"}, Switch: &proto.AgentSwitchParams{ID: "p4", To: "claude"}}
@@ -73,6 +106,9 @@ func TestReloadStateNamesTheSwitch(t *testing.T) {
 	json.Unmarshal(b, &m)
 	if _, ok := m["switch"]; ok {
 		t.Fatalf("an empty pane writes a switch: %s", b)
+	}
+	if _, ok := m["continue"]; ok {
+		t.Fatalf("an empty pane writes a continue: %s", b)
 	}
 }
 

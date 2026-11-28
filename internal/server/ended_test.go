@@ -231,6 +231,51 @@ func TestEndedDismissAndResume(t *testing.T) {
 	}
 }
 
+// TestEndedResumedOnce: two clients resuming the same ended agent at the
+// same moment — the TUI and Conch.app — start its conversation once.
+func TestEndedResumedOnce(t *testing.T) {
+	s, work, c := endedFixture(t)
+	rec := proto.EndedAgent{ID: "p7.1", Pane: "p7", Agent: "claude", Session: "s-7", Dir: work, Why: proto.EndedExited, Ended: time.Now()}
+	s.runs.addEnded(rec)
+
+	// One already under way: the other is refused, and starts nothing.
+	if _, ok := s.runs.claimEnded(rec.ID); !ok {
+		t.Fatal("claim")
+	}
+	before := len(s.list())
+	if _, perr := s.resumeEnded(c, proto.EndedResumeParams{ID: rec.ID, Cols: 80, Rows: 24}); perr == nil || perr.Code != proto.ErrBadRequest {
+		t.Fatalf("resumed while another resume had it: %v", perr)
+	}
+	if n := len(s.list()); n != before {
+		t.Fatalf("a refused resume started a pane: %d panes, was %d", n, before)
+	}
+	s.runs.releaseEnded(rec.ID)
+
+	// Both at once: one pane, one refusal.
+	var wg sync.WaitGroup
+	errs := make([]*proto.Error, 2)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = s.resumeEnded(c, proto.EndedResumeParams{ID: rec.ID, Cols: 80, Rows: 24})
+		}()
+	}
+	wg.Wait()
+	if (errs[0] == nil) == (errs[1] == nil) {
+		t.Fatalf("want one resume and one refusal: %v, %v", errs[0], errs[1])
+	}
+	resumed := 0
+	for _, p := range s.list() {
+		if strings.Contains(strings.Join(p.Command, " "), "--resume s-7") {
+			resumed++
+		}
+	}
+	if resumed != 1 {
+		t.Fatalf("the conversation was started %d times", resumed)
+	}
+}
+
 // TestEndedExpiresAndIsCapped: records older than keepEnded go, and only
 // the newest maxEnded are kept.
 func TestEndedExpiresAndIsCapped(t *testing.T) {

@@ -32,6 +32,6 @@ Then the card counts down a few seconds with **Continue Now** and **Cancel**, an
 - Never mid-turn. Without `-now` it waits for the turn to end, and up to ten minutes for background commands; `-cancel ID` calls it off.
 - Each session is written to a scratch folder and read back first. If that fails, the document is handed over instead, and the result says why.
 - Only new files are written, and the source session is never touched, so switching back always works: it is just another switch.
-- `-preview` says what would cross; `-undo RECORD` removes what a switch wrote, keeping a file the agent has written to since.
+- `-preview` says what would cross; `-undo RECORD` removes what a switch wrote, keeping a file the agent has written to since — and refuses while an agent is still running the session it wrote.
 
 Agents can do the same through the `switch` tool of `conch mcp`, on agents they started.

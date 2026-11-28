@@ -515,6 +515,14 @@ func TestA5ReloadExecFailureCarriesOn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "reload-state.json")); !os.IsNotExist(err) {
 		t.Fatalf("state file left behind: %v", err)
 	}
+	// Hooks were stopped for the exec; the server carrying on runs them
+	// again rather than going without for the rest of its life.
+	s.hooks.mu.Lock()
+	stopped := s.hooks.stopped
+	s.hooks.mu.Unlock()
+	if stopped {
+		t.Fatal("event hooks stay off after a failed reload")
+	}
 	// The listener still works.
 	go func() {
 		if c, err := ln.Accept(); err == nil {

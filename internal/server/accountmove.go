@@ -373,9 +373,24 @@ func (s *Server) moveAgent(p proto.AgentMoveParams) (proto.PaneInfo, *proto.Erro
 	s.broadcast(proto.EventAgentMoved, proto.AgentMoved{Pane: nw.ID, Replaces: p.ID, Agent: agent,
 		From: accounts.Label(from), To: accounts.Label(to), Reason: reason})
 	if p.Continue {
-		goSafe("continue after a move", func() { s.continueWhenReady(nw.ID) })
+		s.continueLater(nw.ID, "continue after a move")
 	}
 	return nw, nil
+}
+
+// continueLater marks the pane as owed a "continue" and sends it once its
+// agent is ready.
+func (s *Server) continueLater(id, why string) {
+	if e, perr := s.get(id); perr == nil {
+		e.setContinuing(true)
+	}
+	goSafe(why, func() { s.continueWhenReady(id) })
+}
+
+func (e *entry) setContinuing(on bool) {
+	e.mu.Lock()
+	e.continuing = on
+	e.mu.Unlock()
 }
 
 // continueWhenReady sends "continue" to a resumed agent once it is ready
@@ -394,11 +409,17 @@ func (s *Server) continueWhenReady(id string) {
 		}
 		s.observe(e)
 		if a := e.info().Agent; a != nil && (a.State == proto.AgentIdle || a.State == proto.AgentDone) {
+			// Off before it is sent: a reload in between loses one
+			// continue rather than sending it twice.
+			e.setContinuing(false)
 			if _, perr := s.promptAgent(proto.AgentPromptParams{ID: id, Text: "continue"}); perr != nil {
 				log.Printf("accounts: %s moved, but continue was not sent: %s", id, perr.Message)
 			}
 			return
 		}
+	}
+	if e, perr := s.get(id); perr == nil {
+		e.setContinuing(false)
 	}
 	log.Printf("accounts: %s moved, but was not ready for continue within a minute", id)
 }

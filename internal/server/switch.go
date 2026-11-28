@@ -458,7 +458,7 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 		// one goes.
 		if record != nil {
 			_, _, _ = record.Undo()
-			os.Remove(filepath.Join(s.switchesDir(), res.Record+".json"))
+			sessions.RemoveSwitchRecord(s.switchesDir(), res.Record)
 		}
 		return res, perr
 	}
@@ -473,7 +473,7 @@ func (s *Server) makeSwitch(e *entry, p proto.AgentSwitchParams) (proto.AgentSwi
 	log.Printf("switch: %s switched from %s to %s (%s, %s%s)", p.ID, from, p.To, reason, res.Crossed, map[bool]string{true: ": " + res.Why, false: ""}[res.Why != ""])
 	s.broadcast(proto.EventAgentSwitched, res)
 	if pl.native && !p.NoContinue {
-		goSafe("continue after a switch", func() { s.continueWhenReady(p.ID) })
+		s.continueLater(p.ID, "continue after a switch")
 	}
 	return res, nil
 }
@@ -562,16 +562,52 @@ func (s *Server) undoSwitch(p proto.AgentSwitchUndoParams) (proto.AgentSwitchUnd
 		}
 		return proto.AgentSwitchUndoResult{}, proto.Errorf(proto.ErrInternal, "%v", err)
 	}
+	// A session the new agent has not written to yet still hashes as it
+	// was written, so the hash alone would let undo delete the
+	// conversation an agent is running on.
+	if id := s.runningSwitched(rec); id != "" {
+		return proto.AgentSwitchUndoResult{}, proto.Errorf(proto.ErrBadRequest,
+			"%s is still running the session switch %s wrote; end it or switch it first", id, p.Record)
+	}
 	removed, kept, err := rec.Undo()
 	res := proto.AgentSwitchUndoResult{Removed: removed, Kept: kept}
 	if err != nil {
 		return res, proto.Errorf(proto.ErrInternal, "%v", err)
 	}
 	if len(kept) == 0 {
-		os.Remove(filepath.Join(s.switchesDir(), p.Record+".json"))
+		sessions.RemoveSwitchRecord(s.switchesDir(), p.Record)
 	}
 	log.Printf("switch: undid %s: %d file(s) removed, %d kept", p.Record, len(removed), len(kept))
 	return res, nil
+}
+
+// runningSwitched is the running pane whose agent is on the session rec
+// wrote, or "": one that reports that session, or the agent the switch
+// started there, which has reported none yet.
+func (s *Server) runningSwitched(rec sessions.SwitchRecord) string {
+	s.mu.Lock()
+	entries := make([]*entry, 0, len(s.panes))
+	for _, e := range s.panes {
+		entries = append(entries, e)
+	}
+	s.mu.Unlock()
+	for _, e := range entries {
+		info := e.info()
+		if info.State != proto.PaneRunning || paneAgent(e, info) != rec.To {
+			continue
+		}
+		sid := ""
+		if info.Agent != nil {
+			sid = info.Agent.SessionID
+		}
+		if sid != "" && sid == rec.ToID {
+			return info.ID
+		}
+		if sf := info.SwitchedFrom; sid == "" && sf != nil && sf.Agent == rec.From && sf.Session == rec.FromID && (rec.Pane == "" || rec.Pane == info.ID) {
+			return info.ID
+		}
+	}
+	return ""
 }
 
 // watchSwitches makes the waiting switches whose moment has come.

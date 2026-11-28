@@ -73,6 +73,9 @@ type reloadPane struct {
 	// state files.
 	SwitchedFrom *proto.SwitchOrigin      `json:"switched_from,omitempty"`
 	Switch       *proto.AgentSwitchParams `json:"switch,omitempty"`
+	// Continue is a "continue" still owed to its agent after a switch or a
+	// move (continueLater); absent from older state files.
+	Continue bool `json:"continue,omitempty"`
 }
 
 // reloadBinary resolves and checks the program to reload into: it must run
@@ -163,6 +166,7 @@ func (s *Server) reload(bin string) {
 		rp.Account = e.account
 		rp.MovedFrom = e.movedFrom
 		rp.SwitchedFrom = e.switchedFrom
+		rp.Continue = e.continuing
 		rp.Team = e.team
 		rp.Subagents, rp.SubagentSession = e.subagents.list, e.subagents.session
 		e.mu.Unlock()
@@ -192,6 +196,7 @@ func (s *Server) reload(bin string) {
 	s.hooks.stopAll()
 	err = syscall.Exec(bin, []string{bin, "server"}, env)
 	os.Remove(path)
+	s.hooks.carryOn()
 	fail(fmt.Errorf("exec %s: %w", bin, err))
 }
 
@@ -246,6 +251,7 @@ func (s *Server) adopt(st *reloadState) {
 		e.account = rp.Account
 		e.movedFrom = rp.MovedFrom
 		e.switchedFrom = rp.SwitchedFrom
+		e.continuing = rp.Continue
 		if rp.Switch != nil {
 			s.switcher.restore(*rp.Switch)
 		}
@@ -263,6 +269,10 @@ func (s *Server) adopt(st *reloadState) {
 		s.order = append(s.order, rp.Snapshot.ID)
 		s.mu.Unlock()
 		goSafe("pane watch "+e.p.ID(), func() { s.watch(e) })
+		if rp.Continue {
+			id := rp.Snapshot.ID
+			goSafe("continue after a reload", func() { s.continueWhenReady(id) })
+		}
 	}
 	log.Printf("reloaded from build %s: took over %d pane(s)", st.FromBuild, len(st.Panes))
 }
