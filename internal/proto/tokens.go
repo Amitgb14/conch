@@ -39,13 +39,15 @@ const ErrUnauthorized = "unauthorized"
 
 // The access levels, least first: each may do what the one before it may.
 const (
-	// TokenRead reads: panes' screens, projects, diffs, sessions.
+	// TokenRead reads: panes' screens, projects, diffs, sessions, and
+	// files inside conch's projects (its own, when limited to some).
 	TokenRead = "read"
 	// TokenPrompt also sends to agents — a prompt, a reply, keys — but
 	// never types into a shell, where what is typed runs as a command.
 	TokenPrompt = "prompt"
 	// TokenDrive also starts and stops agents: tasks, agent panes,
-	// resumed sessions, closing and interrupting.
+	// resumed sessions, closing and interrupting. An agent it starts is
+	// given its --model at most: no other flags, no environment.
 	TokenDrive = "drive"
 	// TokenFull does what the person can, within its projects.
 	TokenFull = "full"

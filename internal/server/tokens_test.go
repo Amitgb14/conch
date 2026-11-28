@@ -138,6 +138,15 @@ func TestTokenLevels(t *testing.T) {
 		{call{"stop the server", proto.MethodServerStop, nil}, [4]string{no, no, no, no}},
 		{call{"make a token", proto.MethodTokenCreate, proto.TokenCreateParams{Name: "more", Level: proto.TokenFull}}, [4]string{no, no, no, no}},
 		{call{"schedule", proto.MethodScheduleAdd, proto.ScheduledItem{}}, [4]string{no, no, no, no}},
+		// An agent's flags and environment are the person's to give: below
+		// full, only which agent and its --model.
+		{call{"agent with its model", proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--model opus", Cwd: a}}, [4]string{no, no, ok, ok}},
+		{call{"agent told to ask nobody", proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--dangerously-skip-permissions", Cwd: a}}, [4]string{no, no, no, ok}},
+		{call{"agent with an environment", proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", Env: []string{"X=1"}, Cwd: a}}, [4]string{no, no, no, ok}},
+		// An ACP agent's command runs in the server: never a token's held
+		// to projects, whatever its level.
+		{call{"check an ACP command", proto.MethodAgentACPCheck, proto.AgentACPSpec{Command: "/bin/true"}}, [4]string{no, no, no, no}},
+		{call{"add an ACP agent", proto.MethodAgentACPAdd, proto.AgentACPAddParams{AgentACPSpec: proto.AgentACPSpec{Name: "x", Command: "/bin/true"}}}, [4]string{no, no, no, no}},
 	} {
 		for i, level := range proto.TokenLevels {
 			var out proto.PaneInfo
@@ -149,6 +158,17 @@ func TestTokenLevels(t *testing.T) {
 				c.Call(t.Context(), proto.MethodPaneClose, proto.PaneRef{ID: out.ID}, nil)
 			}
 		}
+	}
+
+	// A drive token's agent flags never reach a shell: the call is
+	// refused, and nothing the flags said ran.
+	marker := filepath.Join(a, "MARKER")
+	if got := codeOf(conns[proto.TokenDrive].Call(t.Context(), proto.MethodPaneCreate, proto.PaneCreateParams{Agent: "claude", AgentArgs: `--model "$(touch ` + marker + `)x"`, Cwd: a}, nil)); got != no {
+		t.Errorf("drive token starts an agent with a shell in its flags: %s", got)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a drive token's agent flags ran a command")
 	}
 
 	// Stopping an agent is driving: the drive token closes an agent's pane
@@ -163,6 +183,42 @@ func TestTokenLevels(t *testing.T) {
 	// ... and a shell in its project only at full.
 	if got := codeOf(conns[proto.TokenDrive].Call(t.Context(), proto.MethodPaneClose, proto.PaneRef{ID: inA}, nil)); got != no {
 		t.Errorf("drive token closes a shell: %s", got)
+	}
+
+	// A run is the project's it was made in: a full token held to A
+	// removes or starts A's runs, and none of B's.
+	for _, pr := range []proto.ProjectInfo{projA, projB} {
+		var run proto.Run
+		if err := c.Call(t.Context(), proto.MethodRunCreate, proto.RunCreateParams{Name: "run-" + pr.Name, ProjectID: pr.ID, Manual: true}, &run); err != nil {
+			t.Fatal(err)
+		}
+		want := ok
+		if pr.ID == projB.ID {
+			want = no
+		}
+		if got := codeOf(conns[proto.TokenFull].Call(t.Context(), proto.MethodRunRemove, proto.RunRef{Run: run.ID}, nil)); got != want {
+			t.Errorf("full token held to A removes a run in %s: %s, want %s", pr.Name, got, want)
+		}
+		if got := codeOf(conns[proto.TokenFull].Call(t.Context(), proto.MethodRunRemove, proto.RunRef{Run: run.Name}, nil)); pr.ID == projB.ID && got != no {
+			t.Errorf("full token held to A removes B's run by name: %s", got)
+		}
+	}
+
+	// A read token with no projects reads in every project, and no file
+	// outside them: ~/.ssh is not a diff.
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "id_rsa"), []byte("key"), 0o600)
+	for _, tc := range []struct {
+		root, path, want string
+	}{
+		{b, "secret.txt", ok},
+		{a, "notes.txt", ok},
+		{outside, "id_rsa", no},
+		{"", filepath.Join(outside, "id_rsa"), no},
+	} {
+		if got := codeOf(everywhere.Call(t.Context(), proto.MethodFSRead, proto.FSReadParams{Root: tc.root, Path: tc.path}, nil)); got != tc.want {
+			t.Errorf("unlimited read token reads %s %s: %s, want %s", tc.root, tc.path, got, tc.want)
+		}
 	}
 
 	// A read token with no projects reads anywhere and changes nothing.

@@ -517,12 +517,12 @@ An access token is a limited right for an agent outside conch — an MCP client 
 
 | Level | What it may do |
 | --- | --- |
-| `read` | read: screens, panes, projects, diffs, sessions, files in its projects |
+| `read` | read: screens, panes, projects, diffs, sessions, files in its projects (with none, in any of conch's projects — never elsewhere, such as `~/.ssh`) |
 | `prompt` | also send to agents — a prompt, a reply, keys — never type into a shell, where what is typed runs |
-| `drive` | also start and stop agents: tasks, agent panes, resumed sessions, closing and interrupting them |
+| `drive` | also start and stop agents: tasks, agent panes, resumed sessions, closing and interrupting them. It picks the agent and its `--model`, no other flags and no environment |
 | `full` | what you can do — within its projects; with none, making and revoking tokens too |
 
-`-project` (name, id or folder; repeat it) limits a token to those projects: every pane, project and folder a call names must be in one of them, and anything about all of them — the server, the library, other tokens — is refused. Lists are not filtered. Without `-project` it reaches every project. Tokens last 30 days unless `-expires` says otherwise (`12h`, `90d`, `never`). A token belongs to the machine whose conch made it; another machine's is refused by name.
+`-project` (name, id or folder; repeat it) limits a token to those projects: every pane, project and folder a call names must be in one of them, and anything about all of them — the server, the library, other tokens — is refused, and so are another project's task runs. Lists are not filtered. Without `-project` it reaches every project. Tokens last 30 days unless `-expires` says otherwise (`12h`, `90d`, `never`). A token belongs to the machine whose conch made it; another machine's is refused by name.
 
 The secret is printed once and kept only as a hash, in `tokens.json` beside `config.toml`. A token revoked or expired stops connections already holding it, not only new ones. Every refusal is written to the server's log with the token's name. **Settings → Web → Access tokens…** lists and revokes them too.
 

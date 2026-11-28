@@ -98,6 +98,7 @@ type fakeAPI struct {
 	created string // the state a new box reports
 	tokens  int    // tokens handed out, so each is new
 	token   string // what the next token is, when set
+	id      string // the ID the next box is given, when set
 }
 
 func (f *fakeAPI) called() string {
@@ -140,6 +141,9 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && r.URL.Path == "/boxes" {
 		f.n++
 		id := fmt.Sprintf("box%d", f.n)
+		if f.id != "" {
+			id = f.id
+		}
 		state := "running"
 		if f.created != "" {
 			state = f.created

@@ -173,6 +173,10 @@ var scoped = map[string]scopeKind{
 	proto.MethodAccountPin: scopeHome, proto.MethodAccountFailover: scopeHome,
 	// Who else may reach conch, and how far: the person's to hand out.
 	proto.MethodTokenCreate: scopeHome, proto.MethodTokenList: scopeHome, proto.MethodTokenRevoke: scopeHome,
+	// An ACP agent is a command the server itself runs — to check it, and
+	// again at every agent list — outside any pane and so as the person:
+	// an agent that could add one could have anything run as them.
+	proto.MethodAgentACPCheck: scopeHome, proto.MethodAgentACPAdd: scopeHome, proto.MethodAgentACPRemove: scopeHome,
 	// A ticket is changed with the person's key, as their own pull
 	// request is: an agent may for its own project's tracker.
 	proto.MethodTicketUpdate: scopeProject,
@@ -495,6 +499,7 @@ var verbs = map[string]string{
 	proto.MethodAccountAdd: "add an agent account", proto.MethodAccountRemove: "remove an agent account",
 	proto.MethodAccountPin: "pin a folder to an agent account", proto.MethodAccountFailover: "change when agents move to another account",
 	proto.MethodTokenCreate: "make an access token", proto.MethodTokenList: "list the access tokens", proto.MethodTokenRevoke: "revoke an access token",
+	proto.MethodAgentACPCheck: "run a command to check it as an ACP agent", proto.MethodAgentACPAdd: "add an ACP agent", proto.MethodAgentACPRemove: "remove an ACP agent",
 }
 
 // madeBy records that the connection's pane started pane id: it and the

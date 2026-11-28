@@ -361,6 +361,16 @@ func (a *app) makeSandbox(ctx context.Context, req createReq) (result, alias, er
 	defer cancel()
 	fmt.Fprintf(a.stderr, "Creating a %s sandbox…\n", sandbox.ProviderLabel(req.provider))
 	sb, err := p.Create(ctx, spec)
+	if err == nil {
+		// The ID is the provider's reply, and it names an ssh alias in a
+		// file ~/.ssh/config includes: one with a line break or a * would
+		// write ssh settings of its own for every host. Held to what an
+		// ID typed here may be; the sandbox is deleted (its ID goes into
+		// that request escaped) rather than kept unreachable.
+		if cerr := checkID(sb.ID); cerr != nil {
+			err = fmt.Errorf("%s answered with a sandbox ID conch-sandbox will not use: %w", sandbox.ProviderLabel(req.provider), cerr)
+		}
+	}
 	if err != nil {
 		if sb.ID != "" {
 			a.abandon(p, sb.ID)
