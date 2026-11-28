@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -29,6 +30,20 @@ func (s *Server) systemStats(p proto.SystemStatsParams) proto.SystemStats {
 type paneOwner struct {
 	pid                              int
 	id, name, project, branch, agent string
+	state                            string // the agent's, when there is one
+	since                            time.Time
+}
+
+// conchNames are the names conch's own programs run under: a client
+// outside any pane — conch attach, conch web, a machine's bridge, a TUI —
+// is one of these, and the server cannot otherwise tell it from anything
+// else on the machine.
+func conchNames() map[string]bool {
+	names := map[string]bool{"conch": true}
+	if exe, err := os.Executable(); err == nil {
+		names[filepath.Base(exe)] = true
+	}
+	return names
 }
 
 // tagProcesses names every process conch started: a pane's tree first,
@@ -52,7 +67,7 @@ func (s *Server) tagProcesses(all []proto.SystemProcess) {
 			o.name = info.Title
 		}
 		if info.Agent != nil {
-			o.agent = info.Agent.Name
+			o.agent, o.state, o.since = info.Agent.Name, info.Agent.State, info.Agent.Since
 		}
 		if info.ProjectID != "" {
 			if proj, perr := s.projects.get(info.ProjectID); perr == nil {
@@ -63,11 +78,17 @@ func (s *Server) tagProcesses(all []proto.SystemProcess) {
 		}
 		owners = append(owners, o)
 	}
+	tagOwned(all, owners, os.Getpid(), conchNames())
+}
+
+// tagOwned marks all by owners — each pane's tree, the first root to reach
+// a process keeping it — then the server's tree, then any other process of
+// conch's own (by its name) outside a pane as a client.
+func tagOwned(all []proto.SystemProcess, owners []paneOwner, me int, names map[string]bool) {
 	roots := make([]int, 0, len(owners)+1)
 	for _, o := range owners {
 		roots = append(roots, o.pid)
 	}
-	me := os.Getpid()
 	roots = append(roots, me)
 	trees := sysstat.Trees(all, roots)
 	at := make(map[int]int, len(all))
@@ -78,9 +99,17 @@ func (s *Server) tagProcesses(all []proto.SystemProcess) {
 		for _, pid := range trees[o.pid] {
 			p := &all[at[pid]]
 			p.Pane, p.PaneName, p.Project, p.Branch, p.Agent = o.id, o.name, o.project, o.branch, o.agent
+			if o.agent != "" {
+				p.AgentState, p.AgentSince = o.state, o.since
+			}
 		}
 	}
 	for _, pid := range trees[me] {
 		all[at[pid]].Conch = "server"
+	}
+	for i := range all {
+		if all[i].Pane == "" && all[i].Conch == "" && names[all[i].Name] {
+			all[i].Conch = "client"
+		}
 	}
 }

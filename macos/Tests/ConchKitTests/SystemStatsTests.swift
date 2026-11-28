@@ -79,7 +79,14 @@ private func decoded() throws -> SystemStats {
     #expect(systemRows(ps, sort: .memory).first?.pid == 52310)
     #expect(systemRows(ps, sort: .memory).last?.pid == 4121)
     #expect(systemRows(ps, sort: .name).map(\.name).first == "claude")
-    #expect(systemRows(ps, sort: .cpu, conchOnly: true).map(\.pid) == [52310, 51022, 4121])
+    #expect(systemRows(ps, sort: .cpu, show: .started).map(\.pid) == [52310, 51022, 4121])
+    #expect(systemRows(ps, sort: .cpu, show: .conch).map(\.pid) == [4121])
+    #expect(systemRows(ps, sort: .cpu, show: .agents).map(\.pid) == [51022])
+    #expect(systemRows(ps, sort: .cpu, show: .other).map(\.pid) == [52310])
+    #expect(systemRows(ps, sort: .cpu, show: .all).count == 5)
+    // Memory sorts by the footprint where there is one.
+    let fp = [SystemProcess(pid: 1, name: "a", rss: 900, footprint: 100), SystemProcess(pid: 2, name: "b", rss: 500)]
+    #expect(systemRows(fp, sort: .memory).map(\.pid) == [2, 1])
     #expect(systemRows(ps, sort: .cpu, filter: "readme").count == 2)
     #expect(systemRows(ps, sort: .cpu, filter: "GOOGLE renderer").map(\.pid) == [4410])
     #expect(systemRows(ps, sort: .cpu, filter: "4121").map(\.pid) == [4121])
@@ -89,12 +96,15 @@ private func decoded() throws -> SystemStats {
 
 @Test func heavyNotesSayWhatMatters() throws {
     let notes = heavyNotes(try decoded())
-    #expect(notes.map(\.kind) == [.cpu, .memory, .conch])
+    #expect(notes.map(\.kind) == [.cpu, .memory, .conch, .agents, .other])
     #expect(notes[0].title == "go is using 3.9 cores" && notes[0].pid == 52310)
     #expect(notes[0].detail == "pane tests · conch/readme-desktop")
     #expect(notes[1].title == "go holds 2.6 GB")
-    #expect(notes[2].title.hasPrefix("conch and its panes use 38% of CPU"))
-    #expect(notes[2].detail == "3 processes in 2 panes · 1 agent")
+    #expect(notes[2].title == "conch uses 0% of CPU and 96 MB" && notes[2].detail == "server 96 MB")
+    #expect(notes[3].title == "1 agent uses 5% of CPU and 812 MB" && notes[3].detail == "Claude · conch/readme-desktop 812 MB")
+    #expect(notes[3].pid == 51022)
+    #expect(notes[4].title == "Other pane processes use 32% of CPU and 2.6 GB")
+    #expect(notes[4].detail == "1 process in 1 pane · largest go 2.6 GB" && notes[4].pid == 52310)
 
     // A quiet machine: nothing busy or large, nothing of conch's.
     var quiet = SystemStats(host: SystemHost(cores: 4), memory: SystemMemory(total: 8 << 30, used: 1 << 30))
@@ -155,4 +165,129 @@ private func decoded() throws -> SystemStats {
     #expect(formatCorePct(nil) == "…")
     #expect(formatCorePct(388.0) == "388%")
     #expect(formatCorePct(64.13) == "64.1%")
+}
+
+private let mb: UInt64 = 1 << 20
+
+/// A Mac like the one in #388: the server, this app, attaches and a conch
+/// mcp; three agents (one with an MCP server of its own, two idle for
+/// over an hour); shells, and a build.
+private func busyMac(now: Date) -> SystemStats {
+    let hourAgo = now.addingTimeInterval(-3700), justNow = now.addingTimeInterval(-60)
+    var s = SystemStats(host: SystemHost(cores: 10), memory: SystemMemory(total: 32 << 30, used: 20 << 30))
+    s.processes = [
+        SystemProcess(pid: 10, name: "conch", cpu: 5, rss: 300 * mb, footprint: 200 * mb, conch: "server"),
+        SystemProcess(pid: 11, name: "Conch", cpu: 3, rss: 400 * mb, footprint: 394 * mb),
+        SystemProcess(pid: 12, ppid: 11, name: "conch", rss: 20 * mb, footprint: 10 * mb, conch: "client"),
+        SystemProcess(pid: 13, ppid: 11, name: "conch", rss: 20 * mb, footprint: 10 * mb, conch: "client"),
+        SystemProcess(pid: 20, name: "claude", cpu: 20, rss: 600 * mb, footprint: 515 * mb, pane: "p1", paneName: "readme",
+                      branch: "conch/readme-desktop", agent: "claude", agentState: "working", agentSince: justNow),
+        SystemProcess(pid: 21, ppid: 20, name: "node", rss: 60 * mb, footprint: 50 * mb, pane: "p1", agent: "claude",
+                      agentState: "working", agentSince: justNow),
+        SystemProcess(pid: 22, ppid: 20, name: "conch", rss: 15 * mb, footprint: 15 * mb, pane: "p1", agent: "claude",
+                      agentState: "working", agentSince: justNow),
+        SystemProcess(pid: 30, name: "claude", rss: 300 * mb, footprint: 300 * mb, pane: "p2", branch: "conch/a", agent: "claude",
+                      agentState: "idle", agentSince: hourAgo),
+        SystemProcess(pid: 40, name: "codex", rss: 200 * mb, footprint: 200 * mb, pane: "p3", branch: "conch/b", agent: "codex",
+                      agentState: "done", agentSince: hourAgo),
+        SystemProcess(pid: 50, name: "zsh", rss: 5 * mb, footprint: 4 * mb, pane: "p4", paneName: "shell"),
+        SystemProcess(pid: 51, name: "zsh", rss: 5 * mb, footprint: 4 * mb, pane: "p5", paneName: "shell"),
+        SystemProcess(pid: 60, name: "Safari", cpu: 30, rss: 700 * mb, footprint: 700 * mb),
+    ]
+    return s.marking(app: 11)
+}
+
+@Test func heavyNotesSplitWhatConchStarted() {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let notes = heavyNotes(busyMac(now: now), now: now)
+    #expect(notes.map(\.kind) == [.conch, .agents, .idle], "the shells are small: no line for them")
+    // conch itself: the server, the app, two attaches and the conch mcp
+    // under an agent — by footprint, not RSS.
+    #expect(notes[0].title == "conch uses 1% of CPU and 629 MB")
+    #expect(notes[0].detail == "server 200 MB · this app 394 MB · 3 more 35 MB")
+    // The agents: three panes, the conch mcp not among them.
+    #expect(notes[1].title == "3 agents use 2% of CPU and 1.0 GB")
+    #expect(notes[1].detail == "largest Claude · conch/readme-desktop 565 MB")
+    #expect(notes[1].pid == 20, "a click selects the largest agent's program")
+    #expect(notes[2].title == "2 agents idle for over an hour hold 500 MB")
+    #expect(notes[2].detail == "closing them frees it · largest Claude · conch/a 300 MB" && notes[2].pid == 30)
+
+    // An hour has not yet passed: not idle for long.
+    #expect(!heavyNotes(busyMac(now: now), now: now.addingTimeInterval(-200)).contains { $0.kind == .idle })
+    // The reading's own moment stands for now.
+    var at = busyMac(now: now)
+    at.at = now
+    #expect(heavyNotes(at).map(\.kind) == [.conch, .agents, .idle])
+}
+
+@Test func heavyNotesOtherPaneProcessesOnlyWhenLarge() {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    var s = busyMac(now: now)
+    s.processes.append(SystemProcess(pid: 70, ppid: 50, name: "go", cpu: 10, rss: 1200 * mb, pane: "p4"))
+    let other = heavyNotes(s, now: now).first { $0.kind == .other }
+    #expect(other?.title == "Other pane processes use 1% of CPU and 1.2 GB")
+    #expect(other?.detail == "3 processes in 2 panes · largest go 1.2 GB" && other?.pid == 70)
+    // Small, but busy: most of a core between them.
+    s.processes[s.processes.count - 1].rss = 50 * mb
+    s.processes[s.processes.count - 1].cpu = 90
+    #expect(heavyNotes(s, now: now).contains { $0.kind == .other })
+    s.processes[s.processes.count - 1].cpu = 70
+    #expect(!heavyNotes(s, now: now).contains { $0.kind == .other })
+}
+
+@Test func heavyNotesWithNoAgentsOrOnlyAgents() {
+    let now = Date(timeIntervalSince1970: 2_000_000)
+    let all = busyMac(now: now)
+    var none = all
+    none.processes = all.processes.filter { $0.agent == nil }
+    #expect(heavyNotes(none, now: now).map(\.kind) == [.conch])
+    #expect(heavyNotes(none, now: now)[0].detail == "server 200 MB · this app 394 MB · 2 more 20 MB")
+
+    var only = all
+    only.processes = all.processes.filter { $0.group == .agents }
+    let notes = heavyNotes(only, now: now)
+    #expect(notes.map(\.kind) == [.agents, .idle], "no conch line without conch's own processes")
+    // One agent: no "largest".
+    var one = only
+    one.processes = only.processes.filter { $0.pane == "p2" }
+    #expect(heavyNotes(one, now: now)[0].title == "1 agent uses 0% of CPU and 300 MB")
+    #expect(heavyNotes(one, now: now)[0].detail == "Claude · conch/a 300 MB")
+    #expect(heavyNotes(one, now: now)[1].title == "1 agent idle for over an hour holds 300 MB")
+    // Cores unknown: memory alone.
+    one.host.cores = 0
+    #expect(heavyNotes(one, now: now)[0].title == "1 agent uses 300 MB")
+}
+
+@Test func heavyNotesFromAnOlderServer() throws {
+    // No footprint, no agent state, no client marks: RSS, and no idle line.
+    let old = """
+    {"host":{"cores":4},"processes":[
+      {"pid":1,"ppid":0,"name":"conch","rss":104857600,"conch":"server"},
+      {"pid":2,"ppid":1,"name":"claude","cpu":40,"rss":209715200,"pane":"p1","agent":"claude"},
+      {"pid":3,"ppid":1,"name":"zsh","rss":5242880,"pane":"p2"}]}
+    """
+    let s = try conchDecoder().decode(SystemStats.self, from: Data(old.utf8))
+    #expect(s.processes.allSatisfy { $0.footprint == nil && $0.agentState == nil && $0.agentSince == nil })
+    #expect(s.processes[1].memory == 200 * mb)
+    let notes = heavyNotes(s, now: Date())
+    #expect(notes.map(\.kind) == [.conch, .agents])
+    #expect(notes[0].title == "conch uses 0% of CPU and 100 MB")
+    #expect(notes[1].title == "1 agent uses 10% of CPU and 200 MB")
+
+    // A newer one: the fields decode, nanoseconds and all.
+    let new = """
+    {"pid":5,"ppid":1,"name":"claude","rss":300,"footprint":200,"pane":"p1","agent":"claude",
+     "agent_state":"idle","agent_since":"2026-11-28T08:00:00.123456789Z"}
+    """
+    let p = try conchDecoder().decode(SystemProcess.self, from: Data(new.utf8))
+    #expect(p.footprint == 200 && p.memory == 200 && p.agentState == "idle" && p.agentSince != nil)
+    // A footprint of nothing, or missing: RSS.
+    #expect(SystemProcess(pid: 1, name: "x", rss: 7, footprint: 0).memory == 7)
+    #expect(SystemProcess(pid: 1, name: "x", rss: 7).memory == 7)
+    // Which group: conch's own programs, even inside an agent's pane.
+    #expect(SystemProcess(pid: 1, name: "conch", pane: "p1", agent: "claude").group == .conch)
+    #expect(SystemProcess(pid: 1, name: "x", conch: "client").group == .conch)
+    #expect(SystemProcess(pid: 1, name: "x", pane: "p1", agent: "claude").group == .agents)
+    #expect(SystemProcess(pid: 1, name: "x", pane: "p1").group == .other)
+    #expect(SystemProcess(pid: 1, name: "conch").group == nil, "a conch the server did not mark is not known to be ours")
 }

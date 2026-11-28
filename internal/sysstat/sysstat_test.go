@@ -232,6 +232,46 @@ func TestStatsTagsBeforePicking(t *testing.T) {
 	}
 }
 
+// TestStatsFootprints: each listed process is given the footprint the
+// source reads, a pid it cannot read keeps none (RSS stands), a summary
+// asks for none, and a machine with no reader leaves every one at zero.
+func TestStatsFootprints(t *testing.T) {
+	f := &fake{ticks: &CPUTicks{}, procs: []Proc{{PID: 1, Name: "a", RSS: 300}, {PID: 2, Name: "b", RSS: 200}}}
+	s := newFake(t, f)
+	var asked [][]int
+	s.src.Footprints = func(pids []int) map[int]uint64 {
+		asked = append(asked, pids)
+		return map[int]uint64{1: 120} // 2 is another user's
+	}
+	got := s.Stats(context.Background(), proto.SystemStatsParams{}, nil)
+	fp := map[int]uint64{}
+	for _, p := range got.Processes {
+		fp[p.PID] = p.Footprint
+	}
+	if fp[1] != 120 || fp[2] != 0 || len(got.Processes) != 2 {
+		t.Errorf("footprints = %v of %d processes", fp, len(got.Processes))
+	}
+	if len(asked) != 1 || len(asked[0]) != 2 {
+		t.Errorf("asked for %v, want the two listed once", asked)
+	}
+	f.advance(2 * fresh)
+	s.Stats(context.Background(), proto.SystemStatsParams{Summary: true}, nil)
+	if len(asked) != 1 {
+		t.Errorf("a summary asked for footprints: %v", asked)
+	}
+	s.src.Footprints = nil
+	f.advance(2 * fresh)
+	for _, p := range s.Stats(context.Background(), proto.SystemStatsParams{}, nil).Processes {
+		if p.Footprint != 0 {
+			t.Errorf("no reader, yet pid %d has footprint %d", p.PID, p.Footprint)
+		}
+	}
+	// Nothing listed: nothing asked.
+	empty := newFake(t, &fake{ticks: &CPUTicks{}})
+	empty.src.Footprints = func([]int) map[int]uint64 { t.Error("asked with nothing listed"); return nil }
+	empty.Stats(context.Background(), proto.SystemStatsParams{}, nil)
+}
+
 func TestKeepUpAddsPointsThenStops(t *testing.T) {
 	// No ticks: the CPU comes from the (idle) processes, a reading every time.
 	f := &fake{}
