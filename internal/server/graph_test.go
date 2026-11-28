@@ -327,6 +327,68 @@ func TestRunWorkerDiesBeforeReporting(t *testing.T) {
 	}
 }
 
+// A pane id is not a worker: after a server starts afresh (a crash, not a
+// hot reload) ids begin again at p1, and an agent that comes to hold a
+// worker's id is not that worker. Here the task started an hour before
+// its pane was made, as it would have before a restart.
+func TestRunWorkerIsNotItsPaneID(t *testing.T) {
+	s, p := afterFixture(t)
+	r := mustRun(t)(s.runCreate(nil, proto.RunCreateParams{Name: "job", ProjectID: p.id, Tasks: specs("a", "b<a")}))
+	s.advanceRuns()
+	a := runTask(t, s, r.ID, "a")
+	if a.Status != proto.RunRunning {
+		t.Fatalf("%+v", a)
+	}
+	e, perr := s.get(a.Pane)
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	// Its own worker reports for it.
+	if _, _, perr := s.workerTask(&client{pane: a.Pane}, "", "", "report for"); perr != nil {
+		t.Fatalf("the worker itself: %v", perr)
+	}
+	s.graph.mu.Lock()
+	s.graph.runs[0].Task("a").Started = e.info().Created.Add(-time.Hour)
+	s.graph.mu.Unlock()
+
+	// Another agent in that id: not a's worker, by name or by its pane.
+	if _, _, perr := s.workerTask(&client{pane: a.Pane}, "", "", "report for"); perr == nil {
+		t.Error("a pane made after the task started was taken for its worker")
+	}
+	if _, perr := s.runReport(&client{pane: a.Pane}, proto.RunReportParams{Status: proto.RunDone, Result: "someone else's"}); perr == nil {
+		t.Error("another agent's report was filed as a's")
+	}
+	// And a's worker is gone: a fails rather than waiting on it for ever.
+	s.advanceRuns()
+	if a = runTask(t, s, r.ID, "a"); a.Status != proto.RunFailed || !strings.Contains(a.Why, "ended before it reported") {
+		t.Fatalf("a: %+v", a)
+	}
+	if b := runTask(t, s, r.ID, "b"); b.Status != proto.RunBlocked {
+		t.Fatalf("b started from another agent's work: %+v", b)
+	}
+}
+
+// A task saved before Started was kept is matched by its pane id alone.
+func TestIsWorker(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		task proto.RunTask
+		pane proto.PaneInfo
+		want bool
+	}{
+		{proto.RunTask{Pane: "p1", Started: now}, proto.PaneInfo{ID: "p1", Created: now.Add(-time.Second)}, true},
+		{proto.RunTask{Pane: "p1", Started: now}, proto.PaneInfo{ID: "p1", Created: now}, true},
+		{proto.RunTask{Pane: "p1", Started: now}, proto.PaneInfo{ID: "p1", Created: now.Add(time.Second)}, false},
+		{proto.RunTask{Pane: "p1", Started: now}, proto.PaneInfo{ID: "p2", Created: now.Add(-time.Second)}, false},
+		{proto.RunTask{Pane: "p1"}, proto.PaneInfo{ID: "p1", Created: now}, true},
+		{proto.RunTask{}, proto.PaneInfo{}, false},
+	} {
+		if got := isWorker(c.task, c.pane); got != c.want {
+			t.Errorf("isWorker(%+v, %s %v) = %v, want %v", c.task, c.pane.ID, c.pane.Created.Sub(now), got, c.want)
+		}
+	}
+}
+
 // A manual run starts nothing by itself; run.start starts what is ready,
 // and refuses what is not.
 func TestRunManualStart(t *testing.T) {
