@@ -658,6 +658,10 @@ UserDefaults.standard.set("WhenScrolling", forKey: "AppleShowScrollBars")
 // of the app.
 signal(SIGPIPE, SIG_IGN)
 
+// An app launched from inside a pane is still the person's, and every
+// process it starts inherits what is set here (CLI.swift).
+forgetLaunchingPane()
+
 let app = NSApplication.shared
 let delegate = MainActor.assumeIsolated { AppDelegate() }
 app.delegate = delegate
