@@ -361,6 +361,37 @@ func (pm *projectManager) containing(dir string) *project {
 	return best
 }
 
+// containingReal is containing judged where dir and the roots really
+// are, symlinks followed: what an access token is checked with, since
+// "proj/link" pointing at ~/.ssh is inside proj only by its name.
+// Both sides are resolved, as macOS's /var and /tmp are themselves
+// links into /private. A path that cannot be resolved is in no project.
+func (pm *projectManager) containingReal(dir string) *project {
+	if dir == "" {
+		return nil
+	}
+	real, err := landsAt(filepath.Clean(dir), 0)
+	if err != nil {
+		return nil
+	}
+	pm.mu.Lock()
+	var all []*project
+	for _, id := range pm.order {
+		all = append(all, pm.projects[id])
+	}
+	pm.mu.Unlock()
+	var best *project
+	bestLen := -1
+	for _, p := range all {
+		for _, root := range p.roots() {
+			if root = realPath(root); within(real, root) && len(root) > bestLen {
+				best, bestLen = p, len(root)
+			}
+		}
+	}
+	return best
+}
+
 func (p *project) roots() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()

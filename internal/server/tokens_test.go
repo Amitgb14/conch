@@ -253,6 +253,57 @@ func TestTokenLevels(t *testing.T) {
 	}
 }
 
+// A link inside a project to a folder outside it is outside: the token's
+// folder check follows symlinks, as opening the file does.
+func TestTokenSymlinkOutOfProject(t *testing.T) {
+	c, a, _, projA, _, _, _, _ := scopeFixture(t)
+	os.WriteFile(filepath.Join(a, "notes.txt"), []byte("hello"), 0o644)
+	outside := t.TempDir()
+	os.WriteFile(filepath.Join(outside, "id_rsa"), []byte("key"), 0o600)
+	if err := os.Symlink(outside, filepath.Join(a, "link")); err != nil {
+		t.Fatal(err)
+	}
+	// A link to nothing yet: writing through it makes its target.
+	if err := os.Symlink(filepath.Join(outside, "planted"), filepath.Join(a, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	inA := dialToken(t, c, makeToken(t, c, proto.TokenCreateParams{Name: "a", Level: proto.TokenFull, Projects: []string{projA.Name}}))
+	everywhere := dialToken(t, c, makeToken(t, c, proto.TokenCreateParams{Name: "everywhere", Level: proto.TokenRead}))
+	const ok, no = "ok", proto.ErrOutOfScope
+	for _, tc := range []struct {
+		root, path, want string
+	}{
+		{a, "notes.txt", ok},
+		{"", filepath.Join(a, "notes.txt"), ok},
+		{"", filepath.Join(a, "link", "id_rsa"), no},
+		{"", filepath.Join(a, "link"), no},
+		{a, "link/id_rsa", no},
+	} {
+		for name, conn := range map[string]*client.Client{"held to A": inA, "unlimited read": everywhere} {
+			err := conn.Call(t.Context(), proto.MethodFSRead, proto.FSReadParams{Root: tc.root, Path: tc.path}, nil)
+			if got := codeOf(err); got != tc.want {
+				t.Errorf("%s token reads %s %s: %s (%v), want %s", name, tc.root, tc.path, got, err, tc.want)
+			}
+		}
+	}
+	// Making a folder through a link, or through one to nothing yet,
+	// makes it where the link points.
+	for _, p := range []string{filepath.Join(a, "link", "made"), filepath.Join(a, "dangling")} {
+		err := inA.Call(t.Context(), proto.MethodFSMkdir, proto.FSMkdirParams{Path: p}, nil)
+		if got := codeOf(err); got != no {
+			t.Errorf("token held to A makes %s: %s (%v)", p, got, err)
+		}
+	}
+	for _, name := range []string{"made", "planted"} {
+		if _, err := os.Lstat(filepath.Join(outside, name)); err == nil {
+			t.Errorf("%s was made outside the project through a link", name)
+		}
+	}
+	if err := inA.Call(t.Context(), proto.MethodFSMkdir, proto.FSMkdirParams{Path: filepath.Join(a, "fine")}, nil); err != nil {
+		t.Errorf("token held to A makes a folder in A: %v", err)
+	}
+}
+
 // The person manages tokens; an unlimited full token may too; an agent in
 // a pane may not.
 func TestTokenManagement(t *testing.T) {

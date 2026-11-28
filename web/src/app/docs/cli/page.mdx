@@ -518,7 +518,7 @@ An access token is a limited right for an agent outside conch — an MCP client 
 | Level | What it may do |
 | --- | --- |
 | `read` | read: screens, panes, projects, diffs, sessions, files in its projects (with none, in any of conch's projects — never elsewhere, such as `~/.ssh`) |
-| `prompt` | also send to agents — a prompt, a reply, keys — never type into a shell, where what is typed runs |
+| `prompt` | also send to agents — a prompt, a reply, keys — only into agents, never a shell. An agent may still run what it is sent: Claude Code runs a line starting with `!` as a shell command without asking |
 | `drive` | also start and stop agents: tasks, agent panes, resumed sessions, closing and interrupting them. It picks the agent and its `--model`, no other flags and no environment |
 | `full` | what you can do — within its projects; with none, making and revoking tokens too |
 

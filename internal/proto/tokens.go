@@ -42,8 +42,10 @@ const (
 	// TokenRead reads: panes' screens, projects, diffs, sessions, and
 	// files inside conch's projects (its own, when limited to some).
 	TokenRead = "read"
-	// TokenPrompt also sends to agents — a prompt, a reply, keys — but
-	// never types into a shell, where what is typed runs as a command.
+	// TokenPrompt also sends to agents — a prompt, a reply, keys — and
+	// only into agents, never a shell. An agent may still run what it is
+	// sent: Claude Code runs a line starting with ! as a shell command
+	// without asking, so this is not a token that cannot run commands.
 	TokenPrompt = "prompt"
 	// TokenDrive also starts and stops agents: tasks, agent panes,
 	// resumed sessions, closing and interrupting. An agent it starts is

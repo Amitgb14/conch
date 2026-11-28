@@ -19,7 +19,9 @@
 // and how it starts by ACPFAKE_MODE, a comma-separated list: exit-init
 // (dies during initialize, saying why on stderr), malformed (a line that
 // is not JSON before answering initialize), noload (no loadSession),
-// list (offers session/list), auth (session/new needs signing in).
+// list (offers session/list), auth (session/new needs signing in),
+// stubborn (ignores SIGTERM and SIGHUP, stays on when its stdin closes,
+// and writes its pid to ACPFAKE_DIR/pid).
 // ACPFAKE_DIR keeps sessions, so they can be loaded and listed.
 package main
 
@@ -28,10 +30,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -110,6 +114,13 @@ func say(sid, text string) {
 func main() {
 	for _, m := range strings.Split(os.Getenv("ACPFAKE_MODE"), ",") {
 		mode[strings.TrimSpace(m)] = true
+	}
+	if mode["stubborn"] {
+		signal.Ignore(syscall.SIGTERM, syscall.SIGHUP)
+		_ = os.WriteFile(filepath.Join(dir, "pid"), []byte(fmt.Sprint(os.Getpid())), 0o644)
+		// A sleep, not select{}: the runtime ends a program whose every
+		// goroutine is blocked.
+		defer time.Sleep(time.Hour)
 	}
 	sc := bufio.NewScanner(os.Stdin)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)

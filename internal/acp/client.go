@@ -209,21 +209,35 @@ func (c *Client) Stderr() string { return c.stderr.String() }
 // Done is closed when the agent's output ends — it exited, or closed it.
 func (c *Client) Done() <-chan struct{} { return c.conn.Done() }
 
-// Close ends the agent and every terminal it left running.
+// closeGrace is how long Close gives the agent to go after SIGTERM.
+var closeGrace = 3 * time.Second
+
+// Close ends the agent and every terminal it left running, and returns
+// once it has.
 func (c *Client) Close() {
 	c.stopOnce.Do(func() {
 		close(c.stop)
 		c.stdin.Close()
 		c.ws.closeAll()
 		if c.cmd.Process != nil {
-			_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGTERM)
-			go func() {
-				select {
-				case <-c.conn.Done():
-				case <-time.After(3 * time.Second):
-				}
-				_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
-			}()
+			// The kill is waited for here, not in a goroutine: conch acp
+			// exits right after Close, which ended such a goroutine before
+			// its kill — and the agent, in a process group of its own, is
+			// out of reach of the pane's signals, so one that ignored
+			// SIGTERM outlived its pane.
+			pg := -c.cmd.Process.Pid
+			_ = syscall.Kill(pg, syscall.SIGTERM)
+			select {
+			case <-c.exited:
+			case <-time.After(closeGrace):
+			}
+			// The whole group even when the agent went: what it started
+			// may still be running.
+			_ = syscall.Kill(pg, syscall.SIGKILL)
+			select {
+			case <-c.exited:
+			case <-time.After(time.Second):
+			}
 		}
 	})
 }

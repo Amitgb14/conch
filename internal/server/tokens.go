@@ -678,7 +678,7 @@ func (s *Server) tokenTargets(g *tokenRec, method string, r tokenRef, create pro
 		return tokenRefused(g, "%s: a token limited to projects names a folder in one of them", tokenVerb(method))
 	}
 	for _, dir := range tokenDirs(r) {
-		p := s.projects.containing(dir)
+		p := s.projects.containingReal(dir)
 		if p == nil || !inProject(p.id) {
 			return tokenRefused(g, "%s %s: it is outside the token's projects", tokenVerb(method), dir)
 		}
@@ -700,7 +700,7 @@ func (s *Server) tokenInProjects(g *tokenRec, method string, r tokenRef) *proto.
 		return tokenRefused(g, "%s: a %s token names a folder in one of conch's projects", tokenVerb(method), g.Level)
 	}
 	for _, dir := range tokenDirs(r) {
-		if dir == "" || s.projects.containing(dir) == nil {
+		if dir == "" || s.projects.containingReal(dir) == nil {
 			return tokenRefused(g, "%s %s: a %s token reads only inside conch's projects", tokenVerb(method), dir, g.Level)
 		}
 	}
@@ -708,7 +708,8 @@ func (s *Server) tokenInProjects(g *tokenRec, method string, r tokenRef) *proto.
 }
 
 // tokenDirs is the folders a call works in, made absolute and clean so
-// "proj/../../etc" is judged where it lands.
+// "proj/../../etc" is judged where it lands; containingReal then follows
+// its symlinks.
 func tokenDirs(r tokenRef) []string {
 	var dirs []string
 	add := func(p string) {
