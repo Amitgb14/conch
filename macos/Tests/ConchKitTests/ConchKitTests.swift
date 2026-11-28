@@ -68,6 +68,31 @@ func fixture() -> Snapshot {
     #expect(env["TERM"] == "xterm-256color")
 }
 
+// What Ghostty does: start a program from this process's environment, not
+// from the dictionary it was given — so leaving the pane out of that was
+// not enough, and an app launched from pane p6 could not open p6.
+@Test func launchForgetsThePaneForEveryChild() throws {
+    setenv("CONCH_PANE_ID", "p6", 1)
+    setenv("CONCH_TOKEN", "conch_p_x_y_z", 1)
+    setenv("CONCH_SOCKET_KEPT_BY_TEST", "/s", 1)
+    defer { unsetenv("CONCH_SOCKET_KEPT_BY_TEST") }
+    forgetLaunchingPane()
+    #expect(getenv("CONCH_PANE_ID") == nil)
+    #expect(getenv("CONCH_TOKEN") == nil)
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/env") // inherits, as a pane's command does
+    let out = Pipe()
+    p.standardOutput = out
+    try p.run()
+    let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+    p.waitUntilExit()
+    #expect(!text.contains("CONCH_PANE_ID="))
+    #expect(!text.contains("CONCH_TOKEN="))
+    #expect(text.contains("CONCH_SOCKET_KEPT_BY_TEST=/s")) // the rest is left alone
+    forgetLaunchingPane() // twice, or with nothing set, is fine
+    #expect(getenv("CONCH_PANE_ID") == nil)
+}
+
 @Test func treeIsTheTUIsForOneMachine() {
     let tree = fixture().tree()
     #expect(tree.title == "local" && tree.kind == .machine("local"))

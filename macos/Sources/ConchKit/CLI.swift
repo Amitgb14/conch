@@ -18,6 +18,21 @@ public func conchBinary(env: [String: String] = ProcessInfo.processInfo.environm
     return candidates.first(where: exists)
 }
 
+/// The variables that say a process runs inside a conch pane, and act as
+/// that pane: the app is the person, never a pane, even when an agent in
+/// one launched it (`open` hands the app that agent's environment).
+public let paneIdentityVars = ["CONCH_PANE_ID", "CONCH_TOKEN"]
+
+/// Drops the pane identity from the app's own process, once at launch.
+/// conchEnvironment leaving them out is not enough: Ghostty starts a
+/// pane's command from this process's environment and only adds the
+/// variables it is given, so every `conch attach` it ran presented the
+/// launching pane's token — the server took each for that pane, and the
+/// pane itself would not open ("that is the pane this runs in").
+public func forgetLaunchingPane() {
+    for k in paneIdentityVars { unsetenv(k) }
+}
+
 /// The environment a conch the app starts runs with: this one, without a
 /// pane it may have been started from (a conch inside a pane refuses some
 /// things, and this is not inside one), with a terminal type every
@@ -29,8 +44,7 @@ public func conchEnvironment(_ env: [String: String] = ProcessInfo.processInfo.e
                              source: String? = Bundle.main.object(forInfoDictionaryKey: "ConchSource") as? String,
                              exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [String: String] {
     var out = env
-    out.removeValue(forKey: "CONCH_PANE_ID")
-    out.removeValue(forKey: "CONCH_TOKEN")
+    for k in paneIdentityVars { out.removeValue(forKey: k) }
     out["TERM"] = "xterm-256color"
     out["COLORTERM"] = "truecolor"
     // Upgrading a machine builds conch for it from source, which the conch
