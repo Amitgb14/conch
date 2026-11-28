@@ -1022,6 +1022,10 @@ struct NodeView: View {
                 ForEach(kids) { NodeView(store: store, node: $0, depth: depth + 1) }
             }
         }
+        // The fold animates this row's own subtree, and nothing else: a
+        // withAnimation around store.toggle animated every change the
+        // whole window drew in that update (#293).
+        .animation(.easeOut(duration: 0.12), value: open)
     }
 
     /// The focused pane's row, filled only while a terminal has the
@@ -1064,7 +1068,7 @@ struct NodeView: View {
                     .contentShape(Rectangle().inset(by: -4))
                     // An agent's helpers and subagents fold at the arrow: a
                     // click on the row itself opens the agent.
-                    .onTapGesture { if isPane { withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) } } else { activateRow() } }
+                    .onTapGesture { if isPane { store.toggle(node) } else { activateRow() } }
             } else {
                 Spacer().frame(width: 10)
             }
@@ -1381,7 +1385,7 @@ struct NodeView: View {
         case .groupTask(let m, let g, let b): store.openTask(m, g, b)
         // A subagent has no screen of its own: its agent's is shown.
         case .subagent(let pane, _): store.open(pane)
-        default: withAnimation(.easeOut(duration: 0.12)) { store.toggle(node) }
+        default: store.toggle(node) // animated by its NodeView, not the whole window
         }
     }
 }
