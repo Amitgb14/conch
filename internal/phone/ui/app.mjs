@@ -10,6 +10,7 @@ import {
   ago, route, can, backoff, reviewCount, backgroundLine, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, READABLE, chunks, keyBytes, appPath,
   keyFromEvent, withMods, tapModifier, usedModifier, TERMINAL_KEYS, kids, scrollback, olderOffset, wheelSteps, ttyInput,
   markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, QUICK_REPLIES, BROADCASTS, relayWhy, paneRef,
+  onVisibility,
 } from "/lib.mjs"
 import { Tunnel, relayLink, cookieFrom, fingerprint, fromB64url, NO_GATEWAY } from "/tunnel.mjs"
 import { LOGOS } from "/logos.mjs"
@@ -290,9 +291,18 @@ setInterval(() => {
 }, 25000)
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state.hello && !state.ws) {
-    state.tries = 0
-    connect()
+  switch (onVisibility(document.visibilityState, !!state.ws, !!state.hello)) {
+    case "close": {
+      const ws = state.ws
+      state.ws = null
+      ws.close()
+      relay?.tunnel.close()
+      break
+    }
+    case "connect":
+      state.tries = 0
+      connect()
+      break
   }
 })
 

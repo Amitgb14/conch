@@ -670,3 +670,16 @@ export function paneRef(ref, machines = []) {
     machines.some((o) => o.id !== machine && (o.id === label || o.label === label))
   return label && !/[\s:]/.test(label) && !taken ? `${label}:${pane}` : `${machine}:${pane}`
 }
+
+// onVisibility is what the app does with its connection when the page is
+// shown or put away: put away, it lets go — the computer then gives each
+// pane it typed into back to the laptop's size, rather than keeping the
+// phone's until somebody types at the laptop — and shown again it comes
+// back. A page that never paired (no hello) does neither.
+export function onVisibility(visibility, connected, paired) {
+  if (!paired) return null
+  if (visibility === "hidden" && connected) return "close"
+  if (visibility === "visible" && !connected) return "connect"
+  return null
+}
+

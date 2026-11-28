@@ -462,8 +462,8 @@ func (s *Server) serve(nc net.Conn) {
 		s.mu.Unlock()
 		s.views.forget(c) // a layout nobody is looking at is not an answer
 		s.cloud.forget(c)
-		s.sizes.forget(c)
-		s.unsubscribeAll(c)
+		s.unsubscribeAll(c) // each pane it showed goes back to whoever else does
+		s.handBack(s.sizes.forget(c))
 		s.uploads.dropClient(c)
 		c.close()
 	}()
@@ -2449,6 +2449,27 @@ func (s *Server) unsubscribe(c *client, id string) {
 	s.mu.Unlock()
 	if e != nil {
 		s.setWatchers(e, -1)
+	}
+	// A client no longer showing a pane no longer decides its size: a
+	// phone put away gives the pane back to the laptop showing it.
+	if hb, ok := s.sizes.release(c, id); ok {
+		s.handBack([]handBack{hb})
+	}
+}
+
+// handBack resizes each pane to the size of the client it went back to.
+func (s *Server) handBack(back []handBack) {
+	for _, hb := range back {
+		e, perr := s.get(hb.pane)
+		if perr != nil {
+			continue
+		}
+		if info := e.p.Info(); info.Cols == hb.size[0] && info.Rows == hb.size[1] {
+			continue
+		}
+		if err := e.p.Resize(hb.size[0], hb.size[1]); err == nil {
+			s.reshown(e)
+		}
 	}
 }
 
