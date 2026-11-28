@@ -9,6 +9,7 @@ import { DesktopApp, downloadURL } from "@/components/landing/desktop-app"
 import { Features } from "@/components/landing/features"
 import { InstallCard } from "@/components/landing/install-card"
 import { Phone } from "@/components/landing/phone"
+import { SandboxDemo } from "@/components/landing/sandbox-demo"
 import { Screenshots } from "@/components/landing/screenshots"
 import { Section } from "@/components/landing/section"
 import { Skills } from "@/components/landing/skills"
@@ -172,6 +173,18 @@ export default function Home() {
         lede="Another client of the same server, so it shows what the TUI shows and closing it stops nothing. Panes are drawn by Ghostty; a branch's changes, files and dev server sit in tabs beside the agents."
       >
         <DesktopApp />
+      </Section>
+
+      <Section
+        id="sandboxes"
+        label="agents in the cloud"
+        title="Make a sandbox, pick an agent, close the laptop"
+        lede="conch makes a sandbox with Daytona, boat.dev or Tensorlake, installs itself there and adds it as a machine; an agent started on it keeps working with the laptop closed. Try it below; the commands under the hood follow what you pick."
+      >
+        <SandboxDemo />
+        <Link href="/docs/sandboxes" className="mt-6 inline-block text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+          Sandboxes in the docs: providers, ports, snapshots, cost →
+        </Link>
       </Section>
 
       <Section
