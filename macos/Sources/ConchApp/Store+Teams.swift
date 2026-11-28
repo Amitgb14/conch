@@ -21,7 +21,8 @@ extension Store {
                 // its agents close — once the server took it, and by the
                 // name it kept (control characters made printable): a name
                 // it refused, too long, would have been a team with nobody.
-                if let kept = teamToKeep(asked: team, answered: p.team) {
+                // Only for this computer's panes: config.toml is this Mac's.
+                if let kept = teamKeptInConfig(machine: m, asked: team, answered: p.team) {
                     self.changeConfig("the team") { addTeamTOML($0, name: kept) }
                 }
             } catch { self.error = "\(error)" }

@@ -140,4 +140,15 @@ import Testing
         #expect(teamToKeep(asked: "API", answered: "") == nil)
         #expect(teamToKeep(asked: "API", answered: "-") == nil)
     }
+
+    // A team set on another machine's agent stays on that machine's server:
+    // this Mac's config.toml is read by this Mac's server alone.
+    @Test func remoteTeamStaysOffThisConfig() {
+        #expect(teamKeptInConfig(machine: "local", asked: "API", answered: "API") == "API")
+        #expect(teamKeptInConfig(machine: "local", asked: "a\nb", answered: "a·b") == "a·b")
+        #expect(teamKeptInConfig(machine: "local", asked: "-", answered: "-") == nil)
+        #expect(teamKeptInConfig(machine: "busybox", asked: "API", answered: "API") == nil)
+        #expect(teamKeptInConfig(machine: "sbx-1", asked: "API", answered: nil) == nil)
+        #expect(teamKeptInConfig(machine: "", asked: "API", answered: "API") == nil)
+    }
 }

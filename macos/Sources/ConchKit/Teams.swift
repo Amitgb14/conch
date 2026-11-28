@@ -239,6 +239,16 @@ public func teamToKeep(asked: String, answered: String?) -> String? {
     return kept.isEmpty || kept == AgentTeam.none ? nil : kept
 }
 
+/// The team this Mac's config.toml keeps for a pane put in one by hand on
+/// machine: teamToKeep for this computer's panes, and none for another
+/// machine's. config.toml's [[teams]] are read by the server beside it,
+/// so a team written here for a remote agent was one that machine never
+/// heard of, and a row on this Mac for nobody here; the remote pane keeps
+/// its team on its own server (pane.team).
+public func teamKeptInConfig(machine: String, asked: String, answered: String?) -> String? {
+    machine == "local" ? teamToKeep(asked: asked, answered: answered) : nil
+}
+
 /// config.toml with every [[teams]] entry named from renamed to, its
 /// colour and rules kept; every other line as it was.
 public func renameTeamTOML(_ toml: String, from: String, to: String) -> String {
