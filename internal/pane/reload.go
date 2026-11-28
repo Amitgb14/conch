@@ -10,6 +10,7 @@ import (
 
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/vt"
 	"golang.org/x/sys/unix"
 
 	"github.com/Amitgb14/conch/internal/proto"
@@ -167,8 +168,20 @@ func (p *Pane) replayLocked(modes []ansi.Mode, cursorVisible bool) string {
 		// Before the cursor: setting the region sends it home.
 		b.WriteString(ansi.SetTopBottomMargins(top, bottom))
 	}
+	// Where ESC 7 left the cursor, saved again: the program's ESC 8 goes
+	// back there on the client too.
+	if sx, sy, ok := savedCursor(p.emu); ok && (sx != 0 || sy != 0) {
+		b.WriteString(ansi.CursorPosition(sx+1, sy+1))
+		b.WriteString(ansi.SaveCursor)
+	}
 	cur := p.emu.CursorPosition()
-	b.WriteString(ansi.CursorPosition(cur.X+1, cur.Y+1))
+	if pendingWrap(p.emu) && cur.X == cols-1 {
+		// Waiting to wrap: the last cell drawn again from the column
+		// before it, which leaves a terminal waiting the same way.
+		b.WriteString(lastCellAgain(p.emu, cur.Y, cols))
+	} else {
+		b.WriteString(ansi.CursorPosition(cur.X+1, cur.Y+1))
+	}
 
 	sort.Slice(modes, func(i, j int) bool { return modes[i].Mode() < modes[j].Mode() })
 	for _, m := range modes {
@@ -181,6 +194,25 @@ func (p *Pane) replayLocked(modes []ansi.Mode, cursorVisible bool) string {
 		b.WriteString(ansi.HideCursor)
 	}
 	return b.String()
+}
+
+// lastCellAgain puts the cursor on row y's last cell (a wide character's
+// first half, if that is where it starts), draws it again in its own
+// style, and resets the style: a terminal is then waiting to wrap, as
+// conch's emulator is.
+func lastCellAgain(e *vt.Emulator, y, cols int) string {
+	x := cols - 1
+	c := e.CellAt(x, y)
+	if c != nil && c.IsZero() && x > 0 { // the second half of a wide character
+		x--
+		c = e.CellAt(x, y)
+	}
+	content, style := " ", ""
+	if c != nil && c.Content != "" {
+		content = c.Content
+		style = c.Style.String()
+	}
+	return ansi.CursorPosition(x+1, y+1) + style + content + ansi.ResetStyle
 }
 
 // Adopt takes over a pane another server process detached: the program is
