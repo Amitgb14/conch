@@ -465,6 +465,14 @@ func (s *Server) runRemove(c *client, p proto.RunRef) *proto.Error {
 // it coordinates.
 func (s *Server) workerTask(c *client, run, task, what string) (proto.Run, proto.RunTask, *proto.Error) {
 	run, task = strings.TrimSpace(run), strings.TrimSpace(task)
+	// The caller's pane as it is now: its id alone could be another
+	// agent's that came to hold a worker's id after a restart.
+	var me proto.PaneInfo
+	if c != nil && c.pane != "" {
+		if e, perr := s.get(c.pane); perr == nil {
+			me = e.info()
+		}
+	}
 	if task == "" {
 		pane := ""
 		if c != nil {
@@ -476,7 +484,7 @@ func (s *Server) workerTask(c *client, run, task, what string) (proto.Run, proto
 				continue
 			}
 			for _, t := range r.Tasks {
-				if pane != "" && t.Pane == pane {
+				if pane != "" && isWorker(t, me) {
 					found = append(found, struct{ run, task string }{r.ID, t.ID})
 				}
 			}
@@ -497,7 +505,7 @@ func (s *Server) workerTask(c *client, run, task, what string) (proto.Run, proto
 	if t == nil {
 		return r, proto.RunTask{}, proto.Errorf(proto.ErrNotFound, "run %s has no task %s", r.Name, task)
 	}
-	if caller, ok := s.scopedCaller(c); ok && t.Pane != caller.id {
+	if caller, ok := s.scopedCaller(c); ok && (caller.id != me.ID || !isWorker(*t, me)) {
 		if s.mayCoordinate(c, r, what) != nil {
 			return r, *t, outOfScope(caller, "%s task %s of run %s: it is not that task's worker, nor the run's coordinator", what, t.ID, r.Name)
 		}
@@ -754,10 +762,23 @@ func (s *Server) startedFor(coordinator, id string) {
 // advanceRuns is one look at every run: a worker whose pane ended without
 // a report has failed, a question past its deadline is timed out, and a
 // ready task of a run that is not manual is started.
+// isWorker says whether pane is task t's worker. A pane id is not enough:
+// ids start again at p1 when the server starts afresh (a crash, a stop —
+// not a hot reload, which keeps them), so another agent can come to hold
+// a worker's id. A pane made after the task started is not the one it
+// started; a task saved before Started was kept has only the id.
+func isWorker(t proto.RunTask, pane proto.PaneInfo) bool {
+	return t.Pane != "" && pane.ID == t.Pane && (t.Started.IsZero() || !pane.Created.After(t.Started))
+}
+
 func (s *Server) advanceRuns() {
-	alive := map[string]bool{}
+	panes := map[string]proto.PaneInfo{}
 	for _, info := range s.list() {
-		alive[info.ID] = info.State == proto.PaneRunning
+		panes[info.ID] = info
+	}
+	alive := func(t proto.RunTask) bool {
+		info, ok := panes[t.Pane]
+		return ok && info.State == proto.PaneRunning && isWorker(t, info)
 	}
 	b := s.graph
 	now := time.Now()
@@ -770,7 +791,7 @@ func (s *Server) advanceRuns() {
 		moved := false
 		for j := range r.Tasks {
 			t := &r.Tasks[j]
-			if t.Status == proto.RunRunning && t.Pane != "" && !alive[t.Pane] {
+			if t.Status == proto.RunRunning && t.Pane != "" && !alive(*t) {
 				t.Status, t.Why, t.Ended = proto.RunFailed, "its worker's pane ("+t.Pane+") ended before it reported", now
 				moved = true
 			}
