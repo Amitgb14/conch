@@ -255,6 +255,59 @@ public func attachUsageLine(_ binary: String) -> String {
     return String(decoding: data, as: UTF8.self)
 }
 
+/// What conch attach's usage says, read once per binary and kept: asked
+/// on the main thread the first time a pane opened, it ran `conch attach`
+/// and waited, and the click that opened the pane waited with it. warm
+/// reads it in the background at launch; usage reads it then only if
+/// warm has not got there yet.
+public final class AttachUsageCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cached: (binary: String, usage: String)?
+    private var warming: Set<String> = []
+    private let read: @Sendable (String) -> String
+
+    public init(read: @escaping @Sendable (String) -> String = attachUsageLine) {
+        self.read = read
+    }
+
+    public static let shared = AttachUsageCache()
+
+    /// Reads binary's usage on a background queue, once.
+    public func warm(_ binary: String, done: (@Sendable () -> Void)? = nil) {
+        lock.lock()
+        if cached?.binary == binary || warming.contains(binary) {
+            lock.unlock()
+            done?()
+            return
+        }
+        warming.insert(binary)
+        lock.unlock()
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let u = read(binary)
+            lock.lock()
+            cached = (binary, u)
+            warming.remove(binary)
+            lock.unlock()
+            done?()
+        }
+    }
+
+    /// binary's usage: kept, or read now.
+    public func usage(_ binary: String) -> String {
+        lock.lock()
+        if let c = cached, c.binary == binary {
+            lock.unlock()
+            return c.usage
+        }
+        lock.unlock()
+        let u = read(binary)
+        lock.lock()
+        cached = (binary, u)
+        lock.unlock()
+        return u
+    }
+}
+
 /// Runs conch with args and hands each line it prints to onLine as it
 /// comes, answering its exit status: `conch sandbox adapt -json` takes
 /// minutes, and the sheet shows it moving.
@@ -306,3 +359,20 @@ public final class LineBuffer: @unchecked Sendable {
         return pending.isEmpty ? [] : [String(decoding: pending, as: UTF8.self)]
     }
 }
+
+/// Whether something laid out from key needs laying out again: true the
+/// first time and whenever key differs from the last. A pane's box is told
+/// to lay out on every change of the store — every agent's title and
+/// tokens — and redrew its letterbox's dot pattern each time.
+public struct LayoutMemo<Key: Equatable> {
+    private var last: Key?
+    public init() {}
+    public mutating func changed(_ key: Key) -> Bool {
+        if let l = last, l == key { return false }
+        last = key
+        return true
+    }
+    /// Forgets the last key: the next look lays out again.
+    public mutating func reset() { last = nil }
+}
+

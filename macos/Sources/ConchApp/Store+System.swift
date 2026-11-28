@@ -36,14 +36,18 @@ extension Store {
     /// blank; a summary keeps the processes of the last full reading, so
     /// a machine shown again has a table at once.
     func readSystem(_ m: String, summary: Bool) async {
+        // Each assignment to a published dictionary redraws every view on
+        // the store, so what has not changed is not assigned: this runs
+        // every two seconds for the resource strip.
+        func why(_ w: String?) { if systemWhy[m] != w { systemWhy[m] = w } }
         guard let link = machines.first(where: { $0.id == m }), link.online, let c = connection(m) else {
-            systemWhy[m] = "not connected"
+            why("not connected")
             return
         }
         guard c.hello?.capabilities?.contains(systemStatsCapability) == true else {
-            systemWhy[m] = m == "local"
+            why(m == "local"
                 ? "this server is from before the System Monitor · reload the server"
-                : "conch on \(link.label) is from before the System Monitor · conch machine upgrade \(link.label)"
+                : "conch on \(link.label) is from before the System Monitor · conch machine upgrade \(link.label)")
             return
         }
         let since = summary ? nil : systemHistory[m]?.last
@@ -52,10 +56,10 @@ extension Store {
             if m == "local" { got = got.marking(app: Int(ProcessInfo.processInfo.processIdentifier)) }
             if summary, let was = systemStats[m] { got.processes = was.processes }
             if !got.history.isEmpty { systemHistory[m, default: SystemHistory()].merge(got.history) }
-            systemStats[m] = got
-            systemWhy[m] = nil
+            if systemStats[m] != got { systemStats[m] = got }
+            why(nil)
         } catch {
-            systemWhy[m] = "\(error)"
+            why("\(error)")
         }
     }
 

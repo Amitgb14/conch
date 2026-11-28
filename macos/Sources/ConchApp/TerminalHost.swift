@@ -127,14 +127,8 @@ final class PaneTerminal: NSObject, ObservableObject, LocalProcessTerminalViewDe
     }
 
     /// Whether this conch's attach keeps an ended pane's screen (-hold),
-    /// asked once.
-    private static var usageFor: (String, String)?
-    private static func usage(_ binary: String) -> String {
-        if let (b, u) = usageFor, b == binary { return u }
-        let u = attachUsageLine(binary)
-        usageFor = (binary, u)
-        return u
-    }
+    /// asked once — at launch, in the background (Store.init warms it).
+    private static func usage(_ binary: String) -> String { AttachUsageCache.shared.usage(binary) }
     static func holds(_ binary: String?) -> Bool {
         guard let binary else { return false }
         return attachHolds(usage(binary))
@@ -409,6 +403,7 @@ struct TerminalHost: NSViewRepresentable {
         // is a size of its own, not the space's.
         v.translatesAutoresizingMaskIntoConstraints = true
         box.addSubview(v)
+        (box as? DropBox)?.relayout()
         box.needsLayout = true
     }
 }
@@ -441,10 +436,22 @@ final class DropBox: NSView {
         return l
     }()
 
+    /// What the box was last laid out from: its size, where the terminal
+    /// went in it, and the theme. Unchanged, there is nothing to do.
+    private struct Laid: Equatable {
+        var bounds: NSRect
+        var placed: NSRect
+        var subviews: Int
+        var theme: ConchTheme
+        var background: NSColor
+    }
+    private var laid = LayoutMemo<Laid>()
+
     override func layout() {
         super.layout()
         let fill = Self.fill(bounds)
         let r = place?(fill) ?? fill
+        guard laid.changed(Laid(bounds: bounds, placed: r, subviews: subviews.count, theme: Theme.current, background: Theme.paneTerminal)) else { return }
         for v in subviews where v.frame != r { v.frame = r }
         let lettered = r != fill
         layer?.backgroundColor = lettered ? Self.dots.cgColor : Theme.paneTerminal.cgColor
@@ -461,6 +468,10 @@ final class DropBox: NSView {
             edge.removeFromSuperlayer()
         }
     }
+
+    /// Lays out at the next pass whatever the memo says: a terminal just
+    /// put in the box takes its frame from there.
+    func relayout() { laid.reset() }
 
     override func mouseDown(with event: NSEvent) {
         if let t = subviews.first, !t.frame.contains(convert(event.locationInWindow, from: nil)) {
