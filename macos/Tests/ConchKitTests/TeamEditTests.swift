@@ -110,4 +110,34 @@ import Testing
         // Names differ by case: another team's in other case is another name.
         #expect(teamRenameProblem("ui", from: "Backend", existing: existing) == nil)
     }
+
+    // A name with a line break or another control character — pasted into
+    // New Team — is written escaped: raw, it ended the string, and Go's
+    // config.Load refused the whole file, every setting back to its default.
+    @Test func controlCharactersAreEscaped() {
+        for name in ["a\nb", "tab\there", "cr\rhere", "bell\u{07}", "del\u{7F}", "quote \" and \\ back"] {
+            let out = addTeamTOML("[ui]\ntheme = \"white\"\n", name: name)
+            let line = out.components(separatedBy: "\n").first { $0.hasPrefix("name = ") } ?? ""
+            #expect(line.hasSuffix("\""), "the string ends on its line: \(out.debugDescription)")
+            #expect(!line.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7f }, "a control character written raw: \(line.debugDescription)")
+            #expect(parseTeams(toml: out).map(\.name) == [name], "\(name.debugDescription) did not come back")
+            #expect(out.hasPrefix("[ui]\ntheme = \"white\"\n"))
+        }
+        // Renamed to one too.
+        let renamed = renameTeamTOML(toml, from: "UI", to: "x\ny")
+        #expect(parseTeams(toml: renamed).map(\.name) == ["Backend", "x\ny"])
+        #expect(renamed.components(separatedBy: "\n").count == toml.components(separatedBy: "\n").count)
+    }
+
+    // config.toml keeps the name the server kept, once it took it; nothing
+    // for going back to the rules or for no team.
+    @Test func whichTeamIsKept() {
+        #expect(teamToKeep(asked: "API", answered: "API") == "API")
+        #expect(teamToKeep(asked: "a\nb", answered: "a·b") == "a·b")
+        #expect(teamToKeep(asked: "  API ", answered: nil) == "API")
+        #expect(teamToKeep(asked: "", answered: "Backend") == nil)
+        #expect(teamToKeep(asked: "-", answered: "-") == nil)
+        #expect(teamToKeep(asked: "API", answered: "") == nil)
+        #expect(teamToKeep(asked: "API", answered: "-") == nil)
+    }
 }

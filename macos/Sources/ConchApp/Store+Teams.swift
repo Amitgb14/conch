@@ -15,11 +15,17 @@ extension Store {
         }
         struct Params: Encodable { var id: String; var team: String }
         Task {
-            do { try await c.call("pane.team", Params(id: id, team: team)) } catch { self.error = "\(error)" }
+            do {
+                let p = try await c.call("pane.team", Params(id: id, team: team), as: PaneInfo.self)
+                // Kept in config.toml too, so the team is still there once
+                // its agents close — once the server took it, and by the
+                // name it kept (control characters made printable): a name
+                // it refused, too long, would have been a team with nobody.
+                if let kept = teamToKeep(asked: team, answered: p.team) {
+                    self.changeConfig("the team") { addTeamTOML($0, name: kept) }
+                }
+            } catch { self.error = "\(error)" }
         }
-        // Kept in config.toml too, so the team is still there once its
-        // agents close; a team on the pane alone went with them.
-        changeConfig("the team") { addTeamTOML($0, name: team) }
     }
 
     /// Asks a new team's name and puts the pane in it. A team made here

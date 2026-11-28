@@ -1206,8 +1206,11 @@ func connect(start bool) (*client.Client, error) {
 }
 
 func call(c *client.Client, method string, params, out any) error {
-	return callFor(c, method, params, out, 10*time.Second)
+	return callFor(c, method, params, out, callWait)
 }
+
+// callWait is how long call waits for an answer; tests shorten it.
+var callWait = 10 * time.Second
 
 // callFor is call with a longer wait, for work that reaches the network or
 // touches many files.

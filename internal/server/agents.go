@@ -654,7 +654,7 @@ func (s *Server) findAgents() []proto.AgentAvailability {
 			// An ACP agent is asked what it can do, which is the only
 			// way to know whether its sessions can be listed.
 			if aa, ok := adapter.AsACP(ad); ok && avs[i].Installed {
-				if init, ok := s.acpCapabilities(aa); ok {
+				if init, ok := s.acpCapabilitiesWithin(aa, acpGrace()); ok {
 					lists[i] = init.CanList()
 				}
 			}

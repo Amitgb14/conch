@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Amitgb14/conch/internal/adapter"
 	"github.com/Amitgb14/conch/internal/phone"
 	"github.com/Amitgb14/conch/internal/proto"
 )
@@ -188,5 +189,58 @@ func TestAnACPAgentEndToEnd(t *testing.T) {
 			t.Fatalf("the session was not reopened:\n%s", text)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestAnACPAgentThatNeverAnswers: an ACP agent that never answers
+// initialize — a command that is not ACP, or one still loading — holds an
+// agent list for a moment only, is started once rather than at every
+// list, and leaves the other agents listed.
+func TestAnACPAgentThatNeverAnswers(t *testing.T) {
+	t.Setenv("CONCH_SOCKET", "")
+	t.Setenv("CONCH_PANE_ID", "")
+	t.Setenv("CONCH_SESSION_GRACE", "300ms")
+	// The ask is given far longer than a list may take: a list that
+	// waited for it would time out below.
+	t.Cleanup(adapter.SetProbeTimeout(6 * time.Second))
+	dir := t.TempDir()
+	starts := filepath.Join(dir, "starts")
+	silent := filepath.Join(dir, "silent-acp")
+	if err := os.WriteFile(silent, []byte("#!/bin/sh\n[ \"$1\" = --version ] && { echo 'silent 1.0'; exit 0; }\necho started >> "+starts+"\nsleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := startServerWithAgents(t, map[string]string{
+		"silent": fmt.Sprintf("agent = \"silent\"\nlabel = \"Silent\"\n[acp]\ncommand = %q\n", silent),
+	})
+	status := func() proto.AgentStatusResult {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		var st proto.AgentStatusResult
+		if err := c.Call(ctx, proto.MethodAgentStatus, nil, &st); err != nil {
+			t.Fatalf("agent.status waited on an agent that does not answer: %v", err)
+		}
+		return st
+	}
+	st := status()
+	found := false
+	for _, a := range st.Agents {
+		if a.Name == "silent" {
+			found = true
+			if a.Sessions {
+				t.Error("said to list sessions before it answered")
+			}
+		}
+	}
+	if !found || len(st.Agents) < 2 {
+		t.Fatalf("agents = %+v", st.Agents)
+	}
+	status()                            // while it is still being asked
+	time.Sleep(6500 * time.Millisecond) // the ask gives up
+	status()
+	status()
+	b, _ := os.ReadFile(starts)
+	if n := strings.Count(string(b), "started"); n != 1 {
+		t.Errorf("started %d times for four lists, want once", n)
 	}
 }

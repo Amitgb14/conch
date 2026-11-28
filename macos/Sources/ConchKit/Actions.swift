@@ -113,6 +113,18 @@ func unescapeTOML(_ s: String) -> String {
         switch n {
         case "n": out.append("\n")
         case "t": out.append("\t")
+        case "r": out.append("\r")
+        case "b": out.append("\u{08}")
+        case "f": out.append("\u{0C}")
+        case "u":
+            // \uXXXX: four hex digits, as tomlQuoted writes a control character.
+            var hex = ""
+            while hex.count < 4, let h = it.next() { hex.append(h) }
+            if hex.count == 4, let v = UInt32(hex, radix: 16), let sc = Unicode.Scalar(v) {
+                out.unicodeScalars.append(sc)
+            } else {
+                out += "\\u" + hex
+            }
         case "\"": out.append("\"")
         case "\\": out.append("\\")
         default: out.append("\\"); out.append(n)

@@ -32,7 +32,16 @@ type acpAgents struct {
 	mu    sync.Mutex
 	caps  map[string]acpCaps
 	lists map[string]*acpList
+	// probing is the asks under way, closed when each lands, so lists
+	// asked for together start the agent once; failed is when an agent
+	// last could not be asked, so one that never answers is not started
+	// again — and waited on — at every list.
+	probing map[string]chan struct{}
+	failed  map[string]time.Time
 }
+
+// acpFailFor is how long an agent that could not be asked is left alone.
+const acpFailFor = 5 * time.Minute
 
 type acpCaps struct {
 	init acp.InitializeResult
@@ -82,6 +91,11 @@ func (a *acpAgents) forget(name string) {
 			delete(a.lists, k)
 		}
 	}
+	for k := range a.failed {
+		if strings.HasPrefix(k, name+"\x01") {
+			delete(a.failed, k)
+		}
+	}
 }
 
 func (a *acpAgents) note(name string, init acp.InitializeResult) {
@@ -96,16 +110,56 @@ func (a *acpAgents) note(name string, init acp.InitializeResult) {
 // acpCapabilities asks an installed ACP agent what it can do, or says
 // what it answered lately. ok is false when it could not be asked.
 func (s *Server) acpCapabilities(ad adapter.ACPAgent) (acp.InitializeResult, bool) {
-	if init, ok := s.acp.known(acpKey(ad)); ok {
+	return s.acpCapabilitiesWithin(ad, adapter.ProbeTimeout()+5*time.Second)
+}
+
+// acpCapabilitiesWithin is acpCapabilities waiting wait at most: the ask
+// goes on past it, and what it learns — or that it failed — is kept for
+// the next look. agent.status waits a moment only, since an agent that
+// never answers (or one taking 14 s to load, as claude-agent-acp can) once
+// held every agent list for the probe's whole minute.
+func (s *Server) acpCapabilitiesWithin(ad adapter.ACPAgent, wait time.Duration) (acp.InitializeResult, bool) {
+	key := acpKey(ad)
+	if init, ok := s.acp.known(key); ok {
 		return init, true
 	}
-	home, _ := os.UserHomeDir()
-	init, _, err := ad.Probe(context.Background(), config.DefaultShell(), home, false)
-	if err != nil {
+	a := &s.acp
+	a.mu.Lock()
+	if at, ok := a.failed[key]; ok && time.Since(at) < acpFailFor {
+		a.mu.Unlock()
 		return acp.InitializeResult{}, false
 	}
-	s.acp.note(acpKey(ad), init)
-	return init, true
+	done, running := a.probing[key]
+	if !running {
+		if a.probing == nil {
+			a.probing, a.failed = map[string]chan struct{}{}, map[string]time.Time{}
+		}
+		done = make(chan struct{})
+		a.probing[key] = done
+		goSafe("acp capabilities", func() {
+			home, _ := os.UserHomeDir()
+			init, _, err := ad.Probe(context.Background(), config.DefaultShell(), home, false)
+			a.mu.Lock()
+			if err != nil {
+				a.failed[key] = time.Now()
+			} else {
+				delete(a.failed, key)
+			}
+			delete(a.probing, key)
+			a.mu.Unlock()
+			if err == nil {
+				a.note(key, init)
+			}
+			close(done)
+		})
+	}
+	a.mu.Unlock()
+	select {
+	case <-done:
+		return a.known(key)
+	case <-time.After(wait):
+		return acp.InitializeResult{}, false
+	}
 }
 
 // acpGrace is how long a list waits for an ACP agent to answer; the

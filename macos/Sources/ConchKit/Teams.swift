@@ -211,7 +211,32 @@ private func teamBlocks(_ lines: [String]) -> [(start: Int, end: Int, nameLine: 
 
 /// A TOML basic string.
 func tomlQuoted(_ s: String) -> String {
-    "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    // A basic string: a line break or other control character written as
+    // it is ends the string early, and config.toml then fails to load —
+    // every setting back to its default — so each is escaped.
+    var out = "\""
+    for u in s.unicodeScalars {
+        switch u {
+        case "\\": out += "\\\\"
+        case "\"": out += "\\\""
+        case "\n": out += "\\n"
+        case "\t": out += "\\t"
+        case "\r": out += "\\r"
+        case _ where u.value < 0x20 || u.value == 0x7f: out += String(format: "\\u%04X", u.value)
+        default: out.unicodeScalars.append(u)
+        }
+    }
+    return out + "\""
+}
+
+/// The team config.toml keeps for a pane put in one by hand: the name the
+/// server answered with, which is the one it kept, once it took it. None
+/// for "" (back to the rules) or "-" (no team on purpose).
+public func teamToKeep(asked: String, answered: String?) -> String? {
+    let a = asked.trimmingCharacters(in: .whitespaces)
+    guard !a.isEmpty, a != AgentTeam.none else { return nil }
+    let kept = (answered ?? a).trimmingCharacters(in: .whitespaces)
+    return kept.isEmpty || kept == AgentTeam.none ? nil : kept
 }
 
 /// config.toml with every [[teams]] entry named from renamed to, its

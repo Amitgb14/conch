@@ -748,6 +748,11 @@ var tokenVerbs = map[string]string{
 	proto.MethodWorktreeAdd: "add a worktree", proto.MethodTokenCreate: "make a token", proto.MethodTokenList: "list tokens",
 	proto.MethodTokenRevoke: "revoke a token", proto.MethodAgentReply: "reply to", proto.MethodPaneRead: "read",
 	proto.MethodPaneSubscribe: "watch", proto.MethodPaneRaw: "watch", proto.MethodFSWrite: "write files in",
+	// A file on this computer: scope.go's verbs for these are about a
+	// terminal's ssh host, which a token's refusal here is not.
+	proto.MethodFSList: "list files in", proto.MethodFSRead: "read", proto.MethodFSFind: "find files in",
+	proto.MethodFSSearch: "search", proto.MethodFSLines: "read", proto.MethodFSDownload: "copy files from",
+	proto.MethodFSMkdir: "make folders in", proto.MethodFSUpload: "copy files into",
 }
 
 // tokenRefused is a call the token does not cover, written down with the
