@@ -125,3 +125,60 @@ func TestResizeRefusesNonsense(t *testing.T) {
 		t.Fatalf("size %v after refused resizes", got)
 	}
 }
+
+// A phone that typed into a pane took it at its size; put away — it stops
+// showing the pane, or its connection goes — the pane is the laptop's
+// again at once, without anybody typing at the laptop.
+func TestPaneGoesBackWhenThePhoneLetsGo(t *testing.T) {
+	t.Setenv("CONCH_SOCKET", "")
+	t.Setenv("CONCH_PANE_ID", "")
+	mac, dir := startServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	var info proto.PaneInfo
+	if err := mac.Call(ctx, proto.MethodPaneCreate, proto.PaneCreateParams{Command: []string{"/bin/cat"}, Cols: 80, Rows: 24}, &info); err != nil {
+		t.Fatal(err)
+	}
+	id := info.ID
+	waitSize := func(cols, rows int, why string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for paneSize(t, mac, id) != [2]int{cols, rows} {
+			if time.Now().After(deadline) {
+				got := paneSize(t, mac, id)
+				t.Fatalf("%s: %dx%d, want %dx%d", why, got[0], got[1], cols, rows)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	phone := func() *client.Client {
+		p, err := client.Dial(filepath.Join(dir, "s.sock"), "phone")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { p.Close() })
+		callOK(t, p, proto.MethodPaneSubscribe, proto.PaneRef{ID: id})
+		callOK(t, p, proto.MethodPaneResize, proto.PaneResizeParams{ID: id, Cols: 44, Rows: 13})
+		callOK(t, p, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: id, Text: "x"})
+		waitSize(44, 13, "typed on the phone: the phone's size")
+		return p
+	}
+	callOK(t, mac, proto.MethodPaneSubscribe, proto.PaneRef{ID: id})
+	callOK(t, mac, proto.MethodPaneResize, proto.PaneResizeParams{ID: id, Cols: 160, Rows: 45})
+	callOK(t, mac, proto.MethodPaneSendText, proto.PaneSendTextParams{ID: id, Text: "m"})
+	waitSize(160, 45, "the Mac's")
+
+	// The phone leaves the pane.
+	p := phone()
+	callOK(t, p, proto.MethodPaneUnsubscribe, proto.PaneRef{ID: id})
+	waitSize(160, 45, "the phone stopped showing it: the Mac's again")
+
+	// The phone is put away: its connection goes.
+	p = phone()
+	p.Close()
+	waitSize(160, 45, "the phone went: the Mac's again")
+
+	// And the Mac keeps it until somebody types elsewhere.
+	callOK(t, mac, proto.MethodPaneResize, proto.PaneResizeParams{ID: id, Cols: 150, Rows: 44})
+	waitSize(150, 44, "the Mac's own resize")
+}

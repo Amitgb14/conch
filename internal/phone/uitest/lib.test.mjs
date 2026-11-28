@@ -4,6 +4,7 @@ import {
   parseLine, frameRows, color256, sortAgents, upsertAgent, removeAgent, groupAgents, groupByMachine, agentLabel,
   ago, route, can, backoff, reviewCount, backgroundLine, reviewBlocked, reviewByline, commentLink, codeFromHash, fontSizeFor, fitFontSize, fitPane, worthResizing, chunks, keyBytes, appPath,
   markOf, counts, filterPanes, inProject, lastLine, neighbours, swipeTo, projectsOn, replyTargets, FILTERS, relayWhy,
+  onVisibility,
 } from "../ui/lib.mjs"
 
 const text = (runs) => runs.map((r) => r.text).join("")
@@ -699,3 +700,14 @@ test("what an agent left running", () => {
   assert.equal(backgroundLine({ background: [{}, {}] }), "2 still running")
   assert.equal(backgroundLine({ background: [{ command: "y".repeat(80) }] }), `1 still running: ${"y".repeat(39)}…`)
 })
+
+test("put away, the app lets go of its connection; shown again, it comes back", () => {
+  assert.equal(onVisibility("hidden", true, true), "close")
+  assert.equal(onVisibility("visible", false, true), "connect")
+  assert.equal(onVisibility("hidden", false, true), null) // nothing to let go of
+  assert.equal(onVisibility("visible", true, true), null) // already connected
+  assert.equal(onVisibility("hidden", true, false), null) // never paired
+  assert.equal(onVisibility("visible", false, false), null)
+  assert.equal(onVisibility("prerender", true, true), null)
+})
+
