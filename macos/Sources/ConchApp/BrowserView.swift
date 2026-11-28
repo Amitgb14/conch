@@ -235,8 +235,10 @@ final class BrowserPage: NSObject, ObservableObject, WKNavigationDelegate, WKUID
         MainActor.assumeIsolated {
             let flags = action.modifierFlags
             if action.navigationType == .linkActivated, flags.contains(.command) || action.buttonNumber == 2,
-               let u = action.request.url, !u.absoluteString.hasPrefix("javascript:") {
-                owner?.openTab(u.absoluteString, after: id, select: flags.contains(.shift))
+               let u = action.request.url {
+                if linkOpensInNewTab(u, from: w.url) {
+                    owner?.openTab(u.absoluteString, after: id, select: flags.contains(.shift))
+                }
                 decisionHandler(.cancel, preferences)
                 return
             }

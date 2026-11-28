@@ -59,7 +59,39 @@ public func savingHost(_ h: SavedHost, save: Bool = true, in data: Data?) throws
     }
     ui["saved_ssh"] = saved
     if info.isEmpty { ui.removeValue(forKey: "ssh_hosts") } else { ui["ssh_hosts"] = info }
+    if !save { forgetHostEverywhere(h.host, in: &ui) }
     return try JSONSerialization.data(withJSONObject: ui, options: [.prettyPrinted, .sortedKeys])
+}
+
+/// A forgotten host out of every folder and every workspace's list too, as
+/// the TUI's forgetSSH does: left there, a host saved again later came
+/// back in its old folder and in workspaces it had been taken out of.
+func forgetHostEverywhere(_ host: String, in ui: inout [String: Any]) {
+    if var all = ui["folders"] as? [String: Any] {
+        for (key, v) in all {
+            guard var list = v as? [[String: Any]] else { continue }
+            for i in list.indices {
+                guard var mems = list[i]["members"] as? [[String: Any]] else { continue }
+                mems.removeAll { $0["host"] as? String == host }
+                if mems.isEmpty { list[i].removeValue(forKey: "members") } else { list[i]["members"] = mems }
+            }
+            all[key] = list
+        }
+        ui["folders"] = all
+    }
+    func drop(_ space: inout [String: Any]) {
+        guard var hosts = space["hosts"] as? [String] else { return }
+        hosts.removeAll { $0 == host }
+        if hosts.isEmpty { space.removeValue(forKey: "hosts") } else { space["hosts"] = hosts }
+    }
+    if var first = ui["first_space"] as? [String: Any] {
+        drop(&first)
+        ui["first_space"] = first
+    }
+    if var spaces = ui["spaces"] as? [[String: Any]] {
+        for i in spaces.indices { drop(&spaces[i]) }
+        ui["spaces"] = spaces
+    }
 }
 
 /// ui.json with saved host h listed in workspace ws ("first" for the

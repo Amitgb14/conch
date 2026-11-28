@@ -72,8 +72,15 @@ func sharedOf(st uiState) sharedUI {
 	for host, info := range st.SSHHosts {
 		put("ssh_hosts/"+host, info)
 	}
+	// Each saved host a piece of its own, and their order another: as
+	// one list, a TUI that had saved a host since it last read the file
+	// wrote its whole list back, and a host Conch.app had just forgotten
+	// came back with it (#311).
+	for _, host := range st.SavedSSH {
+		put("saved_ssh/"+host, true)
+	}
 	if len(st.SavedSSH) > 0 {
-		put("saved_ssh", st.SavedSSH)
+		put("saved_ssh_order", st.SavedSSH)
 	}
 	if len(st.NoProjectOffer) > 0 {
 		put("no_project_offer", st.NoProjectOffer)
@@ -117,7 +124,8 @@ func (s sharedUI) into(st *uiState) {
 	}
 	st.Spaces, st.FirstSpace, st.ActiveSpace = nil, nil, 0
 	spaces := map[string]savedSpace{}
-	var order []string
+	var order, hostOrder []string
+	hosts := map[string]savedSpace{} // only the keys: spaceOrder orders them as it does workspaces
 	for k, v := range s {
 		switch {
 		case strings.HasPrefix(k, "folders/"):
@@ -136,8 +144,10 @@ func (s sharedUI) into(st *uiState) {
 				}
 				st.SSHHosts[strings.TrimPrefix(k, "ssh_hosts/")] = info
 			}
-		case k == "saved_ssh":
-			_ = json.Unmarshal(v, &st.SavedSSH)
+		case strings.HasPrefix(k, "saved_ssh/"):
+			hosts[strings.TrimPrefix(k, "saved_ssh/")] = savedSpace{}
+		case k == "saved_ssh_order":
+			_ = json.Unmarshal(v, &hostOrder)
 		case k == "no_project_offer":
 			_ = json.Unmarshal(v, &st.NoProjectOffer)
 		case strings.HasPrefix(k, "guide/"):
@@ -158,6 +168,10 @@ func (s sharedUI) into(st *uiState) {
 				st.FirstSpace = &fs
 			}
 		}
+	}
+	st.SavedSSH = spaceOrder(hostOrder, hosts)
+	if len(st.SavedSSH) == 0 {
+		st.SavedSSH = nil
 	}
 	for _, id := range spaceOrder(order, spaces) {
 		ss := spaces[id]

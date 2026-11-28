@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestSharedRoundTrip(t *testing.T) {
 		SidebarWidth:   40, // not shared
 	}
 	s := sharedOf(st)
-	if len(s) != 4 { // the empty section is nothing to share
+	if len(s) != 5 { // a host is two pieces (it, and the order); the empty section is nothing to share
 		t.Fatalf("pieces %v", s)
 	}
 	var back uiState
@@ -60,6 +61,35 @@ func TestSharedRoundTrip(t *testing.T) {
 	s.into(&back)
 	if len(back.Folders) != 1 {
 		t.Fatalf("folders %+v", back.Folders)
+	}
+}
+
+// A host forgotten in Conch.app (theirs) stays forgotten when this TUI
+// had saved another one meanwhile (ours): each host is its own piece, so
+// the TUI's list no longer comes back whole (#311). The order of the
+// hosts kept is kept.
+func TestForgottenHostStaysForgotten(t *testing.T) {
+	base := sharedOf(uiState{SavedSSH: []string{"alpha", "bb", "gamma"}})
+	ours := sharedOf(uiState{SavedSSH: []string{"alpha", "bb", "gamma", "delta"}}) // the TUI saved delta
+	theirs := sharedOf(uiState{SavedSSH: []string{"alpha", "gamma"}})              // the app forgot bb
+	var got uiState
+	mergeShared(base, ours, theirs).into(&got)
+	if strings.Join(got.SavedSSH, " ") != "alpha gamma delta" {
+		t.Fatalf("saved %q, want alpha gamma delta", got.SavedSSH)
+	}
+
+	// Forgotten everywhere: none left, not an empty list.
+	var none uiState
+	mergeShared(sharedOf(uiState{SavedSSH: []string{"bb"}}), sharedOf(uiState{SavedSSH: []string{"bb"}}), sharedOf(uiState{})).into(&none)
+	if none.SavedSSH != nil {
+		t.Fatalf("saved %q, want none", none.SavedSSH)
+	}
+
+	// Forgotten here while the app saved another: both stick.
+	var both uiState
+	mergeShared(base, sharedOf(uiState{SavedSSH: []string{"alpha", "gamma"}}), sharedOf(uiState{SavedSSH: []string{"alpha", "bb", "gamma", "zeta"}})).into(&both)
+	if strings.Join(both.SavedSSH, " ") != "alpha gamma zeta" {
+		t.Fatalf("saved %q, want alpha gamma zeta", both.SavedSSH)
 	}
 }
 

@@ -212,3 +212,20 @@ import Testing
     #expect(sawChannel)
     #expect(scripts <= 2, "the icon's and the user agent's")
 }
+
+// A ⌘-clicked link opens in a tab the app makes, so WebKit's rule that a
+// web page cannot open a local file is the app's to keep: a file:// link
+// opens from a local file only, and javascript: never.
+@Test func aWebPageCannotOpenALocalFileInANewTab() {
+    let web = URL(string: "https://example.com/page")!
+    let file = URL(fileURLWithPath: "/Users/me/notes/index.html")
+    let local = URL(string: "file:///Users/me/.ssh/id_rsa")!
+    #expect(!linkOpensInNewTab(local, from: web))
+    #expect(!linkOpensInNewTab(URL(string: "FILE:///etc/hosts")!, from: web))
+    #expect(!linkOpensInNewTab(local, from: nil))
+    #expect(linkOpensInNewTab(URL(fileURLWithPath: "/Users/me/notes/b.html"), from: file))
+    #expect(!linkOpensInNewTab(URL(string: "javascript:alert(1)")!, from: web))
+    #expect(!linkOpensInNewTab(URL(string: "JavaScript:alert(1)")!, from: file))
+    #expect(linkOpensInNewTab(URL(string: "https://example.com/next")!, from: web))
+    #expect(linkOpensInNewTab(URL(string: "http://localhost:3000")!, from: file))
+}
