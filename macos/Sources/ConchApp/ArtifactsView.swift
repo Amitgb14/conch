@@ -156,7 +156,7 @@ struct ArtifactsListView: View {
         .help(a.url)
         .contextMenu {
             Button("Open") { open(a) }
-            Button("Open in Browser") { if let u = URL(string: a.url) { NSWorkspace.shared.open(u) } }
+            Button("Open in Browser") { if isArtifactURL(a.url), let u = URL(string: a.url) { NSWorkspace.shared.open(u) } }
             Button("Copy Link") { copyArtifactLink(a.url) }
         }
     }

@@ -190,6 +190,21 @@ public struct SitePermissions: Codable, Equatable, Sendable {
 /// What a file:// page may read: the file itself, never its folder.
 public func fileReadAccess(for u: URL) -> URL { u }
 
+/// Whether a link ⌘- or middle-clicked on page opens in a new tab. A tab
+/// is opened by the app, not the page, so WebKit's rule that a web page
+/// cannot open a local file does not apply there: a file:// link opens
+/// only from a page that is itself a local file. And never javascript:.
+public func linkOpensInNewTab(_ link: URL, from page: URL?) -> Bool {
+    switch link.scheme?.lowercased() {
+    case "javascript":
+        return false
+    case "file":
+        return page?.isFileURL == true
+    default:
+        return true
+    }
+}
+
 /// A downloaded file that could run, or install something, if opened: it
 /// is asked about before it is saved.
 public func isExecutableDownload(_ name: String) -> Bool {

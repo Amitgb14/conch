@@ -325,3 +325,24 @@ private let frameRoot = "https://e994da13-9cbd-429e-98d9-23e36d2d6497.frame.clau
     #expect(added)
     #expect(full.urls.count == ArtifactHandOvers.max && full.urls.last == "https://claude.ai/artifact/new" && !full.contains(many[5]))
 }
+
+// A server's list and publishes are clicked open — in the person's browser
+// or a tab here — so a link that is not a claude.ai artifact's (from a
+// server on a machine somebody else controls) is never kept to be clicked.
+@Test func onlyClaudeArtifactLinksAreKept() {
+    var s = ArtifactShelf()
+    func bad(_ url: String) -> Artifact {
+        Artifact(url: url, title: "x", kind: "Page", versions: 1, updated: now, panes: ["p1"], project: nil)
+    }
+    s.load("busybox", [art("A"), bad("file:///etc/passwd"), bad("vnc://attacker"), bad("https://evil.example/artifact/X"),
+                       bad("https://claude.ai.evil.example/artifact/X"), bad("http://claude.ai/artifact/X"), bad("https://claude.ai/settings")])
+    #expect(s.list("busybox").map(\.url) == ["https://claude.ai/artifact/A"])
+
+    let zoom = s.published("busybox", ArtifactPublished(pane: "p1", agent: "claude", artifact: bad("zoommtg://join?x=1")))
+    #expect(!zoom)
+    #expect(s.list("busybox").count == 1 && !s.isUnseen("busybox", "zoommtg://join?x=1"))
+    let b = s.published("busybox", ArtifactPublished(pane: "p1", agent: "claude", artifact: art("B")))
+    let c = s.published("busybox", ArtifactPublished(pane: "p1", agent: "claude", artifact: bad("https://claude.ai/code/artifact/C")))
+    #expect(b && c)
+    #expect(s.list("busybox").map(\.url) == ["https://claude.ai/code/artifact/C", "https://claude.ai/artifact/B", "https://claude.ai/artifact/A"])
+}

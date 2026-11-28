@@ -361,8 +361,12 @@ public struct ArtifactShelf: Equatable, Sendable {
     public func list(_ machine: String) -> [Artifact] { lists[machine] ?? [] }
 
     /// A machine's whole list, as artifact.list answered.
+    /// Only claude.ai artifact links are kept: what a server sends is
+    /// opened with a click — in the person's browser, or a tab here — so a
+    /// server that was not conch (one on a machine somebody else controls)
+    /// could otherwise hand over a custom-scheme or file:// link.
     public mutating func load(_ machine: String, _ list: [Artifact]) {
-        lists[machine] = list
+        lists[machine] = list.filter { isArtifactURL($0.url) }
         notes[machine] = nil
     }
 
@@ -380,7 +384,11 @@ public struct ArtifactShelf: Equatable, Sendable {
     }
 
     /// A publish told by the server: into the list, newest, marked unseen.
-    public mutating func published(_ machine: String, _ ev: ArtifactPublished) {
+    /// False for a link that is not a claude.ai artifact's, which is
+    /// dropped (see load).
+    @discardableResult
+    public mutating func published(_ machine: String, _ ev: ArtifactPublished) -> Bool {
+        guard isArtifactURL(ev.artifact.url) else { return false }
         var l = lists[machine] ?? []
         var a = ev.artifact
         if let i = l.firstIndex(where: { $0.url == a.url }) {
@@ -392,6 +400,7 @@ public struct ArtifactShelf: Equatable, Sendable {
         l.insert(a, at: 0)
         lists[machine] = l
         unseen.insert(machine + "|" + a.url)
+        return true
     }
 
     /// Opened: no longer news.

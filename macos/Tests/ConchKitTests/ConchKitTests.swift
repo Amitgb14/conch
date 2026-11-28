@@ -2610,6 +2610,34 @@ private func c(_ h: String, _ parents: String...) -> LogCommit { LogCommit(hash:
     #expect(try JSONDecoder().decode(TicketList.self, from: Data(#"{}"#.utf8)).tickets.isEmpty)
 }
 
+// Forgetting a host takes it out of its folder and every workspace's list
+// too, as the TUI's forgetSSH does, and leaves the other hosts, folders
+// and workspaces as they were (#311).
+@Test func forgettingAHostLeavesNoTrace() throws {
+    let ui = #"""
+    {"saved_ssh":["busybox","dev"],
+     "folders":{"local/ssh":[{"name":"lab","members":[{"host":"busybox"},{"host":"dev"}]},{"name":"old","members":[{"host":"busybox"}]}],
+                "r1/4":[{"name":"eng","members":[{"id":"p1"}]}]},
+     "first_space":{"hosts":["busybox","dev"]},
+     "spaces":[{"id":"w2","hosts":["busybox"]},{"hosts":["dev"]}]}
+    """#
+    let out = try savingHost(SavedHost(host: "busybox"), save: false, in: Data(ui.utf8))
+    let obj = try #require(try JSONSerialization.jsonObject(with: out) as? [String: Any])
+    #expect(loadSavedHosts(uiJSON: out).map(\.host) == ["dev"])
+    let folders = try #require(obj["folders"] as? [String: Any])
+    let ssh = try #require(folders["local/ssh"] as? [[String: Any]])
+    #expect((ssh[0]["members"] as? [[String: Any]])?.compactMap { $0["host"] as? String } == ["dev"])
+    #expect(ssh[1]["name"] as? String == "old" && ssh[1]["members"] == nil) // the folder stays, empty
+    #expect(((folders["r1/4"] as? [[String: Any]])?.first?["members"] as? [[String: Any]])?.first?["id"] as? String == "p1")
+    #expect((obj["first_space"] as? [String: Any])?["hosts"] as? [String] == ["dev"])
+    let spaces = try #require(obj["spaces"] as? [[String: Any]])
+    #expect(spaces[0]["id"] as? String == "w2" && spaces[0]["hosts"] == nil)
+    #expect(spaces[1]["hosts"] as? [String] == ["dev"] && spaces[1]["id"] == nil) // no id written in
+    // Saving it again does not bring the old folder or workspaces back.
+    let again = try savingHost(SavedHost(host: "busybox"), in: out)
+    #expect(!String(decoding: again, as: UTF8.self).contains(#"{"host":"busybox"}"#) && !String(decoding: again, as: UTF8.self).contains(#""host" : "busybox""#))
+}
+
 // Saved ssh hosts as the TUI keeps them in ui.json: read in order with
 // their names and options, saved and forgotten leaving the rest of the
 // file, listed under this computer's CLI while no session is open to them.

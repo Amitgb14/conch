@@ -52,7 +52,7 @@ extension Store {
     /// screen already showing it; an open tab of it loads the new version.
     func artifactPublished(_ machine: String, _ data: Data) {
         guard let ev = try? conchDecoder().decode(ArtifactPublished.self, from: data) else { return }
-        artifactShelf.published(machine, ev)
+        guard artifactShelf.published(machine, ev) else { return } // not a claude.ai artifact's link
         let a = ev.artifact
         let who = pane(key(machine, ev.pane))?.displayName ?? ev.agent ?? "An agent"
         var shown = false
@@ -179,6 +179,10 @@ extension Store {
     /// choice says so (by default, while Conch's browser is not signed in
     /// to claude.ai, where a passkey cannot be used either), else `inside`.
     func pickArtifact(_ url: String, inside: @escaping () -> Void) {
+        guard isArtifactURL(artifactBase(url)) else {
+            say("Not opened: \(url) is not a claude.ai artifact's link", .err)
+            return
+        }
         let base = artifactBase(url)
         checkClaudeSignIn { [weak self] signedIn in
             guard let self else { return }
