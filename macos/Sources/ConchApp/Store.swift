@@ -4373,8 +4373,9 @@ extension Store {
         box.addArrangedSubview(one)
         box.addArrangedSubview(each)
         let pick = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 26), pullsDown: false)
-        let agents = startable(on: machine)
-        pick.addItems(withTitles: agents.map(\.title))
+        // The others first, then the agents over ACP, said to be.
+        let agents = agentsGroupedFlat(startable(on: machine))
+        pick.addItems(withTitles: agents.map { $0.isACP ? $0.title + " · ACP" : $0.title })
         box.addArrangedSubview(pick)
         a.accessoryView = box
         a.addButton(withTitle: "Start Task")

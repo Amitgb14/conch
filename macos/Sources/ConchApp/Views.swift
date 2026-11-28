@@ -1640,7 +1640,13 @@ struct TaskSheet: View {
                 .focused($promptFocused)
             HStack(spacing: 12) {
                 Picker("Agent", selection: $draft.agent) {
-                    ForEach(store.startable(on: m), id: \.name) { Text($0.title).tag($0.name) }
+                    let g = agentMenuGroups(store.startable(on: m))
+                    ForEach(g.native, id: \.name) { a in AgentPickerRow(agent: a).tag(a.name) }
+                    if !g.acp.isEmpty {
+                        Section("Over ACP") {
+                            ForEach(g.acp, id: \.name) { a in AgentPickerRow(agent: a).tag(a.name) }
+                        }
+                    }
                 }
                 .frame(maxWidth: 240)
                 if project?.git != false {

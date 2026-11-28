@@ -64,3 +64,16 @@ struct AgentMenuList: View {
         }
     }
 }
+
+/// An agent in a picker: its mark and its name, as in a menu.
+struct AgentPickerRow: View {
+    let agent: AgentAvailability
+
+    var body: some View {
+        if let img = AgentMenuIcon.image(agent.name) {
+            Label { Text(agent.title) } icon: { Image(nsImage: img) }
+        } else {
+            Text(agent.title)
+        }
+    }
+}
