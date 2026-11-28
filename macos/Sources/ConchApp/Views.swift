@@ -1131,9 +1131,16 @@ struct NodeView: View {
     }
 
     func activateRow() {
-        // A click in the tree gives the tree the keyboard, as in the TUI.
-        store.focusSidebar()
         store.treeCursor = node.id
+        // A pane's row opens the pane, which takes the keyboard: giving it
+        // to the tree first and back a moment later changed the row's
+        // highlight twice in one click, which read as a flash (#293).
+        if isPane {
+            activate()
+            return
+        }
+        // Any other row gives the tree the keyboard, as in the TUI.
+        store.focusSidebar()
         activate()
     }
 

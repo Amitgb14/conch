@@ -59,6 +59,8 @@ final class Store: ObservableObject {
         didSet {
             rosterMemo = nil
             reviewMemo = nil
+            treeMemo = nil
+            needsYouMemo = nil
             snapshotsChanged.mark()
         }
     }
@@ -316,6 +318,7 @@ final class Store: ObservableObject {
         projectScope = project
         tabsOwner = workspace
         binary = conchBinary()
+        if let b = binary { AttachUsageCache.shared.warm(b) } // before the first pane opens, off the main thread
         if let saved { layout = saved }
         // The welcome is the app's, said in its first window only.
         if !primary { welcomeOpen = false }
@@ -655,23 +658,35 @@ final class Store: ObservableObject {
     }
 
     /// The sidebar: a tree per machine, this computer first.
+    /// Built once per change of the store, as the roster is: the sidebar,
+    /// its keyboard navigation, the toolbar's place and each click's focus
+    /// all read it, and building it walks every project, pane and branch.
     var tree: [TreeNode] {
-        shownMachines.map { m in
+        if let t = treeMemo { return t }
+        let t = shownMachines.map { m in
             var node = (snapshots[m.id] ?? Snapshot()).tree(machine: m.id, label: m.label, in: ws, sessions: sessions, allBranches: allBranches,
                                                             savedHosts: savedHosts, folders: folders, teams: teams)
             if !m.online { node.badge = m.state }
             return node
         }
+        treeMemo = t
+        return t
     }
+    private var treeMemo: [TreeNode]?
 
     /// Every agent waiting for you, across the machines, longest first:
-    /// the sidebar's Needs you.
+    /// the sidebar's Needs you. Built once per change, as tree is.
     var needsYou: [(key: String, pane: PaneInfo, machine: String)] {
-        machines.flatMap { m in
+        if let n = needsYouMemo { return n }
+        typealias Waiting = (key: String, pane: PaneInfo, machine: String)
+        let all: [Waiting] = machines.flatMap { m -> [Waiting] in
             (snapshots[m.id] ?? Snapshot()).needsYou(in: ws, machine: m.id).map { (key(m.id, $0.id), $0, m.id) }
         }
-        .sorted { ($0.pane.agent?.since ?? .distantPast) < ($1.pane.agent?.since ?? .distantPast) }
+        let n = all.sorted { ($0.pane.agent?.since ?? .distantPast) < ($1.pane.agent?.since ?? .distantPast) }
+        needsYouMemo = n
+        return n
     }
+    private var needsYouMemo: [(key: String, pane: PaneInfo, machine: String)]?
 
     /// The project the Cel roster is narrowed to ("machine|id"), or every one.
     @Published var rosterProject: String?
@@ -757,6 +772,8 @@ final class Store: ObservableObject {
         memoWatch = objectWillChange.sink { [weak self] _ in
             self?.rosterMemo = nil
             self?.reviewMemo = nil
+            self?.treeMemo = nil
+            self?.needsYouMemo = nil
         }
     }
 
@@ -897,9 +914,11 @@ final class Store: ObservableObject {
                 let out = (try? await runProgram("/bin/ps", psArguments)) ?? ""
                 let cur = ProcSample(at: Date(), procs: parsePS(out))
                 guard let self else { return }
-                self.resources = resourceRows(prev: prev, cur: cur, app: ("This window (Conch.app)", Int(ProcessInfo.processInfo.processIdentifier)),
-                                              server: self.conns["local"]?.hello?.pid,
-                                              panes: (self.snapshots["local"]?.panes ?? []).compactMap { p in p.pid.map { (p.displayName, $0) } })
+                let rows = resourceRows(prev: prev, cur: cur, app: ("This window (Conch.app)", Int(ProcessInfo.processInfo.processIdentifier)),
+                                        server: self.conns["local"]?.hello?.pid,
+                                        panes: (self.snapshots["local"]?.panes ?? []).compactMap { p in p.pid.map { (p.displayName, $0) } })
+                // Assigned only when it moved: each assignment redraws the window.
+                if self.resources.map({ $0.rows != rows.rows || $0.total != rows.total }) ?? true { self.resources = rows }
                 // The whole machine for the strip at its top, unless the
                 // System Monitor is asking already.
                 if self.systemPoll == nil { await self.readSystem("local", summary: true) }
@@ -2763,6 +2782,13 @@ final class Store: ObservableObject {
     func focusTerminal() {
         guard let p = layout.focused else { return }
         if !leafHasTerminal(p) { terminalHasKeyboard = false }
+        // A terminal already in the window takes the keyboard now, in this
+        // state change; only one that is not there yet — just made, or in
+        // a tab being switched to — waits for the next turn.
+        if let v = terminals[p]?.view, let w = v.window, w.makeFirstResponder(v) {
+            terminalHasKeyboard = true
+            return
+        }
         DispatchQueue.main.async {
             if let v = self.terminals[p]?.view, v.window?.makeFirstResponder(v) == true { self.terminalHasKeyboard = true }
             if parseBrowserKey(p) != nil, let w = self.browserViews[p]?.web, let win = w.window, win.firstResponder !== w,
