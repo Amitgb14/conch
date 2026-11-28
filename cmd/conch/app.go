@@ -352,12 +352,17 @@ var startApp = func(argv []string) error {
 // on its own pty, and the only thing the inherited id would do is put an
 // error on the screen of the window somebody just asked for.
 //
+// CONCH_TOKEN goes too: it is that pane's own access token (#350), and the
+// TUI in the new window would present it and be held to the agent's scope
+// — that project only, refused once the pane closes — rather than being
+// the person, whose window it is.
+//
 // CONCH_SOCKET stays. That is which server to talk to, and the new window
 // wanting the same one — the same panes, the same agents — is the point.
 func appEnviron(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "CONCH_PANE_ID=") {
+		if strings.HasPrefix(kv, "CONCH_PANE_ID=") || strings.HasPrefix(kv, "CONCH_TOKEN=") {
 			continue
 		}
 		out = append(out, kv)

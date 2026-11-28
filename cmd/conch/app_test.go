@@ -175,12 +175,15 @@ func TestAppDoesNotPassOnItsPane(t *testing.T) {
 	env := appEnviron([]string{
 		"PATH=/usr/bin",
 		"CONCH_PANE_ID=p7",
+		"CONCH_TOKEN=conch_t_pane_secret",
 		"CONCH_SOCKET=/tmp/conch.sock",
 		"CONCH_HOME=/home/me/.config/conch",
 		"TERM=xterm-ghostty",
 	})
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "CONCH_PANE_ID=") {
+		// The pane's id, and its token (#350): presented by the new
+		// window's TUI, it would be held to the agent's scope.
+		if strings.HasPrefix(kv, "CONCH_PANE_ID=") || strings.HasPrefix(kv, "CONCH_TOKEN=") {
 			t.Fatalf("the pane was passed on: %q", env)
 		}
 	}
@@ -192,7 +195,7 @@ func TestAppDoesNotPassOnItsPane(t *testing.T) {
 		}
 	}
 	// A variable that merely starts the same way is not the pane.
-	if env = appEnviron([]string{"CONCH_PANE_IDS=x", "CONCH_PANE=1"}); len(env) != 2 {
+	if env = appEnviron([]string{"CONCH_PANE_IDS=x", "CONCH_PANE=1", "CONCH_TOKENS=y"}); len(env) != 3 {
 		t.Errorf("dropped more than the pane: %q", env)
 	}
 	if env = appEnviron(nil); len(env) != 0 {
