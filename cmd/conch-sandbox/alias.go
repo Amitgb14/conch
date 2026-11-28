@@ -356,6 +356,13 @@ func writeAliases(lines []string) error {
 // one whose meta line names another sandbox: conch-a-b-c is provider a's
 // sandbox b-c, and provider a-b's sandbox c, alike.
 func setAlias(al alias) error {
+	// The alias is "conch-PROVIDER-ID", written as a Host line: neither may
+	// carry a line break, a space or a pattern, whichever path got here.
+	for _, part := range []string{al.Provider, al.ID} {
+		if err := checkID(part); err != nil {
+			return fmt.Errorf("no ssh alias for it: %w", err)
+		}
+	}
 	if o, ok := blockOwner(al.name()); ok && (o.Provider != al.Provider || o.ID != al.ID) {
 		return fmt.Errorf("ssh alias %s is %s's sandbox %s already; remove it first (conch-sandbox ssh-alias --remove --machine %s)", al.name(), o.Provider, o.ID, al.name())
 	}

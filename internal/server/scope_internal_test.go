@@ -201,6 +201,11 @@ func TestScopeMethods(t *testing.T) {
 		{"remove an account", msg(proto.MethodAccountRemove, proto.AccountRef{Agent: "claude", Name: "x"}), false},
 		{"pin a folder", msg(proto.MethodAccountPin, proto.AccountPinParams{Path: "/x", Account: "x"}), false},
 		{"set failover", msg(proto.MethodAccountFailover, proto.AccountFailoverParams{At: 1}), false},
+		// An ACP agent's command runs in the server, outside every pane:
+		// adding, checking or removing one is the person's.
+		{"check an ACP command", msg(proto.MethodAgentACPCheck, proto.AgentACPSpec{Command: "sh -c 'conch server reload'"}), false},
+		{"add an ACP agent", msg(proto.MethodAgentACPAdd, proto.AgentACPAddParams{AgentACPSpec: proto.AgentACPSpec{Name: "x", Command: "x"}}), false},
+		{"remove an ACP agent", msg(proto.MethodAgentACPRemove, proto.AgentACPRemoveParams{Name: "x"}), false},
 		{"its own pane, params in good order", proto.Message{Method: proto.MethodPaneSendText, Params: []byte(`{"id":"p4","text":"x"}`)}, true},
 		{"its own pane, no params", proto.Message{Method: proto.MethodPaneMarkSeen}, true},
 		{"its own pane, null params", proto.Message{Method: proto.MethodPaneMarkSeen, Params: []byte(`null`)}, true},

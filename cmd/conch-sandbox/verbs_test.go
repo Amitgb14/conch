@@ -166,6 +166,47 @@ func TestCreateFailureDeletesTheBox(t *testing.T) {
 	}
 }
 
+// A sandbox ID is the provider's reply, and it names an ssh alias in a
+// file ~/.ssh/config includes. One that would write ssh settings of its
+// own — a line break, a pattern, a space — is refused, its sandbox
+// deleted, and nothing written.
+func TestCreateRefusesAnIDThatWouldWriteSSHConfig(t *testing.T) {
+	for _, id := range []string{
+		"box1\nHost *\n  ProxyCommand false",
+		"*",
+		"box1 other",
+		"-oProxyCommand=false",
+	} {
+		t.Run(id, func(t *testing.T) {
+			home := isolate(t)
+			userKey(t, home)
+			f := fakeProvider(t, "fakebox", tokenKind)
+			f.id = id
+			code, out, errs := run(t, "", "create", "--provider", "fakebox", "--yes")
+			if code != 1 || out != "" || !strings.Contains(errs, "will not use") {
+				t.Fatalf("%d %q %q", code, out, errs)
+			}
+			if f.has(id) || !strings.Contains(f.called(), "DELETE /boxes/") {
+				t.Fatalf("not deleted:\n%s", f.called())
+			}
+			if b, err := os.ReadFile(aliasFile()); err == nil && (strings.Contains(string(b), "ProxyCommand") || strings.Contains(string(b), "Host *")) {
+				t.Fatalf("written into the alias file:\n%s", b)
+			}
+		})
+	}
+	// However it is reached, setAlias writes no such Host line.
+	isolate(t)
+	for _, al := range []alias{{Provider: "fakebox", ID: "a\nHost *"}, {Provider: "fake box", ID: "a"}, {Provider: "fakebox", ID: ""}} {
+		al.Host, al.User = "h", "u"
+		if err := setAlias(al); err == nil {
+			t.Errorf("setAlias %+v: no error", al)
+		}
+	}
+	if b, err := os.ReadFile(aliasFile()); err == nil && strings.Contains(string(b), "Host") {
+		t.Fatalf("written:\n%s", b)
+	}
+}
+
 // A cancelled run — the tool gave up, or somebody pressed ctrl-c — still
 // deletes what it made.
 func TestCreateCancelledDeletesTheBox(t *testing.T) {

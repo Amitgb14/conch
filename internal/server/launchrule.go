@@ -44,6 +44,18 @@ var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,127}$`)
 // otherwise returns cp as it will be run: a --model it gave is written
 // again by conch, quoted, since agent_args reaches a shell.
 func (s *Server) launchAllowed(c *client, cp proto.PaneCreateParams) (proto.PaneCreateParams, *proto.Error) {
+	// A token below full was let through only for what agentLaunch takes
+	// (tokenNeeds): its --model is written again here, quoted, all the same.
+	if c != nil {
+		c.mu.Lock()
+		g := c.grant
+		c.mu.Unlock()
+		if g != nil && g.Level != proto.TokenFull {
+			if args, why := agentLaunch(cp); why == "" {
+				cp.AgentArgs = args
+			}
+		}
+	}
 	caller, ok := s.scopedCaller(c)
 	if !ok {
 		return cp, nil

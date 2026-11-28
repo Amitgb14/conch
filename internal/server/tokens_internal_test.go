@@ -343,6 +343,17 @@ func TestTokenNeedsEveryScopedMethod(t *testing.T) {
 		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull}, // a shell
 		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", Command: []string{"sh"}}, proto.TokenFull},
 		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", SSH: "p1"}, proto.TokenFull},
+		// Flags and an environment are the agent's to be told by the
+		// person: only its --model is a drive token's to choose.
+		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--model opus"}, proto.TokenDrive},
+		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--model=\"claude-opus-4-1[1m]\""}, proto.TokenDrive},
+		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--model \"$(touch x)\""}, proto.TokenFull},
+		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--dangerously-skip-permissions"}, proto.TokenFull},
+		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", AgentArgs: "--settings /tmp/hooks.json"}, proto.TokenFull},
+		{proto.MethodPaneCreate, tokenRef{}, proto.PaneCreateParams{Agent: "claude", Env: []string{"NODE_OPTIONS=--require /tmp/x.js"}}, proto.TokenFull},
+		// Adding or checking an ACP agent runs its command in the server.
+		{proto.MethodAgentACPCheck, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull},
+		{proto.MethodAgentACPAdd, tokenRef{}, proto.PaneCreateParams{}, proto.TokenFull},
 		{proto.MethodAgentBroadcast, tokenRef{scopeRef: scopeRef{Shells: true}}, proto.PaneCreateParams{}, proto.TokenFull},
 		{proto.MethodAgentBroadcast, tokenRef{}, proto.PaneCreateParams{}, proto.TokenPrompt},
 		{proto.MethodFSRead, tokenRef{}, proto.PaneCreateParams{}, proto.TokenRead},

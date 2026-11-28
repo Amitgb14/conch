@@ -446,6 +446,8 @@ func (s *Server) authenticate(c *client, p proto.AuthTokenParams) (proto.AuthTok
 // scope's targets, and the folders a method works in.
 type tokenRef struct {
 	scopeRef
+	// Run is the task graph run.* methods name: its project is the target.
+	Run  string `json:"run"`
 	Cwd  string `json:"cwd"`
 	Dir  string `json:"dir"`
 	Path string `json:"path"`
@@ -513,9 +515,18 @@ func tokenNeeds(method string, r tokenRef, create proto.PaneCreateParams) string
 		}
 		return proto.TokenPrompt
 	case tokenDrives[method]:
-		// An agent, and nothing else: a command of its own is anything.
-		if method == proto.MethodPaneCreate && (create.Agent == "" || len(create.Command) > 0 || create.SSH != "") {
-			return proto.TokenFull
+		// An agent, and nothing else: a command of its own is anything —
+		// and so are flags or an environment for the agent, which reach
+		// a shell ("--model $(…)") or tell it to ask nobody
+		// (--dangerously-skip-permissions). Below full a token starts an
+		// agent as an agent in a pane may: which one, and its --model.
+		if method == proto.MethodPaneCreate {
+			if create.Agent == "" || len(create.Command) > 0 || create.SSH != "" {
+				return proto.TokenFull
+			}
+			if _, why := agentLaunch(create); why != "" {
+				return proto.TokenFull
+			}
 		}
 		return proto.TokenDrive
 	}
@@ -571,6 +582,15 @@ func (s *Server) tokenAllows(c *client, msg proto.Message) *proto.Error {
 			return tokenRefused(g, "%s: that reaches past its projects", tokenVerb(msg.Method))
 		}
 		if perr := s.tokenTargets(g, msg.Method, r, create); perr != nil {
+			return perr
+		}
+	}
+	// Below full, files are read only inside conch's projects, every one
+	// when the token is limited to none: a read token handed to a tool
+	// for its screens and diffs is not handed ~/.ssh and the keys in
+	// config.toml, which would make it full.
+	if !limited && g.Level != proto.TokenFull && tokenFileReads[msg.Method] {
+		if perr := s.tokenInProjects(g, msg.Method, r); perr != nil {
 			return perr
 		}
 	}
@@ -643,16 +663,45 @@ func (s *Server) tokenTargets(g *tokenRec, method string, r tokenRef, create pro
 			return tokenRefused(g, "%s in project %s: it is not one of the token's projects", tokenVerb(method), r.ProjectID)
 		}
 	}
+	// A run is named by its id or name, not its project, so it is looked
+	// up: removing, starting or approving another project's run is
+	// reaching past the token's projects as surely as its panes are.
+	if r.Run != "" && s.graph != nil {
+		if run, perr := s.graph.get(r.Run); perr == nil && !inProject(run.ProjectID) {
+			return tokenRefused(g, "%s %s: it is not in the token's projects", tokenVerb(method), r.Run)
+		}
+	}
 	if method == proto.MethodPaneCreate && (create.NoProject || create.Cwd == "") {
 		return tokenRefused(g, "start a pane outside its projects: give the folder of one of them")
 	}
-	if fsMethods[method] && method != proto.MethodPaneCreate && r.Path == "" && r.Root == "" {
+	if (tokenFileReads[method] || fsMethods[method] && method != proto.MethodPaneCreate) && r.Path == "" && r.Root == "" {
 		return tokenRefused(g, "%s: a token limited to projects names a folder in one of them", tokenVerb(method))
 	}
 	for _, dir := range tokenDirs(r) {
 		p := s.projects.containing(dir)
 		if p == nil || !inProject(p.id) {
 			return tokenRefused(g, "%s %s: it is outside the token's projects", tokenVerb(method), dir)
+		}
+	}
+	return nil
+}
+
+// tokenFileReads are the methods below full that read the computer's
+// files by path.
+var tokenFileReads = map[string]bool{
+	proto.MethodFSList: true, proto.MethodFSRead: true, proto.MethodFSFind: true,
+	proto.MethodFSSearch: true, proto.MethodFSLines: true, proto.MethodFSDownload: true,
+}
+
+// tokenInProjects refuses a file call naming no folder, or one in no
+// project conch has.
+func (s *Server) tokenInProjects(g *tokenRec, method string, r tokenRef) *proto.Error {
+	if r.Path == "" && r.Root == "" {
+		return tokenRefused(g, "%s: a %s token names a folder in one of conch's projects", tokenVerb(method), g.Level)
+	}
+	for _, dir := range tokenDirs(r) {
+		if dir == "" || s.projects.containing(dir) == nil {
+			return tokenRefused(g, "%s %s: a %s token reads only inside conch's projects", tokenVerb(method), dir, g.Level)
 		}
 	}
 	return nil
