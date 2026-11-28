@@ -106,11 +106,7 @@ func dropAltScrollback(e *vt.Emulator) {
 // the emulator changes shape this says there is none, and
 // TestRawReplayCarriesScrollRegion says so.
 func scrollRegion(e *vt.Emulator) (top, bottom int, ok bool) {
-	f := reflect.ValueOf(e).Elem().FieldByName("scr")
-	if !f.IsValid() || f.Type() != reflect.TypeFor[*vt.Screen]() {
-		return 0, 0, false
-	}
-	scr := *(**vt.Screen)(unsafe.Pointer(f.UnsafeAddr()))
+	scr := currentScreen(e)
 	if scr == nil {
 		return 0, 0, false
 	}
@@ -119,6 +115,49 @@ func scrollRegion(e *vt.Emulator) (top, bottom int, ok bool) {
 		return 0, 0, false
 	}
 	return r.Min.Y + 1, r.Max.Y, true
+}
+
+// currentScreen is the emulator's screen in use, main or alternate, found
+// by reflection as scrollRegion finds it; nil if the emulator changed shape.
+func currentScreen(e *vt.Emulator) *vt.Screen {
+	f := reflect.ValueOf(e).Elem().FieldByName("scr")
+	if !f.IsValid() || f.Type() != reflect.TypeFor[*vt.Screen]() {
+		return nil
+	}
+	return *(**vt.Screen)(unsafe.Pointer(f.UnsafeAddr()))
+}
+
+// pendingWrap says whether the cursor sits past the last column waiting
+// to wrap: a line exactly as wide as the screen leaves it so, and the
+// next character goes on the next row. A replay that only places the
+// cursor puts it in the last column instead, one row short of where the
+// program thinks it is, and a program that repaints by counting rows up
+// from the cursor (Claude Code does) then writes over the wrong ones on a
+// raw client. The emulator keeps it to itself (atPhantom); false if it
+// changed shape, which TestRawClientKeepsAPendingWrap says.
+func pendingWrap(e *vt.Emulator) bool {
+	f := reflect.ValueOf(e).Elem().FieldByName("atPhantom")
+	if !f.IsValid() || f.Kind() != reflect.Bool {
+		return false
+	}
+	return *(*bool)(unsafe.Pointer(f.UnsafeAddr()))
+}
+
+// savedCursor is where the current screen's ESC 7 left the cursor, for a
+// replay to save it there again: ESC 8 after a client attaches goes back
+// to it, not to the top left. ok is false if the emulator changed shape,
+// which TestRawClientKeepsASavedCursor says.
+func savedCursor(e *vt.Emulator) (x, y int, ok bool) {
+	scr := currentScreen(e)
+	if scr == nil {
+		return 0, 0, false
+	}
+	f := reflect.ValueOf(scr).Elem().FieldByName("saved")
+	if !f.IsValid() || f.Type() != reflect.TypeFor[vt.Cursor]() {
+		return 0, 0, false
+	}
+	c := *(*vt.Cursor)(unsafe.Pointer(f.UnsafeAddr()))
+	return c.X, c.Y, true
 }
 
 // parserData is how much of one escape sequence's payload — an OSC's
