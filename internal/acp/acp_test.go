@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -512,6 +513,33 @@ func TestProbeLists(t *testing.T) {
 	init, list, err = Probe(context.Background(), Options{Argv: []string{fakeAgent}, Env: env, Dir: r.dir}, true)
 	if err != nil || init.CanList() || list != nil {
 		t.Errorf("no list capability: %v %v %v", init.CanList(), list, err)
+	}
+}
+
+// An agent that ignores SIGTERM is gone once Close returns: conch acp
+// exits right after, and nothing else reaches the agent's process group.
+func TestCloseKillsAnAgentIgnoringTerm(t *testing.T) {
+	old := closeGrace
+	closeGrace = 300 * time.Millisecond
+	t.Cleanup(func() { closeGrace = old })
+	data := t.TempDir()
+	env := append(os.Environ(), "ACPFAKE_DIR="+data, "ACPFAKE_MODE=stubborn")
+	c, err := Start(context.Background(), Options{Argv: []string{fakeAgent}, Env: env, Dir: t.TempDir(), Events: quiet{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(data, "pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	if _, err := fmt.Sscan(string(b), &pid); err != nil || pid <= 0 {
+		t.Fatalf("pid %q: %v", b, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	c.Close()
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("the agent is still running after Close (kill 0: %v)", err)
 	}
 }
 
