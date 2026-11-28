@@ -136,6 +136,35 @@ public func skillWrites(_ r: AgentSkillResult) -> [SkillChange] {
     r.changes.filter { ["create", "update", "remove"].contains($0.action) }
 }
 
+/// What an install or a removal writes, for the question asked first: a
+/// line per skills folder — how many skills, which, and for which agents —
+/// rather than a line per file. Nine skills in five folders was forty-five
+/// lines, and the question's buttons went below the bottom of the screen.
+/// home is shown as ~ (this computer's; another machine's paths stay as
+/// they are).
+public func skillWritesSummary(_ writes: [SkillChange], home: String = "") -> String {
+    var order: [String] = []
+    var skills: [String: [String]] = [:]
+    var agents: [String: [String]] = [:]
+    for w in writes {
+        // …/skills/NAME/SKILL.md: the folder is the one holding NAME.
+        let folder = ((w.path as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+        if skills[folder] == nil { order.append(folder) }
+        if !(skills[folder] ?? []).contains(w.skillName) { skills[folder, default: []].append(w.skillName) }
+        for a in w.agents where !(agents[folder] ?? []).contains(a) { agents[folder, default: []].append(a) }
+    }
+    func shown(_ f: String) -> String {
+        guard !home.isEmpty, f == home || f.hasPrefix(home + "/") else { return f }
+        return "~" + f.dropFirst(home.count)
+    }
+    return order.map { f in
+        let names = skills[f] ?? []
+        let what = names.count == 1 ? names[0] : "\(names.count) skills"
+        let who = agents[f] ?? []
+        return "\(shown(f)) — \(what)" + (who.isEmpty ? "" : " for \(who.joined(separator: ", "))")
+    }.joined(separator: "\n")
+}
+
 /// One of conch's skills across a machine's agents' folders: in how many
 /// it is, and in how many it could be (a folder holding somebody's own
 /// skill of that name is not counted either way).
@@ -174,3 +203,12 @@ public let conchSkillBlurbs: [String: String] = [
     "conch-setup": "a project ready for agents, and where they run",
     "conch-status": "what every agent is doing, then tidy up",
 ]
+
+/// items as lines for a question, at most max of them and then "…and N
+/// more": an alert grows with its text, and a long list pushed its
+/// buttons off the bottom of the screen.
+public func cappedLines(_ items: [String], max: Int = 15) -> String {
+    guard max > 0, items.count > max else { return items.joined(separator: "\n") }
+    return (items.prefix(max) + ["…and \(items.count - max) more"]).joined(separator: "\n")
+}
+

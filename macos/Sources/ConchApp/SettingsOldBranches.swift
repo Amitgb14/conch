@@ -163,7 +163,7 @@ struct OldBranchesCard: View {
         let what = OldBranches.confirm(chosen)
         let a = NSAlert()
         a.messageText = what.title
-        a.informativeText = chosen.map(\.name).joined(separator: "\n") + "\n\n" + what.detail
+        a.informativeText = cappedLines(chosen.map(\.name)) + "\n\n" + what.detail
         a.alertStyle = what.losing ? .warning : .informational
         a.addButton(withTitle: what.losing ? "Delete Anyway" : "Delete")
         a.addButton(withTitle: "Cancel")
